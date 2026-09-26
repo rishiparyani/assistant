@@ -107,6 +107,16 @@ Instead of the owner creating it by hand, the deploy workflow sets it on each Wo
 - Dates are formatted by hand (not `Intl`), because runtimes format differently ("12 Dec, 2026" vs "12 Dec 2026").
 - Added `delete_gig` / `update_*` / `delete_*` operations beyond the brief's list, for correcting mistakes; deletes are soft and flagged `confirm` for MCP.
 
+## 2026-09-26: T05 money rules
+
+- **Who can do what:** members can record client payments and expenses (they often collect cash) and correct their own entries; owners manage the roster, lineups and payouts, and can correct anything. Members see a gig's fee side (fee, received, balance, status) and only their own lineup row; expenses, other shares, unallocated and net are owner-only.
+- A musician becomes "me" for a member by linking the roster entry to their account (`user_id`, must be a workspace member).
+- Corrections are reversing entries (payments and payouts). A reversal can't itself be reversed, and each entry can be reversed once (enforced in the service and by a unique index). Expenses aren't money owed, so a mistaken one is deleted (audited).
+- Lineups are set as a whole. Anyone with payout history stays in the lineup (so the history stays visible), even if their payouts net to zero. Payouts require the musician to be in the lineup.
+- Split rounding: leftover paise go to the first person; percentages over 100% are rejected; under 100% leaves the rest unallocated.
+- Lineup order = order added (new rows get created_at + i ms), no schema change needed.
+- A plain number for an amount means rupees; `*_paise` is the exact form.
+
 ## Open
 
 None.

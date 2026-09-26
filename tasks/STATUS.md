@@ -8,6 +8,7 @@ _Updated: 2026-09-26_
 - Architecture made flexible: a small core plus feature modules, with Gigs as module one (see `docs/modules.md` and the decision in `docs/decisions.md`).
 - Decisions recorded: per-member shares and payouts in Phase 1 (T02/T05 updated); no further modules planned yet.
 - Added `docs/setup.md` (deploys via GitHub Actions, where secrets live, owner's manual steps, free-tier limits) and public-repo safety rules in `AGENTS.md` and `docs/security.md`.
+- **T05 done** (code): payments with reversals, expenses, roster, lineups with equal/percent/fixed shares, payouts with reversals, `get_gig_money` (derived balance/status/owed/unallocated/net; member visibility). Shared: `paymentStatus`, `splitEqual`, `splitPercent` (table-tested). Tests: 72 shared, 66 worker.
 - **T04 live on prod** ([rishiparyani/assistant#5](https://github.com/rishiparyani/assistant/pull/5)): operation registry (routes, validation, idempotency, audit via `ctx.commit`), T03 routes moved onto it, gigs module clients/venues/gigs with soft delete, cursor pagination, name resolution with candidates, status transitions. Shared: IST date helpers, pagination, gigs schemas. Tests: 53 shared, 54 worker (incl. isolation, idempotency, ambiguity, throwaway module).
 - **T03 live on prod** ([rishiparyani/assistant#3](https://github.com/rishiparyani/assistant/pull/3); verified: Google sign-in redirects to the prod callback, `/api/me` 401 without session, migrations 2): Google + passkey sign-in, personal workspace on sign-up, band workspaces, invite links, remove members, `requireUser`/`requireWorkspace` middleware, audit entries, Better Auth org endpoints blocked. Web: login, consent (for MCP), workspaces, workspace detail with invites, invite accept, settings with passkeys. Tests: 35 worker (isolation, roles, invite flow, module check, schema guard incl. passkey table) + a two-browser E2E run locally (owner invites, bandmate joins, owner removes).
 - **T02 live on prod** via [rishiparyani/assistant#1](https://github.com/rishiparyani/assistant/pull/1) + smoke-test fix [rishiparyani/assistant#2](https://github.com/rishiparyani/assistant/pull/2) (prod D1 `assistant` created; `/api/health` → `migrations: 1`). Verified on dev 2026-09-26 ( D1 `assistant-dev` created by the workflow, `/api/health` → `migrations: 1`): Drizzle schema for core, Better Auth and gigs tables (`0000_init.sql`), CHECK constraints, indexes, D1 in wrangler (dev + prod) and the deploy workflow, `ulid`/money helpers. Tests: 34 shared, 23 worker (schema, constraints, index usage via EXPLAIN, Better Auth schema guard).
@@ -18,7 +19,7 @@ _Updated: 2026-09-26_
 ## Next
 
 1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T05** payments, reversals, expenses, member shares.
+2. Ship T05 (dev → PR → merge → verify prod), then **T06** views: schedule, outstanding, monthly report, dashboard, payouts owed, my earnings.
 
 ## Open decisions
 
