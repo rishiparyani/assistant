@@ -1,0 +1,22 @@
+{
+  "name": "@assistant/worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "types": "wrangler types --include-runtime false --strict-vars false"
+  },
+  "dependencies": {
+    "@assistant/shared": "workspace:*",
+    "hono": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

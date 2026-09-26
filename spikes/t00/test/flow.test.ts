@@ -14,7 +14,10 @@ const BASE = "http://localhost:8787";
 const MCP = `${BASE}/mcp`;
 let auth: Auth;
 
-function req(path: string, init: { method?: string; body?: unknown; cookie?: string; form?: Record<string, string> } = {}) {
+function req(
+  path: string,
+  init: { method?: string; body?: unknown; cookie?: string; form?: Record<string, string> } = {},
+) {
   const headers = new Headers({ origin: BASE });
   if (init.cookie) headers.set("cookie", init.cookie);
   let body: BodyInit | undefined;
@@ -25,13 +28,23 @@ function req(path: string, init: { method?: string; body?: unknown; cookie?: str
     headers.set("content-type", "application/json");
     body = JSON.stringify(init.body);
   }
-  return auth.handler(new Request(BASE + path, { method: init.method ?? (body ? "POST" : "GET"), headers, body, redirect: "manual" }));
+  return auth.handler(
+    new Request(BASE + path, {
+      method: init.method ?? (body ? "POST" : "GET"),
+      headers,
+      body,
+      redirect: "manual",
+    }),
+  );
 }
 
 async function signUp(name: string, email: string) {
   const res = await req("/auth/sign-up/email", { body: { name, email, password: "test-password-123" } });
   expect(res.status).toBe(200);
-  const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
   const { user } = (await res.json()) as { user: { id: string } };
   return { cookie, id: user.id };
 }
@@ -67,16 +80,23 @@ describe("workspaces", () => {
     expect(invite.status).toBe(200);
     const { id: invitationId } = (await invite.json()) as { id: string };
 
-    const accepted = await req("/auth/organization/accept-invitation", { cookie: other.cookie, body: { invitationId } });
+    const accepted = await req("/auth/organization/accept-invitation", {
+      cookie: other.cookie,
+      body: { invitationId },
+    });
     expect(accepted.status).toBe(200);
 
-    const full = await req(`/auth/organization/get-full-organization?organizationId=${org.id}`, { cookie: owner.cookie });
+    const full = await req(`/auth/organization/get-full-organization?organizationId=${org.id}`, {
+      cookie: owner.cookie,
+    });
     const members = ((await full.json()) as { members: { role: string; userId: string }[] }).members;
     expect(members.map((m) => m.role).sort()).toEqual(["member", "owner"]);
 
     // A user outside the workspace can't read it.
     const stranger = await signUp("Test Stranger", "stranger@example.com");
-    const denied = await req(`/auth/organization/get-full-organization?organizationId=${org.id}`, { cookie: stranger.cookie });
+    const denied = await req(`/auth/organization/get-full-organization?organizationId=${org.id}`, {
+      cookie: stranger.cookie,
+    });
     expect(denied.status).toBeGreaterThanOrEqual(400);
   });
 });
@@ -163,17 +183,32 @@ describe("MCP OAuth flow", () => {
 });
 
 describe("MCP protocol", () => {
-  const user = { name: "Test Musician", email: "musician@example.com", workspaces: [{ name: "Test Band", kind: "band", role: "owner" }] };
+  const user = {
+    name: "Test Musician",
+    email: "musician@example.com",
+    workspaces: [{ name: "Test Band", kind: "band", role: "owner" }],
+  };
   const call = (body: unknown) =>
-    handleMcpPost(new Request(MCP, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), user);
+    handleMcpPost(
+      new Request(MCP, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+      user,
+    );
 
   it("initializes, lists tools and calls whoami", async () => {
-    const init = (await (await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } })).json()) as any;
+    const init = (await (
+      await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18" } })
+    ).json()) as any;
     expect(init.result.protocolVersion).toBe("2025-06-18");
     expect((await call({ jsonrpc: "2.0", method: "notifications/initialized" })).status).toBe(202);
     const list = (await (await call({ jsonrpc: "2.0", id: 2, method: "tools/list" })).json()) as any;
     expect(list.result.tools.map((t: any) => t.name)).toEqual(["whoami"]);
-    const res = (await (await call({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami", arguments: {} } })).json()) as any;
+    const res = (await (
+      await call({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "whoami", arguments: {} } })
+    ).json()) as any;
     expect(res.result.content[0].text).toContain("Signed in as Test Musician");
   });
 });

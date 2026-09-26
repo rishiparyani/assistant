@@ -1,13 +1,13 @@
 # apps/worker
 
-The single Cloudflare Worker: Hono API (`/api/*`), Better Auth (`/auth/*`), MCP server (`/mcp`), and static web app.
+The single Cloudflare Worker: Hono API (`/api/*`), Better Auth (`/auth/*`, T03), MCP server (`/mcp`, T10). The web app is served as static assets by the same Worker (built through `apps/web`).
 
 ```
-src/core/            auth, workspaces, authz middleware, operation registry, idempotency,
-                     confirm tokens, audit log, API tokens, notifications
-src/modules/index.ts the list of registered modules
-src/modules/gigs/    schema.ts, services/, operations.ts, index.ts
-migrations/          Drizzle migrations (one sequence for all modules; never edit applied ones)
+src/index.ts         entry: createApp({ modules })
+src/core/            app, module contract; later auth, authz, operation registry, idempotency, audit
+src/modules/index.ts the one list of registered modules (core never imports it)
+test/                vitest inside workerd (@cloudflare/vitest-pool-workers)
+wrangler.jsonc       top level = dev (assistant-dev), env.production = prod (assistant)
 ```
 
-Set up in T01/T02. See `docs/architecture.md` and `docs/modules.md`.
+`pnpm test`, `pnpm typecheck`, `pnpm types` (regenerate `worker-configuration.d.ts` after editing wrangler.jsonc). Run the app with `pnpm dev` from the repo root.

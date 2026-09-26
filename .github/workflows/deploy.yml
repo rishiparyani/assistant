@@ -1,0 +1,74 @@
+# Deploys the app: push to `main` → prod (`assistant`), push to any other branch → dev
+# (`assistant-dev`). Public repo rules (docs/security.md): push-only trigger,
+# minimal permissions, actions pinned to SHAs, never print secrets or data.
+name: Deploy
+
+on:
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "tasks/**"
+      - "spikes/**"
+      - "shortcuts/**"
+      - "**/*.md"
+      - ".github/workflows/spike-*.yml"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # GitHub Environments: restrict `production` to the main branch in repo settings.
+    environment: ${{ github.ref_name == 'main' && 'production' || 'dev' }}
+    concurrency:
+      group: deploy-${{ github.ref_name == 'main' && 'production' || 'dev' }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Selects the wrangler environment at build time (empty = top-level = dev).
+      CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || '' }}
+      APP_URL: ${{ github.ref_name == 'main' && 'https://assistant.rishiparyani.workers.dev' || 'https://assistant-dev.rishiparyani.workers.dev' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Check
+        run: |
+          pnpm typecheck
+          pnpm lint
+          pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # T02 adds: ensure D1 database + apply migrations. T03 adds: Worker secrets.
+
+      - name: Deploy
+        working-directory: apps/web
+        run: pnpm exec wrangler deploy
+
+      - name: Smoke test
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS "$APP_URL/api/health"; then break; fi
+            sleep 5
+          done
+          echo
+          curl -fsS "$APP_URL/api/health" | grep -q '"ok":true'
+          curl -fsS "$APP_URL/" | grep -q '<div id="app">'
+          echo "App and API are up at $APP_URL"

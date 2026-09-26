@@ -1,7 +1,10 @@
 // T00 spike Worker: Better Auth (Google) on D1 + organizations + a minimal MCP
 // endpoint protected by Better Auth's OAuth provider. Throwaway; see README.md.
 import { Hono } from "hono";
-import { oauthProviderAuthServerMetadata, oauthProviderOpenIdConfigMetadata } from "@better-auth/oauth-provider";
+import {
+  oauthProviderAuthServerMetadata,
+  oauthProviderOpenIdConfigMetadata,
+} from "@better-auth/oauth-provider";
 import { verifyJwsAccessToken } from "better-auth/oauth2";
 import { createAuth, MCP_PATH, OAUTH_SCOPES, type Auth } from "./auth.ts";
 import { handleMcpPost, type McpUser } from "./mcp.ts";
@@ -43,7 +46,10 @@ app.on(["GET", "POST"], "/auth/*", (c) => getAuth(c.env).handler(c.req.raw));
 
 // OAuth discovery. Better Auth serves these under /auth; MCP clients also look
 // at the root and at path-inserted variants (RFC 8414 / RFC 9728), so mount all.
-for (const path of ["/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/auth"]) {
+for (const path of [
+  "/.well-known/oauth-authorization-server",
+  "/.well-known/oauth-authorization-server/auth",
+]) {
   app.get(path, (c) => oauthProviderAuthServerMetadata(getAuth(c.env))(c.req.raw));
 }
 for (const path of ["/.well-known/openid-configuration", "/.well-known/openid-configuration/auth"]) {
@@ -111,7 +117,9 @@ async function verifyToken(env: Env, token: string): Promise<string | null> {
 }
 
 async function loadUser(env: Env, userId: string): Promise<McpUser | null> {
-  const user = await env.DB.prepare(`select name, email from "user" where id = ?`).bind(userId).first<{ name: string; email: string }>();
+  const user = await env.DB.prepare(`select name, email from "user" where id = ?`)
+    .bind(userId)
+    .first<{ name: string; email: string }>();
   if (!user) return null;
   const { results } = await env.DB.prepare(
     `select o.name, o.kind, m.role from member m join organization o on o.id = m.organizationId where m.userId = ? order by o.name`,
@@ -133,7 +141,11 @@ app.post(MCP_PATH, async (c) => {
 });
 
 // Stateless server: no SSE stream, no sessions to delete.
-app.on(["GET", "DELETE"], MCP_PATH, () => new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } }));
+app.on(
+  ["GET", "DELETE"],
+  MCP_PATH,
+  () => new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } }),
+);
 
 // --- Pages -----------------------------------------------------------------
 app.get("/", (c) => c.html(homePage()));

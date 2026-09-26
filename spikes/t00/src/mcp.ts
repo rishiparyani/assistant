@@ -72,7 +72,9 @@ export async function handleMcpPost(request: Request, user: McpUser): Promise<Re
   }
   const messages = Array.isArray(body) ? body : [body];
   // Notifications and responses (no id or no method) get no reply.
-  const requests = messages.filter((m) => m && typeof m.method === "string" && m.id !== undefined && m.id !== null);
+  const requests = messages.filter(
+    (m) => m && typeof m.method === "string" && m.id !== undefined && m.id !== null,
+  );
   if (requests.length === 0) return new Response(null, { status: 202 });
   const replies = requests.map((m) => handle(m, user));
   return Response.json(Array.isArray(body) ? replies : replies[0]);

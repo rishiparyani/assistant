@@ -1,0 +1,30 @@
+// Worker config. Top level = dev environment; `env.production` = prod.
+// Deployed only by GitHub Actions (docs/setup.md). Built through apps/web's Vite
+// config, which bundles the web app as static assets.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "assistant-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "assets": {
+    "not_found_handling": "single-page-application",
+    // These paths always reach the Worker, never the static files.
+    "run_worker_first": ["/api/*", "/auth/*", "/mcp", "/.well-known/*"],
+  },
+  "vars": {
+    "ENVIRONMENT": "dev",
+    "BASE_URL": "https://assistant-dev.rishiparyani.workers.dev",
+  },
+  "env": {
+    "production": {
+      "name": "assistant",
+      "vars": {
+        "ENVIRONMENT": "production",
+        "BASE_URL": "https://assistant.rishiparyani.workers.dev",
+      },
+    },
+  },
+}

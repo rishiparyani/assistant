@@ -1,10 +1,8 @@
 # packages/shared
 
-Zod schemas and types shared by the Worker and web app, plus helpers.
+Types, schemas and helpers shared by the Worker and the web app. Imported as `@assistant/shared` (TypeScript source, no build step).
 
 ```
-src/core/            ids (ULID), money (paise, formatINR), dates (UTC <-> Asia/Kolkata), errors, pagination
-src/modules/gigs/    input/output schemas for gigs operations
+src/core/            health type now; ids (ULID), money (paise), dates, errors, pagination in T02+
+src/modules/<name>/  per-module input/output schemas (T04+)
 ```
-
-Set up in T01/T02.

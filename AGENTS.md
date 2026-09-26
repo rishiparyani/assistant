@@ -69,17 +69,18 @@ scripts/         backup, seed
 
 ## Commands
 
-Set up in T01; until then these are placeholders.
+Run from the repo root. Node 22 (`.nvmrc`), pnpm via corepack (`corepack enable`).
 
 ```
 pnpm install
-pnpm dev          # worker + web locally (wrangler dev)
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm db:generate  # drizzle migration from schema changes
-pnpm db:migrate   # apply migrations (local by default)
+pnpm dev          # http://localhost:8787: Svelte app (hot reload) + Worker in workerd, one port
+pnpm typecheck    # tsc per package, svelte-check for the web app
+pnpm lint         # eslint + prettier --check (pnpm format to fix)
+pnpm test         # vitest; worker tests run inside workerd
+pnpm build        # builds web + worker (CLOUDFLARE_ENV=production for prod)
 ```
+
+Local settings: copy `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars`. After changing `apps/worker/wrangler.jsonc`, run `pnpm --filter @assistant/worker types`. Database commands (`db:generate`, `db:migrate`) arrive in T02.
 
 ## Don't
 

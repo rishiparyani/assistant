@@ -25,15 +25,15 @@ Every action is one **operation**. The core turns each into a REST route and an 
 ```ts
 // shape only, finalised in T04/T10
 defineOperation({
-  id: "gigs.record_payment",      // <module>.<action>, unique
-  tool: "record_payment",          // MCP tool name, unique across modules
+  id: "gigs.record_payment", // <module>.<action>, unique
+  tool: "record_payment", // MCP tool name, unique across modules
   http: { method: "POST", path: "/gigs/:gigId/payments" },
-  kind: "write",                   // read | write
-  confirm: true,                   // two-step from MCP (money, cancel, delete)
-  scopes: ["gigs:write"],          // API token scopes required
+  kind: "write", // read | write
+  confirm: true, // two-step from MCP (money, cancel, delete)
+  scopes: ["gigs:write"], // API token scopes required
   roles: ["owner", "member"],
-  input: RecordPaymentInput,       // Zod, from packages/shared
-  output: PaymentView,             // Zod, includes display strings
+  input: RecordPaymentInput, // Zod, from packages/shared
+  output: PaymentView, // Zod, includes display strings
   description: "Record a payment received for a gig.", // shown to AI assistants
   handler: (ctx, input) => payments.record(ctx, input),
 });
@@ -60,8 +60,8 @@ The core wraps every operation with: auth → membership/role → module enabled
 
 ## Current modules
 
-| Module | Status | Holds |
-| --- | --- | --- |
-| `gigs` | Phase 1 | clients, venues, gigs, payments, expenses |
-| `music` | Phase 2 (planned) | songs, chart revisions, arrangements, setlists |
-| others | ideas, see [roadmap.md](roadmap.md) | |
+| Module  | Status                              | Holds                                          |
+| ------- | ----------------------------------- | ---------------------------------------------- |
+| `gigs`  | Phase 1                             | clients, venues, gigs, payments, expenses      |
+| `music` | Phase 2 (planned)                   | songs, chart revisions, arrangements, setlists |
+| others  | ideas, see [roadmap.md](roadmap.md) |                                                |
