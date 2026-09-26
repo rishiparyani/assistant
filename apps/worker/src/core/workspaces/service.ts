@@ -2,8 +2,8 @@
 // own /auth/organization endpoints are blocked), in one D1 batch with their audit entry.
 import { and, asc, eq, gt } from "drizzle-orm";
 import {
-  CreateWorkspaceInput,
-  InviteMemberInput,
+  type CreateWorkspaceInput,
+  type InviteMemberInput,
   ulid,
   type InvitationView,
   type MemberView,
@@ -15,8 +15,8 @@ import {
 import { invitation, member, organization, user, workspaceModules } from "../db/schema.ts";
 import { auditStatement } from "../audit.ts";
 import { AppError } from "../errors.ts";
-import { parse } from "../validation.ts";
-import type { Ctx, UserCtx } from "../context.ts";
+import type { UserCtx } from "../context.ts";
+import type { OpCtx, OpUserCtx } from "../operations.ts";
 
 const INVITATION_DAYS = 7;
 const nowIso = () => new Date().toISOString();
@@ -95,25 +95,17 @@ export async function listWorkspaces(ctx: UserCtx): Promise<WorkspaceSummary[]> 
 }
 
 export async function createBandWorkspace(
-  ctx: UserCtx,
-  raw: unknown,
+  ctx: OpUserCtx,
+  input: CreateWorkspaceInput,
   moduleIds: readonly string[],
 ): Promise<WorkspaceSummary> {
-  const input = parse(CreateWorkspaceInput, raw);
   const ws = { id: ulid(), name: input.name, kind: "band" as const };
-  await ctx.d1.batch([
-    ...createWorkspaceStatements(ctx.d1, ws, ctx.user.id, moduleIds),
-    auditStatement(ctx.d1, {
-      workspaceId: ws.id,
-      actorUserId: ctx.user.id,
-      source: ctx.source,
-      module: "core",
-      action: "create_workspace",
-      entityType: "workspace",
-      entityId: ws.id,
-      after: ws,
-    }),
-  ]);
+  await ctx.commit(createWorkspaceStatements(ctx.d1, ws, ctx.user.id, moduleIds), {
+    entityType: "workspace",
+    entityId: ws.id,
+    workspaceId: ws.id,
+    after: ws,
+  });
   return { ...ws, role: "owner" };
 }
 
@@ -142,7 +134,7 @@ function invitationView(
   };
 }
 
-export async function getWorkspaceDetail(ctx: Ctx): Promise<WorkspaceDetail> {
+export async function getWorkspaceDetail(ctx: OpCtx): Promise<WorkspaceDetail> {
   const ws = ctx.workspace;
   const members: MemberView[] = (
     await ctx.db
@@ -190,8 +182,7 @@ export async function getWorkspaceDetail(ctx: Ctx): Promise<WorkspaceDetail> {
   return { id: ws.id, name: ws.name, kind: ws.kind, role: ws.role, members, invitations, modules };
 }
 
-export async function inviteMember(ctx: Ctx, raw: unknown): Promise<InvitationView> {
-  const input = parse(InviteMemberInput, raw);
+export async function inviteMember(ctx: OpCtx, input: InviteMemberInput): Promise<InvitationView> {
   const ws = ctx.workspace;
   if (ws.kind === "personal")
     throw new AppError("validation_failed", "Personal workspaces can't have other members");
@@ -214,29 +205,22 @@ export async function inviteMember(ctx: Ctx, raw: unknown): Promise<InvitationVi
     status: "pending",
     expiresAt,
   };
-  await ctx.d1.batch([
-    // Re-inviting replaces any earlier pending invitation for the same email.
-    ctx.d1
-      .prepare(
-        `update invitation set status = 'canceled' where organizationId = ? and lower(email) = ? and status = 'pending'`,
-      )
-      .bind(ws.id, input.email),
-    ctx.d1
-      .prepare(
-        `insert into invitation (id, organizationId, email, role, status, expiresAt, createdAt, inviterId) values (?, ?, ?, ?, 'pending', ?, ?, ?)`,
-      )
-      .bind(id, ws.id, input.email, input.role, expiresAt, ts, ctx.user.id),
-    auditStatement(ctx.d1, {
-      workspaceId: ws.id,
-      actorUserId: ctx.user.id,
-      source: ctx.source,
-      module: "core",
-      action: "invite_member",
-      entityType: "invitation",
-      entityId: id,
-      after: { email: input.email, role: input.role, expiresAt },
-    }),
-  ]);
+  await ctx.commit(
+    [
+      // Re-inviting replaces any earlier pending invitation for the same email.
+      ctx.d1
+        .prepare(
+          `update invitation set status = 'canceled' where organizationId = ? and lower(email) = ? and status = 'pending'`,
+        )
+        .bind(ws.id, input.email),
+      ctx.d1
+        .prepare(
+          `insert into invitation (id, organizationId, email, role, status, expiresAt, createdAt, inviterId) values (?, ?, ?, ?, 'pending', ?, ?, ?)`,
+        )
+        .bind(id, ws.id, input.email, input.role, expiresAt, ts, ctx.user.id),
+    ],
+    { entityType: "invitation", entityId: id, after: { email: input.email, role: input.role, expiresAt } },
+  );
   return invitationView(ctx, row, ws.name);
 }
 
@@ -270,7 +254,7 @@ export async function getInvitation(ctx: UserCtx, invitationId: string): Promise
   return invitationView(ctx, row, row.workspaceName);
 }
 
-export async function acceptInvitation(ctx: UserCtx, invitationId: string): Promise<WorkspaceSummary> {
+export async function acceptInvitation(ctx: OpUserCtx, invitationId: string): Promise<WorkspaceSummary> {
   const row = await loadInvitationForUser(ctx, invitationId);
   const view = invitationView(ctx, row, row.workspaceName);
   if (view.status !== "pending") throw new AppError("conflict", `This invitation is ${view.status}`);
@@ -281,32 +265,30 @@ export async function acceptInvitation(ctx: UserCtx, invitationId: string): Prom
     .where(and(eq(member.organizationId, row.organizationId), eq(member.userId, ctx.user.id)))
     .limit(1);
   const memberId = ulid();
-  await ctx.d1.batch([
-    ...(already
-      ? []
-      : [
-          ctx.d1
-            .prepare(
-              `insert into member (id, organizationId, userId, role, createdAt) values (?, ?, ?, ?, ?)`,
-            )
-            .bind(memberId, row.organizationId, ctx.user.id, view.role, nowIso()),
-        ]),
-    ctx.d1.prepare(`update invitation set status = 'accepted' where id = ?`).bind(row.id),
-    auditStatement(ctx.d1, {
-      workspaceId: row.organizationId,
-      actorUserId: ctx.user.id,
-      source: ctx.source,
-      module: "core",
-      action: "accept_invitation",
+  await ctx.commit(
+    [
+      ...(already
+        ? []
+        : [
+            ctx.d1
+              .prepare(
+                `insert into member (id, organizationId, userId, role, createdAt) values (?, ?, ?, ?, ?)`,
+              )
+              .bind(memberId, row.organizationId, ctx.user.id, view.role, nowIso()),
+          ]),
+      ctx.d1.prepare(`update invitation set status = 'accepted' where id = ?`).bind(row.id),
+    ],
+    {
       entityType: "member",
       entityId: already?.id ?? memberId,
+      workspaceId: row.organizationId,
       after: { userId: ctx.user.id, role: view.role, invitationId: row.id },
-    }),
-  ]);
+    },
+  );
   return summary;
 }
 
-export async function cancelInvitation(ctx: Ctx, invitationId: string) {
+export async function cancelInvitation(ctx: OpCtx, invitationId: string) {
   const [row] = await ctx.db
     .select()
     .from(invitation)
@@ -314,22 +296,14 @@ export async function cancelInvitation(ctx: Ctx, invitationId: string) {
     .limit(1);
   if (!row) throw new AppError("not_found", "Invitation not found");
   if (row.status !== "pending") return;
-  await ctx.d1.batch([
-    ctx.d1.prepare(`update invitation set status = 'canceled' where id = ?`).bind(row.id),
-    auditStatement(ctx.d1, {
-      workspaceId: ctx.workspace.id,
-      actorUserId: ctx.user.id,
-      source: ctx.source,
-      module: "core",
-      action: "cancel_invitation",
-      entityType: "invitation",
-      entityId: row.id,
-      before: { email: row.email, status: row.status },
-    }),
-  ]);
+  await ctx.commit([ctx.d1.prepare(`update invitation set status = 'canceled' where id = ?`).bind(row.id)], {
+    entityType: "invitation",
+    entityId: row.id,
+    before: { email: row.email, status: row.status },
+  });
 }
 
-export async function removeMember(ctx: Ctx, memberId: string) {
+export async function removeMember(ctx: OpCtx, memberId: string) {
   const ws = ctx.workspace;
   const members = await ctx.db
     .select({ id: member.id, userId: member.userId, role: member.role })
@@ -340,17 +314,8 @@ export async function removeMember(ctx: Ctx, memberId: string) {
   if (target.role === "owner" && members.filter((m) => m.role === "owner").length === 1) {
     throw new AppError("conflict", "A workspace needs at least one owner");
   }
-  await ctx.d1.batch([
-    ctx.d1.prepare(`delete from member where id = ? and organizationId = ?`).bind(target.id, ws.id),
-    auditStatement(ctx.d1, {
-      workspaceId: ws.id,
-      actorUserId: ctx.user.id,
-      source: ctx.source,
-      module: "core",
-      action: "remove_member",
-      entityType: "member",
-      entityId: target.id,
-      before: target,
-    }),
-  ]);
+  await ctx.commit(
+    [ctx.d1.prepare(`delete from member where id = ? and organizationId = ?`).bind(target.id, ws.id)],
+    { entityType: "member", entityId: target.id, before: target },
+  );
 }

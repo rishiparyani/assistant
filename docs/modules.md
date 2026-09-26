@@ -23,23 +23,26 @@ Migrations stay in one sequence for the whole database (`apps/worker/migrations/
 Every action is one **operation**. The core turns each into a REST route and an MCP tool, and the web app and Siri call the REST route.
 
 ```ts
-// shape only, finalised in T04/T10
+// apps/worker/src/modules/<name>/operations.ts (real example: modules/gigs/operations.ts)
 defineOperation({
-  id: "gigs.record_payment", // <module>.<action>, unique
-  tool: "record_payment", // MCP tool name, unique across modules
-  http: { method: "POST", path: "/gigs/:gigId/payments" },
+  id: "gigs.create_client", // <module>.<action>; module "core" for core operations
+  tool: "create_client", // MCP tool name (T10), unique across modules
+  description: "Add a client (the person or company booking gigs).", // shown to AI assistants
+  scope: "workspace", // module operations are always workspace-scoped
   kind: "write", // read | write
-  confirm: true, // two-step from MCP (money, cancel, delete)
-  scopes: ["gigs:write"], // API token scopes required
-  roles: ["owner", "member"],
-  input: RecordPaymentInput, // Zod, from packages/shared
-  output: PaymentView, // Zod, includes display strings
-  description: "Record a payment received for a gig.", // shown to AI assistants
-  handler: (ctx, input) => payments.record(ctx, input),
+  role: "owner", // optional minimum role (default member)
+  confirm: true, // optional: two-step from MCP (money, cancel, delete), T10
+  http: { method: "POST", path: "/clients", status: 201 }, // → POST /api/w/:workspaceId/clients
+  input: CreateClientInput, // Zod schema from packages/shared; path params/query/body are merged in
+  handler: (ctx, input) => clients.createClient(ctx, input),
 });
 ```
 
-The core wraps every operation with: auth → membership/role → module enabled → token scope → Zod validation → idempotency (writes) → confirm token (if `confirm` and source is MCP) → handler → audit log.
+The registry (`apps/worker/src/core/operations.ts`) wraps every operation with: session → membership/role → module enabled → Zod validation → idempotency (writes need an `Idempotency-Key` header; repeats replay the stored response) → handler → audit log. Token scopes (T09) and confirm tokens (T10) plug into the same wrapper.
+
+**Writing:** handlers never call `d1.batch` or write audit rows themselves. They build prepared statements and call `ctx.commit(statements, change)`; the wrapper adds the audit entry (module, action, actor, source, before/after) and runs everything in one D1 batch. Read operations can't commit.
+
+**Registering:** export the operations from the module and pass them to `defineModule({ ..., operations })`. `test/gigs.test.ts` ("serves a new module's operation with no core changes") shows a module added without touching core.
 
 ## Rules
 

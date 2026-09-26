@@ -20,9 +20,12 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = body === undefined ? {} : { "content-type": "application/json" };
+  // Every write carries a fresh key so a retried request can't happen twice.
+  if (method !== "GET") headers["idempotency-key"] = crypto.randomUUID();
   const res = await fetch(path, {
     method,
-    headers: body === undefined ? {} : { "content-type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 204) return undefined as T;
@@ -46,9 +49,9 @@ export const api = {
   invite: (workspaceId: string, email: string) =>
     request<InvitationView>("POST", `/api/w/${workspaceId}/invitations`, { email }),
   cancelInvitation: (workspaceId: string, invitationId: string) =>
-    request<void>("DELETE", `/api/w/${workspaceId}/invitations/${invitationId}`),
+    request<{ canceled: boolean }>("DELETE", `/api/w/${workspaceId}/invitations/${invitationId}`),
   removeMember: (workspaceId: string, memberId: string) =>
-    request<void>("DELETE", `/api/w/${workspaceId}/members/${memberId}`),
+    request<{ removed: boolean }>("DELETE", `/api/w/${workspaceId}/members/${memberId}`),
   invitation: (id: string) => request<InvitationView>("GET", `/api/invitations/${id}`),
   acceptInvitation: (id: string) => request<WorkspaceSummary>("POST", `/api/invitations/${id}/accept`, {}),
 };

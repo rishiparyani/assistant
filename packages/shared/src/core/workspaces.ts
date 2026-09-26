@@ -15,7 +15,7 @@ export const InviteMemberInput = z.object({
   email: z.email().trim().toLowerCase(),
   role: z.enum(ROLES).default("member"),
 });
-export type InviteMemberInput = z.input<typeof InviteMemberInput>;
+export type InviteMemberInput = z.infer<typeof InviteMemberInput>;
 
 export interface WorkspaceSummary {
   id: string;
