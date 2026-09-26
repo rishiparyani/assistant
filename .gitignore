@@ -13,3 +13,11 @@ coverage/
 .DS_Store
 *.sqlite
 *.sqlite3
+
+# Data exports and backups: never commit (public repo)
+backups/
+*.sql.gz
+*.db
+/*.sql
+dump*.sql
+export*.sql

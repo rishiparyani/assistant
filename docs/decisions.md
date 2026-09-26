@@ -33,6 +33,13 @@ Reason: the point of the app is knowing who owes whom; in a band that includes w
 ## 2026-09-26: No further modules planned yet
 The user will decide what else the assistant helps with as needs come up. The core + modules structure stays so that's cheap; nothing is built speculatively for unknown modules. Ideas stay in [roadmap.md](roadmap.md).
 
+## 2026-09-26: Deploy only through GitHub Actions
+Push to `main` deploys prod; push to other branches deploys dev. Agent sessions never deploy and never hold the Cloudflare token; it lives only in GitHub Actions secrets.
+Reason: the agent environment can't reach the Cloudflare API anyway; keeping the token out of agent sessions is safer; every deploy is logged and can be rolled back; deploys keep working without an agent. See [setup.md](setup.md).
+
+## 2026-09-26: Public repository
+The repo is public (unlimited free Actions minutes). Consequences: no secrets or real personal data in the repo, issues, PRs or Actions logs/artifacts; hardened workflows; secret scanning and push protection enabled. Rules in [security.md](security.md#public-repository). Can be made private later; the free Actions allowance (2,000 min/month) still fits.
+
 ## Open
 
-None.
+- **Google sign-in (proposed: drop for now).** Proposal to the owner: passkeys for login (no third-party setup) plus email magic links in T03 as backup, Google added later only if band members want it. The owner is setting up without a Google OAuth client, but hasn't explicitly confirmed. Confirm before building login in T00.

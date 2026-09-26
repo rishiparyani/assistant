@@ -3,8 +3,9 @@
 Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists acceptance criteria (AC).
 
 ## T00 Spike (throwaway): auth + MCP on Workers
-Better Auth on Workers + D1 (Google sign-in, organization plugin as workspaces) and a minimal MCP endpoint connected to Claude via OAuth. This is the main technical risk. Code lives on a spike branch or `spikes/`, not in `apps/`.
-- AC: Google sign-in works on a deployed Worker with sessions in D1.
+Better Auth on Workers + D1 (login method per the open decision: passkeys proposed instead of Google; organization plugin as workspaces) and a minimal MCP endpoint connected to Claude via OAuth. This is the main technical risk. Code lives on a spike branch or `spikes/`, not in `apps/`.
+- AC: login (passkey, or Google if chosen) works on a deployed Worker with sessions in D1.
+- AC: deployed through a GitHub Actions workflow following the public-repo rules in `docs/security.md`; no secrets in the repo or logs.
 - AC: an organization can be created and a second user added as member; `kind` can be stored on it (or a clear alternative is chosen).
 - AC: Claude custom connector completes OAuth against Better Auth and calls one MCP tool that returns the signed-in user's name.
 - AC: CPU time per request measured and within the free plan.
@@ -16,7 +17,10 @@ pnpm workspaces, TypeScript, lint/format, Worker hello world serving the Vite ap
 - AC: one Worker serves the Svelte app at `/` and `GET /api/health` returns JSON.
 - AC: `apps/worker/src/core/` and `apps/worker/src/modules/` exist with an empty module registry.
 - AC: dev and prod wrangler environments configured; secrets documented (not committed).
-- AC: GitHub Actions runs typecheck, lint, test on PRs; deploys on merge to `main`.
+- AC: GitHub Actions runs typecheck, lint, test on PRs (no secrets); deploys dev on push to non-`main` branches and prod on push to `main` (GitHub Environment `production`), per `docs/setup.md`.
+- AC: workflows follow the public-repo rules: minimal `permissions:`, SHA-pinned actions, no `pull_request_target`, no secrets or data printed.
+- AC: `apps/worker/.dev.vars.example` with placeholder values only.
+- AC: `main` branch created; owner walked through making it the default and adding branch protection.
 
 ## T02 D1 + Drizzle + base schema
 Includes per-member shares and payouts (decided 2026-09-26).
@@ -25,7 +29,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: ULID and money helpers in `packages/shared` with tests.
 
 ## T03 Auth + workspaces + authorization middleware
-- AC: sign-in (Google, magic link; passkeys if cheap), personal workspace auto-created on first sign-in.
+- AC: sign-in (passkeys + magic link; Google only if decided), personal workspace auto-created on first sign-in.
 - AC: create band workspace, invite/remove members, roles enforced.
 - AC: single middleware builds ctx `{db, user, workspace, source}` and checks membership, role and module enabled.
 - AC: tests prove a user can't read or write another workspace's data.
@@ -72,5 +76,5 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: web push (with home-screen install notes for iPhone) and email; core API modules can call to notify.
 
 ## T12 Backups + restore test
-- AC: nightly D1 export to R2 via GitHub Actions; retention policy set.
+- AC: nightly D1 export to a private R2 bucket via GitHub Actions; retention policy set; the export never touches Actions artifacts or logs (public repo).
 - AC: restore tested into a fresh dev database and documented in `scripts/`.
