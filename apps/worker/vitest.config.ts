@@ -9,7 +9,16 @@ export default defineConfig({
     cloudflareTest(async () => ({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
-        bindings: { TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, "migrations")) },
+        // Fixed test settings, independent of any local .dev.vars. Localhost enables
+        // email/password sign-up so tests don't need Google.
+        bindings: {
+          TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, "migrations")),
+          ENVIRONMENT: "development",
+          BASE_URL: "http://localhost:8787",
+          BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-00",
+          GOOGLE_CLIENT_ID: "test.apps.googleusercontent.com",
+          GOOGLE_CLIENT_SECRET: "test",
+        },
       },
     })),
   ],

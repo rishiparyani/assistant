@@ -33,6 +33,7 @@ jobs:
       # Selects the wrangler environment at build time (empty = top-level = dev).
       CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || '' }}
       DB_NAME: ${{ github.ref_name == 'main' && 'assistant' || 'assistant-dev' }}
+      WORKER_NAME: ${{ github.ref_name == 'main' && 'assistant' || 'assistant-dev' }}
       # Placeholder database_id in apps/worker/wrangler.jsonc for this environment.
       DB_PLACEHOLDER: ${{ github.ref_name == 'main' && '00000000-0000-0000-0000-000000000001' || '00000000-0000-0000-0000-000000000000' }}
       APP_URL: ${{ github.ref_name == 'main' && 'https://assistant.rishiparyani.workers.dev' || 'https://assistant-dev.rishiparyani.workers.dev' }}
@@ -77,11 +78,27 @@ jobs:
         working-directory: apps/worker
         run: pnpm exec wrangler d1 migrations apply "$DB_NAME" --remote ${CLOUDFLARE_ENV:+--env "$CLOUDFLARE_ENV"}
 
-      # T03 adds: Worker secrets.
-
       - name: Deploy
         working-directory: apps/web
         run: pnpm exec wrangler deploy
+
+      # `wrangler secret` doesn't follow the Vite build's config, so name the Worker.
+      - name: Set Worker secrets
+        working-directory: apps/worker
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
+          existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
+          printf '%s' "$GOOGLE_CLIENT_ID" | pnpm exec wrangler secret put GOOGLE_CLIENT_ID --name "$WORKER_NAME" > /dev/null
+          printf '%s' "$GOOGLE_CLIENT_SECRET" | pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --name "$WORKER_NAME" > /dev/null
+          # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
+          if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then
+            openssl rand -base64 32 | tr -d '\n' | pnpm exec wrangler secret put BETTER_AUTH_SECRET --name "$WORKER_NAME" > /dev/null
+            echo "Generated BETTER_AUTH_SECRET."
+          fi
+          echo "Secrets set."
 
       - name: Smoke test
         run: |
@@ -89,7 +106,7 @@ jobs:
           # health check passes (up to ~90 s), then check the web app is served.
           for i in $(seq 1 18); do
             body="$(curl -fsS "$APP_URL/api/health" || true)"
-            if printf '%s' "$body" | jq -e '.ok == true and .migrations >= 1 and (.modules | length) >= 1' > /dev/null 2>&1; then
+            if printf '%s' "$body" | jq -e --argjson m "$(ls apps/worker/migrations/*.sql | wc -l)" '.ok == true and .migrations == $m and (.modules | length) >= 1' > /dev/null 2>&1; then
               echo "$body"
               break
             fi
@@ -97,4 +114,8 @@ jobs:
             sleep 5
           done
           curl -fsS "$APP_URL/" | grep -q '<div id="app">'
+          # Auth is configured: session endpoint answers, OAuth discovery is served.
+          curl -fsS "$APP_URL/auth/get-session" > /dev/null
+          curl -fsS "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401"
           echo "App and API are up at $APP_URL"

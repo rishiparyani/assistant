@@ -13,9 +13,11 @@
   "dependencies": {
     "@assistant/shared": "workspace:*",
     "@better-auth/oauth-provider": "catalog:",
+    "@better-auth/passkey": "catalog:",
     "better-auth": "catalog:",
     "drizzle-orm": "catalog:",
-    "hono": "catalog:"
+    "hono": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:",

@@ -1,10 +1,11 @@
-// Drizzle over the D1 binding. Services get this through their context (T03), never
+// Drizzle over the D1 binding. Services get this through their context, never
 // straight from env, so every query stays workspace-scoped.
-import { drizzle } from "drizzle-orm/d1";
+import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as coreSchema from "./schema.ts";
 
-export function createDb<S extends Record<string, unknown>>(d1: D1Database, moduleSchemas: S = {} as S) {
-  return drizzle(d1, { schema: { ...coreSchema, ...moduleSchemas } });
-}
+export type Db = DrizzleD1Database<typeof coreSchema>;
 
-export type Db = ReturnType<typeof createDb>;
+/** Module tables are registered too (for relational queries); typed as core here. */
+export function createDb(d1: D1Database, moduleSchemas: Record<string, unknown> = {}): Db {
+  return drizzle(d1, { schema: { ...coreSchema, ...moduleSchemas } }) as unknown as Db;
+}

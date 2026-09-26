@@ -32,7 +32,7 @@ pnpm workspaces, TypeScript, lint/format, Worker hello world serving the Vite ap
 
 Includes per-member shares and payouts (decided 2026-09-26).
 
-- Status: **done 2026-09-26**, verified on the dev deploy. Not yet on `main`/prod.
+- Status: **done 2026-09-26**, live on prod.
 
 - AC: Drizzle configured for D1; `pnpm db:generate` / `pnpm db:migrate` work locally and against dev.
 - AC: core tables (workspaces extension, memberships if not Better Auth's, workspace_modules, api_tokens, idempotency_keys, confirm_tokens, audit_log) and gigs tables per `docs/data-model.md`, with indexes.
@@ -40,7 +40,8 @@ Includes per-member shares and payouts (decided 2026-09-26).
 
 ## T03 Auth + workspaces + authorization middleware
 
-- AC: sign-in with Google (from T00) plus passkeys and email magic links, personal workspace auto-created on first sign-in.
+- AC: sign-in with Google (from T00) plus passkeys, personal workspace auto-created on first sign-in. (Magic links moved to T11, decision 2026-09-26.)
+- Status: code done 2026-09-26; deploy pending.
 - AC: create band workspace, invite/remove members, roles enforced.
 - AC: single middleware builds ctx `{db, user, workspace, source}` and checks membership, role and module enabled.
 - AC: tests prove a user can't read or write another workspace's data.
@@ -93,6 +94,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 ## T11 Notifications
 
 - AC: web push (with home-screen install notes for iPhone) and email; core API modules can call to notify.
+- AC: email magic-link sign-in (moved from T03) once the email service exists.
 
 ## T12 Backups + restore test
 

@@ -1,23 +1,46 @@
 <script lang="ts">
-  import { getHealth } from "./api.ts";
+  import { router } from "./router.svelte.ts";
+  import { refreshSession, session } from "./session.svelte.ts";
+  import Home from "./pages/Home.svelte";
+  import Login from "./pages/Login.svelte";
+  import Consent from "./pages/Consent.svelte";
+  import Workspace from "./pages/Workspace.svelte";
+  import Invite from "./pages/Invite.svelte";
+  import Settings from "./pages/Settings.svelte";
+  import NotFound from "./pages/NotFound.svelte";
 
-  const health = getHealth();
+  const loading = refreshSession();
+  const route = $derived(router.route);
 </script>
 
-<main>
-  <h1>Assistant</h1>
-  <p class="muted">Gig management, coming soon.</p>
+<header class="bar">
+  <a class="brand" href="/">Assistant</a>
+  {#if session.me}
+    <a href="/settings" aria-label="Settings">{session.me.user.name}</a>
+  {/if}
+</header>
 
-  {#await health}
-    <p>Checking the server…</p>
-  {:then h}
-    <p>
-      Server OK · <strong>{h.environment}</strong> · modules:
-      {h.modules.length ? h.modules.join(", ") : "none yet"} · database: {h.migrations} migration{h.migrations ===
-      1
-        ? ""
-        : "s"}
-    </p>
+<main>
+  {#await loading}
+    <p class="muted">Loading…</p>
+  {:then}
+    {#if route.name === "home"}
+      <Home />
+    {:else if route.name === "login"}
+      <Login query={route.query} />
+    {:else if route.name === "consent"}
+      <Consent query={route.query} />
+    {:else if route.name === "workspace"}
+      {#key route.params.workspaceId}
+        <Workspace workspaceId={route.params.workspaceId!} />
+      {/key}
+    {:else if route.name === "invite"}
+      <Invite invitationId={route.params.invitationId!} />
+    {:else if route.name === "settings"}
+      <Settings />
+    {:else}
+      <NotFound />
+    {/if}
   {:catch err}
     <p class="error">Can't reach the server: {err.message}</p>
   {/await}

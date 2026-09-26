@@ -35,6 +35,7 @@ describe("migrations", () => {
         "oauthConsent",
         "oauthRefreshToken",
         "oauthResource",
+        "passkey",
         "organization",
         "payments",
         "payouts",

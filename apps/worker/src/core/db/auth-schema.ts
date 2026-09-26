@@ -298,3 +298,23 @@ export const oauthClientAssertion = sqliteTable("oauthClientAssertion", {
   id: text("id").primaryKey(),
   expiresAt: date("expiresAt").notNull(),
 });
+
+export const passkey = sqliteTable(
+  "passkey",
+  {
+    id: text("id").primaryKey(),
+    name: text("name"),
+    publicKey: text("publicKey").notNull(),
+    userId: text("userId")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    credentialID: text("credentialID").notNull(),
+    counter: integer("counter").notNull(),
+    deviceType: text("deviceType").notNull(),
+    backedUp: bool("backedUp").notNull(),
+    transports: text("transports"),
+    createdAt: date("createdAt"),
+    aaguid: text("aaguid"),
+  },
+  (t) => [index("passkey_userId_idx").on(t.userId), index("passkey_credentialID_idx").on(t.credentialID)],
+);
