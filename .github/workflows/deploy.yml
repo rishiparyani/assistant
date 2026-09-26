@@ -85,11 +85,16 @@ jobs:
 
       - name: Smoke test
         run: |
-          for i in $(seq 1 12); do
-            if curl -fsS "$APP_URL/api/health"; then break; fi
+          # The new version can take a few seconds to reach every edge: retry until the
+          # health check passes (up to ~90 s), then check the web app is served.
+          for i in $(seq 1 18); do
+            body="$(curl -fsS "$APP_URL/api/health" || true)"
+            if printf '%s' "$body" | jq -e '.ok == true and .migrations >= 1 and (.modules | length) >= 1' > /dev/null 2>&1; then
+              echo "$body"
+              break
+            fi
+            if [ "$i" = 18 ]; then echo "Health check never passed. Last response: $body"; exit 1; fi
             sleep 5
           done
-          echo
-          curl -fsS "$APP_URL/api/health" | jq -e '.ok == true and .migrations >= 1' > /dev/null
           curl -fsS "$APP_URL/" | grep -q '<div id="app">'
           echo "App and API are up at $APP_URL"
