@@ -64,7 +64,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: balance and payment status derived; table-driven tests cover unpaid/partial/paid/overpaid and reversals.
 - AC: expenses with optional gig link.
 - AC: every write idempotent and audited.
-- Status: code done 2026-09-26; deploy pending.
+- Status: **done 2026-09-26**, live on prod.
 
 ## T06 Gigs views
 
