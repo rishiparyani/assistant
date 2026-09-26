@@ -38,7 +38,7 @@ Not secret, fine to commit: D1 database names and IDs, Worker names, the public 
 
 Done by the repo owner in the browser; agents should give step-by-step instructions when these are needed.
 
-1. **Cloudflare account** (free) at dash.cloudflare.com. Account ID: Workers & Pages page, right sidebar.
+1. **Cloudflare account** (free) at dash.cloudflare.com. Account ID: left menu **Build → Compute → Workers & Pages**, shown on that page (menu layout changed in 2026; older guides say "Workers & Pages" at the top level). Fallback: it's the 32-character code in the browser address bar right after `dash.cloudflare.com/` once you've clicked into any page.
 2. **Cloudflare API token**: profile icon → My Profile → API Tokens → Create Token → Custom token, permissions as in the table above, Account Resources = own account. Shown once.
 3. **GitHub repository secrets**: Settings → Secrets and variables → Actions → New repository secret.
 4. **GitHub safety settings** (public repo): Settings → Code security → enable **Secret scanning** and **Push protection**; enable **Dependabot alerts**. Settings → Actions → General → "Fork pull request workflows": require approval for all outside contributors.
