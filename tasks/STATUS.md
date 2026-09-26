@@ -14,7 +14,7 @@ _Updated: 2026-09-26_
 ## Next
 
 **T00: finish on the deployed Worker.** Code is done and tested locally; remaining ACs need the deployed spike:
-1. Check the first Actions run of `spike-t00.yml` succeeded (D1 created, deploy, secrets, smoke test).
+1. ~~First Actions run of `spike-t00.yml`~~ succeeded 2026-09-26 (D1 created, migrations, deploy, secrets, smoke test; secrets masked in logs).
 2. Owner: Google sign-in at https://assistant-spike.rishiparyani.workers.dev and create a workspace.
 3. Owner: add the Claude custom connector (`…/mcp`), connect, run `whoami`.
 4. Read CPU time per request from the Cloudflare dashboard.
