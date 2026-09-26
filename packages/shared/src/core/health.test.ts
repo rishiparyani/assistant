@@ -3,11 +3,11 @@ import { isHealthResponse } from "./health.ts";
 
 describe("isHealthResponse", () => {
   it("accepts a health payload", () => {
-    expect(isHealthResponse({ ok: true, environment: "dev", modules: [] })).toBe(true);
+    expect(isHealthResponse({ ok: true, environment: "dev", modules: [], migrations: 1 })).toBe(true);
   });
 
   it("rejects anything else", () => {
     expect(isHealthResponse(null)).toBe(false);
-    expect(isHealthResponse({ ok: false, environment: "dev", modules: [] })).toBe(false);
+    expect(isHealthResponse({ ok: false, environment: "dev", modules: [], migrations: 1 })).toBe(false);
   });
 });

@@ -14,6 +14,15 @@
     // These paths always reach the Worker, never the static files.
     "run_worker_first": ["/api/*", "/auth/*", "/mcp", "/.well-known/*"],
   },
+  // Database ids aren't secret; the deploy workflow fills them in (docs/setup.md).
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "assistant-dev",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
   "vars": {
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://assistant-dev.rishiparyani.workers.dev",
@@ -21,6 +30,14 @@
   "env": {
     "production": {
       "name": "assistant",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "assistant",
+          "database_id": "00000000-0000-0000-0000-000000000001",
+          "migrations_dir": "migrations",
+        },
+      ],
       "vars": {
         "ENVIRONMENT": "production",
         "BASE_URL": "https://assistant.rishiparyani.workers.dev",

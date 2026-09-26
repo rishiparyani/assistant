@@ -32,6 +32,8 @@ pnpm workspaces, TypeScript, lint/format, Worker hello world serving the Vite ap
 
 Includes per-member shares and payouts (decided 2026-09-26).
 
+- Status: code done 2026-09-26; dev deploy verification pending.
+
 - AC: Drizzle configured for D1; `pnpm db:generate` / `pnpm db:migrate` work locally and against dev.
 - AC: core tables (workspaces extension, memberships if not Better Auth's, workspace_modules, api_tokens, idempotency_keys, confirm_tokens, audit_log) and gigs tables per `docs/data-model.md`, with indexes.
 - AC: ULID and money helpers in `packages/shared` with tests.

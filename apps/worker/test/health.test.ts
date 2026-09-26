@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import { isHealthResponse } from "@assistant/shared";
 import { createApp } from "../src/core/app.ts";
 import { defineModule } from "../src/core/module.ts";
@@ -8,13 +8,13 @@ const fetchWorker = (path: string, init?: RequestInit) =>
   (exports as unknown as { default: Fetcher }).default.fetch(`https://example.com${path}`, init);
 
 describe("GET /api/health", () => {
-  it("returns ok with the environment and registered modules", async () => {
+  it("returns ok with the registered modules", async () => {
     const res = await fetchWorker("/api/health");
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(isHealthResponse(body)).toBe(true);
     // environment comes from wrangler.jsonc, or .dev.vars when present locally.
-    expect(body).toMatchObject({ ok: true, modules: [] });
+    expect(body).toMatchObject({ ok: true, modules: ["gigs"], migrations: 1 });
   });
 
   it("returns a JSON 404 for unknown API routes", async () => {
@@ -27,7 +27,7 @@ describe("GET /api/health", () => {
 describe("module registry", () => {
   it("accepts a new module with no core changes", async () => {
     const app = createApp({ modules: [defineModule({ id: "example", name: "Example" })] });
-    const res = await app.request("/api/health", {}, { ENVIRONMENT: "dev", BASE_URL: "x" } as Env);
+    const res = await app.request("/api/health", {}, { ...env, ENVIRONMENT: "dev" });
     expect(await res.json()).toMatchObject({ modules: ["example"] });
   });
 

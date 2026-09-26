@@ -14,7 +14,7 @@
 
 ## Naming
 
-- Tables and columns: `snake_case`, plural table names.
+- Tables and columns: `snake_case`, plural table names. Exception: Better Auth's own tables keep its names (`user`, `organization`, camelCase columns).
 - Operation ids: `<module>.<verb>_<noun>` (e.g. `gigs.record_payment`). MCP tool names: `<verb>_<noun>`, unique.
 - Scopes: `<module>:read`, `<module>:write`, or finer (`gigs:record_payment`).
 

@@ -1,19 +1,21 @@
-# Data model (Phase 1, draft)
+# Data model (Phase 1)
 
-Finalised in T02. Member shares are tracked per member (see [decisions.md](decisions.md)).
+Implemented in T02: `apps/worker/src/core/db/` (core + Better Auth tables) and `apps/worker/src/modules/gigs/schema.ts`, migration `apps/worker/migrations/0000_init.sql`. The code is the source of truth; this page is the overview.
 
-Conventions for every table: `id` ULID text primary key; `workspace_id` on tenant rows; `created_at`/`updated_at` UTC ISO strings; money as integer `*_paise`; `deleted_at` for soft-deletable entities; an index on every filtered column.
+Conventions for every table we own: `id` ULID text primary key; `workspace_id` on tenant rows; `created_at`/`updated_at` UTC ISO strings; money as integer `*_paise`; `deleted_at` for soft-deletable entities; an index on every filtered column.
 
 ## Core
 
-- **Better Auth tables:** users, sessions, accounts, verification; organizations/members/invitations if the organization plugin is used as workspaces (verify in T00).
-- **workspaces:** Better Auth organization + `kind` (`personal` | `band`; more kinds can be added). One personal workspace per user.
-- **memberships:** user ↔ workspace with role (`owner`, `member`).
+- **Better Auth tables** (their naming: camelCase columns, `date` timestamps; IDs are ULIDs via `generateId`): `user`, `session`, `account`, `verification`, `organization`, `member`, `invitation`, `jwks`, `oauthClient`, `oauthResource`, `oauthClientResource`, `oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, `oauthClientAssertion`. A test fails if Better Auth needs anything missing.
+- **Workspaces = `organization` rows** with `kind` (`personal` | `band`; more kinds can be added). One personal workspace per user. Our tables' `workspace_id` references `organization.id`.
+- **Memberships = `member` rows**, role `owner` or `member`.
 - **workspace_modules:** workspace_id, module_id, enabled, settings_json, timestamps. Which modules a workspace uses.
 - **api_tokens:** id, user_id, workspace_id (nullable = all of the user's workspaces), name, token_hash, scopes (JSON, e.g. `["gigs:read","gigs:write"]`), last_used_at, revoked_at, created_at. For Siri: scoped (read + add gig + record payment, no delete/cancel), revocable.
-- **idempotency_keys:** key, user_id, request_hash, response_json, created_at (24 h retention).
+- **idempotency_keys:** (user_id, key) primary key, request_hash, status_code, response_json, created_at (24 h retention).
 - **confirm_tokens:** id, user_id, workspace_id, operation_id, input_hash, preview_json, expires_at, used_at.
 - **audit_log:** id, workspace_id, actor_user_id, source (`web`/`siri`/`mcp`/`system`), module, action, entity_type, entity_id, before_json, after_json, created_at.
+
+Database-level guarantees (CHECK constraints, tested): gig status and payment method are from fixed lists; fees and shares ≥ 0; expenses > 0; payments/payouts are non-zero, positive unless they reverse another row (then negative), and each can be reversed at most once; date-only fields are `YYYY-MM-DD`; `end_at ≥ start_at`. Services still validate first (Zod) and check workspace consistency (e.g. a gig's client belongs to the same workspace).
 
 ## Module: gigs
 

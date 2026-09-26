@@ -80,9 +80,12 @@ pnpm typecheck    # tsc per package, svelte-check for the web app
 pnpm lint         # eslint + prettier --check (pnpm format to fix)
 pnpm test         # vitest; worker tests run inside workerd
 pnpm build        # builds web + worker (CLOUDFLARE_ENV=production for prod)
+pnpm db:generate  # new migration from schema changes
+pnpm db:migrate   # apply migrations to local D1
 ```
 
-Local settings: copy `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars`. After changing `apps/worker/wrangler.jsonc`, run `pnpm --filter @assistant/worker types`. Database commands (`db:generate`, `db:migrate`) arrive in T02.
+Local settings: copy `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars`. After changing `apps/worker/wrangler.jsonc`, run `pnpm --filter @assistant/worker types`.
+Database: schema in `apps/worker/src/core/db/` (core + Better Auth tables) and `apps/worker/src/modules/<name>/schema.ts`. After a schema change: `pnpm db:generate` (writes a new SQL migration in `apps/worker/migrations/`; never edit an applied one). `pnpm db:migrate` applies migrations to the local D1 (`pnpm dev` does this automatically); deploys apply them remotely.
 
 ## Don't
 
