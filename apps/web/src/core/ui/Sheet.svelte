@@ -100,6 +100,8 @@
   }
   .body {
     overflow-y: auto;
+    overflow-x: hidden;
+    grid-template-columns: minmax(0, 1fr);
     padding: var(--space-2) var(--space-5) var(--space-5);
     display: grid;
     gap: var(--space-4);

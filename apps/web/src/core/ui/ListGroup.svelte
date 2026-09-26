@@ -22,6 +22,10 @@
 </section>
 
 <style>
+  /* Never let long, unwrapped row text widen a grid or flex parent. */
+  .group {
+    min-width: 0;
+  }
   header {
     display: flex;
     align-items: flex-end;

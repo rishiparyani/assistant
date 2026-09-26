@@ -7,6 +7,7 @@
 
 <style>
   .card {
+    min-width: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);

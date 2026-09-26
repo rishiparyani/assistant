@@ -2,7 +2,7 @@
   import { navigate, router } from "./router.svelte.ts";
   import { refreshSession, session } from "./session.svelte.ts";
   import { current, lastWorkspaceId, loadWorkspace } from "./workspace.svelte.ts";
-  import { Skeleton, Toaster } from "./ui/index.ts";
+  import { ConfirmHost, Skeleton, Toaster } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
   import Consent from "./pages/Consent.svelte";
@@ -10,7 +10,9 @@
   import Home from "./pages/Home.svelte";
   import Members from "./pages/Members.svelte";
   import Settings from "./pages/Settings.svelte";
-  import Placeholder from "./pages/Placeholder.svelte";
+  import Gigs from "../modules/gigs/pages/Gigs.svelte";
+  import Gig from "../modules/gigs/pages/Gig.svelte";
+  import People from "../modules/gigs/pages/People.svelte";
   import NotFound from "./pages/NotFound.svelte";
 
   const PUBLIC = new Set(["login", "consent", "invite"]);
@@ -65,13 +67,14 @@
         <Home workspace={current.workspace} />
       {:else if current.workspace && route.name === "members"}
         <Members workspace={current.workspace} />
-      {:else if route.name === "gigs" || route.name === "gig"}
-        <Placeholder
-          title="Gigs"
-          text="Add gigs, track payments and set who plays: the gig screens arrive next."
-        />
-      {:else if route.name === "people"}
-        <Placeholder title="People" text="Clients, venues and your band roster will live here." />
+      {:else if current.workspace && route.name === "gigs"}
+        <Gigs workspace={current.workspace} />
+      {:else if current.workspace && route.name === "gig"}
+        {#key route.params.gigId}
+          <Gig workspace={current.workspace} gigId={route.params.gigId!} />
+        {/key}
+      {:else if current.workspace && route.name === "people"}
+        <People workspace={current.workspace} />
       {:else if route.name !== "root"}
         <NotFound />
       {/if}
@@ -82,6 +85,7 @@
 {/await}
 
 <Toaster />
+<ConfirmHost />
 
 <style>
   .boot {
