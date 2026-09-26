@@ -13,13 +13,20 @@ export function createApp({ modules }: AppOptions) {
 
   const app = new Hono<{ Bindings: Env }>();
 
-  app.get("/api/health", (c) =>
-    c.json<HealthResponse>({
-      ok: true,
-      environment: c.env.ENVIRONMENT as HealthResponse["environment"],
-      modules: ids,
-    }),
-  );
+  app.get("/api/health", async (c) => {
+    try {
+      const row = await c.env.DB.prepare(`select count(*) as n from d1_migrations`).first<{ n: number }>();
+      return c.json<HealthResponse>({
+        ok: true,
+        environment: c.env.ENVIRONMENT as HealthResponse["environment"],
+        modules: ids,
+        migrations: row?.n ?? 0,
+      });
+    } catch (err) {
+      console.error("health: database check failed", err);
+      return c.json({ error: { code: "database_unavailable", message: "Database check failed" } }, 503);
+    }
+  });
 
   // Unknown API paths are JSON 404s, never the SPA's index.html.
   app.all("/api/*", (c) =>

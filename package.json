@@ -9,12 +9,14 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @assistant/web dev",
+    "dev": "pnpm db:migrate && pnpm --filter @assistant/web dev",
     "build": "pnpm --filter @assistant/web build",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "test": "pnpm -r --if-present test"
+    "test": "pnpm -r --if-present test",
+    "db:generate": "pnpm --filter @assistant/worker db:generate",
+    "db:migrate": "pnpm --filter @assistant/worker db:migrate"
   },
   "devDependencies": {
     "@eslint/js": "catalog:",

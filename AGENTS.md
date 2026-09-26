@@ -30,6 +30,10 @@ This repository is **public**. Full rules: [docs/security.md](docs/security.md#p
 
 ## Deploys and accounts
 
+**The owner wants as few manual steps as possible.** Verify things yourself (deploy results via the GitHub Actions API and logs, live URLs with curl or a headless browser, repo settings via the GitHub API) instead of asking for screenshots. Ask the owner only for what needs their accounts, and then give short step-by-step instructions.
+
+**Getting work to the real app:** when a task is done and verified on dev, open a PR to `main` and merge it once CI passes (owner's OK, 2026-09-26). Always tell the owner in plain words what went live. Anything risky (data migrations on real data, deleting things, security changes) waits for the owner's explicit OK.
+
 Agents never deploy from their session and never hold the Cloudflare token. GitHub Actions deploys: push to `main` → prod, push to any other branch → dev (fake data only). The owner creates accounts and secrets by hand; agents give step-by-step instructions and never ask for secrets in chat. Details, secret locations and free-tier limits: [docs/setup.md](docs/setup.md).
 
 ## Stack
@@ -78,9 +82,12 @@ pnpm typecheck    # tsc per package, svelte-check for the web app
 pnpm lint         # eslint + prettier --check (pnpm format to fix)
 pnpm test         # vitest; worker tests run inside workerd
 pnpm build        # builds web + worker (CLOUDFLARE_ENV=production for prod)
+pnpm db:generate  # new migration from schema changes
+pnpm db:migrate   # apply migrations to local D1
 ```
 
-Local settings: copy `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars`. After changing `apps/worker/wrangler.jsonc`, run `pnpm --filter @assistant/worker types`. Database commands (`db:generate`, `db:migrate`) arrive in T02.
+Local settings: copy `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars`. After changing `apps/worker/wrangler.jsonc`, run `pnpm --filter @assistant/worker types`.
+Database: schema in `apps/worker/src/core/db/` (core + Better Auth tables) and `apps/worker/src/modules/<name>/schema.ts`. After a schema change: `pnpm db:generate` (writes a new SQL migration in `apps/worker/migrations/`; never edit an applied one). `pnpm db:migrate` applies migrations to the local D1 (`pnpm dev` does this automatically); deploys apply them remotely.
 
 ## Don't
 

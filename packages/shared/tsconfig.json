@@ -2,7 +2,11 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2022", "DOM"],
+    "types": [],
+    "declaration": false,
+    "sourceMap": false
   },
   "include": ["src"]
 }

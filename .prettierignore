@@ -5,3 +5,4 @@ pnpm-lock.yaml
 worker-configuration.d.ts
 docs/archive/
 spikes/t00/migrations/
+apps/worker/migrations/

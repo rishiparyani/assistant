@@ -6,15 +6,22 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "types": "wrangler types --include-runtime false --strict-vars false"
+    "types": "wrangler types --include-runtime false --strict-vars false",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply DB --local"
   },
   "dependencies": {
     "@assistant/shared": "workspace:*",
+    "@better-auth/oauth-provider": "catalog:",
+    "better-auth": "catalog:",
+    "drizzle-orm": "catalog:",
     "hono": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:",
     "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "drizzle-kit": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "wrangler": "catalog:"

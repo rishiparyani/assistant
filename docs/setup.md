@@ -7,7 +7,7 @@ What exists outside the repo, where each secret lives, and how code gets deploye
 Agents (Claude Code, Codex) never deploy from their own session and never hold the Cloudflare token.
 
 1. Agent pushes code to GitHub.
-2. `.github/workflows/deploy.yml` runs: install → typecheck, lint, test → build → `wrangler deploy` (from `apps/web`, which bundles the Worker and the web app) → smoke test. Pushes that only touch docs, tasks, spikes or Markdown don't deploy.
+2. `.github/workflows/deploy.yml` runs: install → typecheck, lint, test → create the environment's D1 database if missing (`assistant-dev` / `assistant`) and fill its id into `wrangler.jsonc` → build → apply D1 migrations → `wrangler deploy` (from `apps/web`, which bundles the Worker and the web app) → smoke test. Pushes that only touch docs, tasks, spikes or Markdown don't deploy.
 3. It uses the repository secrets below and the GitHub Environment `production` (main) or `dev` (other branches).
 
 `.github/workflows/ci.yml` runs the same checks plus a build on pull requests, with no secrets.
@@ -17,6 +17,8 @@ Agents (Claude Code, Codex) never deploy from their own session and never hold t
 | `main`                        | **prod** Worker `assistant`         | prod D1 (real data)     |
 | any other branch in this repo | **dev** Worker `assistant-dev`      | dev D1 (fake data only) |
 | pull request from a fork      | **nothing**; tests only, no secrets | none                    |
+
+Manual run: Actions → Deploy → Run workflow (pick the branch). Needed when a push changes no deployable files, e.g. creating a branch at an existing commit.
 
 Rollback: redeploy an earlier commit from the Actions tab, or `wrangler rollback`.
 
