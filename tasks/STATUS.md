@@ -8,14 +8,14 @@ _Updated: 2026-09-26_
 - Architecture made flexible: a small core plus feature modules, with Gigs as module one (see `docs/modules.md` and the decision in `docs/decisions.md`).
 - Decisions recorded: per-member shares and payouts in Phase 1 (T02/T05 updated); no further modules planned yet.
 - Added `docs/setup.md` (deploys via GitHub Actions, where secrets live, owner's manual steps, free-tier limits) and public-repo safety rules in `AGENTS.md` and `docs/security.md`.
-- **T02 done** (code): Drizzle schema for core, Better Auth and gigs tables (`0000_init.sql`), CHECK constraints, indexes, D1 in wrangler (dev + prod) and the deploy workflow, `ulid`/money helpers. Tests: 34 shared, 23 worker (schema, constraints, index usage via EXPLAIN, Better Auth schema guard).
+- **T02 done** (verified on dev 2026-09-26: D1 `assistant-dev` created by the workflow, `/api/health` → `migrations: 1`): Drizzle schema for core, Better Auth and gigs tables (`0000_init.sql`), CHECK constraints, indexes, D1 in wrangler (dev + prod) and the deploy workflow, `ulid`/money helpers. Tests: 34 shared, 23 worker (schema, constraints, index usage via EXPLAIN, Better Auth schema guard).
 - **T01 done**: pnpm workspace with catalog, `packages/shared`, `apps/worker` (Hono, core with module registry, `/api/health`), `apps/web` (Svelte 5 SPA via the Cloudflare Vite plugin), ESLint + Prettier, CI (`ci.yml`) and deploy (`deploy.yml`) workflows. Root `pnpm typecheck`, `lint`, `test`, `build` all pass locally; the web app was checked in a headless browser.
 - **T00 done** (2026-09-26): all ACs met; results in `docs/decisions.md`. Spike in `spikes/t00/` (see its README) with deploy workflow `.github/workflows/spike-t00.yml`. Verified here: typecheck, 3 vitest tests (workspace with `kind`, invite + accept second member, stranger denied, full MCP OAuth flow with JWT verification), and the same flow against `wrangler dev` with local D1.
 - Original brief archived in `docs/archive/gig-assistant-brief.md`.
 
 ## Next
 
-1. Verify T02 on the dev deploy (`/api/health` shows `migrations: 1`), then **T03** auth + workspaces + authorization middleware. Auth options already live in `apps/worker/src/core/auth/options.ts`.
+1. **T03** auth + workspaces + authorization middleware. Auth options already live in `apps/worker/src/core/auth/options.ts`.
 
 ## Open decisions
 
