@@ -14,8 +14,7 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Owner: the manual GitHub steps for T01 (default branch `main`, branch protection, `production` environment); see "Owner setup".
-2. **T02** D1 + Drizzle + base schema (backlog). Carry over the spike's Better Auth migration generation.
+1. **T02** D1 + Drizzle + base schema (backlog). Carry over the spike's Better Auth migration generation.
 
 ## Open decisions
 
@@ -34,8 +33,8 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 - [x] Google OAuth client created; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` added as GitHub secrets (owner reported 2026-09-26)
 - [ ] GitHub secret scanning, push protection, Dependabot alerts enabled; fork PR workflows require approval
 - [x] `main` created (2026-09-26)
-- [ ] `main` set as default branch; branch ruleset on `main`
-- [ ] GitHub Environment `production` limited to `main`
+- [x] `main` set as default branch; ruleset `main` active (pull request required, no deletion, no force-push); verified via API 2026-09-26
+- [x] GitHub Environment `production` limited to `main` (owner reported; not readable via the API from agent sessions)
 - [x] Claude custom connector added (`Assistant`, pointing at the spike)
 
 ## In progress
@@ -51,5 +50,6 @@ Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.worker
 - Better Auth docs site (better-auth.com) is blocked from agent sessions; read the types in `node_modules/@better-auth/*/dist/*.d.mts` instead.
 - `@better-auth/oauth-provider`: `/auth/oauth2/consent` returns `{ url }` (not `redirect_uri`). Access tokens are JWTs only when the client sends `resource`; the spike falls back to `/oauth2/userinfo` for opaque tokens.
 - Better Auth tables use camelCase columns and random string IDs (not ULIDs). Decide in T02/T03: `advanced.database.generateId` for ULIDs; keep Better Auth's column names for its own tables.
-- Agent sessions can't reach `*.rishiparyani.workers.dev` unless the owner allows it in the cloud environment's network settings (asked 2026-09-26). Until then, verify deploys from the workflow's smoke-test logs.
+- Agent sessions can reach `*.rishiparyani.workers.dev` (custom network allowlist, 2026-09-26): verify live apps with curl or headless Chromium.
+- **Workflow since `main` is protected:** work on a branch (deploys to dev), open a PR to `main` when a task is done, merge = prod deploy. Only open PRs when the owner asks.
 - Agent sessions can't reach `api.cloudflare.com` (network policy), and shouldn't: deploys go through GitHub Actions only.
