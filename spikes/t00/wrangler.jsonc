@@ -1,0 +1,23 @@
+// T00 spike Worker. Deployed only by .github/workflows/spike-t00.yml.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "assistant-spike",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "vars": {
+    "BASE_URL": "https://assistant-spike.rishiparyani.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "assistant-spike",
+      // Not secret. The deploy workflow fills in the real id; locally any value works.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ]
+  // Secrets (set by the workflow, never here): BETTER_AUTH_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+}

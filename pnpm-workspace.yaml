@@ -1,3 +1,9 @@
 packages:
   - "apps/*"
   - "packages/*"
+  - "spikes/*"
+
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+  - sharp

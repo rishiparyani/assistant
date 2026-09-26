@@ -47,6 +47,13 @@ Reason: familiar one-tap login for the owner and bandmates; other methods cover 
 ## 2026-09-26: Deploy workflow generates BETTER_AUTH_SECRET
 Instead of the owner creating it by hand, the deploy workflow sets it on each Worker the first time (random, never printed or stored in GitHub). One fewer manual step, and each environment gets its own value automatically.
 
+## 2026-09-26: T00 approach (findings pending the deployed test)
+- MCP OAuth uses `@better-auth/oauth-provider` (Better Auth 1.7; the older `mcp` plugin no longer ships). It needs the `jwt` plugin; access tokens are JWTs with the MCP URL as audience, verified in-process against Better Auth's JWKS (no self-fetch).
+- D1 binding passed straight to Better Auth as `database`; schema SQL generated from the auth options with `getMigrations().compileMigrations()` and applied with `wrangler d1 migrations`.
+- The spike's MCP server is a ~80-line stateless JSON-RPC handler, not the MCP SDK. Revisit for T10 (SDK vs hand-rolled over the operation registry).
+- Dependencies added for the spike only: `better-auth`, `@better-auth/oauth-provider`, `hono`, `wrangler`, `vitest`, `typescript`.
+Results of the deployed test (Google sign-in, Claude connector, CPU time) to be added here.
+
 ## Open
 
 None.

@@ -43,6 +43,8 @@ Worker names and URLs (on the owner's `rishiparyani.workers.dev` subdomain until
 
 Better Auth's `basePath` is `/auth`, so the callback is `/auth/callback/google`. When a domain is added, add its origin and redirect URI to the Google client.
 
+Spike deploy (T00): `.github/workflows/spike-t00.yml` runs on pushes touching `spikes/t00/**` from any branch. It creates the `assistant-spike` D1 database if missing, fills its id into `wrangler.jsonc` at build time, applies migrations, deploys, sets secrets, and smoke-tests.
+
 Not secret, fine to commit: D1 database names and IDs, Worker names, the public app URL. They can't be used without the API token.
 
 ## What the owner does by hand (agents can't)

@@ -1,0 +1,94 @@
+# Deploys the throwaway T00 spike (spikes/t00) to the `assistant-spike` Worker.
+# Public repo rules (docs/security.md): push/workflow_dispatch only, minimal
+# permissions, actions pinned to SHAs, never print secrets.
+name: Spike T00 deploy
+
+on:
+  push:
+    paths:
+      - "spikes/t00/**"
+      - ".github/workflows/spike-t00.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spike-t00
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      DB_NAME: assistant-spike
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Typecheck and test
+        working-directory: spikes/t00
+        run: |
+          pnpm typecheck
+          pnpm test
+
+      - name: Ensure D1 database exists
+        working-directory: spikes/t00
+        run: |
+          db_id() { pnpm exec wrangler d1 list --json | jq -r --arg n "$DB_NAME" '.[] | select(.name == $n) | .uuid'; }
+          id="$(db_id)"
+          if [ -z "$id" ]; then
+            pnpm exec wrangler d1 create "$DB_NAME" > /dev/null
+            id="$(db_id)"
+          fi
+          test -n "$id"
+          # The id isn't secret; it's only filled in here so the repo needs no per-account edits.
+          sed -i "s/00000000-0000-0000-0000-000000000000/$id/" wrangler.jsonc
+
+      - name: Apply migrations
+        working-directory: spikes/t00
+        run: pnpm exec wrangler d1 migrations apply "$DB_NAME" --remote
+
+      - name: Deploy
+        working-directory: spikes/t00
+        run: pnpm exec wrangler deploy
+
+      - name: Set Worker secrets
+        working-directory: spikes/t00
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          printf '%s' "$GOOGLE_CLIENT_ID" | pnpm exec wrangler secret put GOOGLE_CLIENT_ID > /dev/null
+          printf '%s' "$GOOGLE_CLIENT_SECRET" | pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET > /dev/null
+          # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
+          if ! pnpm exec wrangler secret list | grep -q 'BETTER_AUTH_SECRET'; then
+            openssl rand -base64 32 | tr -d '\n' | pnpm exec wrangler secret put BETTER_AUTH_SECRET > /dev/null
+          fi
+          echo "Secrets set."
+
+      - name: Smoke test
+        run: |
+          base=https://assistant-spike.rishiparyani.workers.dev
+          for i in $(seq 1 12); do
+            if curl -fsS "$base/api/health"; then break; fi
+            sleep 5
+          done
+          echo
+          curl -fsS "$base/.well-known/oauth-protected-resource/mcp"
+          echo
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base/mcp" -d '{}')" = "401"
+          echo "MCP endpoint rejects unauthenticated requests."

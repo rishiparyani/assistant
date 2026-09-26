@@ -1,0 +1,24 @@
+{
+  "name": "@assistant/spike-t00",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "gen:migration": "node --experimental-strip-types --no-warnings scripts/gen-migration.ts",
+    "db:migrate:local": "wrangler d1 migrations apply assistant-spike --local"
+  },
+  "dependencies": {
+    "@better-auth/oauth-provider": "1.7.6",
+    "better-auth": "1.7.6",
+    "hono": "4.13.9"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260926.1",
+    "@types/node": "^26.6.3",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2",
+    "wrangler": "4.141.0"
+  }
+}

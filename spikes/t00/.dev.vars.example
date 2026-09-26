@@ -1,0 +1,5 @@
+# Copy to .dev.vars for `pnpm dev`. Never commit .dev.vars.
+BASE_URL=http://localhost:8787
+BETTER_AUTH_SECRET=local-dev-only-change-me-to-32-random-chars
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
