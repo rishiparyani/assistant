@@ -77,11 +77,26 @@ jobs:
         working-directory: apps/worker
         run: pnpm exec wrangler d1 migrations apply "$DB_NAME" --remote ${CLOUDFLARE_ENV:+--env "$CLOUDFLARE_ENV"}
 
-      # T03 adds: Worker secrets.
-
       - name: Deploy
         working-directory: apps/web
         run: pnpm exec wrangler deploy
+
+      # Run from apps/web so wrangler targets the Worker just built (dev or prod).
+      - name: Set Worker secrets
+        working-directory: apps/web
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+        run: |
+          existing="$(pnpm exec wrangler secret list 2>/dev/null || true)"
+          printf '%s' "$GOOGLE_CLIENT_ID" | pnpm exec wrangler secret put GOOGLE_CLIENT_ID > /dev/null
+          printf '%s' "$GOOGLE_CLIENT_SECRET" | pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET > /dev/null
+          # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
+          if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then
+            openssl rand -base64 32 | tr -d '\n' | pnpm exec wrangler secret put BETTER_AUTH_SECRET > /dev/null
+            echo "Generated BETTER_AUTH_SECRET."
+          fi
+          echo "Secrets set."
 
       - name: Smoke test
         run: |
@@ -89,7 +104,7 @@ jobs:
           # health check passes (up to ~90 s), then check the web app is served.
           for i in $(seq 1 18); do
             body="$(curl -fsS "$APP_URL/api/health" || true)"
-            if printf '%s' "$body" | jq -e '.ok == true and .migrations >= 1 and (.modules | length) >= 1' > /dev/null 2>&1; then
+            if printf '%s' "$body" | jq -e --argjson m "$(ls apps/worker/migrations/*.sql | wc -l)" '.ok == true and .migrations == $m and (.modules | length) >= 1' > /dev/null 2>&1; then
               echo "$body"
               break
             fi
@@ -97,4 +112,8 @@ jobs:
             sleep 5
           done
           curl -fsS "$APP_URL/" | grep -q '<div id="app">'
+          # Auth is configured: session endpoint answers, OAuth discovery is served.
+          curl -fsS "$APP_URL/auth/get-session" > /dev/null
+          curl -fsS "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401"
           echo "App and API are up at $APP_URL"

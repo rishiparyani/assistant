@@ -10,7 +10,9 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings"
   },
   "dependencies": {
-    "@assistant/shared": "workspace:*"
+    "@assistant/shared": "workspace:*",
+    "@better-auth/passkey": "catalog:",
+    "better-auth": "catalog:"
   },
   "devDependencies": {
     "@assistant/worker": "workspace:*",

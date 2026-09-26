@@ -3,6 +3,7 @@
 import type { BetterAuthOptions } from "better-auth";
 import { jwt, organization } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
+import { passkey } from "@better-auth/passkey";
 import { ulid } from "@assistant/shared";
 
 export const AUTH_BASE_PATH = "/auth";
@@ -20,6 +21,7 @@ export interface AuthConfig {
 
 export function authOptions(cfg: AuthConfig) {
   const mcpUrl = new URL(MCP_PATH, cfg.baseURL).toString();
+  const url = new URL(cfg.baseURL);
   return {
     baseURL: cfg.baseURL,
     basePath: AUTH_BASE_PATH,
@@ -40,6 +42,7 @@ export function authOptions(cfg: AuthConfig) {
           },
         },
       }),
+      passkey({ rpID: url.hostname, rpName: "Assistant", origin: url.origin }),
       jwt(),
       oauthProvider({
         loginPage: "/login",

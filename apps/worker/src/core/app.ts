@@ -2,6 +2,10 @@
 import { Hono } from "hono";
 import type { HealthResponse } from "@assistant/shared";
 import type { ModuleDefinition } from "./module.ts";
+import type { AppEnv } from "./context.ts";
+import { AppError } from "./errors.ts";
+import { authRoutes } from "./auth/routes.ts";
+import { workspaceRoutes } from "./workspaces/routes.ts";
 
 export interface AppOptions {
   modules: readonly ModuleDefinition[];
@@ -10,8 +14,27 @@ export interface AppOptions {
 export function createApp({ modules }: AppOptions) {
   const ids = modules.map((m) => m.id);
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate module ids: ${ids.join(", ")}`);
+  const moduleSchemas = Object.assign({}, ...modules.map((m) => m.schema ?? {}));
 
-  const app = new Hono<{ Bindings: Env }>();
+  const app = new Hono<AppEnv>();
+
+  app.use(async (c, next) => {
+    c.set("moduleIds", ids);
+    c.set("moduleSchemas", moduleSchemas);
+    await next();
+  });
+
+  app.onError((err, c) => {
+    if (err instanceof AppError) return c.json(err.toJSON(), err.status);
+    if (err instanceof SyntaxError) {
+      return c.json(
+        { error: { code: "validation_failed", message: "Request body must be valid JSON" } },
+        400,
+      );
+    }
+    console.error("unhandled error", err);
+    return c.json({ error: { code: "internal", message: "Something went wrong" } }, 500);
+  });
 
   app.get("/api/health", async (c) => {
     try {
@@ -27,6 +50,9 @@ export function createApp({ modules }: AppOptions) {
       return c.json({ error: { code: "database_unavailable", message: "Database check failed" } }, 503);
     }
   });
+
+  app.route("/", authRoutes);
+  app.route("/", workspaceRoutes);
 
   // Unknown API paths are JSON 404s, never the SPA's index.html.
   app.all("/api/*", (c) =>

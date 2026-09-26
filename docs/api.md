@@ -15,7 +15,14 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 
 ## Core operations
 
-- Me/workspaces: `list_workspaces`, `get_workspace`, `create_band_workspace`, `invite_member`, `remove_member`
+- Me/workspaces (T03, plain routes until T04):
+  - `GET /api/me`: user + workspaces (`list_workspaces`)
+  - `POST /api/workspaces {name}`: `create_band_workspace`
+  - `GET /api/w/:id`: `get_workspace` (members; pending invitations for owners; enabled modules)
+  - `POST /api/w/:id/invitations {email, role?}`: `invite_member` (owner; returns a shareable link)
+  - `DELETE /api/w/:id/invitations/:invitationId`: `cancel_invitation` (owner)
+  - `DELETE /api/w/:id/members/:memberId`: `remove_member` (owner; not the last owner)
+  - `GET /api/invitations/:id`, `POST /api/invitations/:id/accept`: for the invited email only
 - Modules: `list_modules`, `set_module_enabled`
 - API tokens: `create_api_token`, `list_api_tokens`, `revoke_api_token`
 - Calendar: private tokenised `.ics` feed URL per user (modules contribute events)
