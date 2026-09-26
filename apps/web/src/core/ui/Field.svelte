@@ -38,8 +38,12 @@
   .msg.error {
     color: var(--red);
   }
+  .field {
+    min-width: 0;
+  }
   .field :global(.control) {
     width: 100%;
+    min-width: 0;
     min-height: 46px;
     padding: 10px 14px;
     border-radius: var(--radius);

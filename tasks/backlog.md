@@ -75,7 +75,7 @@ Decided 2026-09-26: UI work runs alongside backend work from here on; every task
 - AC: existing screens (login, consent, workspaces, band page, invite, settings) rebuilt on it.
 - AC: feels like a native app on iPhone (tap targets ≥ 44 px, no zoom on inputs, smooth transitions, standalone-capable manifest) and not stretched on a laptop.
 - AC: screenshots at 390 px, 820 px and 1280 px reviewed by the owner before building every screen.
-- Status: code done 2026-09-26; owner review of screenshots pending.
+- Status: **done 2026-09-26**, live on prod; owner feedback on the look welcome any time.
 
 ## U1 Gig screens for T04/T05 (catch-up)
 
@@ -83,6 +83,7 @@ Decided 2026-09-26: UI work runs alongside backend work from here on; every task
 - AC: clients and venues lists with search, detail, add/edit; band roster.
 - AC: ambiguous-name answers from the API shown as a picker, never a dead end.
 - AC: members see only what the API gives them (own share), with no broken empty sections.
+- Status: **done 2026-09-26**. The web app picks clients, venues and musicians by id from searchable pickers (with inline "Add …"), so ambiguous names can't arise there; the candidates answer matters for MCP/Siri (T09, T10).
 
 ## T06 Gigs views
 

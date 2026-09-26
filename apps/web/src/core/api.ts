@@ -16,12 +16,13 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly details?: unknown,
   ) {
     super(message);
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = body === undefined ? {} : { "content-type": "application/json" };
   // Every write carries a fresh key so a retried request can't happen twice.
   if (method !== "GET") headers["idempotency-key"] = crypto.randomUUID();
@@ -34,7 +35,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const data = (await res.json().catch(() => null)) as T | ApiErrorBody | null;
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
-    throw new ApiError(res.status, err?.code ?? "unknown", err?.message ?? `Request failed (${res.status})`);
+    throw new ApiError(
+      res.status,
+      err?.code ?? "unknown",
+      err?.message ?? `Request failed (${res.status})`,
+      err?.details,
+    );
   }
   return data as T;
 }
