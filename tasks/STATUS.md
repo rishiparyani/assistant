@@ -19,7 +19,7 @@ _Updated: 2026-09-26_
 ## Next
 
 1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T06** views: schedule, outstanding, monthly report, dashboard, payouts owed, my earnings.
+2. **U0** UI foundation (design system, app shell, existing screens rebuilt; screenshots to the owner), then **U1** gig screens, then **T06** with the dashboard. See `tasks/backlog.md`.
 
 ## Open decisions
 

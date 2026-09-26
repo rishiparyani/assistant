@@ -117,6 +117,10 @@ Instead of the owner creating it by hand, the deploy workflow sets it on each Wo
 - Lineup order = order added (new rows get created_at + i ms), no schema change needed.
 - A plain number for an amount means rupees; `*_paise` is the exact form.
 
+## 2026-09-26: UI in parallel, mobile-first and polished
+
+Decided by the owner: the UI must feel like a very good mobile app on a phone (main use) and not be shabby on an iPad or laptop. From now on every task ships with its screens. Order: U0 (design system + app shell + existing screens rebuilt), U1 (screens for what T04/T05 built), then T06 with the dashboard. Phone: large titles, bottom tab bar, sheets. Tablet/laptop (≥ 768 px): sidebar, wider two-column layouts. Dependencies added for this: `@lucide/svelte` (icons), `@fontsource-variable/inter` (self-hosted font, works offline later).
+
 ## Open
 
 None.

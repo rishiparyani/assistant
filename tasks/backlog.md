@@ -66,15 +66,34 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: every write idempotent and audited.
 - Status: **done 2026-09-26**, live on prod.
 
+## U0 UI foundation (do before T06)
+
+Decided 2026-09-26: UI work runs alongside backend work from here on; every task ships with its screens.
+
+- AC: design system in `apps/web/src/core/ui/`: tokens (colour, type scale, spacing, radius, shadows) with light/dark, Inter (self-hosted), icon set; components: button, input/select/textarea with labels and errors, list rows, cards, badges/status pills, segmented control, bottom sheet (phone) / dialog (desktop), toast, empty state, skeleton loaders, money and date display.
+- AC: app shell: phone = large-title top bar + bottom tab bar with safe-area insets; tablet/laptop (≥ 768 px) = sidebar navigation + wider content (two-column where useful); workspace switcher; nav built from enabled modules.
+- AC: existing screens (login, consent, workspaces, band page, invite, settings) rebuilt on it.
+- AC: feels like a native app on iPhone (tap targets ≥ 44 px, no zoom on inputs, smooth transitions, standalone-capable manifest) and not stretched on a laptop.
+- AC: screenshots at 390 px, 820 px and 1280 px reviewed by the owner before building every screen.
+
+## U1 Gig screens for T04/T05 (catch-up)
+
+- AC: gigs list (upcoming / past / by status), gig detail (details, money: fee, received, balance, payments timeline, lineup with shares and payouts, expenses for owners), add/edit gig, record payment / reverse, set lineup (equal / percent / fixed), record payout / reverse, record expense.
+- AC: clients and venues lists with search, detail, add/edit; band roster.
+- AC: ambiguous-name answers from the API shown as a picker, never a dead end.
+- AC: members see only what the API gives them (own share), with no broken empty sections.
+
 ## T06 Gigs views
 
 - AC: `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_dashboard`, `get_payouts_owed`, `get_my_earnings` with display strings; queries use indexes (check with `EXPLAIN QUERY PLAN`).
+- AC: dashboard screen (upcoming gigs, who owes me, this month, payouts owed) built with the views, in the same task.
 
-## T07 Web app: dashboard, gigs, clients, forms
+## T07 Web app polish (was: dashboard, gigs, clients, forms)
 
-- AC: dashboard, gig list/detail with payment timeline and lineup/payouts, roster, clients, forms for gig/payment/expense.
-- AC: navigation built from the workspace's enabled modules; workspace switcher.
-- AC: works well on a phone.
+Most of T07 moved into U0, U1 and T06. What remains:
+
+- AC: navigation built from the workspace's enabled modules; workspace switcher remembers the last workspace.
+- AC: every screen checked at 390 / 820 / 1280 px, light and dark; accessibility pass (labels, focus, contrast).
 
 ## T08 Reports page + .ics feed
 
