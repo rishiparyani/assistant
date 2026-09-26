@@ -11,7 +11,7 @@ import { AppError } from "./errors.ts";
 import { parse } from "./validation.ts";
 
 export type OperationScope = "user" | "workspace";
-export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /** A change a write made, recorded in the audit log by the wrapper. */
 export interface Change {
@@ -193,7 +193,7 @@ async function readInput(c: Context<AppEnv>, op: AnyOperation): Promise<Record<s
   const query = c.req.queries();
   const fromQuery = Object.fromEntries(Object.entries(query).map(([k, v]) => [k, v.length === 1 ? v[0] : v]));
   let body: unknown = {};
-  if (op.http.method === "POST" || op.http.method === "PATCH") {
+  if (op.http.method === "POST" || op.http.method === "PUT" || op.http.method === "PATCH") {
     const text = await c.req.text();
     if (text.trim()) {
       try {

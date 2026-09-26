@@ -53,7 +53,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: clients/venues/gigs operations per `docs/api.md` with services, tests, soft delete, cursor pagination.
 - AC: ambiguous name lookups on writes return candidates.
 - AC: a throwaway test module registers one operation and gets a working route with no core changes.
-- Status: code done 2026-09-26; deploy pending.
+- Status: **done 2026-09-26**, live on prod.
 
 ## T05 Gigs: payments, reversals, expenses, balances, member shares
 
@@ -64,6 +64,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: balance and payment status derived; table-driven tests cover unpaid/partial/paid/overpaid and reversals.
 - AC: expenses with optional gig link.
 - AC: every write idempotent and audited.
+- Status: code done 2026-09-26; deploy pending.
 
 ## T06 Gigs views
 

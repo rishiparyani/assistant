@@ -43,7 +43,24 @@ Implemented in T04 (all under `/api/w/:workspaceId`):
 
 Inputs: times are ISO 8601 with an offset or local India time (`2026-12-12T19:00`); money as `fee_paise` (integer) or `fee` (rupee string/number, e.g. `"₹50,000"`); a gig's client/venue by `client_id` or `client_name` (exact, case-insensitive). Ambiguous or partial names return `409 { code: "ambiguous", details: { candidates } }`; unknown names return 404. Status changes: enquiry → confirmed → completed; enquiry can go straight to completed; enquiry/confirmed → cancelled; asking for the current status is a no-op. `delete_gig` is for mistakes and refuses gigs with payments.
 
-Planned (T05, T06):
+Money and band (T05):
+
+| Operation                            | Route                                     | Who                                            |
+| ------------------------------------ | ----------------------------------------- | ---------------------------------------------- |
+| `get_gig_money`                      | `GET /gigs/:gig_id/money`                 | members (own share only) / owners (everything) |
+| `record_payment`                     | `POST /gigs/:gig_id/payments`             | members                                        |
+| `reverse_payment`                    | `POST /payments/:payment_id/reverse`      | owners, or whoever recorded it                 |
+| `record_expense`, `find_expenses`    | `POST`, `GET /expenses`                   | members / owners                               |
+| `delete_expense`                     | `DELETE /expenses/:expense_id`            | owners, or whoever recorded it                 |
+| `create_musician`, `find_musicians`  | `POST`, `GET /musicians`                  | owners / members                               |
+| `update_musician`, `delete_musician` | `PATCH`, `DELETE /musicians/:musician_id` | owners                                         |
+| `set_gig_lineup`                     | `PUT /gigs/:gig_id/lineup`                | owners                                         |
+| `record_payout`                      | `POST /gigs/:gig_id/payouts`              | owners                                         |
+| `reverse_payout`                     | `POST /payouts/:payout_id/reverse`        | owners                                         |
+
+Amounts: `amount_paise` or `amount` (a number is rupees; strings like `"₹5,000"` work). Dates (`paid_on`, `spent_on`) are `YYYY-MM-DD` and default to today in India. A lineup is replaced as a whole: each person gets `share`/`share_paise` or `percent` (of `split_total`, default the fee), or use `split: "equal"`. Leftover paise from splits go to the first person. People with payout history can't be removed from a lineup. Payouts need the musician in the lineup.
+
+Planned (T06):
 
 - Gigs: `create_gig`, `find_gigs`, `get_gig`, `update_gig`, `confirm_gig`, `complete_gig`, `cancel_gig`
 - Clients: `create_client`, `find_clients`, `get_client_history`

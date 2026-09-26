@@ -4,11 +4,12 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { OpCtx } from "../../../core/operations.ts";
 import { AppError } from "../../../core/errors.ts";
-import { clients, venues } from "../schema.ts";
+import { clients, musicians, venues } from "../schema.ts";
 import { contains } from "./shared.ts";
 
-type Kind = "client" | "venue";
-const TABLES = { client: clients, venue: venues } as const;
+type Kind = "client" | "venue" | "musician";
+const TABLES = { client: clients, venue: venues, musician: musicians } as const;
+const LABEL = { client: "Client", venue: "Venue", musician: "Musician" } as const;
 
 /** undefined = not given (leave as is), null = clear, string = resolved id. */
 export async function resolveRef(
@@ -29,7 +30,7 @@ export async function resolveRef(
       .from(t)
       .where(and(scope, eq(t.id, id)))
       .limit(1);
-    if (!row) throw new AppError("not_found", `${kind === "client" ? "Client" : "Venue"} not found`);
+    if (!row) throw new AppError("not_found", `${LABEL[kind]} not found`);
     return row.id;
   }
   if (name === undefined) return undefined;
@@ -58,8 +59,12 @@ export async function resolveRef(
       { field: `${kind}_name`, candidates },
     );
   }
-  throw new AppError("not_found", `No ${kind} matches "${name}". Create it first (create_${kind}).`, {
-    field: `${kind}_name`,
-    candidates: [],
-  });
+  throw new AppError(
+    "not_found",
+    `No ${kind} matches "${name}". ${kind === "musician" ? "Add them to the roster first (create_musician)" : `Create it first (create_${kind})`}.`,
+    {
+      field: `${kind}_name`,
+      candidates: [],
+    },
+  );
 }
