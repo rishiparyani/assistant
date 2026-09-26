@@ -52,7 +52,8 @@ Instead of the owner creating it by hand, the deploy workflow sets it on each Wo
 - D1 binding passed straight to Better Auth as `database`; schema SQL generated from the auth options with `getMigrations().compileMigrations()` and applied with `wrangler d1 migrations`.
 - The spike's MCP server is a ~80-line stateless JSON-RPC handler, not the MCP SDK. Revisit for T10 (SDK vs hand-rolled over the operation registry).
 - Dependencies added for the spike only: `better-auth`, `@better-auth/oauth-provider`, `hono`, `wrangler`, `vitest`, `typescript`.
-Results of the deployed test (Google sign-in, Claude connector, CPU time) to be added here.
+Deployed results (2026-09-26): Google sign-in works on the Worker with sessions in D1; the owner created a `band` workspace; the Claude custom connector completed OAuth (dynamic registration, login, consent) and `whoami` returned the owner's name, email and workspace. Second member tested in-process only (vitest). CPU time per request not yet read from the dashboard.
+Conclusion: the stack in the brief works; no change of plan needed.
 
 ## Open
 
