@@ -10,12 +10,12 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 - Errors: `{ "error": { "code": "not_found", "message": "…", "details": {…}? } }`. Ambiguous matches return code `ambiguous` with `details.candidates`.
 - Money: `amount_paise` plus `amount_display` ("₹10,000").
 - LLM-friendly: include names and display strings next to IDs.
-- Writes require `Idempotency-Key`. Two-step writes from MCP: `preview` returns `{ preview, confirm_token, expires_at }`; commit with the token.
+- Writes require `Idempotency-Key` (400 without it). Repeating a request with the same key replays the stored response (header `Idempotent-Replayed: true`); the same key with a different request is a 409 (`idempotency_key_reused`). Two-step writes from MCP: `preview` returns `{ preview, confirm_token, expires_at }`; commit with the token.
 - Auth: session cookie (web), bearer API token (Siri, scripts), OAuth access token (MCP).
 
 ## Core operations
 
-- Me/workspaces (T03, plain routes until T04):
+- Me/workspaces (operations since T04; deletes return JSON, e.g. `{ removed: true }`):
   - `GET /api/me`: user + workspaces (`list_workspaces`)
   - `POST /api/workspaces {name}`: `create_band_workspace`
   - `GET /api/w/:id`: `get_workspace` (members; pending invitations for owners; enabled modules)
@@ -28,6 +28,22 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 - Calendar: private tokenised `.ics` feed URL per user (modules contribute events)
 
 ## Gigs module operations (Phase 1)
+
+Implemented in T04 (all under `/api/w/:workspaceId`):
+
+| Operation                                              | Route                                                                                    |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| `create_client`, `find_clients`                        | `POST`, `GET /clients` (`?q=&cursor=&limit=`)                                            |
+| `get_client_history`, `update_client`, `delete_client` | `GET`, `PATCH`, `DELETE /clients/:client_id`                                             |
+| `create_venue`, `find_venues`                          | `POST`, `GET /venues`                                                                    |
+| `update_venue`, `delete_venue`                         | `PATCH`, `DELETE /venues/:venue_id`                                                      |
+| `create_gig`, `find_gigs`                              | `POST`, `GET /gigs` (`?from=&to=&status=&client_id=&venue_id=&q=&order=&cursor=&limit=`) |
+| `get_gig`, `update_gig`, `delete_gig`                  | `GET`, `PATCH`, `DELETE /gigs/:gig_id`                                                   |
+| `confirm_gig`, `complete_gig`, `cancel_gig`            | `POST /gigs/:gig_id/confirm \| complete \| cancel`                                       |
+
+Inputs: times are ISO 8601 with an offset or local India time (`2026-12-12T19:00`); money as `fee_paise` (integer) or `fee` (rupee string/number, e.g. `"₹50,000"`); a gig's client/venue by `client_id` or `client_name` (exact, case-insensitive). Ambiguous or partial names return `409 { code: "ambiguous", details: { candidates } }`; unknown names return 404. Status changes: enquiry → confirmed → completed; enquiry can go straight to completed; enquiry/confirmed → cancelled; asking for the current status is a no-op. `delete_gig` is for mistakes and refuses gigs with payments.
+
+Planned (T05, T06):
 
 - Gigs: `create_gig`, `find_gigs`, `get_gig`, `update_gig`, `confirm_gig`, `complete_gig`, `cancel_gig`
 - Clients: `create_client`, `find_clients`, `get_client_history`

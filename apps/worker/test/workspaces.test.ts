@@ -70,7 +70,7 @@ describe("band workspaces", () => {
     expect(band).toMatchObject({ name: "The Test Band", kind: "band", role: "owner" });
     const me = await json<MeResponse>(await call("/api/me", { cookie: u.cookie }));
     expect(me.workspaces.map((w) => w.kind)).toEqual(["personal", "band"]);
-    expect(await auditActions(band.id)).toEqual(["create_workspace:web"]);
+    expect(await auditActions(band.id)).toEqual(["create_band_workspace:web"]);
   });
 
   it("validates input", async () => {
@@ -195,11 +195,11 @@ describe("invitations and roles", () => {
           cookie: owner.cookie,
         })
       ).status,
-    ).toBe(204);
+    ).toBe(200);
     expect((await call(`/api/w/${band.id}`, { cookie: bandmate.cookie })).status).toBe(404);
 
     expect(await auditActions(band.id)).toEqual([
-      "create_workspace:web",
+      "create_band_workspace:web",
       "invite_member:web",
       "accept_invitation:web",
       "remove_member:web",
@@ -222,7 +222,7 @@ describe("invitations and roles", () => {
     expect(
       (await call(`/api/w/${band.id}/invitations/${second.id}`, { method: "DELETE", cookie: owner.cookie }))
         .status,
-    ).toBe(204);
+    ).toBe(200);
     detail = await json<WorkspaceDetail>(await call(`/api/w/${band.id}`, { cookie: owner.cookie }));
     expect(detail.invitations).toEqual([]);
   });

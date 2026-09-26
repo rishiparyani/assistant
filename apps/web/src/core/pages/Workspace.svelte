@@ -23,7 +23,7 @@
   }
   load();
 
-  async function act(fn: () => Promise<void>) {
+  async function act(fn: () => Promise<unknown>) {
     busy = true;
     error = "";
     try {

@@ -6,9 +6,20 @@ const worker = () => (exports as unknown as { default: Fetcher }).default;
 
 export async function call(
   path: string,
-  init: { method?: string; body?: unknown; cookie?: string; raw?: string } = {},
+  init: {
+    method?: string;
+    body?: unknown;
+    cookie?: string;
+    raw?: string;
+    idempotencyKey?: string | null;
+  } = {},
 ): Promise<Response> {
   const headers = new Headers({ origin: BASE });
+  const method = init.method ?? (init.body !== undefined || init.raw !== undefined ? "POST" : "GET");
+  // API writes need an Idempotency-Key; a fresh one per call unless the test sets it.
+  if (method !== "GET" && path.startsWith("/api/") && init.idempotencyKey !== null) {
+    headers.set("idempotency-key", init.idempotencyKey ?? crypto.randomUUID());
+  }
   if (init.cookie) headers.set("cookie", init.cookie);
   let body: string | undefined;
   if (init.raw !== undefined) body = init.raw;

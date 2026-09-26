@@ -5,7 +5,8 @@ import type { ModuleDefinition } from "./module.ts";
 import type { AppEnv } from "./context.ts";
 import { AppError } from "./errors.ts";
 import { authRoutes } from "./auth/routes.ts";
-import { workspaceRoutes } from "./workspaces/routes.ts";
+import { registerOperations, type AnyOperation } from "./operations.ts";
+import { workspaceOperations } from "./workspaces/operations.ts";
 
 export interface AppOptions {
   modules: readonly ModuleDefinition[];
@@ -15,6 +16,10 @@ export function createApp({ modules }: AppOptions) {
   const ids = modules.map((m) => m.id);
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate module ids: ${ids.join(", ")}`);
   const moduleSchemas = Object.assign({}, ...modules.map((m) => m.schema ?? {}));
+  const operations: AnyOperation[] = [
+    ...workspaceOperations(ids),
+    ...modules.flatMap((m) => m.operations ?? []),
+  ];
 
   const app = new Hono<AppEnv>();
 
@@ -26,6 +31,10 @@ export function createApp({ modules }: AppOptions) {
 
   app.onError((err, c) => {
     if (err instanceof AppError) return c.json(err.toJSON(), err.status);
+    if (err instanceof RangeError) {
+      // Thrown by shared parsers (money, dates) on bad input.
+      return c.json({ error: { code: "validation_failed", message: err.message } }, 400);
+    }
     if (err instanceof SyntaxError) {
       return c.json(
         { error: { code: "validation_failed", message: "Request body must be valid JSON" } },
@@ -52,12 +61,12 @@ export function createApp({ modules }: AppOptions) {
   });
 
   app.route("/", authRoutes);
-  app.route("/", workspaceRoutes);
+  registerOperations(app, operations);
 
   // Unknown API paths are JSON 404s, never the SPA's index.html.
   app.all("/api/*", (c) =>
     c.json({ error: { code: "not_found", message: `No route for ${c.req.method} ${c.req.path}` } }, 404),
   );
 
-  return app;
+  return Object.assign(app, { operations });
 }
