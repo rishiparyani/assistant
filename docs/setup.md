@@ -18,6 +18,8 @@ Agents (Claude Code, Codex) never deploy from their own session and never hold t
 | any other branch in this repo | **dev** Worker `assistant-dev`      | dev D1 (fake data only) |
 | pull request from a fork      | **nothing**; tests only, no secrets | none                    |
 
+Manual run: Actions → Deploy → Run workflow (pick the branch). Needed when a push changes no deployable files, e.g. creating a branch at an existing commit.
+
 Rollback: redeploy an earlier commit from the Actions tab, or `wrangler rollback`.
 
 ## Where secrets live

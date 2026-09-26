@@ -33,7 +33,8 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 - [x] GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added (owner reported 2026-09-26; first deploy will verify)
 - [x] Google OAuth client created; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` added as GitHub secrets (owner reported 2026-09-26)
 - [ ] GitHub secret scanning, push protection, Dependabot alerts enabled; fork PR workflows require approval
-- [ ] `main` created (T01) and set as default branch; branch protection on `main`
+- [x] `main` created (2026-09-26)
+- [ ] `main` set as default branch; branch ruleset on `main`
 - [ ] GitHub Environment `production` limited to `main`
 - [x] Claude custom connector added (`Assistant`, pointing at the spike)
 
@@ -45,7 +46,8 @@ Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.worker
 
 - `CLAUDE.md` is a symlink; on Windows without symlink support replace it with a file containing `@AGENTS.md`.
 - **The repo is public.** No secrets or real personal data anywhere; see `docs/security.md#public-repository`.
-- The GitHub default branch is `claude/gig-assistant-flexibility-7x8ws8` until `main` exists and the owner switches it.
+- `main` created 2026-09-26 at the T01 commit; prod deployed via manual `workflow_dispatch` (https://assistant.rishiparyani.workers.dev).
+- Pushing a new branch whose commit already exists on the default branch doesn't trigger path-filtered workflows (no changed files). Run the workflow manually (Actions → Deploy → Run workflow).
 - Better Auth docs site (better-auth.com) is blocked from agent sessions; read the types in `node_modules/@better-auth/*/dist/*.d.mts` instead.
 - `@better-auth/oauth-provider`: `/auth/oauth2/consent` returns `{ url }` (not `redirect_uri`). Access tokens are JWTs only when the client sends `resource`; the spike falls back to `/oauth2/userinfo` for opaque tokens.
 - Better Auth tables use camelCase columns and random string IDs (not ULIDs). Decide in T02/T03: `advanced.database.generateId` for ULIDs; keep Better Auth's column names for its own tables.
