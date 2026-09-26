@@ -26,7 +26,13 @@ Reason: adding a kind of task should mean adding a module, not changing core or 
 Guardrails against over-engineering: no plugin loading at runtime (modules are compiled in and listed in one file); one database and migration sequence; shared concepts (contacts, reminders, attachments) are promoted to core only when a second module needs them.
 Repo named `assistant` rather than `gig-assistant` for the same reason; the product can still be called "Gig Assistant" while gigs is its only module.
 
+## 2026-09-26: Track each band member's share and payout in Phase 1
+Decided by the user. Gigs get a lineup (`gig_lineup`: musician + `share_paise`) and band-to-musician payouts (`payouts`, append-only with reversals like client payments). Musicians are a roster per band (`musicians`), optionally linked to a user account, so deps and players who never sign in still work. Amounts owed and band net are derived. Shares need not add up to the fee (kitty allowed, reported as unallocated). Members see only their own share by default; owners see all.
+Reason: the point of the app is knowing who owes whom; in a band that includes what the band owes its players.
+
+## 2026-09-26: No further modules planned yet
+The user will decide what else the assistant helps with as needs come up. The core + modules structure stays so that's cheap; nothing is built speculatively for unknown modules. Ideas stay in [roadmap.md](roadmap.md).
+
 ## Open
 
-- **Member shares (blocks T02):** track each band member's share and payout in Phase 1, or only the band's total fee?
-- **Next modules:** which other tasks should the assistant help with? Candidates in [roadmap.md](roadmap.md). Doesn't block Phase 1.
+None.

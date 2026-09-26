@@ -18,12 +18,14 @@ Notifications beyond basics, WhatsApp client messages, media integration (Drive)
 
 ## Other modules (ideas, not committed)
 
+No decision yet: we'll add modules as real needs show up.
+
 Flexibility means these could be added as modules without touching core. Each needs a decision before work starts.
 
 - **Tasks & reminders:** to-dos with due dates, surfaced in the dashboard, Siri and the .ics feed (e.g. "send invoice to X", "restring guitar").
 - **Practice log:** what was practised, how long, linked to songs once `music` exists.
 - **Gear:** inventory, serial numbers, insurance values, maintenance/restring history.
-- **Contacts:** musicians, sound engineers, depping players; could become a core `contacts` table shared with gigs' clients.
+- **Contacts:** sound engineers, organisers, other people beyond gig clients and the band roster; could become a core `contacts` table shared with gigs' clients and musicians.
 - **Teaching:** students, lessons, fees (reuses the payments pattern).
 - **Personal finance beyond gigs:** general income/expenses, tax-year summaries.
 - **Notes/knowledge:** free-form notes attached to any entity.

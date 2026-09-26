@@ -4,7 +4,7 @@
 
 Core: auth, workspaces (personal + bands), memberships, authorization middleware, operation registry, idempotency, confirm tokens, audit log, API tokens, module enablement, basic notifications, backups.
 
-Gigs module: gigs, clients, venues, fees, payments (partial), expenses, outstanding balances, schedule, reports, .ics calendar feed.
+Gigs module: gigs, clients, venues, fees, payments (partial), expenses, band roster, per-member shares and payouts, outstanding balances (owed to the band and owed to each member), schedule, reports, .ics calendar feed.
 
 Clients: web admin app, Siri Shortcuts, MCP server.
 
@@ -16,11 +16,11 @@ Songs/setlists/stage mode, offline mode, band sync, MIDI, invoices/GST documents
 
 ### Web app
 
-Dashboard (upcoming gigs, outstanding, this month), gig list/detail with payment timeline, clients, forms for gig/payment/expense, reports (monthly, per client, per band, outstanding aging), settings (workspaces, members, modules, API tokens). Navigation is built from the enabled modules.
+Dashboard (upcoming gigs, outstanding, this month), gig list/detail with payment timeline and lineup (shares, payouts), clients, forms for gig/payment/expense, reports (monthly, per client, per band, per member, outstanding aging, my earnings across bands), settings (workspaces, members, modules, API tokens). Navigation is built from the enabled modules.
 
 ### Siri Shortcuts
 
-Helpers `GA · Config` (API URL + token) and `GA · API Request` (all calls go through it). User-facing: "Next gig", "Gigs this week", "Record payment", "Add gig", "Who owes me". Confirm step before writes. Optional later: Apple's on-device model ("Use Model" action) to parse free-form commands into an action + parameters. Each shortcut documented in `shortcuts/`.
+Helpers `GA · Config` (API URL + token) and `GA · API Request` (all calls go through it). User-facing: "Next gig", "Gigs this week", "Record payment", "Add gig", "Who owes me", "Who do I owe" (band payouts outstanding), "Record payout". Confirm step before writes. Optional later: Apple's on-device model ("Use Model" action) to parse free-form commands into an action + parameters. Each shortcut documented in `shortcuts/`.
 
 ### AI assistants (MCP)
 
@@ -33,7 +33,7 @@ Web push (iPhone requires home-screen install), email, optional Telegram bot (us
 ## Done when
 
 - All real gigs and payments are managed through it for a month.
-- Balances and totals match reality.
+- Balances, member shares and payouts match reality.
 - Siri and at least one AI assistant read and record safely.
 - Nightly backups run and a restore has been tested.
 - Adding a second (even trivial) module would need no change to core or clients beyond registration. Check this with a throwaway module in a test.

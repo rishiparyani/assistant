@@ -19,7 +19,7 @@ pnpm workspaces, TypeScript, lint/format, Worker hello world serving the Vite ap
 - AC: GitHub Actions runs typecheck, lint, test on PRs; deploys on merge to `main`.
 
 ## T02 D1 + Drizzle + base schema
-Blocked on the open decision: member shares.
+Includes per-member shares and payouts (decided 2026-09-26).
 - AC: Drizzle configured for D1; `pnpm db:generate` / `pnpm db:migrate` work locally and against dev.
 - AC: core tables (workspaces extension, memberships if not Better Auth's, workspace_modules, api_tokens, idempotency_keys, confirm_tokens, audit_log) and gigs tables per `docs/data-model.md`, with indexes.
 - AC: ULID and money helpers in `packages/shared` with tests.
@@ -37,27 +37,30 @@ Blocked on the open decision: member shares.
 - AC: ambiguous name lookups on writes return candidates.
 - AC: a throwaway test module registers one operation and gets a working route with no core changes.
 
-## T05 Gigs: payments, reversals, expenses, balances
+## T05 Gigs: payments, reversals, expenses, balances, member shares
+- AC: roster (`musicians`), `set_gig_lineup` with equal/percent split helper (paise, rounding leftover to first row, exact totals), `record_payout`, `reverse_payout`.
+- AC: derived owed-per-musician and band net; `unallocated_paise` reported; table-driven tests.
+- AC: members see only their own share/payouts; owners see all; tested.
 - AC: payments are append-only; reversals are negative entries linked by `reverses_payment_id`.
 - AC: balance and payment status derived; table-driven tests cover unpaid/partial/paid/overpaid and reversals.
 - AC: expenses with optional gig link.
 - AC: every write idempotent and audited.
 
 ## T06 Gigs views
-- AC: `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_dashboard` with display strings; queries use indexes (check with `EXPLAIN QUERY PLAN`).
+- AC: `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_dashboard`, `get_payouts_owed`, `get_my_earnings` with display strings; queries use indexes (check with `EXPLAIN QUERY PLAN`).
 
 ## T07 Web app: dashboard, gigs, clients, forms
-- AC: dashboard, gig list/detail with payment timeline, clients, forms for gig/payment/expense.
+- AC: dashboard, gig list/detail with payment timeline and lineup/payouts, roster, clients, forms for gig/payment/expense.
 - AC: navigation built from the workspace's enabled modules; workspace switcher.
 - AC: works well on a phone.
 
 ## T08 Reports page + .ics feed
-- AC: reports (monthly, per client, per band, outstanding aging).
+- AC: reports (monthly, per client, per band, per member, outstanding aging, my earnings).
 - AC: private tokenised .ics feed per user; modules contribute events through a core hook; subscribing in Apple/Google Calendar works.
 
 ## T09 API tokens + Siri Shortcuts
 - AC: create/list/revoke scoped tokens in settings; stored hashed.
-- AC: shortcuts "Next gig", "Gigs this week", "Record payment", "Add gig", "Who owes me" documented in `shortcuts/` with a confirm step before writes.
+- AC: shortcuts "Next gig", "Gigs this week", "Record payment", "Add gig", "Who owes me", "Who do I owe", "Record payout" documented in `shortcuts/` with a confirm step before writes.
 
 ## T10 MCP server + OAuth
 - AC: `/mcp` exposes tools generated from the operation registry, filtered by enabled modules and scopes.

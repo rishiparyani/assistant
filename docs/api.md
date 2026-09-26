@@ -26,8 +26,11 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 - Clients: `create_client`, `find_clients`, `get_client_history`
 - Venues: `create_venue`, `find_venues`
 - Money: `record_payment`, `reverse_payment`, `record_expense`
-- Views: `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_dashboard`
+- Band members: `create_musician`, `find_musicians`, `set_gig_lineup` (musicians + shares; optional `split: equal | percent`), `record_payout`, `reverse_payout`
+- Views: `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_dashboard`, `get_payouts_owed` (per musician, per gig), `get_my_earnings` (the signed-in user's shares and payouts across their workspaces)
 
-Two-step from MCP: `record_payment`, `reverse_payment`, `record_expense`, `cancel_gig`, and any delete.
+Two-step from MCP: `record_payment`, `reverse_payment`, `record_expense`, `set_gig_lineup`, `record_payout`, `reverse_payout`, `cancel_gig`, and any delete.
 
-Scopes: `gigs:read`, `gigs:write`. Siri default token: `gigs:read` + `create_gig` + `record_payment` (no cancel/reverse).
+Scopes: `gigs:read`, `gigs:write`. Siri default token: `gigs:read` + `create_gig` + `record_payment` + `record_payout` (no cancel/reverse).
+
+Share visibility is enforced in services: members get only their own lineup row and payouts; owners get all (see [data-model.md](data-model.md)).

@@ -6,6 +6,7 @@ _Updated: 2026-09-26_
 
 - Repo setup from the project brief (no application code): `AGENTS.md` (+ `CLAUDE.md` symlink), `docs/`, `tasks/`, folder structure, root configs.
 - Architecture made flexible: a small core plus feature modules, with Gigs as module one (see `docs/modules.md` and the decision in `docs/decisions.md`).
+- Decisions recorded: per-member shares and payouts in Phase 1 (T02/T05 updated); no further modules planned yet.
 - Original brief archived in `docs/archive/gig-assistant-brief.md`.
 
 ## Next
@@ -14,8 +15,10 @@ _Updated: 2026-09-26_
 
 ## Open decisions
 
-- **Member shares** (blocks T02): track each band member's share and payout in Phase 1, or only the band's total fee?
-- **Other modules**: which other tasks should the assistant help with after gigs? Ideas in `docs/roadmap.md`. Doesn't block Phase 1.
+None. Resolved 2026-09-26:
+
+- Member shares: tracked per member (roster, lineup with shares, payouts). See `docs/data-model.md`.
+- Other modules: none planned; add as needs come up.
 
 ## In progress
 
