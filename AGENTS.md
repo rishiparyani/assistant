@@ -30,6 +30,8 @@ This repository is **public**. Full rules: [docs/security.md](docs/security.md#p
 
 ## Deploys and accounts
 
+**The owner wants as few manual steps as possible.** Verify things yourself (deploy results via the GitHub Actions API and logs, live URLs with curl or a headless browser, repo settings via the GitHub API) instead of asking for screenshots. Ask the owner only for what needs their accounts, and then give short step-by-step instructions.
+
 Agents never deploy from their session and never hold the Cloudflare token. GitHub Actions deploys: push to `main` → prod, push to any other branch → dev (fake data only). The owner creates accounts and secrets by hand; agents give step-by-step instructions and never ask for secrets in chat. Details, secret locations and free-tier limits: [docs/setup.md](docs/setup.md).
 
 ## Stack

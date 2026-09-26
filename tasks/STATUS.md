@@ -51,4 +51,5 @@ Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.worker
 - Better Auth docs site (better-auth.com) is blocked from agent sessions; read the types in `node_modules/@better-auth/*/dist/*.d.mts` instead.
 - `@better-auth/oauth-provider`: `/auth/oauth2/consent` returns `{ url }` (not `redirect_uri`). Access tokens are JWTs only when the client sends `resource`; the spike falls back to `/oauth2/userinfo` for opaque tokens.
 - Better Auth tables use camelCase columns and random string IDs (not ULIDs). Decide in T02/T03: `advanced.database.generateId` for ULIDs; keep Better Auth's column names for its own tables.
+- Agent sessions can't reach `*.rishiparyani.workers.dev` unless the owner allows it in the cloud environment's network settings (asked 2026-09-26). Until then, verify deploys from the workflow's smoke-test logs.
 - Agent sessions can't reach `api.cloudflare.com` (network policy), and shouldn't: deploys go through GitHub Actions only.
