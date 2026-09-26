@@ -27,8 +27,8 @@ Resolved 2026-09-26:
 
 Steps the owner does by hand (instructions in `docs/setup.md`). Update this list when the owner reports progress.
 
-- [ ] Cloudflare account created
-- [ ] GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added (instructions given 2026-09-26; not confirmed yet)
+- [x] Cloudflare account created (workers.dev subdomain: `rishiparyani.workers.dev`)
+- [x] GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added (owner reported 2026-09-26; first deploy will verify)
 - [ ] GitHub secret scanning, push protection, Dependabot alerts enabled; fork PR workflows require approval
 - [ ] `main` created (T01) and set as default branch; branch protection on `main`
 - [ ] Claude custom connector added (end of T00)
