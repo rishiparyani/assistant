@@ -53,5 +53,5 @@ Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.worker
 - Better Auth tables keep camelCase columns; IDs are ULIDs. If a Better Auth upgrade adds columns, `test/auth-schema.test.ts` fails: update `auth-schema.ts`, run `pnpm db:generate`.
 - The Vite dev server and `wrangler` share local D1 state in `apps/worker/.wrangler/state` (`persistState` in `apps/web/vite.config.ts`).
 - Agent sessions can reach `*.rishiparyani.workers.dev` (custom network allowlist, 2026-09-26): verify live apps with curl or headless Chromium.
-- **Workflow since `main` is protected:** work on a branch (deploys to dev), open a PR to `main` when a task is done, merge = prod deploy. Only open PRs when the owner asks.
+- **Workflow since `main` is protected:** work on a branch (deploys to dev); when a task is done and verified, open a PR to `main` and merge it after CI passes (owner OK'd, 2026-09-26), then tell the owner what went live.
 - Agent sessions can't reach `api.cloudflare.com` (network policy), and shouldn't: deploys go through GitHub Actions only.
