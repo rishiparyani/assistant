@@ -12,13 +12,13 @@ _Updated: 2026-09-26_
 
 ## Next
 
-**Waiting on the owner** (see "Owner setup" below), then **T00 Spike**: Better Auth on Workers + D1 (passkey login, organization plugin as workspaces) and a minimal MCP endpoint connected to Claude via OAuth. See `tasks/backlog.md`.
+**Waiting on the owner** (see "Owner setup" below), then **T00 Spike**: Better Auth on Workers + D1 (Google sign-in, organization plugin as workspaces) and a minimal MCP endpoint connected to Claude via OAuth. See `tasks/backlog.md`.
 
 ## Open decisions
 
-- **Google sign-in:** proposed dropping it (passkeys now, magic links in T03). Not explicitly confirmed by the owner yet; confirm before building login. See `docs/decisions.md`.
+None. Resolved 2026-09-26:
 
-Resolved 2026-09-26:
+- Login: Google sign-in now; passkeys and magic links added in T03.
 
 - Member shares: tracked per member (roster, lineup with shares, payouts). See `docs/data-model.md`.
 - Other modules: none planned; add as needs come up.
@@ -29,6 +29,8 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 
 - [x] Cloudflare account created (workers.dev subdomain: `rishiparyani.workers.dev`)
 - [x] GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added (owner reported 2026-09-26; first deploy will verify)
+- [ ] Google OAuth client created; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` added as GitHub secrets (instructions given 2026-09-26)
+- [ ] `BETTER_AUTH_SECRET` added as a GitHub secret (for spike/dev)
 - [ ] GitHub secret scanning, push protection, Dependabot alerts enabled; fork PR workflows require approval
 - [ ] `main` created (T01) and set as default branch; branch protection on `main`
 - [ ] Claude custom connector added (end of T00)

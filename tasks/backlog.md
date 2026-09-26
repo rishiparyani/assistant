@@ -3,8 +3,8 @@
 Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists acceptance criteria (AC).
 
 ## T00 Spike (throwaway): auth + MCP on Workers
-Better Auth on Workers + D1 (login method per the open decision: passkeys proposed instead of Google; organization plugin as workspaces) and a minimal MCP endpoint connected to Claude via OAuth. This is the main technical risk. Code lives on a spike branch or `spikes/`, not in `apps/`.
-- AC: login (passkey, or Google if chosen) works on a deployed Worker with sessions in D1.
+Better Auth on Workers + D1 (Google sign-in, organization plugin as workspaces) and a minimal MCP endpoint connected to Claude via OAuth. This is the main technical risk. Code lives on a spike branch or `spikes/`, not in `apps/`.
+- AC: Google sign-in works on a deployed Worker with sessions in D1.
 - AC: deployed through a GitHub Actions workflow following the public-repo rules in `docs/security.md`; no secrets in the repo or logs.
 - AC: an organization can be created and a second user added as member; `kind` can be stored on it (or a clear alternative is chosen).
 - AC: Claude custom connector completes OAuth against Better Auth and calls one MCP tool that returns the signed-in user's name.
@@ -29,7 +29,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 - AC: ULID and money helpers in `packages/shared` with tests.
 
 ## T03 Auth + workspaces + authorization middleware
-- AC: sign-in (passkeys + magic link; Google only if decided), personal workspace auto-created on first sign-in.
+- AC: sign-in with Google (from T00) plus passkeys and email magic links, personal workspace auto-created on first sign-in.
 - AC: create band workspace, invite/remove members, roles enforced.
 - AC: single middleware builds ctx `{db, user, workspace, source}` and checks membership, role and module enabled.
 - AC: tests prove a user can't read or write another workspace's data.

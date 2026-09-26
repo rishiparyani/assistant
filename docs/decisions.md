@@ -40,6 +40,10 @@ Reason: the agent environment can't reach the Cloudflare API anyway; keeping the
 ## 2026-09-26: Public repository
 The repo is public (unlimited free Actions minutes). Consequences: no secrets or real personal data in the repo, issues, PRs or Actions logs/artifacts; hardened workflows; secret scanning and push protection enabled. Rules in [security.md](security.md#public-repository). Can be made private later; the free Actions allowance (2,000 min/month) still fits.
 
+## 2026-09-26: Google sign-in first, passkeys and magic links later
+Decided by the owner. T00 uses Google sign-in (as in the original brief). Passkeys and email magic links are added in T03; Google stays. Google OAuth app starts in Testing mode (test users only); publish it before inviting band members (basic scopes need no Google verification).
+Reason: familiar one-tap login for the owner and bandmates; other methods cover people without Google and account recovery.
+
 ## Open
 
-- **Google sign-in (proposed: drop for now).** Proposal to the owner: passkeys for login (no third-party setup) plus email magic links in T03 as backup, Google added later only if band members want it. The owner is setting up without a Google OAuth client, but hasn't explicitly confirmed. Confirm before building login in T00.
+None.

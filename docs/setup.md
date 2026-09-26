@@ -26,11 +26,22 @@ Never in the repo, never in chat, never in logs.
 | --- | --- | --- | --- |
 | `CLOUDFLARE_API_TOKEN` | GitHub → Settings → Secrets and variables → Actions | Deploys. Custom token: Account → Workers Scripts: Edit, D1: Edit, Account Settings: Read (add R2: Edit in T12). | T00 |
 | `CLOUDFLARE_ACCOUNT_ID` | GitHub Actions secret | Deploys | T00 |
-| `BETTER_AUTH_SECRET` | Worker secret (set by the deploy workflow from a GitHub secret of the same name) | Signing sessions/tokens. Random 32+ bytes; separate values for dev and prod. | T00 |
+| `BETTER_AUTH_SECRET` | Repository secret (used by spike/dev); a different value as an Environment secret in the GitHub `production` environment (overrides it for prod, T01). Deploy workflow sets it as a Worker secret. | Signing sessions/tokens. Random 32+ bytes (`openssl rand -base64 32`). | T00 |
 | Email service API key (e.g. Resend) | Worker secret via GitHub secret | Magic-link emails | T03 |
 | VAPID keys (web push) | Worker secret via GitHub secret | Push notifications | T11 |
-| Google OAuth client ID/secret | Worker secret via GitHub secret | Only if Google sign-in is added (see decisions) | optional |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | GitHub Actions secrets → Worker secrets | Google sign-in. One OAuth client covers all environments (several redirect URIs). | T00 |
 | Local values | `apps/worker/.dev.vars` (git-ignored); template in `.dev.vars.example` with placeholders only | `wrangler dev` | T01 |
+
+Worker names and URLs (on the owner's `rishiparyani.workers.dev` subdomain until a domain is added):
+
+| Worker | URL | Google redirect URI |
+| --- | --- | --- |
+| `assistant-spike` (T00) | `https://assistant-spike.rishiparyani.workers.dev` | `…/auth/callback/google` |
+| `assistant-dev` | `https://assistant-dev.rishiparyani.workers.dev` | `…/auth/callback/google` |
+| `assistant` (prod) | `https://assistant.rishiparyani.workers.dev` | `…/auth/callback/google` |
+| local `wrangler dev` | `http://localhost:8787` | `…/auth/callback/google` |
+
+Better Auth's `basePath` is `/auth`, so the callback is `/auth/callback/google`. When a domain is added, add its origin and redirect URI to the Google client.
 
 Not secret, fine to commit: D1 database names and IDs, Worker names, the public app URL. They can't be used without the API token.
 
@@ -44,8 +55,9 @@ Done by the repo owner in the browser; agents should give step-by-step instructi
 4. **GitHub safety settings** (public repo): Settings → Code security → enable **Secret scanning** and **Push protection**; enable **Dependabot alerts**. Settings → Actions → General → "Fork pull request workflows": require approval for all outside contributors.
 5. **Default branch → `main`**: Settings → General → Default branch, once `main` exists (T01). Currently the default is an old `claude/…` working branch because it was pushed first.
 6. **Branch protection on `main`** (T01): require CI to pass before merge.
-7. **Claude custom connector** (end of T00, and T10): Claude settings → Connectors → add custom connector with the app's `/mcp` URL.
-8. **Later**: domain (DNS on Cloudflare), email service account, enable R2 (asks for a payment method even on the free tier), Siri Shortcuts on the iPhone.
+7. **Google OAuth client** (T00): console.cloud.google.com → new project `assistant` → Google Auth Platform (a.k.a. OAuth consent screen): app name, support email, audience **External**, contact email → create. Audience → add the owner as a **test user**. Clients → Create client → **Web application**; add the four origins and redirect URIs from the table above → Create. Copy the client ID and secret into GitHub secrets immediately (Google may not show the secret again). Before inviting bandmates: Audience → **Publish app**.
+8. **Claude custom connector** (end of T00, and T10): Claude settings → Connectors → add custom connector with the app's `/mcp` URL.
+9. **Later**: domain (DNS on Cloudflare), email service account, enable R2 (asks for a payment method even on the free tier), Siri Shortcuts on the iPhone.
 
 Status of each is tracked in `tasks/STATUS.md` under "Owner setup".
 
