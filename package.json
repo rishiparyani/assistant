@@ -1,0 +1,16 @@
+{
+  "name": "assistant",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Personal and band assistant: core + modules, starting with gig management",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "echo \"not set up yet (T01)\" && exit 1",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test"
+  }
+}
