@@ -1,9 +1,14 @@
 <script lang="ts">
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import { Button, Card } from "../ui/index.ts";
+  import Centered from "../shell/Centered.svelte";
+  import { session } from "../session.svelte.ts";
+
   let { query }: { query: URLSearchParams } = $props();
 
   let clientName = $state("An app");
   let error = $state("");
-  let busy = $state(false);
+  let busy = $state<"" | "allow" | "deny">("");
 
   $effect(() => {
     const id = query.get("client_id");
@@ -15,7 +20,7 @@
   });
 
   async function decide(accept: boolean) {
-    busy = true;
+    busy = accept ? "allow" : "deny";
     error = "";
     const res = await fetch("/auth/oauth2/consent", {
       method: "POST",
@@ -25,22 +30,79 @@
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       error = data?.message ?? data?.error_description ?? "Something went wrong";
-      busy = false;
+      busy = "";
       return;
     }
     window.location.href = data.url ?? data.redirect_uri;
   }
 </script>
 
-<h1>Allow access?</h1>
-<div class="card stack">
-  <p>
-    <strong>{clientName}</strong> wants to use your Assistant account: read and record gigs on your behalf.
-  </p>
-  <p class="muted">Scopes: {query.get("scope") ?? "default"}</p>
-  <div style="display: flex; gap: 0.5rem">
-    <button class="primary" onclick={() => decide(true)} disabled={busy}>Allow</button>
-    <button onclick={() => decide(false)} disabled={busy}>Deny</button>
-  </div>
-  {#if error}<p class="error">{error}</p>{/if}
-</div>
+<Centered>
+  <Card>
+    <div class="stack">
+      <div class="icon"><ShieldCheck size={28} /></div>
+      <h1><strong>{clientName}</strong> wants access to your Assistant account</h1>
+      <ul>
+        <li>See your workspaces, gigs, clients and payments</li>
+        <li>Add and update gigs and record payments for you (money changes ask you to confirm)</li>
+      </ul>
+      {#if session.me}<p class="fine">Signed in as {session.me.user.email}</p>{/if}
+      {#if error}<p class="error">{error}</p>{/if}
+      <div class="actions">
+        <Button size="lg" onclick={() => decide(false)} loading={busy === "deny"} disabled={!!busy}
+          >Deny</Button
+        >
+        <Button
+          variant="primary"
+          size="lg"
+          onclick={() => decide(true)}
+          loading={busy === "allow"}
+          disabled={!!busy}>Allow</Button
+        >
+      </div>
+    </div>
+  </Card>
+</Centered>
+
+<style>
+  .stack {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .icon {
+    width: 52px;
+    height: 52px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    margin: var(--space-2) auto 0;
+  }
+  h1 {
+    text-align: center;
+    font-size: var(--text-md);
+    font-weight: 500;
+  }
+  ul {
+    margin: 0;
+    padding-left: 1.2em;
+    color: var(--text-2);
+    display: grid;
+    gap: 6px;
+  }
+  .fine {
+    text-align: center;
+    font-size: var(--text-sm);
+    color: var(--text-3);
+  }
+  .error {
+    color: var(--red);
+  }
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+</style>

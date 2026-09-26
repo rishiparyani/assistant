@@ -12,6 +12,8 @@
   "dependencies": {
     "@assistant/shared": "workspace:*",
     "@better-auth/passkey": "catalog:",
+    "@fontsource-variable/inter": "catalog:",
+    "@lucide/svelte": "catalog:",
     "better-auth": "catalog:"
   },
   "devDependencies": {

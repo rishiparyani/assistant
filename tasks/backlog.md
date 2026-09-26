@@ -75,6 +75,7 @@ Decided 2026-09-26: UI work runs alongside backend work from here on; every task
 - AC: existing screens (login, consent, workspaces, band page, invite, settings) rebuilt on it.
 - AC: feels like a native app on iPhone (tap targets ≥ 44 px, no zoom on inputs, smooth transitions, standalone-capable manifest) and not stretched on a laptop.
 - AC: screenshots at 390 px, 820 px and 1280 px reviewed by the owner before building every screen.
+- Status: code done 2026-09-26; owner review of screenshots pending.
 
 ## U1 Gig screens for T04/T05 (catch-up)
 

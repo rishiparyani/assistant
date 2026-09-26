@@ -1,0 +1,208 @@
+/* Design tokens. Every colour, size and radius in the app comes from here.
+   Light is the default; dark follows the system. */
+@import "@fontsource-variable/inter";
+
+:root {
+  color-scheme: light dark;
+
+  /* Surfaces: grouped iOS-style background with raised cards. */
+  --bg: #f4f4f6;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f8f8fa;
+  --surface-hover: #f1f1f4;
+  --surface-pressed: #e9e9ee;
+  --border: #e4e4e9;
+  --border-strong: #d4d4dc;
+  --separator: #ececf0;
+  --backdrop: rgb(15 15 25 / 0.36);
+  --chrome: rgb(248 248 250 / 0.82); /* translucent bars */
+
+  /* Text */
+  --text: #16161d;
+  --text-2: #5c5c6b;
+  --text-3: #8b8b99;
+  --text-on-accent: #ffffff;
+
+  /* Brand: a confident indigo. */
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-soft: #eef0ff;
+  --accent-text: #3f37c9;
+
+  /* Status and money */
+  --green: #15803d;
+  --green-soft: #e7f6ec;
+  --amber: #b45309;
+  --amber-soft: #fdf3e2;
+  --red: #c42b2b;
+  --red-soft: #fdecec;
+  --blue: #2563eb;
+  --blue-soft: #e8f0fe;
+  --violet: #7c3aed;
+  --violet-soft: #f1ebfe;
+  --grey: #6b6b78;
+  --grey-soft: #efeff2;
+
+  /* Type */
+  --font: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2.125rem;
+
+  /* Space, radius, depth */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 22px;
+  --radius-full: 999px;
+  --shadow-sm: 0 1px 2px rgb(20 20 40 / 0.06);
+  --shadow: 0 1px 3px rgb(20 20 40 / 0.06), 0 6px 16px rgb(20 20 40 / 0.06);
+  --shadow-lg: 0 10px 40px rgb(20 20 40 / 0.18);
+  --focus: 0 0 0 3px rgb(79 70 229 / 0.35);
+
+  /* Layout */
+  --tabbar-h: 58px;
+  --topbar-h: 52px;
+  --sidebar-w: 264px;
+  --content-max: 760px;
+  --content-wide: 1120px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0c10;
+    --bg-elevated: #17171d;
+    --surface: #17171d;
+    --surface-2: #1d1d24;
+    --surface-hover: #202028;
+    --surface-pressed: #27272f;
+    --border: #2a2a33;
+    --border-strong: #363640;
+    --separator: #24242c;
+    --backdrop: rgb(0 0 0 / 0.55);
+    --chrome: rgb(18 18 23 / 0.82);
+
+    --text: #f2f2f6;
+    --text-2: #a4a4b2;
+    --text-3: #72727f;
+
+    --accent: #7c7cf8;
+    --accent-hover: #8f8ffa;
+    --accent-soft: #23234a;
+    --accent-text: #a5a5ff;
+    --text-on-accent: #0c0c10;
+
+    --green: #4ade80;
+    --green-soft: #15291d;
+    --amber: #fbbf24;
+    --amber-soft: #2d2410;
+    --red: #f87171;
+    --red-soft: #2e1616;
+    --blue: #60a5fa;
+    --blue-soft: #14223a;
+    --violet: #b794f6;
+    --violet-soft: #251c3b;
+    --grey: #9a9aa8;
+    --grey-soft: #222229;
+
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow: 0 1px 3px rgb(0 0 0 / 0.4), 0 6px 16px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 10px 40px rgb(0 0 0 / 0.6);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  line-height: 1.45;
+  font-feature-settings:
+    "cv11",
+    "ss01",
+    "tnum" 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent-text);
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+/* 16px inputs stop iOS from zooming on focus. */
+input,
+select,
+textarea {
+  font: inherit;
+  font-size: 16px;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

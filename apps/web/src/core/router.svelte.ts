@@ -6,12 +6,16 @@ export interface Route {
 }
 
 const PATTERNS: [string, RegExp][] = [
-  ["home", /^\/$/],
+  ["root", /^\/$/],
   ["login", /^\/login$/],
   ["consent", /^\/consent$/],
   ["settings", /^\/settings$/],
-  ["workspace", /^\/w\/(?<workspaceId>[^/]+)$/],
   ["invite", /^\/invite\/(?<invitationId>[^/]+)$/],
+  ["home", /^\/w\/(?<workspaceId>[^/]+)$/],
+  ["members", /^\/w\/(?<workspaceId>[^/]+)\/members$/],
+  ["gigs", /^\/w\/(?<workspaceId>[^/]+)\/gigs$/],
+  ["gig", /^\/w\/(?<workspaceId>[^/]+)\/gigs\/(?<gigId>[^/]+)$/],
+  ["people", /^\/w\/(?<workspaceId>[^/]+)\/people$/],
 ];
 
 function match(location: Location): Route {
@@ -42,3 +46,9 @@ document.addEventListener("click", (e) => {
   e.preventDefault();
   navigate(href);
 });
+
+/** The path of the current page, for "is this nav item active". */
+export function isActive(href: string, exact = false): boolean {
+  const path = window.location.pathname;
+  return exact ? path === href : path === href || path.startsWith(`${href}/`);
+}
