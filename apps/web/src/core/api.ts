@@ -1,6 +1,8 @@
 // The web app's only way to reach the backend. No business logic here.
 import {
   isHealthResponse,
+  type GigView,
+  type Page,
   type ApiErrorBody,
   type HealthResponse,
   type InvitationView,
@@ -54,4 +56,6 @@ export const api = {
     request<{ removed: boolean }>("DELETE", `/api/w/${workspaceId}/members/${memberId}`),
   invitation: (id: string) => request<InvitationView>("GET", `/api/invitations/${id}`),
   acceptInvitation: (id: string) => request<WorkspaceSummary>("POST", `/api/invitations/${id}/accept`, {}),
+  findGigs: (workspaceId: string, params: Record<string, string> = {}) =>
+    request<Page<GigView>>("GET", `/api/w/${workspaceId}/gigs?${new URLSearchParams(params)}`),
 };

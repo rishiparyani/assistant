@@ -89,6 +89,10 @@ pnpm db:migrate   # apply migrations to local D1
 Local settings: copy `apps/worker/.dev.vars.example` to `apps/worker/.dev.vars`. After changing `apps/worker/wrangler.jsonc`, run `pnpm --filter @assistant/worker types`.
 Database: schema in `apps/worker/src/core/db/` (core + Better Auth tables) and `apps/worker/src/modules/<name>/schema.ts`. After a schema change: `pnpm db:generate` (writes a new SQL migration in `apps/worker/migrations/`; never edit an applied one). `pnpm db:migrate` applies migrations to the local D1 (`pnpm dev` does this automatically); deploys apply them remotely.
 
+## UI
+
+Mobile-first and polished (owner's priority): build screens from `apps/web/src/core/ui/` components and theme tokens (no ad-hoc colours or sizes), check 390 / 820 / 1280 px in light and dark before shipping, tap targets ≥ 44 px, inputs 16 px. Every backend task ships with its screens.
+
 ## Don't
 
 - Put business logic in routes, MCP tools, or the web app.
