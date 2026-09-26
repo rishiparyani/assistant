@@ -44,6 +44,9 @@ The repo is public (unlimited free Actions minutes). Consequences: no secrets or
 Decided by the owner. T00 uses Google sign-in (as in the original brief). Passkeys and email magic links are added in T03; Google stays. Google OAuth app starts in Testing mode (test users only); publish it before inviting band members (basic scopes need no Google verification).
 Reason: familiar one-tap login for the owner and bandmates; other methods cover people without Google and account recovery.
 
+## 2026-09-26: Deploy workflow generates BETTER_AUTH_SECRET
+Instead of the owner creating it by hand, the deploy workflow sets it on each Worker the first time (random, never printed or stored in GitHub). One fewer manual step, and each environment gets its own value automatically.
+
 ## Open
 
 None.
