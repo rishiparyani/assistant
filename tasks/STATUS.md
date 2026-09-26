@@ -8,17 +8,12 @@ _Updated: 2026-09-26_
 - Architecture made flexible: a small core plus feature modules, with Gigs as module one (see `docs/modules.md` and the decision in `docs/decisions.md`).
 - Decisions recorded: per-member shares and payouts in Phase 1 (T02/T05 updated); no further modules planned yet.
 - Added `docs/setup.md` (deploys via GitHub Actions, where secrets live, owner's manual steps, free-tier limits) and public-repo safety rules in `AGENTS.md` and `docs/security.md`.
-- **T00 spike built** in `spikes/t00/` (see its README) with deploy workflow `.github/workflows/spike-t00.yml`. Verified here: typecheck, 3 vitest tests (workspace with `kind`, invite + accept second member, stranger denied, full MCP OAuth flow with JWT verification), and the same flow against `wrangler dev` with local D1.
+- **T00 done** (2026-09-26): all ACs met; results in `docs/decisions.md`. Spike in `spikes/t00/` (see its README) with deploy workflow `.github/workflows/spike-t00.yml`. Verified here: typecheck, 3 vitest tests (workspace with `kind`, invite + accept second member, stranger denied, full MCP OAuth flow with JWT verification), and the same flow against `wrangler dev` with local D1.
 - Original brief archived in `docs/archive/gig-assistant-brief.md`.
 
 ## Next
 
-**T00: finish on the deployed Worker.** Code is done and tested locally; remaining ACs need the deployed spike:
-1. ~~First Actions run of `spike-t00.yml`~~ succeeded 2026-09-26 (D1 created, migrations, deploy, secrets, smoke test; secrets masked in logs).
-2. ~~Owner: Google sign-in and create a workspace~~ done 2026-09-26.
-3. ~~Owner: Claude custom connector + `whoami`~~ done 2026-09-26 (returned name, email, `Test Band (band, owner)`).
-4. Read CPU time per request from the Cloudflare dashboard.
-5. Record results in `docs/decisions.md` (T00 findings entry) and tick the ACs; then T01.
+**T01 Repo setup** (see `tasks/backlog.md`). Carry over from the spike: `src/auth.ts` options, the migration generation script, the OAuth/MCP discovery routes, and the deploy workflow pattern (D1 auto-create, secrets, smoke test).
 
 ## Open decisions
 
@@ -42,7 +37,7 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 
 ## In progress
 
-T00: waiting on the first deploy and the owner's manual tests (see Next).
+Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.workers.dev (Claude connector `Assistant` points at it) until T10 replaces it.
 
 ## Gotchas
 

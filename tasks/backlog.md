@@ -9,7 +9,7 @@ Better Auth on Workers + D1 (Google sign-in, organization plugin as workspaces) 
 - AC: an organization can be created and a second user added as member; `kind` can be stored on it (or a clear alternative is chosen).
 - AC: Claude custom connector completes OAuth against Better Auth and calls one MCP tool that returns the signed-in user's name.
 - AC: CPU time per request measured and within the free plan.
-- Status: built and tested locally (see `spikes/t00/README.md`); deployed-Worker ACs pending.
+- Status: **done 2026-09-26** (Google sign-in, workspace, Claude connector `whoami`, ~0.3 ms CPU/request). Second member verified in tests only.
 - AC: findings and decisions recorded in `docs/decisions.md`.
 
 ## T01 Repo setup
