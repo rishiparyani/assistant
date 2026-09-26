@@ -41,7 +41,7 @@ Includes per-member shares and payouts (decided 2026-09-26).
 ## T03 Auth + workspaces + authorization middleware
 
 - AC: sign-in with Google (from T00) plus passkeys, personal workspace auto-created on first sign-in. (Magic links moved to T11, decision 2026-09-26.)
-- Status: code done 2026-09-26; deploy pending.
+- Status: **done 2026-09-26**, live on prod.
 - AC: create band workspace, invite/remove members, roles enforced.
 - AC: single middleware builds ctx `{db, user, workspace, source}` and checks membership, role and module enabled.
 - AC: tests prove a user can't read or write another workspace's data.

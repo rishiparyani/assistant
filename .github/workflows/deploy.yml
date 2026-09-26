@@ -102,20 +102,26 @@ jobs:
 
       - name: Smoke test
         run: |
-          # The new version can take a few seconds to reach every edge: retry until the
-          # health check passes (up to ~90 s), then check the web app is served.
-          for i in $(seq 1 18); do
-            body="$(curl -fsS "$APP_URL/api/health" || true)"
-            if printf '%s' "$body" | jq -e --argjson m "$(ls apps/worker/migrations/*.sql | wc -l)" '.ok == true and .migrations == $m and (.modules | length) >= 1' > /dev/null 2>&1; then
-              echo "$body"
-              break
+          # Right after a deploy, some requests still reach the previous version for a few
+          # seconds, so retry the whole set of checks (up to ~2 min) and name any failure.
+          migrations="$(ls apps/worker/migrations/*.sql | wc -l)"
+          check() {
+            curl -fsS "$APP_URL/api/health" | jq -e --argjson m "$migrations" \
+              '.ok == true and .migrations == $m and (.modules | length) >= 1' > /dev/null || { echo "health"; return 1; }
+            curl -fsS "$APP_URL/" | grep -q '<div id="app">' || { echo "web app"; return 1; }
+            curl -fsS "$APP_URL/auth/get-session" > /dev/null || { echo "auth session endpoint"; return 1; }
+            curl -fsS "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null \
+              || { echo "OAuth discovery"; return 1; }
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401" ] || { echo "/api/me not protected"; return 1; }
+          }
+          for i in $(seq 1 24); do
+            if failed="$(check 2>&1)"; then
+              curl -fsS "$APP_URL/api/health"; echo
+              echo "App, API and auth are up at $APP_URL"
+              exit 0
             fi
-            if [ "$i" = 18 ]; then echo "Health check never passed. Last response: $body"; exit 1; fi
+            echo "Attempt $i: waiting on: $failed"
             sleep 5
           done
-          curl -fsS "$APP_URL/" | grep -q '<div id="app">'
-          # Auth is configured: session endpoint answers, OAuth discovery is served.
-          curl -fsS "$APP_URL/auth/get-session" > /dev/null
-          curl -fsS "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null
-          test "$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401"
-          echo "App and API are up at $APP_URL"
+          echo "Smoke test failed: $failed"
+          exit 1
