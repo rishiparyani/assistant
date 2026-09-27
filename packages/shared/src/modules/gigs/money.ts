@@ -158,7 +158,7 @@ export interface LineupEntryView {
   id: string;
   musician: { id: string; name: string; instrument: string | null; is_me: boolean };
   role: string | null;
-  /** Amounts are null on other people's entries when a member (not an owner) asks. */
+  /** Null on other people's entries unless the caller may see lineup amounts. */
   share: { amount_paise: number; amount_display: string } | null;
   paid: { amount_paise: number; amount_display: string } | null;
   owed: { amount_paise: number; amount_display: string } | null;
@@ -172,6 +172,13 @@ type Money = { amount_paise: number; amount_display: string };
 export interface GigMoneyView {
   gig: { id: string; title: string; status: string; start_display: string };
   visibility: "full" | "own_share";
+  /** What the caller may do and see here (collective settings; owners can do everything). */
+  permissions: {
+    can_see_lineup: boolean;
+    can_see_lineup_amounts: boolean;
+    can_edit_lineup: boolean;
+    can_record_payouts: boolean;
+  };
   fee: Money;
   received: Money;
   /** fee − received (negative = overpaid). */

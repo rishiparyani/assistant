@@ -30,6 +30,7 @@ import { gigLineup, musicians, payouts } from "../schema.ts";
 import { resolveRef } from "./resolve.ts";
 import { afterCursor, changedFields, contains, nowIso, toPage, updateStatement } from "./shared.ts";
 import { gigExpenses, gigPayments, loadGigForMoney, positiveAmount } from "./payments.ts";
+import { permissions, requirePermission } from "./settings.ts";
 
 type MusicianRow = typeof musicians.$inferSelect;
 type PayoutRow = typeof payouts.$inferSelect;
@@ -93,6 +94,11 @@ export async function createMusician(
   ctx: OpCtx,
   input: z.output<typeof CreateMusicianInput>,
 ): Promise<MusicianView> {
+  // Members who may set lineups can add people while doing it; linking accounts stays with owners.
+  if (ctx.workspace.role !== "owner") {
+    await requirePermission(ctx, "can_edit_lineup");
+    if (input.user_id) throw new AppError("forbidden", "Only owners can link roster entries to accounts");
+  }
   await assertMember(ctx, input.user_id);
   const ts = nowIso();
   const row: MusicianRow = {
@@ -230,6 +236,7 @@ function toPayoutView(p: PayoutRow, musicianName: string, reversedBy: string | n
 }
 
 export async function setLineup(ctx: OpCtx, input: z.output<typeof SetLineupInput>): Promise<GigMoneyView> {
+  await requirePermission(ctx, "can_edit_lineup");
   const gig = await loadGigForMoney(ctx, input.gig_id);
   const musicianIds: string[] = [];
   for (const entry of input.lineup) {
@@ -358,6 +365,7 @@ export async function recordPayout(
   ctx: OpCtx,
   input: z.output<typeof RecordPayoutInput>,
 ): Promise<PayoutView> {
+  await requirePermission(ctx, "can_record_payouts");
   const gig = await loadGigForMoney(ctx, input.gig_id);
   const musicianId = await resolveRef(ctx, "musician", input.musician_id, input.musician_name);
   if (!musicianId) throw new AppError("validation_failed", "Give musician_id or musician_name");
@@ -397,6 +405,7 @@ export async function reversePayout(
   payoutId: string,
   note: string | null | undefined,
 ): Promise<PayoutView> {
+  await requirePermission(ctx, "can_record_payouts");
   const [found] = await ctx.db
     .select({ payout: payouts, musicianName: musicians.name })
     .from(payouts)
@@ -438,6 +447,7 @@ export async function reversePayout(
 export async function getGigMoney(ctx: OpCtx, gigId: string): Promise<GigMoneyView> {
   const gig = await loadGigForMoney(ctx, gigId);
   const full = ctx.workspace.role === "owner";
+  const perms = await permissions(ctx);
   const [paymentList, lineup, payoutList] = await Promise.all([
     gigPayments(ctx, gig.id),
     lineupRows(ctx, gig.id),
@@ -448,9 +458,10 @@ export async function getGigMoney(ctx: OpCtx, gigId: string): Promise<GigMoneyVi
   const reversedBy = new Map(
     payoutList.filter((p) => p.payout.reversesPayoutId).map((p) => [p.payout.reversesPayoutId!, p.payout.id]),
   );
-  const entries: LineupEntryView[] = lineup.map((l) => {
+  const visible = perms.can_see_lineup ? lineup : lineup.filter((l) => l.musician.userId === ctx.user.id);
+  const entries: LineupEntryView[] = visible.map((l) => {
     const isMe = l.musician.userId === ctx.user.id;
-    if (!full && !isMe) {
+    if (!perms.can_see_lineup_amounts && !isMe) {
       // Members see who plays, not what others earn.
       return {
         id: l.entry.id,
@@ -513,6 +524,7 @@ export async function getGigMoney(ctx: OpCtx, gigId: string): Promise<GigMoneyVi
   return {
     gig: { id: gig.id, title: gig.title, status: gig.status, start_display: formatDateTimeIST(gig.startAt) },
     visibility: full ? "full" : "own_share",
+    permissions: perms,
     fee: money(gig.feePaise),
     received: money(received),
     balance: money(gig.feePaise - received),

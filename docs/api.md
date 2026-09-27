@@ -52,13 +52,13 @@ Money and roster (T05):
 | `reverse_payment`                    | `POST /payments/:payment_id/reverse`      | owners, or whoever recorded it                 |
 | `record_expense`, `find_expenses`    | `POST`, `GET /expenses`                   | members / owners                               |
 | `delete_expense`                     | `DELETE /expenses/:expense_id`            | owners, or whoever recorded it                 |
-| `create_musician`, `find_musicians`  | `POST`, `GET /musicians`                  | owners / members                               |
+| `create_musician`, `find_musicians`  | `POST`, `GET /musicians`                  | owners (+ lineup editors) / members            |
 | `update_musician`, `delete_musician` | `PATCH`, `DELETE /musicians/:musician_id` | owners                                         |
-| `set_gig_lineup`                     | `PUT /gigs/:gig_id/lineup`                | owners                                         |
-| `record_payout`                      | `POST /gigs/:gig_id/payouts`              | owners                                         |
-| `reverse_payout`                     | `POST /payouts/:payout_id/reverse`        | owners                                         |
+| `set_gig_lineup`                     | `PUT /gigs/:gig_id/lineup`                | owners, or everyone if the collective allows   |
+| `record_payout`                      | `POST /gigs/:gig_id/payouts`              | owners, or everyone if the collective allows   |
+| `reverse_payout`                     | `POST /payouts/:payout_id/reverse`        | owners, or everyone if the collective allows   |
 
-Members see every lineup entry's name and role; other people's `share`, `paid`, `owed` and `payout_status` are `null` and `payouts` is empty. Linking a roster entry to an account that is already linked in the same workspace returns `409 conflict`.
+What members may see and do follows the collective's Gigs settings (`get_gigs_settings` `GET /settings/gigs`, members; `update_gigs_settings` `PATCH /settings/gigs`, owners): `lineup_visible_to_members` (default true), `lineup_editors` and `payout_recorders` (`"owners"` default, or `"everyone"`). `set_gig_lineup`, `record_payout`, `reverse_payout` and `create_musician` check them (403 otherwise); members who may set lineups can add roster entries but not link accounts; editing and deleting roster entries stays with owners. `get_gig_money` returns `permissions` (`can_see_lineup`, `can_see_lineup_amounts`, `can_edit_lineup`, `can_record_payouts`). Members who may set lineups or record payouts see everyone's amounts; otherwise other people's `share`, `paid`, `owed` and `payout_status` are `null` and `payouts` is empty; with the lineup hidden, members only see their own entry. Expenses and totals stay owners-only. Linking a roster entry to an account that is already linked in the same workspace returns `409 conflict`.
 
 Me (T06, user-scoped under `/api`, read-only; decision 2026-09-27):
 
