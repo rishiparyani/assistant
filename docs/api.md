@@ -43,11 +43,11 @@ Implemented in T04 (all under `/api/w/:workspaceId`):
 
 Inputs: times are ISO 8601 with an offset or local India time (`2026-12-12T19:00`); money as `fee_paise` (integer) or `fee` (rupee string/number, e.g. `"₹50,000"`); a gig's client/venue by `client_id` or `client_name` (exact, case-insensitive). Ambiguous or partial names return `409 { code: "ambiguous", details: { candidates } }`; unknown names return 404. Status changes: enquiry → confirmed → completed; enquiry can go straight to completed; enquiry/confirmed → cancelled; asking for the current status is a no-op. `delete_gig` is for mistakes and refuses gigs with payments.
 
-Money and band (T05):
+Money and roster (T05):
 
 | Operation                            | Route                                     | Who                                            |
 | ------------------------------------ | ----------------------------------------- | ---------------------------------------------- |
-| `get_gig_money`                      | `GET /gigs/:gig_id/money`                 | members (own share only) / owners (everything) |
+| `get_gig_money`                      | `GET /gigs/:gig_id/money`                 | members (who plays + own share) / owners (all) |
 | `record_payment`                     | `POST /gigs/:gig_id/payments`             | members                                        |
 | `reverse_payment`                    | `POST /payments/:payment_id/reverse`      | owners, or whoever recorded it                 |
 | `record_expense`, `find_expenses`    | `POST`, `GET /expenses`                   | members / owners                               |
@@ -57,6 +57,18 @@ Money and band (T05):
 | `set_gig_lineup`                     | `PUT /gigs/:gig_id/lineup`                | owners                                         |
 | `record_payout`                      | `POST /gigs/:gig_id/payouts`              | owners                                         |
 | `reverse_payout`                     | `POST /payouts/:payout_id/reverse`        | owners                                         |
+
+Members see every lineup entry's name and role; other people's `share`, `paid`, `owed` and `payout_status` are `null` and `payouts` is empty. Linking a roster entry to an account that is already linked in the same workspace returns `409 conflict`.
+
+Me (T06, user-scoped under `/api`, read-only; decision 2026-09-27):
+
+| Operation     | Route              | Who                                                                |
+| ------------- | ------------------ | ------------------------------------------------------------------ |
+| `get_my_home` | `GET /api/me/home` | any signed-in user; covers only their workspaces with Gigs enabled |
+
+Returns `upcoming` (next 8 gigs I play, my own gigs, or collective gigs with no lineup yet, with my amount), `this_month` (earned from played gigs, received, gigs played), `owed_to_me` and `i_owe` per workspace, and `not_on_roster`. Amounts are only mine: shares from roster entries linked to my account; in my personal workspace, the fee minus what I pay others. Only `confirmed`/`completed` gigs that have started count as due.
+
+Joining a collective (creating it or accepting an invitation) puts the person on its roster: an unlinked entry with the same email is linked, otherwise a new entry is created.
 
 Amounts: `amount_paise` or `amount` (a number is rupees; strings like `"₹5,000"` work). Dates (`paid_on`, `spent_on`) are `YYYY-MM-DD` and default to today in India. A lineup is replaced as a whole: each person gets `share`/`share_paise` or `percent` (of `split_total`, default the fee), or use `split: "equal"`. Leftover paise from splits go to the first person. People with payout history can't be removed from a lineup. Payouts need the musician in the lineup.
 

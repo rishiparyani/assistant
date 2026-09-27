@@ -21,7 +21,7 @@ import { resolveRef } from "./resolve.ts";
 import { afterCursor, changedFields, contains, nowIso, toPage, updateStatement } from "./shared.ts";
 
 /** Gig rows joined with their client and venue names. */
-export function gigViewQuery(ctx: OpCtx) {
+export function gigViewQuery(ctx: Pick<OpCtx, "db">) {
   return ctx.db
     .select({
       gig: gigs,

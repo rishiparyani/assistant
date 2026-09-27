@@ -12,9 +12,10 @@ async function createBand(cookie: string, name = "Test Band") {
   return json<WorkspaceSummary>(res);
 }
 
+/** Core audit entries (modules add their own, e.g. a roster entry when someone joins). */
 async function auditActions(workspaceId: string) {
   const { results } = await env.DB.prepare(
-    `select action, source from audit_log where workspace_id = ? order by id`,
+    `select action, source from audit_log where workspace_id = ? and module = 'core' order by id`,
   )
     .bind(workspaceId)
     .all<{ action: string; source: string }>();

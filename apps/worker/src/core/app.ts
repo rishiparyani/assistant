@@ -17,7 +17,10 @@ export function createApp({ modules }: AppOptions) {
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate module ids: ${ids.join(", ")}`);
   const moduleSchemas = Object.assign({}, ...modules.map((m) => m.schema ?? {}));
   const operations: AnyOperation[] = [
-    ...workspaceOperations(ids),
+    ...workspaceOperations(
+      ids,
+      modules.map((m) => m.hooks ?? {}),
+    ),
     ...modules.flatMap((m) => m.operations ?? []),
   ];
 

@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { GigMoneyView, GigView, LineupEntryView, WorkspaceDetail } from "@assistant/shared";
+  import type {
+    GigMoneyView,
+    GigView,
+    LineupEntryView,
+    PaymentStatus,
+    WorkspaceDetail,
+  } from "@assistant/shared";
   import { formatDateIST } from "@assistant/shared";
   import CalendarClock from "@lucide/svelte/icons/calendar-clock";
   import MapPin from "@lucide/svelte/icons/map-pin";
@@ -149,6 +155,9 @@
     });
     if (ok) await act("exp", () => api.deleteExpense(id), "Expense deleted");
   }
+
+  const payoutLabel = (s: PaymentStatus) =>
+    s === "paid" ? "Paid out" : s === "unpaid" ? "Owed" : paymentLabel(s);
 
   function openPayout(l: LineupEntryView) {
     payoutFor = l;
@@ -318,20 +327,17 @@
             {#each money.lineup as l (l.id)}
               <ListRow
                 title={l.musician.name}
-                subtitle="{l.role ?? l.musician.instrument ?? 'Share'} · {l.share.amount_display}"
+                subtitle="{l.role ?? l.musician.instrument ?? 'Share'} · {l.share?.amount_display ?? ''}"
                 onclick={() => openPayout(l)}
               >
                 {#snippet leading()}<Avatar name={l.musician.name} size={36} />{/snippet}
                 {#snippet trailing()}
                   <span class="right">
-                    <Pill tone={paymentTone(l.payout_status)}
-                      >{l.payout_status === "paid"
-                        ? "Paid out"
-                        : l.payout_status === "unpaid"
-                          ? "Owed"
-                          : paymentLabel(l.payout_status)}</Pill
-                    >
-                    {#if l.owed.amount_paise > 0}<span class="owed num">{l.owed.amount_display} owed</span
+                    {#if l.payout_status}
+                      <Pill tone={paymentTone(l.payout_status)}>{payoutLabel(l.payout_status)}</Pill>
+                    {/if}
+                    {#if l.owed && l.owed.amount_paise > 0}<span class="owed num"
+                        >{l.owed.amount_display} owed</span
                       >{/if}
                   </span>
                 {/snippet}
@@ -404,32 +410,42 @@
             />
           </div>
         </Card>
-      {:else if mine}
-        <Card>
-          <div class="money">
-            <div class="money-head">
-              <h2>Your share</h2>
-              <Pill tone={paymentTone(mine.payout_status)}
-                >{mine.payout_status === "paid" ? "Paid out" : "Owed"}</Pill
-              >
-            </div>
-            <div class="stats">
-              <Stat label="Share" value={mine.share.amount_display} />
-              <Stat label="Paid to you" value={mine.paid.amount_display} tone="green" />
-              <Stat
-                label="Still owed"
-                value={mine.owed.amount_display}
-                tone={mine.owed.amount_paise > 0 ? "amber" : undefined}
-              />
-            </div>
-          </div>
-        </Card>
       {:else}
-        <ListGroup title="Lineup">
-          <ListRow
-            title="You're not in the lineup"
-            subtitle="The collective's owner sets who plays and the shares."
-          />
+        {#if mine?.share && mine.paid && mine.owed}
+          <Card>
+            <div class="money">
+              <div class="money-head">
+                <h2>Your share</h2>
+                {#if mine.payout_status}
+                  <Pill tone={paymentTone(mine.payout_status)}>{payoutLabel(mine.payout_status)}</Pill>
+                {/if}
+              </div>
+              <div class="stats">
+                <Stat label="Share" value={mine.share.amount_display} />
+                <Stat label="Paid to you" value={mine.paid.amount_display} tone="green" />
+                <Stat
+                  label="Still owed"
+                  value={mine.owed.amount_display}
+                  tone={mine.owed.amount_paise > 0 ? "amber" : undefined}
+                />
+              </div>
+            </div>
+          </Card>
+        {/if}
+        <ListGroup title="Who's playing">
+          {#each money.lineup as l (l.id)}
+            <ListRow
+              title={l.musician.is_me ? `${l.musician.name} (you)` : l.musician.name}
+              subtitle={l.role ?? l.musician.instrument ?? undefined}
+            >
+              {#snippet leading()}<Avatar name={l.musician.name} size={36} />{/snippet}
+            </ListRow>
+          {:else}
+            <ListRow
+              title="Lineup not set yet"
+              subtitle="The collective's owner sets who plays and the shares."
+            />
+          {/each}
         </ListGroup>
       {/if}
 
@@ -461,7 +477,7 @@
     bind:open={payoutOpen}
     title={payoutFor ? `Pay ${payoutFor.musician.name}` : "Payout"}
     amountLabel="Amount paid"
-    suggested={payoutFor?.owed.amount_paise}
+    suggested={payoutFor?.owed?.amount_paise}
     submitLabel="Record payout"
     onsubmit={async (v) => {
       await api.recordPayout(gigId, { ...v, musician_id: payoutFor!.musician.id });

@@ -28,7 +28,7 @@ defineOperation({
   id: "gigs.create_client", // <module>.<action>; module "core" for core operations
   tool: "create_client", // MCP tool name (T10), unique across modules
   description: "Add a client (the person or company booking gigs).", // shown to AI assistants
-  scope: "workspace", // module operations are always workspace-scoped
+  scope: "workspace", // or "user" for read-only views across the user's workspaces (e.g. gigs.get_my_home)
   kind: "write", // read | write
   role: "owner", // optional minimum role (default member)
   confirm: true, // optional: two-step from MCP (money, cancel, delete), T10
@@ -41,6 +41,10 @@ defineOperation({
 The registry (`apps/worker/src/core/operations.ts`) wraps every operation with: session → membership/role → module enabled → Zod validation → idempotency (writes need an `Idempotency-Key` header; repeats replay the stored response) → handler → audit log. Token scopes (T09) and confirm tokens (T10) plug into the same wrapper.
 
 **Writing:** handlers never call `d1.batch` or write audit rows themselves. They build prepared statements and call `ctx.commit(statements, change)`; the wrapper adds the audit entry (module, action, actor, source, before/after) and runs everything in one D1 batch. Read operations can't commit.
+
+**User-scoped reads:** a module may define `scope: "user"` read operations (routes under `/api`), such as the Me Home. The wrapper only checks sign-in, so the service must itself limit itself to workspaces the user is a member of that have the module enabled.
+
+**Hooks:** `defineModule({ hooks: { memberJoined } })` lets a module add statements to a core write. `memberJoined(ctx, { workspaceId })` runs when someone creates or joins a shared workspace; its statements and audit changes (with `module` set) are committed in the same batch. Gigs uses it to put the person on the roster.
 
 **Registering:** export the operations from the module and pass them to `defineModule({ ..., operations })`. `test/gigs.test.ts` ("serves a new module's operation with no core changes") shows a module added without touching core.
 

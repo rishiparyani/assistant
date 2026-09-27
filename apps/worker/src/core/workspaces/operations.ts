@@ -2,12 +2,13 @@
 // registry, logic from ./service.ts.
 import { z } from "zod";
 import { CreateWorkspaceInput, InviteMemberInput, type MeResponse } from "@assistant/shared";
+import type { ModuleHooks } from "../module.ts";
 import { defineOperation } from "../operations.ts";
 import * as workspaces from "./service.ts";
 
 const invitationId = z.object({ invitation_id: z.string().min(1).max(40) });
 
-export function workspaceOperations(moduleIds: readonly string[]) {
+export function workspaceOperations(moduleIds: readonly string[], hooks: readonly ModuleHooks[] = []) {
   return [
     defineOperation({
       id: "core.get_me",
@@ -30,7 +31,7 @@ export function workspaceOperations(moduleIds: readonly string[]) {
       kind: "write",
       http: { method: "POST", path: "/workspaces", status: 201 },
       input: CreateWorkspaceInput,
-      handler: (ctx, input) => workspaces.createBandWorkspace(ctx, input, moduleIds),
+      handler: (ctx, input) => workspaces.createBandWorkspace(ctx, input, moduleIds, hooks),
     }),
     defineOperation({
       id: "core.get_workspace",
@@ -100,7 +101,7 @@ export function workspaceOperations(moduleIds: readonly string[]) {
       kind: "write",
       http: { method: "POST", path: "/invitations/:invitation_id/accept" },
       input: invitationId,
-      handler: (ctx, input) => workspaces.acceptInvitation(ctx, input.invitation_id),
+      handler: (ctx, input) => workspaces.acceptInvitation(ctx, input.invitation_id, hooks),
     }),
   ];
 }

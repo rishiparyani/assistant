@@ -91,6 +91,7 @@ Decided 2026-09-26: UI work runs alongside backend work from here on; every task
 - AC: Home screen is the Me view (not tied to the open workspace); collective pages keep their own lists.
 - AC: members see the lineup of a gig (names, roles; no amounts except their own).
 - AC: joining a collective links the member to a roster entry (owner picks, or one is created); owners are prompted to add themselves to the roster.
+- Status: **Me Home part done 2026-09-27** (`get_my_home`, Home screen at `/`, lineup names for members, roster auto-link on join by email or new entry, "Add me" prompt). Still to do: `get_my_earnings` (per-month history), `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_payouts_owed` and their screens in the collective space.
 
 ## T07 Web app polish (was: dashboard, gigs, clients, forms)
 

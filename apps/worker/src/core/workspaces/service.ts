@@ -1,5 +1,6 @@
 // Workspaces, memberships and invitations. All writes go through here (Better Auth's
 // own /auth/organization endpoints are blocked), in one D1 batch with their audit entry.
+import type { ModuleHooks } from "../module.ts";
 import { and, asc, eq, gt } from "drizzle-orm";
 import {
   type CreateWorkspaceInput,
@@ -94,18 +95,27 @@ export async function listWorkspaces(ctx: UserCtx): Promise<WorkspaceSummary[]> 
     .sort((a, b) => Number(b.kind === "personal") - Number(a.kind === "personal"));
 }
 
+/** Lets modules add their own rows when someone joins a shared workspace (e.g. a roster entry). */
+async function memberJoined(ctx: UserCtx, hooks: readonly ModuleHooks[], workspaceId: string) {
+  const results = await Promise.all(hooks.map((h) => h.memberJoined?.(ctx, { workspaceId })));
+  return {
+    statements: results.flatMap((r) => r?.statements ?? []),
+    changes: results.flatMap((r) => r?.changes ?? []),
+  };
+}
+
 export async function createBandWorkspace(
   ctx: OpUserCtx,
   input: CreateWorkspaceInput,
   moduleIds: readonly string[],
+  hooks: readonly ModuleHooks[] = [],
 ): Promise<WorkspaceSummary> {
   const ws = { id: ulid(), name: input.name, kind: "band" as const };
-  await ctx.commit(createWorkspaceStatements(ctx.d1, ws, ctx.user.id, moduleIds), {
-    entityType: "workspace",
-    entityId: ws.id,
-    workspaceId: ws.id,
-    after: ws,
-  });
+  const joined = await memberJoined(ctx, hooks, ws.id);
+  await ctx.commit(
+    [...createWorkspaceStatements(ctx.d1, ws, ctx.user.id, moduleIds), ...joined.statements],
+    [{ entityType: "workspace", entityId: ws.id, workspaceId: ws.id, after: ws }, ...joined.changes],
+  );
   return { ...ws, role: "owner" };
 }
 
@@ -254,7 +264,11 @@ export async function getInvitation(ctx: UserCtx, invitationId: string): Promise
   return invitationView(ctx, row, row.workspaceName);
 }
 
-export async function acceptInvitation(ctx: OpUserCtx, invitationId: string): Promise<WorkspaceSummary> {
+export async function acceptInvitation(
+  ctx: OpUserCtx,
+  invitationId: string,
+  hooks: readonly ModuleHooks[] = [],
+): Promise<WorkspaceSummary> {
   const row = await loadInvitationForUser(ctx, invitationId);
   const view = invitationView(ctx, row, row.workspaceName);
   if (view.status !== "pending") throw new AppError("conflict", `This invitation is ${view.status}`);
@@ -265,8 +279,12 @@ export async function acceptInvitation(ctx: OpUserCtx, invitationId: string): Pr
     .where(and(eq(member.organizationId, row.organizationId), eq(member.userId, ctx.user.id)))
     .limit(1);
   const memberId = ulid();
+  const joined = already
+    ? { statements: [], changes: [] }
+    : await memberJoined(ctx, hooks, row.organizationId);
   await ctx.commit(
     [
+      ...joined.statements,
       ...(already
         ? []
         : [
@@ -278,12 +296,15 @@ export async function acceptInvitation(ctx: OpUserCtx, invitationId: string): Pr
           ]),
       ctx.d1.prepare(`update invitation set status = 'accepted' where id = ?`).bind(row.id),
     ],
-    {
-      entityType: "member",
-      entityId: already?.id ?? memberId,
-      workspaceId: row.organizationId,
-      after: { userId: ctx.user.id, role: view.role, invitationId: row.id },
-    },
+    [
+      {
+        entityType: "member",
+        entityId: already?.id ?? memberId,
+        workspaceId: row.organizationId,
+        after: { userId: ctx.user.id, role: view.role, invitationId: row.id },
+      },
+      ...joined.changes,
+    ],
   );
   return summary;
 }

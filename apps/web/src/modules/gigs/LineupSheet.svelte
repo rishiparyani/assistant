@@ -42,7 +42,7 @@
     chosen = Object.fromEntries(
       money.lineup.map((l) => [
         l.musician.id,
-        { role: l.role ?? "", share: String(l.share.amount_paise / 100), percent: "" },
+        { role: l.role ?? "", share: String((l.share?.amount_paise ?? 0) / 100), percent: "" },
       ]),
     );
     order = money.lineup.map((l) => l.musician.id);
