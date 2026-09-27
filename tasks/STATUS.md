@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **T06 part 1, Me Home** (branch `claude/gig-assistant-flexibility-7x8ws8`, PR next): `gigs.get_my_home` (user-scoped read: upcoming gigs I play, earned/received this month, owed to me per collective and from clients in my personal space, what I owe musicians in collectives I own, collectives where I'm not on the roster); Home at `/` is this view, `/w/:id` opens that workspace's gigs. Members see the gig lineup (names, roles) without others' amounts. Core: module `hooks.memberJoined` (committed with the core write, audited under the module) and user-scoped module reads; gigs puts people on the roster when they join (links an unlinked entry with the same email, else creates one); one account can't be linked twice per collective (409). "Collective" is the product word (PR #9). Tests: 72 shared, 70 worker.
+
 - Repo setup from the project brief (no application code): `AGENTS.md` (+ `CLAUDE.md` symlink), `docs/`, `tasks/`, folder structure, root configs.
 - Architecture made flexible: a small core plus feature modules, with Gigs as module one (see `docs/modules.md` and the decision in `docs/decisions.md`).
 - Decisions recorded: per-member shares and payouts in Phase 1 (T02/T05 updated); no further modules planned yet.
@@ -21,7 +23,7 @@ _Updated: 2026-09-26_
 ## Next
 
 1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T06** Me Home (across collectives) and gigs views; see the 2026-09-27 decision and `tasks/backlog.md`.
+2. **T06** rest: collective views (schedule, outstanding, monthly report, payouts owed) and `get_my_earnings`; see `tasks/backlog.md`.
 
 ## Open decisions
 

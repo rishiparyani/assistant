@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
-import type { GigMoneyView, GigView, MusicianView, PaymentView, PayoutView } from "@assistant/shared";
+import type { GigMoneyView, GigView, MusicianView, Page, PaymentView, PayoutView } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type Api = (path: string, init?: Parameters<typeof call>[1]) => Promise<Response>;
@@ -160,7 +160,7 @@ describe("roster, lineup and payouts", () => {
     });
     expect(res.status).toBe(200);
     const m = await json<GigMoneyView>(res);
-    expect(m.lineup.map((l) => [l.musician.name, l.share.amount_paise])).toEqual([
+    expect(m.lineup.map((l) => [l.musician.name, l.share!.amount_paise])).toEqual([
       ["Test Drums", 1_666_668],
       ["Test Keys", 1_666_666],
       ["Test Bass", 1_666_666],
@@ -186,7 +186,7 @@ describe("roster, lineup and payouts", () => {
         ],
       }),
     );
-    expect(m.lineup.map((l) => l.share.amount_display)).toEqual(["₹25,000", "₹12,500", "₹12,500"]);
+    expect(m.lineup.map((l) => l.share!.amount_display)).toEqual(["₹25,000", "₹12,500", "₹12,500"]);
     m = await json<GigMoneyView>(
       await setLineup(api, g.id, {
         lineup: [
@@ -244,7 +244,7 @@ describe("roster, lineup and payouts", () => {
     expect(p1).toMatchObject({ musician: { name: "Test Drums" }, amount: { amount_display: "₹4,000" } });
     await payout("Test Keys", "10000");
     let m = await moneyOf(api, g.id);
-    expect(m.lineup.map((l) => [l.musician.name, l.owed.amount_display, l.payout_status])).toEqual([
+    expect(m.lineup.map((l) => [l.musician.name, l.owed!.amount_display, l.payout_status])).toEqual([
       ["Test Drums", "₹6,000", "partial"],
       ["Test Keys", "₹0", "paid"],
     ]);
@@ -273,7 +273,7 @@ describe("roster, lineup and payouts", () => {
       }),
     );
     expect(
-      reshared.lineup.map((l) => [l.musician.name, l.share.amount_display, l.owed.amount_display]),
+      reshared.lineup.map((l) => [l.musician.name, l.share!.amount_display, l.owed!.amount_display]),
     ).toEqual([
       ["Test Drums", "₹8,000", "₹8,000"],
       ["Test Keys", "₹12,000", "₹2,000"],
@@ -306,12 +306,13 @@ describe("who sees and does what", () => {
     void owner;
   });
 
-  it("shows members the fee side and only their own share", async () => {
+  it("shows members the fee side, who plays, and only their own share", async () => {
     const { api, mateApi, mate } = await bandWithMember();
     const g = await gig(api);
-    const me = await json<MusicianView>(
-      await api("/musicians", { body: { name: "Test Bandmate", user_id: mate.id } }),
-    );
+    // Joining put the bandmate on the roster, linked to their account.
+    const roster = await json<Page<MusicianView>>(await api("/musicians"));
+    const me = roster.items.find((m) => m.user_id === mate.id)!;
+    expect(me).toBeDefined();
     const other = await json<MusicianView>(await api("/musicians", { body: { name: "Test Other" } }));
     await api(`/gigs/${g.id}/lineup`, {
       method: "PUT",
@@ -335,10 +336,19 @@ describe("who sees and does what", () => {
       net: null,
       unallocated: null,
     });
-    expect(asMate.lineup).toHaveLength(1);
-    expect(asMate.lineup[0]).toMatchObject({
-      musician: { name: "Test Bandmate", is_me: true },
+    // Members see who plays, but only their own amounts.
+    expect(asMate.lineup).toHaveLength(2);
+    expect(asMate.lineup.find((l) => l.musician.is_me)).toMatchObject({
+      musician: { id: me.id, is_me: true },
       share: { amount_display: "₹12,000" },
+    });
+    expect(asMate.lineup.find((l) => !l.musician.is_me)).toMatchObject({
+      musician: { name: "Test Other" },
+      share: null,
+      paid: null,
+      owed: null,
+      payout_status: null,
+      payouts: [],
     });
 
     const asOwner = await moneyOf(api, g.id);

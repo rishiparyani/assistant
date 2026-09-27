@@ -7,7 +7,7 @@
   import Login from "./pages/Login.svelte";
   import Consent from "./pages/Consent.svelte";
   import Invite from "./pages/Invite.svelte";
-  import Home from "./pages/Home.svelte";
+  import MeHome from "../modules/gigs/pages/MeHome.svelte";
   import Members from "./pages/Members.svelte";
   import Settings from "./pages/Settings.svelte";
   import Gigs from "../modules/gigs/pages/Gigs.svelte";
@@ -26,12 +26,10 @@
     navigate(next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`, { replace: true });
   });
 
-  // "/" opens the last workspace used on this device, else the personal one.
+  // A workspace's own address opens its gigs; Home ("/") is about me, across workspaces.
   $effect(() => {
-    if (route.name !== "root" || !session.me) return;
-    const ids = session.me.workspaces.map((w) => w.id);
-    const last = lastWorkspaceId();
-    navigate(`/w/${last && ids.includes(last) ? last : ids[0]}`, { replace: true });
+    if (route.name === "home" && route.params.workspaceId)
+      navigate(`/w/${route.params.workspaceId}/gigs`, { replace: true });
   });
 
   // Keep the current workspace in step with the URL (Settings keeps the last one).
@@ -56,6 +54,8 @@
     <AppShell>
       {#if route.name === "settings"}
         <Settings />
+      {:else if route.name === "root"}
+        <MeHome />
       {:else if route.params.workspaceId && current.error}
         <NotFound
           title="Workspace not available"
@@ -63,8 +63,6 @@
         />
       {:else if route.params.workspaceId && current.workspace?.id !== route.params.workspaceId}
         <div class="loading"><Skeleton rows={4} /></div>
-      {:else if current.workspace && route.name === "home"}
-        <Home workspace={current.workspace} />
       {:else if current.workspace && route.name === "members"}
         <Members workspace={current.workspace} />
       {:else if current.workspace && route.name === "gigs"}
@@ -75,7 +73,7 @@
         {/key}
       {:else if current.workspace && route.name === "people"}
         <People workspace={current.workspace} />
-      {:else if route.name !== "root"}
+      {:else if route.name !== "home"}
         <NotFound />
       {/if}
     </AppShell>

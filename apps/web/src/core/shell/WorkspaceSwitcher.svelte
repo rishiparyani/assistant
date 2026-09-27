@@ -14,7 +14,7 @@
 
   function go(id: string) {
     open = false;
-    navigate(`/w/${id}`);
+    navigate(`/w/${id}/gigs`);
   }
 
   async function create(e: SubmitEvent) {

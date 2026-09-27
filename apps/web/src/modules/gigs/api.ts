@@ -5,6 +5,7 @@ import type {
   GigMoneyView,
   GigView,
   MusicianView,
+  MyHomeView,
   Page,
   PaymentMethod,
   PaymentView,
@@ -111,3 +112,8 @@ export function gigsApi(ws: string) {
 }
 
 export type GigsApi = ReturnType<typeof gigsApi>;
+
+/** The Me Home: my own gigs and money across all my workspaces. */
+export const meApi = {
+  home: () => request<MyHomeView>("GET", "/api/me/home"),
+};

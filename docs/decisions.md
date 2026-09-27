@@ -131,6 +131,10 @@ Owner's vision: a collective works together in its own space; the owner's Home s
 - **Linking:** when someone joins a collective they get linked to a roster entry (the owner's pick, or a new one), so their shares reach their Home. The owner should be on their own roster too.
 - **Personal workspace** stays for solo/dep gigs; they appear on Home as well.
 
+## 2026-09-27: Module hooks and user-scoped module reads
+
+For the Me Home and roster linking, the module contract gains (1) read-only `scope: "user"` operations, which must limit themselves to the caller's workspaces with the module enabled, and (2) `hooks.memberJoined`, whose statements are committed in the same batch as the core membership write and audited under the module. Core still never imports a module. "Earned" counts only confirmed/completed gigs that have started.
+
 ## Open
 
 None.

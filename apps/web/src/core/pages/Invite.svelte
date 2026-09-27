@@ -31,7 +31,7 @@
       const ws = await api.acceptInvitation(invitationId);
       await refreshSession();
       toast.success(`Welcome to ${ws.name}`);
-      navigate(`/w/${ws.id}`, { replace: true });
+      navigate(`/w/${ws.id}/gigs`, { replace: true });
     } catch (e) {
       toast.error(e);
       busy = false;

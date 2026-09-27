@@ -158,16 +158,17 @@ export interface LineupEntryView {
   id: string;
   musician: { id: string; name: string; instrument: string | null; is_me: boolean };
   role: string | null;
-  share: { amount_paise: number; amount_display: string };
-  paid: { amount_paise: number; amount_display: string };
-  owed: { amount_paise: number; amount_display: string };
-  payout_status: PaymentStatus;
+  /** Amounts are null on other people's entries when a member (not an owner) asks. */
+  share: { amount_paise: number; amount_display: string } | null;
+  paid: { amount_paise: number; amount_display: string } | null;
+  owed: { amount_paise: number; amount_display: string } | null;
+  payout_status: PaymentStatus | null;
   payouts: PayoutView[];
 }
 
 type Money = { amount_paise: number; amount_display: string };
 
-/** Everything about a gig's money. Members see the fee side and their own share only. */
+/** Everything about a gig's money. Members see the fee side, who plays, and their own share only. */
 export interface GigMoneyView {
   gig: { id: string; title: string; status: string; start_display: string };
   visibility: "full" | "own_share";

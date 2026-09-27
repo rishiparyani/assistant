@@ -23,6 +23,8 @@ export interface Change {
   after?: unknown;
   /** Required for user-scoped operations; defaults to the current workspace. */
   workspaceId?: string;
+  /** Defaults to the operation's module; set by module hooks that join a core write. */
+  module?: string;
 }
 
 export interface OperationInfo {
@@ -108,7 +110,7 @@ function makeCommit(base: UserCtx | Ctx, info: OperationInfo): OpExtras["commit"
         workspaceId,
         actorUserId: base.user.id,
         source: base.source,
-        module: info.module,
+        module: ch.module ?? info.module,
         action: ch.action ?? info.action,
         entityType: ch.entityType,
         entityId: ch.entityId,

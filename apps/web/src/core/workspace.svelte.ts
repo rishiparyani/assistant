@@ -50,7 +50,7 @@ export interface NavItem {
 /** Navigation for a workspace, built from its enabled modules. */
 export function navFor(ws: WorkspaceDetail): NavItem[] {
   const base = `/w/${ws.id}`;
-  const items: NavItem[] = [{ href: base, label: "Home", icon: "home", exact: true }];
+  const items: NavItem[] = [{ href: "/", label: "Home", icon: "home", exact: true }];
   if (ws.modules.includes("gigs")) {
     items.push({ href: `${base}/gigs`, label: "Gigs", icon: "gigs" });
     items.push({ href: `${base}/people`, label: "People", icon: "people" });

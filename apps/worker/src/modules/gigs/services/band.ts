@@ -1,5 +1,5 @@
-// The band roster, gig lineups with shares, payouts to musicians, and the combined
-// money picture for a gig. Members see the fee side and their own share only.
+// The roster, gig lineups with shares, payouts to musicians, and the combined money
+// picture for a gig. Members see the fee side, who plays, and their own share only.
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import {
   formatDateIST,
@@ -62,8 +62,8 @@ async function loadMusician(ctx: OpCtx, id: string) {
   return row;
 }
 
-/** A linked account must be a member of this workspace. */
-async function assertMember(ctx: OpCtx, userId: string | null | undefined) {
+/** A linked account must be a member of this workspace and not already on its roster. */
+async function assertMember(ctx: OpCtx, userId: string | null | undefined, musicianId?: string) {
   if (!userId) return;
   const [m] = await ctx.db
     .select({ id: member.id })
@@ -71,6 +71,22 @@ async function assertMember(ctx: OpCtx, userId: string | null | undefined) {
     .where(and(eq(member.organizationId, ctx.workspace.id), eq(member.userId, userId)))
     .limit(1);
   if (!m) throw new AppError("validation_failed", "user_id must be a member of this workspace");
+  const [linked] = await ctx.db
+    .select({ id: musicians.id, name: musicians.name })
+    .from(musicians)
+    .where(
+      and(
+        eq(musicians.workspaceId, ctx.workspace.id),
+        eq(musicians.userId, userId),
+        isNull(musicians.deletedAt),
+      ),
+    )
+    .limit(1);
+  if (linked && linked.id !== musicianId) {
+    throw new AppError("conflict", `That member is already on the roster as ${linked.name}`, {
+      musician_id: linked.id,
+    });
+  }
 }
 
 export async function createMusician(
@@ -143,7 +159,7 @@ export async function updateMusician(
   input: z.output<typeof UpdateMusicianInput>,
 ): Promise<MusicianView> {
   const before = await loadMusician(ctx, input.musician_id);
-  await assertMember(ctx, input.user_id);
+  await assertMember(ctx, input.user_id, before.id);
   const fields = changedFields(input, {
     name: "name",
     phone: "phone",
@@ -432,29 +448,46 @@ export async function getGigMoney(ctx: OpCtx, gigId: string): Promise<GigMoneyVi
   const reversedBy = new Map(
     payoutList.filter((p) => p.payout.reversesPayoutId).map((p) => [p.payout.reversesPayoutId!, p.payout.id]),
   );
-  const entries: LineupEntryView[] = lineup
-    .filter((l) => full || l.musician.userId === ctx.user.id)
-    .map((l) => {
-      const mine = payoutList
-        .filter((p) => p.payout.musicianId === l.entry.musicianId)
-        .map((p) => toPayoutView(p.payout, p.musicianName, reversedBy.get(p.payout.id) ?? null));
-      const paid = mine.reduce((sum, p) => sum + p.amount.amount_paise, 0);
+  const entries: LineupEntryView[] = lineup.map((l) => {
+    const isMe = l.musician.userId === ctx.user.id;
+    if (!full && !isMe) {
+      // Members see who plays, not what others earn.
       return {
         id: l.entry.id,
         musician: {
           id: l.musician.id,
           name: l.musician.name,
           instrument: l.musician.instrument,
-          is_me: l.musician.userId === ctx.user.id,
+          is_me: false,
         },
         role: l.entry.role,
-        share: money(l.entry.sharePaise),
-        paid: money(paid),
-        owed: money(l.entry.sharePaise - paid),
-        payout_status: paymentStatus(l.entry.sharePaise, paid),
-        payouts: mine,
+        share: null,
+        paid: null,
+        owed: null,
+        payout_status: null,
+        payouts: [],
       };
-    });
+    }
+    const mine = payoutList
+      .filter((p) => p.payout.musicianId === l.entry.musicianId)
+      .map((p) => toPayoutView(p.payout, p.musicianName, reversedBy.get(p.payout.id) ?? null));
+    const paid = mine.reduce((sum, p) => sum + p.amount.amount_paise, 0);
+    return {
+      id: l.entry.id,
+      musician: {
+        id: l.musician.id,
+        name: l.musician.name,
+        instrument: l.musician.instrument,
+        is_me: l.musician.userId === ctx.user.id,
+      },
+      role: l.entry.role,
+      share: money(l.entry.sharePaise),
+      paid: money(paid),
+      owed: money(l.entry.sharePaise - paid),
+      payout_status: paymentStatus(l.entry.sharePaise, paid),
+      payouts: mine,
+    };
+  });
 
   let ownerOnly: Pick<GigMoneyView, "expenses" | "expenses_total" | "shares_total" | "unallocated" | "net"> =
     {

@@ -27,12 +27,14 @@ import {
   UpdateVenueInput,
   VenueRef,
 } from "@assistant/shared";
+import { z } from "zod";
 import { defineOperation } from "../../core/operations.ts";
 import * as c from "./services/clients.ts";
 import * as v from "./services/venues.ts";
 import * as g from "./services/gigs.ts";
 import * as pay from "./services/payments.ts";
 import * as band from "./services/band.ts";
+import * as me from "./services/me.ts";
 
 export const gigsOperations = [
   // --- Clients ---
@@ -368,5 +370,18 @@ export const gigsOperations = [
     http: { method: "POST", path: "/payouts/:payout_id/reverse", status: 201 },
     input: PayoutRef,
     handler: (ctx, input) => band.reversePayout(ctx, input.payout_id, input.note),
+  }),
+
+  // --- Me (across all my workspaces; user-scoped, read-only) ---
+  defineOperation({
+    id: "gigs.get_my_home",
+    tool: "get_my_home",
+    description:
+      "The signed-in person's own picture across all their workspaces: upcoming gigs they play, what they earned and received this month, what collectives and clients still owe them, and (for collectives they own) what they still owe other musicians. Never shows other people's shares.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/home" },
+    input: z.object({}),
+    handler: (ctx) => me.getMyHome(ctx),
   }),
 ];

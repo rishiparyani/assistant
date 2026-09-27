@@ -3,3 +3,4 @@ export * from "./common.ts";
 export * from "./gigs.ts";
 export * from "./money.ts";
 export * from "./venues.ts";
+export * from "./me.ts";
