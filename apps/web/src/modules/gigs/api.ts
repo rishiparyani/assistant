@@ -4,6 +4,7 @@ import type {
   ExpenseView,
   GigMoneyView,
   GigView,
+  GigsSettings,
   MusicianView,
   MyHomeView,
   Page,
@@ -99,6 +100,11 @@ export function gigsApi(ws: string) {
     updateVenue: (id: string, input: Partial<VenueView>) =>
       request<VenueView>("PATCH", `${base}/venues/${id}`, input),
     deleteVenue: (id: string) => request<{ deleted: boolean }>("DELETE", `${base}/venues/${id}`),
+
+    // Settings (per collective)
+    settings: () => request<GigsSettings>("GET", `${base}/settings/gigs`),
+    updateSettings: (input: Partial<GigsSettings>) =>
+      request<GigsSettings>("PATCH", `${base}/settings/gigs`, input),
 
     // Roster
     findMusicians: (p: Record<string, string | number | undefined> = {}) =>

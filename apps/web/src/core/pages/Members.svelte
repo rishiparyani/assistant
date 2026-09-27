@@ -19,6 +19,7 @@
   import { api } from "../api.ts";
   import { session } from "../session.svelte.ts";
   import { loadWorkspace } from "../workspace.svelte.ts";
+  import CollectiveSettings from "../../modules/gigs/CollectiveSettings.svelte";
 
   let { workspace }: { workspace: WorkspaceDetail } = $props();
 
@@ -146,6 +147,10 @@
         </ListRow>
       {/each}
     </ListGroup>
+  {/if}
+
+  {#if isBand && workspace.modules.includes("gigs")}
+    <CollectiveSettings {workspace} />
   {/if}
 
   {#if !isBand}

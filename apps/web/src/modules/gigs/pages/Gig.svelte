@@ -77,6 +77,14 @@
   });
 
   const full = $derived(money?.visibility === "full");
+  const perms = $derived(
+    money?.permissions ?? {
+      can_see_lineup: false,
+      can_see_lineup_amounts: false,
+      can_edit_lineup: false,
+      can_record_payouts: false,
+    },
+  );
   const progress = $derived(
     money && money.fee.amount_paise > 0
       ? Math.min(100, Math.max(0, (money.received.amount_paise / money.fee.amount_paise) * 100))
@@ -309,26 +317,52 @@
     </div>
 
     <div class="col">
-      {#if full}
+      {#if !full}
+        {#if mine?.share && mine.paid && mine.owed}
+          <Card>
+            <div class="money">
+              <div class="money-head">
+                <h2>Your share</h2>
+                {#if mine.payout_status}
+                  <Pill tone={paymentTone(mine.payout_status)}>{payoutLabel(mine.payout_status)}</Pill>
+                {/if}
+              </div>
+              <div class="stats">
+                <Stat label="Share" value={mine.share.amount_display} />
+                <Stat label="Paid to you" value={mine.paid.amount_display} tone="green" />
+                <Stat
+                  label="Still owed"
+                  value={mine.owed.amount_display}
+                  tone={mine.owed.amount_paise > 0 ? "amber" : undefined}
+                />
+              </div>
+            </div>
+          </Card>
+        {/if}
+      {/if}
+      {#if perms.can_see_lineup_amounts}
         <ListGroup title="Lineup">
           {#snippet action()}
-            <button class="link" onclick={() => (lineupOpen = true)}
-              >{money!.lineup.length ? "Edit" : "Set lineup"}</button
-            >
+            {#if perms.can_edit_lineup}
+              <button class="link" onclick={() => (lineupOpen = true)}
+                >{money!.lineup.length ? "Edit" : "Set lineup"}</button
+              >
+            {/if}
           {/snippet}
           {#if money.lineup.length === 0}
             <EmptyState title="No lineup yet" text="Choose who plays and each person's share of the fee.">
               {#snippet icon()}<Users size={26} />{/snippet}
-              {#snippet action()}<Button variant="tinted" onclick={() => (lineupOpen = true)}
-                  >Set lineup</Button
-                >{/snippet}
+              {#snippet action()}{#if perms.can_edit_lineup}<Button
+                    variant="tinted"
+                    onclick={() => (lineupOpen = true)}>Set lineup</Button
+                  >{/if}{/snippet}
             </EmptyState>
           {:else}
             {#each money.lineup as l (l.id)}
               <ListRow
                 title={l.musician.name}
                 subtitle="{l.role ?? l.musician.instrument ?? 'Share'} · {l.share?.amount_display ?? ''}"
-                onclick={() => openPayout(l)}
+                onclick={perms.can_record_payouts ? () => openPayout(l) : undefined}
               >
                 {#snippet leading()}<Avatar name={l.musician.name} size={36} />{/snippet}
                 {#snippet trailing()}
@@ -357,7 +391,7 @@
                 {#snippet trailing()}
                   {#if p.reversed_by_payout_id}<Pill>Reversed</Pill>
                   {:else if p.reverses_payout_id}<Pill tone="violet">Correction</Pill>
-                  {:else}
+                  {:else if perms.can_record_payouts}
                     <button
                       class="icon-btn"
                       aria-label="Reverse payout of {p.amount.amount_display} to {p.musician.name}"
@@ -370,7 +404,24 @@
             {/each}
           </ListGroup>
         {/if}
-
+      {:else if perms.can_see_lineup}
+        <ListGroup title="Who's playing">
+          {#each money.lineup as l (l.id)}
+            <ListRow
+              title={l.musician.is_me ? `${l.musician.name} (you)` : l.musician.name}
+              subtitle={l.role ?? l.musician.instrument ?? undefined}
+            >
+              {#snippet leading()}<Avatar name={l.musician.name} size={36} />{/snippet}
+            </ListRow>
+          {:else}
+            <ListRow
+              title="Lineup not set yet"
+              subtitle="The collective's owner sets who plays and the shares."
+            />
+          {/each}
+        </ListGroup>
+      {/if}
+      {#if full}
         <ListGroup title="Expenses">
           {#snippet action()}
             <button class="link" onclick={() => (expenseOpen = true)}>Add</button>
@@ -410,43 +461,6 @@
             />
           </div>
         </Card>
-      {:else}
-        {#if mine?.share && mine.paid && mine.owed}
-          <Card>
-            <div class="money">
-              <div class="money-head">
-                <h2>Your share</h2>
-                {#if mine.payout_status}
-                  <Pill tone={paymentTone(mine.payout_status)}>{payoutLabel(mine.payout_status)}</Pill>
-                {/if}
-              </div>
-              <div class="stats">
-                <Stat label="Share" value={mine.share.amount_display} />
-                <Stat label="Paid to you" value={mine.paid.amount_display} tone="green" />
-                <Stat
-                  label="Still owed"
-                  value={mine.owed.amount_display}
-                  tone={mine.owed.amount_paise > 0 ? "amber" : undefined}
-                />
-              </div>
-            </div>
-          </Card>
-        {/if}
-        <ListGroup title="Who's playing">
-          {#each money.lineup as l (l.id)}
-            <ListRow
-              title={l.musician.is_me ? `${l.musician.name} (you)` : l.musician.name}
-              subtitle={l.role ?? l.musician.instrument ?? undefined}
-            >
-              {#snippet leading()}<Avatar name={l.musician.name} size={36} />{/snippet}
-            </ListRow>
-          {:else}
-            <ListRow
-              title="Lineup not set yet"
-              subtitle="The collective's owner sets who plays and the shares."
-            />
-          {/each}
-        </ListGroup>
       {/if}
 
       {#if money.payments.length === 0}
@@ -493,7 +507,7 @@
       await refreshMoney();
     }}
   />
-  {#if full}
+  {#if perms.can_edit_lineup}
     <LineupSheet bind:open={lineupOpen} workspaceId={workspace.id} {money} onsaved={(m) => (money = m)} />
   {/if}
 {/if}

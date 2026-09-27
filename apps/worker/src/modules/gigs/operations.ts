@@ -24,6 +24,7 @@ import {
   GigRef,
   UpdateClientInput,
   UpdateGigInput,
+  UpdateGigsSettingsInput,
   UpdateVenueInput,
   VenueRef,
 } from "@assistant/shared";
@@ -35,6 +36,7 @@ import * as g from "./services/gigs.ts";
 import * as pay from "./services/payments.ts";
 import * as band from "./services/band.ts";
 import * as me from "./services/me.ts";
+import * as settings from "./services/settings.ts";
 
 export const gigsOperations = [
   // --- Clients ---
@@ -296,7 +298,6 @@ export const gigsOperations = [
     description: "Add a musician to the collective's roster (members, deps, session players).",
     scope: "workspace",
     kind: "write",
-    role: "owner",
     http: { method: "POST", path: "/musicians", status: 201 },
     input: CreateMusicianInput,
     handler: (ctx, input) => band.createMusician(ctx, input),
@@ -341,7 +342,6 @@ export const gigsOperations = [
       'Set who plays a gig and each person\'s share (amount, percent, or split: "equal" of the fee or split_total). Replaces the current lineup.',
     scope: "workspace",
     kind: "write",
-    role: "owner",
     confirm: true,
     http: { method: "PUT", path: "/gigs/:gig_id/lineup" },
     input: SetLineupInput,
@@ -353,7 +353,6 @@ export const gigsOperations = [
     description: "Record money the collective paid a musician for a gig. Date defaults to today.",
     scope: "workspace",
     kind: "write",
-    role: "owner",
     confirm: true,
     http: { method: "POST", path: "/gigs/:gig_id/payouts", status: 201 },
     input: RecordPayoutInput,
@@ -365,11 +364,35 @@ export const gigsOperations = [
     description: "Correct a payout recorded by mistake by adding a reversing entry.",
     scope: "workspace",
     kind: "write",
-    role: "owner",
     confirm: true,
     http: { method: "POST", path: "/payouts/:payout_id/reverse", status: 201 },
     input: PayoutRef,
     handler: (ctx, input) => band.reversePayout(ctx, input.payout_id, input.note),
+  }),
+
+  // --- Settings (per collective) ---
+  defineOperation({
+    id: "gigs.get_settings",
+    tool: "get_gigs_settings",
+    description:
+      "The collective's Gigs settings: whether members see who plays, and who can set lineups and record payouts.",
+    scope: "workspace",
+    kind: "read",
+    http: { method: "GET", path: "/settings/gigs" },
+    input: z.object({}),
+    handler: (ctx) => settings.getSettings(ctx),
+  }),
+  defineOperation({
+    id: "gigs.update_settings",
+    tool: "update_gigs_settings",
+    description:
+      'Change the collective\'s Gigs settings (owners): lineup_visible_to_members, lineup_editors and payout_recorders ("owners" or "everyone").',
+    scope: "workspace",
+    kind: "write",
+    role: "owner",
+    http: { method: "PATCH", path: "/settings/gigs" },
+    input: UpdateGigsSettingsInput,
+    handler: (ctx, input) => settings.updateSettings(ctx, input),
   }),
 
   // --- Me (across all my workspaces; user-scoped, read-only) ---
