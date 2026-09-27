@@ -57,7 +57,7 @@ export function navFor(ws: WorkspaceDetail): NavItem[] {
   }
   items.push(
     ws.kind === "band"
-      ? { href: `${base}/members`, label: "Band", icon: "band" }
+      ? { href: `${base}/members`, label: "Collective", icon: "band" }
       : { href: `${base}/members`, label: "Workspace", icon: "band" },
   );
   items.push({ href: "/settings", label: "Settings", icon: "settings" });

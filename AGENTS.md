@@ -6,6 +6,8 @@ Instructions for every coding agent (Claude Code, Codex, others) working in this
 
 **Assistant**: a personal/band assistant for a guitarist in Pune, India who plays in several bands. One backend, many clients: web app/PWA, Siri Shortcuts, and AI assistants over MCP (Claude, ChatGPT, others).
 
+Shared workspaces are called **collectives** in everything a person reads; code and data keep `kind = "band"` (see docs/decisions.md, 2026-09-27).
+
 It is built as a **small core plus feature modules**. The first module is **Gigs** (gig management, Phase 1). Later modules (music library/setlists, stage mode, and possibly unrelated personal tasks) plug into the same core without changing it. See [docs/modules.md](docs/modules.md).
 
 Priorities: near-zero recurring cost; one source of truth; assistants are clients with no logic of their own; browser/PWA-first; simple enough for one person to maintain; stage features never depend on internet.

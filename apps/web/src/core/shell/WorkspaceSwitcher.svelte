@@ -43,8 +43,8 @@
         subtitle={ws.kind === "personal"
           ? "Personal"
           : ws.role === "owner"
-            ? "Band · owner"
-            : "Band · member"}
+            ? "Collective · owner"
+            : "Collective · member"}
         onclick={() => go(ws.id)}
         chevron={false}
       >
@@ -59,18 +59,18 @@
   {#if creating}
     <form class="create" onsubmit={create}>
       <TextField
-        label="Band name"
+        label="Collective name"
         bind:value={name}
         placeholder="e.g. The Monsoon Project"
         required
         maxlength={80}
       />
-      <Button variant="primary" type="submit" loading={busy} full>Create band</Button>
+      <Button variant="primary" type="submit" loading={busy} full>Create collective</Button>
     </form>
   {:else}
     <Button variant="tinted" full onclick={() => (creating = true)}>
       {#snippet icon()}<Plus />{/snippet}
-      New band
+      New collective
     </Button>
   {/if}
 </Sheet>

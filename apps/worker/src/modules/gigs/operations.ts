@@ -291,7 +291,7 @@ export const gigsOperations = [
   defineOperation({
     id: "gigs.create_musician",
     tool: "create_musician",
-    description: "Add a musician to the band's roster (members, deps, session players).",
+    description: "Add a musician to the collective's roster (members, deps, session players).",
     scope: "workspace",
     kind: "write",
     role: "owner",
@@ -302,7 +302,7 @@ export const gigsOperations = [
   defineOperation({
     id: "gigs.find_musicians",
     tool: "find_musicians",
-    description: "List the band's roster.",
+    description: "List the collective's roster.",
     scope: "workspace",
     kind: "read",
     http: { method: "GET", path: "/musicians" },
@@ -348,7 +348,7 @@ export const gigsOperations = [
   defineOperation({
     id: "gigs.record_payout",
     tool: "record_payout",
-    description: "Record money the band paid a musician for a gig. Date defaults to today.",
+    description: "Record money the collective paid a musician for a gig. Date defaults to today.",
     scope: "workspace",
     kind: "write",
     role: "owner",

@@ -21,7 +21,7 @@ _Updated: 2026-09-26_
 ## Next
 
 1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T06** gigs views with the dashboard screen (Home). See `tasks/backlog.md`.
+2. **T06** Me Home (across collectives) and gigs views; see the 2026-09-27 decision and `tasks/backlog.md`.
 
 ## Open decisions
 
@@ -50,6 +50,8 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.workers.dev (Claude connector `Assistant` points at it) until T10 replaces it.
 
 ## Gotchas
+
+- "Collective" is the product word for a shared workspace; code and data say `band`. Use "collective" in UI copy and operation descriptions.
 
 - `CLAUDE.md` is a symlink; on Windows without symlink support replace it with a file containing `@AGENTS.md`.
 - **The repo is public.** No secrets or real personal data anywhere; see `docs/security.md#public-repository`.

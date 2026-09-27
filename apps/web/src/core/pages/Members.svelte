@@ -84,7 +84,7 @@
 </script>
 
 <PageHeader
-  title={isBand ? "Band" : "Workspace"}
+  title={isBand ? "Collective" : "Workspace"}
   subtitle={isBand
     ? `${workspace.members.length} member${workspace.members.length === 1 ? "" : "s"}`
     : "Just you"}
@@ -150,14 +150,14 @@
 
   {#if !isBand}
     <ListGroup
-      footer="Personal workspaces are just for you. Create a band from the workspace switcher to invite others."
+      footer="Personal workspaces are just for you. Create a collective from the workspace switcher to invite others."
     >
       <ListRow title="Your personal workspace" subtitle="Solo gigs, clients and payments" />
     </ListGroup>
   {/if}
 </div>
 
-<Sheet bind:open={inviteOpen} title={created ? "Invitation ready" : "Invite a bandmate"}>
+<Sheet bind:open={inviteOpen} title={created ? "Invitation ready" : "Invite a member"}>
   {#if created}
     <p class="lead">
       Send this link to <strong>{created.email}</strong>. They sign in with that email to join.

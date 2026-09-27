@@ -31,7 +31,7 @@
         <Avatar name={ws.name} size={32} square />
         <span class="ws-text">
           <span class="ws-name">{ws.name}</span>
-          <span class="ws-kind">{ws.kind === "personal" ? "Personal" : "Band"}</span>
+          <span class="ws-kind">{ws.kind === "personal" ? "Personal" : "Collective"}</span>
         </span>
         <ChevronsUpDown size={16} />
       </button>
