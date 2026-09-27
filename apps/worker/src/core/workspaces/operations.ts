@@ -12,7 +12,7 @@ export function workspaceOperations(moduleIds: readonly string[]) {
     defineOperation({
       id: "core.get_me",
       tool: "get_me",
-      description: "The signed-in user and the workspaces (personal and bands) they belong to.",
+      description: "The signed-in user and the workspaces (personal and collectives) they belong to.",
       scope: "user",
       kind: "read",
       http: { method: "GET", path: "/me" },
@@ -25,7 +25,7 @@ export function workspaceOperations(moduleIds: readonly string[]) {
     defineOperation({
       id: "core.create_band_workspace",
       tool: "create_band_workspace",
-      description: "Create a band workspace; the caller becomes its owner.",
+      description: "Create a collective (shared workspace); the caller becomes its owner.",
       scope: "user",
       kind: "write",
       http: { method: "POST", path: "/workspaces", status: 201 },
@@ -45,8 +45,7 @@ export function workspaceOperations(moduleIds: readonly string[]) {
     defineOperation({
       id: "core.invite_member",
       tool: "invite_member",
-      description:
-        "Invite someone to a band workspace by email. Returns a link to send them (no email is sent).",
+      description: "Invite someone to a collective by email. Returns a link to send them (no email is sent).",
       scope: "workspace",
       kind: "write",
       role: "owner",
@@ -71,7 +70,7 @@ export function workspaceOperations(moduleIds: readonly string[]) {
     defineOperation({
       id: "core.remove_member",
       tool: "remove_member",
-      description: "Remove a member from a band workspace (not the last owner).",
+      description: "Remove a member from a collective (not the last owner).",
       scope: "workspace",
       kind: "write",
       role: "owner",

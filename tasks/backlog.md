@@ -85,10 +85,12 @@ Decided 2026-09-26: UI work runs alongside backend work from here on; every task
 - AC: members see only what the API gives them (own share), with no broken empty sections.
 - Status: **done 2026-09-26**. The web app picks clients, venues and musicians by id from searchable pickers (with inline "Add …"), so ambiguous names can't arise there; the candidates answer matters for MCP/Siri (T09, T10).
 
-## T06 Gigs views
+## T06 Me Home and gigs views (see decision 2026-09-27)
 
-- AC: `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_dashboard`, `get_payouts_owed`, `get_my_earnings` with display strings; queries use indexes (check with `EXPLAIN QUERY PLAN`).
-- AC: dashboard screen (upcoming gigs, who owes me, this month, payouts owed) built with the views, in the same task.
+- AC: user-scoped `get_my_home` (upcoming gigs across my workspaces, owed to me per collective, earned this month, payouts I owe in collectives I own) and `get_my_earnings`; workspace-scoped `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_payouts_owed`; display strings; queries use indexes (`EXPLAIN QUERY PLAN`); only my own amounts from collectives where I'm a member.
+- AC: Home screen is the Me view (not tied to the open workspace); collective pages keep their own lists.
+- AC: members see the lineup of a gig (names, roles; no amounts except their own).
+- AC: joining a collective links the member to a roster entry (owner picks, or one is created); owners are prompted to add themselves to the roster.
 
 ## T07 Web app polish (was: dashboard, gigs, clients, forms)
 

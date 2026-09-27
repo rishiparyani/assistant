@@ -6,7 +6,7 @@
   import { METHODS } from "./options.ts";
   import { todayIST } from "./time.ts";
 
-  // Shared by "Record payment" (client → band) and "Record payout" (band → musician).
+  // Shared by "Record payment" (client → collective) and "Record payout" (collective → musician).
   let {
     open = $bindable(false),
     title,

@@ -1,7 +1,7 @@
 {
   "name": "Assistant",
   "short_name": "Assistant",
-  "description": "Gigs, clients, payments and band shares in one place.",
+  "description": "Gigs, clients, payments and collective shares in one place.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

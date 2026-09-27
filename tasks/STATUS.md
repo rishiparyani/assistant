@@ -8,7 +8,7 @@ _Updated: 2026-09-26_
 - Architecture made flexible: a small core plus feature modules, with Gigs as module one (see `docs/modules.md` and the decision in `docs/decisions.md`).
 - Decisions recorded: per-member shares and payouts in Phase 1 (T02/T05 updated); no further modules planned yet.
 - Added `docs/setup.md` (deploys via GitHub Actions, where secrets live, owner's manual steps, free-tier limits) and public-repo safety rules in `AGENTS.md` and `docs/security.md`.
-- **U1 gig screens** (branch `claude/gig-assistant-flexibility-7x8ws8`; PR to `main` next): Gigs list (upcoming/past/all, search, month groups), gig detail (status actions, payment card with progress, payments with reverse, lineup with shares and payout status, payouts with reverse, expenses, totals; two columns ≥1100 px; members see only "Your share"), add/edit gig sheet (inline client/venue creation, end time past midnight = next day), lineup sheet (equal / percent / amount with live preview), payment/payout/expense sheets, People (clients with gig history, venues, roster linked to member accounts; roster owner-only). Core UI: Picker, PickerField, Stat, styled confirm dialog. Browser E2E (sign in → gig → payment → lineup → payout → expense → reverse → edit → cancel/delete) and screenshots at 390/820/1280 light/dark checked locally.
+- **U1 live on prod** ([rishiparyani/assistant#8](https://github.com/rishiparyani/assistant/pull/8)): Gigs list (upcoming/past/all, search, month groups), gig detail (status actions, payment card with progress, payments with reverse, lineup with shares and payout status, payouts with reverse, expenses, totals; two columns ≥1100 px; members see only "Your share"), add/edit gig sheet (inline client/venue creation, end time past midnight = next day), lineup sheet (equal / percent / amount with live preview), payment/payout/expense sheets, People (clients with gig history, venues, roster linked to member accounts; roster owner-only). Core UI: Picker, PickerField, Stat, styled confirm dialog. Browser E2E (sign in → gig → payment → lineup → payout → expense → reverse → edit → cancel/delete) and screenshots at 390/820/1280 light/dark checked locally.
 - **U0 live on prod** ([rishiparyani/assistant#7](https://github.com/rishiparyani/assistant/pull/7)); owner feedback on the look pending: design system in `apps/web/src/core/ui/` (tokens light/dark, Inter, Lucide icons; Button, fields, ListGroup/ListRow, Card, Pill, Segmented, Sheet, Toast, EmptyState, Skeleton, Avatar, PageHeader), app shell (phone: top bar + tab bar; ≥768px: sidebar), workspace switcher, workspace-scoped routes (`/w/:id/...`), PWA manifest + icons; login, consent, invite, home (upcoming gigs), band, settings rebuilt. Gigs/People tabs show a placeholder until U1.
 - **T05 live on prod** ([rishiparyani/assistant#6](https://github.com/rishiparyani/assistant/pull/6)): payments with reversals, expenses, roster, lineups with equal/percent/fixed shares, payouts with reversals, `get_gig_money` (derived balance/status/owed/unallocated/net; member visibility). Shared: `paymentStatus`, `splitEqual`, `splitPercent` (table-tested). Tests: 72 shared, 66 worker.
 - **T04 live on prod** ([rishiparyani/assistant#5](https://github.com/rishiparyani/assistant/pull/5)): operation registry (routes, validation, idempotency, audit via `ctx.commit`), T03 routes moved onto it, gigs module clients/venues/gigs with soft delete, cursor pagination, name resolution with candidates, status transitions. Shared: IST date helpers, pagination, gigs schemas. Tests: 53 shared, 54 worker (incl. isolation, idempotency, ambiguity, throwaway module).
@@ -21,7 +21,7 @@ _Updated: 2026-09-26_
 ## Next
 
 1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T06** gigs views with the dashboard screen (Home). See `tasks/backlog.md`.
+2. **T06** Me Home (across collectives) and gigs views; see the 2026-09-27 decision and `tasks/backlog.md`.
 
 ## Open decisions
 
@@ -50,6 +50,8 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.workers.dev (Claude connector `Assistant` points at it) until T10 replaces it.
 
 ## Gotchas
+
+- "Collective" is the product word for a shared workspace; code and data say `band`. Use "collective" in UI copy and operation descriptions.
 
 - `CLAUDE.md` is a symlink; on Windows without symlink support replace it with a file containing `@AGENTS.md`.
 - **The repo is public.** No secrets or real personal data anywhere; see `docs/security.md#public-repository`.

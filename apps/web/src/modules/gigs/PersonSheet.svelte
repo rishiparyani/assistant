@@ -148,7 +148,7 @@
         </div>
         {#if workspace.kind === "band"}
           <SelectField
-            label="Band member account"
+            label="Member account"
             bind:value={f.user_id}
             options={memberOptions}
             hint="Linked people see their own share and payouts."

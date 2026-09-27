@@ -372,7 +372,7 @@
           {#if !money.expenses?.length}
             <ListRow
               title="No expenses"
-              subtitle="Travel, food, sound hire… anything the band paid for this gig."
+              subtitle="Travel, food, sound hire… anything the collective paid for this gig."
             />
           {:else}
             {#each money.expenses as x (x.id)}
@@ -397,7 +397,7 @@
             <Stat label="Shares" value={money.shares_total?.amount_display ?? "₹0"} />
             <Stat label="Expenses" value={money.expenses_total?.amount_display ?? "₹0"} />
             <Stat
-              label="Band keeps"
+              label="Collective keeps"
               value={money.net?.amount_display ?? "₹0"}
               tone={(money.net?.amount_paise ?? 0) < 0 ? "red" : "green"}
               hint="Fee − shares − expenses"
@@ -428,7 +428,7 @@
         <ListGroup title="Lineup">
           <ListRow
             title="You're not in the lineup"
-            subtitle="The band's owner sets who plays and the shares."
+            subtitle="The collective's owner sets who plays and the shares."
           />
         </ListGroup>
       {/if}

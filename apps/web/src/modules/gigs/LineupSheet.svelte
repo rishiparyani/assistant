@@ -132,7 +132,8 @@
   <p class="hint">
     {#if mode === "equal"}The fee ({money.fee.amount_display}) is divided equally; any leftover paise go to
       the first person.{:else if mode === "percent"}Percentages of the fee ({money.fee.amount_display}). Under
-      100% leaves the rest with the band.{:else}Fixed amounts. Whatever isn't shared stays with the band.{/if}
+      100% leaves the rest with the collective.{:else}Fixed amounts. Whatever isn't shared stays with the
+      collective.{/if}
   </p>
 
   {#if roster === null}
@@ -183,7 +184,7 @@
           {/if}
         </div>
       {:else}
-        <p class="hint">Your band roster is empty. Add people below.</p>
+        <p class="hint">Your roster is empty. Add people below.</p>
       {/each}
     </div>
     <form class="add" onsubmit={addToRoster}>
@@ -200,7 +201,7 @@
   <div class="totals">
     <span>Shared <strong class="num">{formatINR(allocated)}</strong> of {money.fee.amount_display}</span>
     <span class:neg={fee - allocated < 0}
-      >Band keeps <strong class="num">{formatINR(fee - allocated)}</strong></span
+      >Collective keeps <strong class="num">{formatINR(fee - allocated)}</strong></span
     >
   </div>
 

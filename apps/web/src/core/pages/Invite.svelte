@@ -58,13 +58,15 @@
       {:else if inv.status !== "pending"}
         <h1>This invitation is {inv.status}</h1>
         <p>
-          Ask the band owner for a new link if you still need to join <strong>{inv.workspace_name}</strong>.
+          Ask the collective's owner for a new link if you still need to join <strong
+            >{inv.workspace_name}</strong
+          >.
         </p>
         <Button href="/" full>Go to your workspaces</Button>
       {:else}
         <h1>Join {inv.workspace_name}</h1>
         <p>You've been invited as a {inv.role}. You'll see its gigs and your own share of the money.</p>
-        <Button variant="primary" size="lg" full loading={busy} onclick={accept}>Join band</Button>
+        <Button variant="primary" size="lg" full loading={busy} onclick={accept}>Join collective</Button>
         <p class="fine">Signed in as {session.me?.user.email}</p>
       {/if}
     </div>
