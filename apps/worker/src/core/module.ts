@@ -16,6 +16,13 @@ export interface ModuleHooks {
   memberJoined?: (ctx: UserCtx, args: { workspaceId: string }) => Promise<HookResult>;
 }
 
+/** A queue this module consumes. `name` is the queue's base name; dev uses `<name>-dev`. */
+export interface ModuleQueue {
+  name: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each queue has its own body type
+  handle: (batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) => Promise<void>;
+}
+
 export interface ModuleDefinition {
   /** Stable id, used in operation ids and scopes (e.g. "gigs"). */
   id: string;
@@ -30,6 +37,8 @@ export interface ModuleDefinition {
    */
   operations?: readonly AnyOperation[];
   hooks?: ModuleHooks;
+  /** Queues this module consumes (e.g. gigs' summaries queue). */
+  queues?: readonly ModuleQueue[];
 }
 
 export function defineModule<const M extends ModuleDefinition>(module: M): M {

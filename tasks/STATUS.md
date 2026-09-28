@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **R1 step 1, foundation** (branch; no visible change): Durable Objects for gigs, people, month indexes and pending lists, with per-object migrations, idempotency and audit inside the gig, the outbox → `summaries` queue → consumer path (combining per gig, sequence numbers, dead letter queue), retries that never give up, flush and rebuild tools; deploy workflow creates the queues; tests: 73 shared, 84 worker (9 new in `objects.test.ts`). See `docs/architecture.md` → Gig-centric storage.
+
 - **Design approved: gig-centric, scale-ready** (`docs/design/gig-centric.md`, learning notes `docs/learn/scale.md`, decision 2026-09-28): gigs with events, per-gig roles, collective as a tag, Durable Objects per gig/person/month index, outbox → Cloudflare Queue, monitoring and email alerts. Build started (R1 step 1).
 
 - **Collective settings live on prod** ([rishiparyani/assistant#11](https://github.com/rishiparyani/assistant/pull/11)): per-collective Gigs settings on the Collective page (owners change, members see): who sees who's playing, who can set the lineup, who can record payouts (owners only / everyone). Enforced in services (`set_gig_lineup`, `record_payout`, `reverse_payout`, `create_musician`), `get_gig_money` returns `permissions`; the gig page follows them. Stored in `workspace_modules.settings_json`. Tests: 73 shared, 75 worker.
@@ -27,9 +29,10 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. **R1 step 1, foundation** (design section 12): Durable Objects, per-object migrations, outbox → queue, consumer, flush/rebuild tools, deploy workflow creating the queues. No visible change.
-2. Paused: the rest of T06 (collective views), replaced by R1.
-3. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
+1. Owner: add **Queues: Edit** to the Cloudflare API token (the deploy workflow creates the queues). Then verify the step 1 deploy on dev and ship it.
+2. **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
+3. Paused: the rest of T06 (collective views), replaced by R1.
+4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
 
 ## Open decisions
 
@@ -58,6 +61,10 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.workers.dev (Claude connector `Assistant` points at it) until T10 replaces it.
 
 ## Gotchas
+
+- Durable Object alarms fire by themselves in tests right after `setAlarm(now)`; to observe a failed hand-over, break the queue binding (`runInDurableObject`, replace `env.SUMMARIES`) before the change, then use `runDurableObjectAlarm` to force a retry.
+- Month-index objects are shared by every gig with events that month; in tests, filter cards by gig id.
+- Interfaces don't satisfy `SqlStorage.exec<T>`'s record constraint; use `type` aliases for row shapes.
 
 - "Collective" is the product word for a shared workspace; code and data say `band`. Use "collective" in UI copy and operation descriptions.
 

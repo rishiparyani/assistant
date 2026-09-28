@@ -34,6 +34,9 @@ jobs:
       CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || '' }}
       DB_NAME: ${{ github.ref_name == 'main' && 'assistant' || 'assistant-dev' }}
       WORKER_NAME: ${{ github.ref_name == 'main' && 'assistant' || 'assistant-dev' }}
+      # Summaries queue for gig-centric storage (docs/design/gig-centric.md); its dead letter
+      # queue is "<name>-dlq". Must match apps/worker/wrangler.jsonc.
+      QUEUE_NAME: ${{ github.ref_name == 'main' && 'summaries' || 'summaries-dev' }}
       # Placeholder database_id in apps/worker/wrangler.jsonc for this environment.
       DB_PLACEHOLDER: ${{ github.ref_name == 'main' && '00000000-0000-0000-0000-000000000001' || '00000000-0000-0000-0000-000000000000' }}
       APP_URL: ${{ github.ref_name == 'main' && 'https://assistant.rishiparyani.workers.dev' || 'https://assistant-dev.rishiparyani.workers.dev' }}
@@ -70,6 +73,18 @@ jobs:
           # Not secret; filled in here so the repo needs no per-account edits.
           sed -i "s/$DB_PLACEHOLDER/$id/" wrangler.jsonc
           grep -q "$id" wrangler.jsonc
+
+      - name: Ensure queues exist
+        working-directory: apps/worker
+        run: |
+          for q in "$QUEUE_NAME" "$QUEUE_NAME-dlq"; do
+            if ! pnpm exec wrangler queues info "$q" > /dev/null 2>&1; then
+              if ! pnpm exec wrangler queues create "$q" > /dev/null; then
+                echo "::error::Couldn't create queue $q. The Cloudflare API token needs Account → Queues: Edit (docs/setup.md)."
+                exit 1
+              fi
+            fi
+          done
 
       - name: Build
         run: pnpm build

@@ -20,6 +20,15 @@ Clients (web app, Siri Shortcuts, Claude/ChatGPT/Le Chat via MCP) hold no busine
                           role, module, scope)                └─► audit_log
 ```
 
+## Gig-centric storage (R1, in progress)
+
+The app is moving to the design in [design/gig-centric.md](design/gig-centric.md). Built so far (step 1, no visible change yet):
+
+- `apps/worker/src/core/objects/`: helpers every Durable Object uses: per-object schema migrations (`migrate`), audit (`_audit`), idempotency (`idempotent`, `_idempotency`, 24 h), the one-row outbox (`bumpAndNote`, `clearOutbox`, retry delays 2 s → 1 h, never giving up), and `ObjectError` (codes travel through Workers RPC and become `AppError`s at the edge).
+- `apps/worker/src/modules/gigs/objects/`: `BookingObject` (`booking:<gig id>`; minimal gig, events, people, roles, version check), `PersonObject` (`person:<user id>`; summary rows), `MonthIndexObject` (`index:<YYYY-MM>`; event cards by date and the registry of gigs created that month), `PendingObject` (`pending:<0-3>`; gigs whose note couldn't be sent), and `delivery.ts` (queue consumer, `flushOutboxes`, `rebuildSummaries`).
+- Flow: a change writes its outbox note in the same transaction → the gig's alarm registers the gig (first time) and sends `{gig_id, seq}` to the `summaries` queue → the consumer combines messages per gig, reads the gig's current summaries once, and replaces that gig's rows in each person and month index, ignoring older sequence numbers.
+- Config: `apps/worker/wrangler.jsonc` (bindings `BOOKINGS`, `PEOPLE`, `MONTHS`, `PENDING`, queue `SUMMARIES` → `summaries-dev` / `summaries`, dead letter `-dlq`); the deploy workflow creates the queues. Tests: `apps/worker/test/objects.test.ts`.
+
 ## Core and modules
 
 The Worker is split into **core** and **modules**. Full contract: [modules.md](modules.md).

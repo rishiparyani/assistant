@@ -23,6 +23,35 @@
       "migrations_dir": "migrations",
     },
   ],
+  // Gig-centric storage (docs/design/gig-centric.md): one small SQLite database per gig,
+  // per person, per month index, plus a few pending-list shards.
+  "durable_objects": {
+    "bindings": [
+      { "name": "BOOKINGS", "class_name": "BookingObject" },
+      { "name": "PEOPLE", "class_name": "PersonObject" },
+      { "name": "MONTHS", "class_name": "MonthIndexObject" },
+      { "name": "PENDING", "class_name": "PendingObject" },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["BookingObject", "PersonObject", "MonthIndexObject", "PendingObject"],
+    },
+  ],
+  // Outbox notes travel here; the deploy workflow creates the queues if missing.
+  "queues": {
+    "producers": [{ "binding": "SUMMARIES", "queue": "summaries-dev" }],
+    "consumers": [
+      {
+        "queue": "summaries-dev",
+        "max_batch_size": 100,
+        "max_batch_timeout": 1,
+        "max_retries": 10,
+        "dead_letter_queue": "summaries-dev-dlq",
+      },
+    ],
+  },
   "vars": {
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://assistant-dev.rishiparyani.workers.dev",
@@ -38,6 +67,35 @@
           "migrations_dir": "migrations",
         },
       ],
+      // Gig-centric storage (docs/design/gig-centric.md): one small SQLite database per gig,
+      // per person, per month index, plus a few pending-list shards.
+      "durable_objects": {
+        "bindings": [
+          { "name": "BOOKINGS", "class_name": "BookingObject" },
+          { "name": "PEOPLE", "class_name": "PersonObject" },
+          { "name": "MONTHS", "class_name": "MonthIndexObject" },
+          { "name": "PENDING", "class_name": "PendingObject" },
+        ],
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["BookingObject", "PersonObject", "MonthIndexObject", "PendingObject"],
+        },
+      ],
+      // Outbox notes travel here; the deploy workflow creates the queues if missing.
+      "queues": {
+        "producers": [{ "binding": "SUMMARIES", "queue": "summaries" }],
+        "consumers": [
+          {
+            "queue": "summaries",
+            "max_batch_size": 100,
+            "max_batch_timeout": 1,
+            "max_retries": 10,
+            "dead_letter_queue": "summaries-dlq",
+          },
+        ],
+      },
       "vars": {
         "ENVIRONMENT": "production",
         "BASE_URL": "https://assistant.rishiparyani.workers.dev",
