@@ -179,6 +179,10 @@ Design §2 lists an address book (clients, venues, people) used to fill in gigs.
 
 One secret link per person (`/api/calendar/cal_<random>.ics`) that Apple and Google Calendar poll; Apple opens it with a webcal:// button. The link is looked up by SHA-256 hash in D1 `access_tokens` (the same table will hold the T09 API tokens) and also kept sealed, so the settings page can show it again (the owner wants few steps; a link that can't be shown again would mean re-adding it everywhere). Reset makes a new link and revokes the old; turning off revokes. Modules contribute events through a core hook (`calendar`); gigs reads the person's own object (events 90 days back onwards, cancelled ones kept and marked so calendars drop them, enquiries tentative). No money in the feed, since calendar services copy it. "Last used" is written at most once a day per link. Services get `ctx.sealer` (seal/unseal) instead of the secret itself. Reports (the rest of T08) already exist from R1 step 4.
 
+## 2026-09-28: API tokens and Siri Shortcuts (T09)
+
+Tokens (`ast_…`) live in D1 `access_tokens` next to calendar links: SHA-256 hash only (shown once; a retried create answers 409 rather than a second secret), up to 10 per person, scope read or read+write, revoked (never deleted), "last used" at most once a day. `requireCaller` accepts a session or a token, and only operation routes use it; operations marked `sessionOnly` (token and calendar management) and every non-operation route (admin, live updates) stay session-only, so a leaked token can't mint more tokens or reach admin. Token calls are audited as source `siri`. For Shortcuts, two thin reads: `get_brief` returns a sentence to speak (next gig, week, owed to me, to collect, to pay), built from Home and my gigs, and `pick` returns label → id dictionaries for "Choose from List". Every write shortcut shows an alert (Cancel) before calling. Recipes in `shortcuts/README.md`; nothing to install beyond the Shortcuts app.
+
 ## Open
 
 None.

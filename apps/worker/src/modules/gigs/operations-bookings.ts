@@ -3,6 +3,8 @@
 // gig's object.
 import {
   AddEventInput,
+  BriefInput,
+  PickInput,
   ContactRef,
   FindContactsInput,
   SaveContactInput,
@@ -35,6 +37,7 @@ import * as b from "./services/bookings.ts";
 import * as h from "./services/home.ts";
 import * as t from "./services/tags.ts";
 import * as c from "./services/contacts.ts";
+import { getBrief, pick } from "./services/brief.ts";
 
 export const bookingOperations = [
   defineOperation({
@@ -288,6 +291,26 @@ export const bookingOperations = [
     http: { method: "GET", path: "/me/duplicates" },
     input: DuplicateCheckInput,
     handler: (ctx, input) => t.checkDuplicates(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.get_brief",
+    tool: "get_brief",
+    description:
+      "A short spoken answer (for Siri): my next gig, my gigs this week, who owes me, what clients owe on gigs I manage, or what I still have to pay out. Returns text to read out and the items behind it.",
+    kind: "read",
+    http: { method: "GET", path: "/me/brief" },
+    input: BriefInput,
+    handler: (ctx, input) => getBrief(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.pick",
+    tool: "pick_gig_or_person",
+    description:
+      "Choices for a Siri Shortcut's list: my gigs matching q (label → gig id), or with gig_id the other people on that gig (name → person id).",
+    kind: "read",
+    http: { method: "GET", path: "/me/pick" },
+    input: PickInput,
+    handler: (ctx, input) => pick(ctx, input),
   }),
   // Address book
   defineOperation({

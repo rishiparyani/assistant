@@ -4,7 +4,9 @@ import { activity } from "./activity.svelte.ts";
 import {
   isHealthResponse,
   type ApiErrorBody,
+  type ApiTokenView,
   type CalendarFeedView,
+  type CreatedApiTokenView,
   type HealthResponse,
   type MeResponse,
 } from "@assistant/shared";
@@ -148,4 +150,12 @@ export const calendarApi = {
   get: () => request<CalendarFeedView>("GET", "/api/me/calendar"),
   enable: (reset = false) => request<CalendarFeedView>("POST", "/api/me/calendar", reset ? { reset } : {}),
   disable: () => request<CalendarFeedView>("DELETE", "/api/me/calendar"),
+};
+
+/** API tokens for Siri Shortcuts (core, T09). */
+export const tokensApi = {
+  list: () => request<ApiTokenView[]>("GET", "/api/me/tokens"),
+  create: (name: string, write: boolean) =>
+    request<CreatedApiTokenView>("POST", "/api/me/tokens", { name, write }),
+  revoke: (id: string) => request<{ revoked: true }>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
 };
