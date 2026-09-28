@@ -288,7 +288,7 @@ export class PersonObject extends DurableObject<Env> {
            and (? is null or status = ?) and (? is null or role = ?)
            and (? is null or lower(client_name) = lower(?))
            and (? is null or collective_tag_id = ?)${tagClause}
-         order by first_start_at`,
+         order by first_start_at, gig_id`,
         q.from ?? "",
         q.to ?? "9999",
         q.status ?? null,
