@@ -43,7 +43,7 @@ describe("admin panel", () => {
     const people = o.sections[0]!.stats;
     expect(people.find((s) => s.label === "Accounts")!.value).toBeGreaterThanOrEqual(2);
     expect(people.find((s) => s.label === "New this week")!.value).toBeGreaterThanOrEqual(2);
-    expect(o.tools.map((t) => t.id)).toEqual(["gigs.flush", "gigs.rebuild"]);
+    expect(o.tools.map((t) => t.id)).toEqual(["gigs.retry_dead", "gigs.flush", "gigs.rebuild"]);
     expect(JSON.stringify(o)).not.toContain("@example.com"); // nothing identifying anyone
   });
 

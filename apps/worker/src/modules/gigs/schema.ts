@@ -1,7 +1,7 @@
 // The gigs module's D1 tables: only the shared tag registry and people waiting for an
 // account. Gigs themselves live in their own Durable Objects (docs/design/gig-centric.md).
 import { sql } from "drizzle-orm";
-import { check, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { timestamp, user } from "../../core/db/schema.ts";
 
 const inList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));
@@ -44,4 +44,19 @@ export const pendingPeople = sqliteTable(
     createdAt: timestamp("created_at"),
   },
   (t) => [uniqueIndex("pending_people_email_person_uidx").on(t.email, t.gigId, t.personId)],
+);
+
+/**
+ * Summary deliveries that failed every retry (from the dead letter queue). Rare; the
+ * admin panel's "Retry failed deliveries" re-announces those gigs and clears the rows.
+ */
+export const deadLetters = sqliteTable(
+  "dead_letters",
+  {
+    id: text("id").primaryKey(),
+    gigId: text("gig_id").notNull(),
+    seq: text("seq"),
+    createdAt: timestamp("created_at"),
+  },
+  (t) => [index("dead_letters_created_idx").on(t.createdAt)],
 );

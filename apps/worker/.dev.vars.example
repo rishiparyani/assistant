@@ -13,3 +13,6 @@ ADMIN_EMAILS=admin@example.com
 # A Cloudflare API token with only "Account Analytics: Read", and the account id.
 ANALYTICS_TOKEN=
 CLOUDFLARE_ACCOUNT_ID=
+
+# Optional: alerts to the owner's Telegram bot (token from @BotFather). Never commit it.
+TELEGRAM_BOT_TOKEN=

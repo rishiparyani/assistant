@@ -80,7 +80,16 @@ export const adminApi = {
     request<{ result: string }>("POST", `/api/admin/tools/${id}`, input),
   log: () => request<AdminLogEntry[]>("GET", "/api/admin/log"),
   operations: () => request<AdminOperations>("GET", "/api/admin/operations"),
+  alerts: () => request<AdminAlerts>("GET", "/api/admin/alerts"),
+  setAlerts: (enabled: boolean) => request<{ enabled: boolean }>("POST", "/api/admin/alerts", { enabled }),
+  testAlert: () => request<{ sent: boolean }>("POST", "/api/admin/alerts/test", {}),
 };
+
+export interface AdminAlerts {
+  enabled: boolean;
+  telegram: { token: boolean; chat: boolean };
+  checks: { id: string; label: string; ok: boolean; detail?: string; fix?: string; since: string | null }[];
+}
 
 export interface AdminOperations {
   /** False until the read-only analytics token is set up. */

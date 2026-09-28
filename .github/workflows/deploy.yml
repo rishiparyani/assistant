@@ -108,6 +108,8 @@ jobs:
           # Admin panel per-action numbers (read-only analytics token); optional.
           ANALYTICS_TOKEN: ${{ secrets.ANALYTICS_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Alerts to the owner's Telegram bot; optional.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
@@ -119,6 +121,9 @@ jobs:
           if [ -n "$ANALYTICS_TOKEN" ]; then
             printf '%s' "$ANALYTICS_TOKEN" | pnpm exec wrangler secret put ANALYTICS_TOKEN --name "$WORKER_NAME" > /dev/null
             printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
+            printf '%s' "$TELEGRAM_BOT_TOKEN" | pnpm exec wrangler secret put TELEGRAM_BOT_TOKEN --name "$WORKER_NAME" > /dev/null
           fi
           # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
           if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then

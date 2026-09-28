@@ -38,3 +38,22 @@ export const adminAudit = sqliteTable(
   },
   (t) => [index("admin_audit_created_idx").on(t.createdAt)],
 );
+
+/** Small app-wide settings (e.g. the Telegram chat for alerts, alerts on/off). Written rarely. */
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at"),
+});
+
+/**
+ * One row per health check (design §10a): whether it's failing and when we last told the
+ * owner. Written only when a check changes state, or for the daily reminder.
+ */
+export const alertState = sqliteTable("alert_state", {
+  id: text("id").primaryKey(),
+  firing: text("firing").notNull().default("no"),
+  message: text("message"),
+  since: text("since"),
+  lastSentAt: text("last_sent_at"),
+});
