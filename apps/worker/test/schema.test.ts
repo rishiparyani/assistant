@@ -16,6 +16,8 @@ describe("migrations", () => {
     expect(results.map((r) => r.name)).toEqual(
       [
         "account",
+        "admin_audit",
+        "admins",
         "api_tokens",
         "audit_log",
         "clients",

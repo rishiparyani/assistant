@@ -103,11 +103,16 @@ jobs:
         env:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          # Admin panel owners (docs/design/gig-centric.md §10b); optional.
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
           printf '%s' "$GOOGLE_CLIENT_ID" | pnpm exec wrangler secret put GOOGLE_CLIENT_ID --name "$WORKER_NAME" > /dev/null
           printf '%s' "$GOOGLE_CLIENT_SECRET" | pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --name "$WORKER_NAME" > /dev/null
+          if [ -n "$ADMIN_EMAILS" ]; then
+            printf '%s' "$ADMIN_EMAILS" | pnpm exec wrangler secret put ADMIN_EMAILS --name "$WORKER_NAME" > /dev/null
+          fi
           # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
           if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then
             openssl rand -base64 32 | tr -d '\n' | pnpm exec wrangler secret put BETTER_AUTH_SECRET --name "$WORKER_NAME" > /dev/null

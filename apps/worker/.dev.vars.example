@@ -6,3 +6,5 @@ BETTER_AUTH_SECRET=local-dev-only-change-me
 # Optional locally: without real values, sign in with email/password (localhost only).
 GOOGLE_CLIENT_ID=placeholder.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=placeholder
+# Admin panel owners (comma-separated emails). In prod/dev this is a GitHub secret.
+ADMIN_EMAILS=admin@example.com

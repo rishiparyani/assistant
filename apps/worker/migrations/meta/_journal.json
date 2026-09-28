@@ -15,6 +15,13 @@
       "when": 1790455260306,
       "tag": "0001_passkeys",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790615457525,
+      "tag": "0002_admin",
+      "breakpoints": true
     }
   ]
 }

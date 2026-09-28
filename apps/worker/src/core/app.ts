@@ -6,6 +6,7 @@ import type { AppEnv } from "./context.ts";
 import { AppError } from "./errors.ts";
 import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
+import { adminRoutes } from "./admin/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
 import { workspaceOperations } from "./workspaces/operations.ts";
 
@@ -68,6 +69,7 @@ export function createApp({ modules }: AppOptions) {
   });
 
   app.route("/", authRoutes);
+  app.route("/", adminRoutes(modules));
   registerOperations(app, operations);
 
   // Unknown API paths are JSON 404s, never the SPA's index.html.

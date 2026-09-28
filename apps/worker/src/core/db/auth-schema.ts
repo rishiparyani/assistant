@@ -8,15 +8,20 @@ import { customType, index, integer, sqliteTable, text, uniqueIndex } from "driz
 const date = customType<{ data: string; driverData: string }>({ dataType: () => "date" });
 const bool = (name: string) => integer(name, { mode: "boolean" });
 
-export const user = sqliteTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: bool("emailVerified").notNull(),
-  image: text("image"),
-  createdAt: date("createdAt").notNull(),
-  updatedAt: date("updatedAt").notNull(),
-});
+export const user = sqliteTable(
+  "user",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    email: text("email").notNull().unique(),
+    emailVerified: bool("emailVerified").notNull(),
+    image: text("image"),
+    createdAt: date("createdAt").notNull(),
+    updatedAt: date("updatedAt").notNull(),
+  },
+  // Admin panel counts (sign-ups per period) without scanning the table.
+  (t) => [index("user_createdAt_idx").on(t.createdAt)],
+);
 
 export const session = sqliteTable(
   "session",
@@ -33,7 +38,8 @@ export const session = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     activeOrganizationId: text("activeOrganizationId"),
   },
-  (t) => [index("session_userId_idx").on(t.userId)],
+  // updatedAt: admin panel "active people" counts (sessions refresh as people use the app).
+  (t) => [index("session_userId_idx").on(t.userId), index("session_updatedAt_idx").on(t.updatedAt)],
 );
 
 export const account = sqliteTable(

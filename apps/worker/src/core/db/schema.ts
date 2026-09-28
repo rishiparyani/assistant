@@ -118,3 +118,26 @@ export const auditLog = sqliteTable(
     check("audit_log_source_check", sql`${t.source} in ('web', 'siri', 'mcp', 'system')`),
   ],
 );
+
+/**
+ * Admins added from the admin panel (the owner list in the ADMIN_EMAILS secret is always
+ * admin too, so nobody can lock themselves out). Written rarely.
+ */
+export const admins = sqliteTable("admins", {
+  email: text("email").primaryKey(),
+  addedBy: text("added_by").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at"),
+});
+
+/** What admins did in the admin panel (no workspace, so not in audit_log). */
+export const adminAudit = sqliteTable(
+  "admin_audit",
+  {
+    id: text("id").primaryKey(),
+    actorUserId: text("actor_user_id").references(() => user.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    detailJson: text("detail_json"),
+    createdAt: timestamp("created_at"),
+  },
+  (t) => [index("admin_audit_created_idx").on(t.createdAt)],
+);
