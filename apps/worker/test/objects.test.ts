@@ -247,6 +247,8 @@ describe("receivers", () => {
     venue_name: null,
     status: "confirmed",
     role: "player" as const,
+    part: null,
+    share_paise: 0,
   });
 
   it("ignore older deliveries and accept repeats of the current one", async () => {
@@ -263,7 +265,7 @@ describe("receivers", () => {
     const person = env.PEOPLE.getByName(personName("user-r2"));
     await person.events();
     await runInDurableObject(person, (_i, state) => {
-      expect(state.storage.sql.exec(`select version from _schema`).one().version).toBe(3);
+      expect(state.storage.sql.exec(`select version from _schema`).one().version).toBe(4);
     });
   });
 });

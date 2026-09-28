@@ -3,7 +3,22 @@
 // is changed one request at a time. Changes others must hear about go through the outbox:
 // the note is written with the change, then handed to the summaries queue by the alarm.
 import { DurableObject } from "cloudflare:workers";
-import { formatDateTimeIST, isoDateIST, ulid, type BookingRole, type BookingView } from "@assistant/shared";
+import {
+  GIG_SETTINGS_DEFAULTS,
+  formatDateIST,
+  formatDateTimeIST,
+  isoDateIST,
+  money,
+  paymentStatus,
+  ulid,
+  type BookingRole,
+  type BookingView,
+  type GigMoney,
+  type GigPaymentView,
+  type GigSettings,
+  type PayeeView,
+  type PaymentMethod,
+} from "@assistant/shared";
 import {
   BASE_TABLES,
   audit,
@@ -24,7 +39,7 @@ import {
 } from "../../../core/objects/storage.ts";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import { createdMonthOf, monthName, monthOf, pendingName, pendingShard } from "./names.ts";
-import type { GigSummaries, IndexCard, PersonEventSummary, SummaryMessage } from "./types.ts";
+import type { GigSummaries, IndexCard, PersonGigSummary, SummaryMessage } from "./types.ts";
 
 const MIGRATIONS: Migrations = [
   BASE_TABLES +
@@ -75,6 +90,58 @@ const MIGRATIONS: Migrations = [
   alter table events add column notes text;
   alter table people add column phone text;
   `,
+  // Step 3: money. Payments and payouts are append-only (a correction is a reversing
+  // entry); expenses can be removed. Balances and statuses are derived, never stored.
+  `
+  alter table gig add column fee_paise integer not null default 0 check (fee_paise >= 0);
+  alter table gig add column settings_json text not null default '{}';
+  create table lineup (
+    id text primary key,
+    event_id text not null,
+    person_id text not null,
+    part text,
+    share_paise integer not null check (share_paise >= 0),
+    position integer not null
+  );
+  create unique index lineup_event_person_uidx on lineup (event_id, person_id);
+  create index lineup_person_idx on lineup (person_id);
+  create table payments (
+    id text primary key,
+    amount_paise integer not null check (amount_paise <> 0),
+    paid_on text not null,
+    method text not null,
+    note text,
+    reverses_id text,
+    created_by text,
+    created_at text not null
+  );
+  create unique index payments_reverses_uidx on payments (reverses_id) where reverses_id is not null;
+  create table payouts (
+    id text primary key,
+    person_id text not null,
+    event_id text,
+    amount_paise integer not null check (amount_paise <> 0),
+    paid_on text not null,
+    method text not null,
+    note text,
+    reverses_id text,
+    created_by text,
+    created_at text not null
+  );
+  create index payouts_person_idx on payouts (person_id);
+  create unique index payouts_reverses_uidx on payouts (reverses_id) where reverses_id is not null;
+  create table expenses (
+    id text primary key,
+    event_id text,
+    category text not null,
+    amount_paise integer not null check (amount_paise > 0),
+    spent_on text not null,
+    note text,
+    created_by text,
+    created_at text not null,
+    deleted_at text
+  );
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -99,6 +166,31 @@ export interface ClientInput {
   phone?: string | null;
   organisation?: string | null;
 }
+/** Payment or payout details, amounts already in paise. */
+export interface MoneyEntryInput {
+  amount_paise: number;
+  paid_on: string;
+  method: PaymentMethod;
+  note: string | null;
+}
+/** Someone on the gig, by id or by their exact name on this gig. */
+export interface PersonPick {
+  person_id?: string;
+  person_name?: string;
+}
+export interface LineupEntryInput extends PersonPick {
+  part: string | null;
+  share_paise: number;
+}
+export interface ExpenseInput {
+  event_id: string | null;
+  category: string;
+  amount_paise: number;
+  spent_on: string;
+  note: string | null;
+}
+export type SettingsInput = Partial<GigSettings>;
+
 export interface CreateGigInput {
   gig_id: string;
   title: string;
@@ -106,6 +198,8 @@ export interface CreateGigInput {
   status?: "enquiry" | "confirmed";
   client?: ClientInput | null;
   notes?: string | null;
+  fee_paise?: number;
+  settings?: SettingsInput;
   events: EventInput[];
   people: PersonInput[];
 }
@@ -115,6 +209,8 @@ export interface UpdateGigInput {
   event_type?: string | null;
   client?: ClientInput | null;
   notes?: string | null;
+  fee_paise?: number;
+  settings?: SettingsInput;
 }
 export interface UpdateEventInput {
   version: number;
@@ -137,6 +233,8 @@ type GigRow = {
   client_phone: string | null;
   client_organisation: string | null;
   notes: string | null;
+  fee_paise: number;
+  settings_json: string;
   version: number;
   created_by: string;
   created_at: string;
@@ -160,6 +258,32 @@ type PersonRow = {
   email: string | null;
   phone: string | null;
   role: BookingRole;
+};
+type LineupRow = {
+  id: string;
+  event_id: string;
+  person_id: string;
+  part: string | null;
+  share_paise: number;
+};
+type EntryRow = {
+  id: string;
+  amount_paise: number;
+  paid_on: string;
+  method: PaymentMethod;
+  note: string | null;
+  reverses_id: string | null;
+  created_at: string;
+};
+type PayoutRow = EntryRow & { person_id: string; event_id: string | null };
+type ExpenseRow = {
+  id: string;
+  event_id: string | null;
+  category: string;
+  amount_paise: number;
+  spent_on: string;
+  note: string | null;
+  created_at: string;
 };
 
 /** Allowed status changes: enquiry → confirmed → completed; enquiry → completed; either → cancelled. */
@@ -193,8 +317,8 @@ export class BookingObject extends DurableObject<Env> {
       const ts = nowIso();
       this.sql.exec(
         `insert into gig (id, title, event_type, status, client_name, client_phone, client_organisation, notes,
-           created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           fee_paise, settings_json, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         input.gig_id,
         input.title,
         input.event_type ?? null,
@@ -203,6 +327,8 @@ export class BookingObject extends DurableObject<Env> {
         input.client?.phone ?? null,
         input.client?.organisation ?? null,
         input.notes ?? null,
+        input.fee_paise ?? 0,
+        JSON.stringify(input.settings ?? {}),
         actor.userId,
         ts,
         ts,
@@ -230,16 +356,22 @@ export class BookingObject extends DurableObject<Env> {
         client_organisation:
           input.client === undefined ? gig.client_organisation : (input.client?.organisation ?? null),
         notes: input.notes === undefined ? gig.notes : input.notes,
+        fee_paise: input.fee_paise ?? gig.fee_paise,
+        settings_json: input.settings
+          ? JSON.stringify({ ...settingsOf(gig), ...input.settings })
+          : gig.settings_json,
       };
       this.sql.exec(
         `update gig set title = ?, event_type = ?, client_name = ?, client_phone = ?, client_organisation = ?,
-           notes = ?, version = version + 1, updated_at = ? where id = ?`,
+           notes = ?, fee_paise = ?, settings_json = ?, version = version + 1, updated_at = ? where id = ?`,
         next.title,
         next.event_type,
         next.client_name,
         next.client_phone,
         next.client_organisation,
         next.notes,
+        next.fee_paise,
+        next.settings_json,
         nowIso(),
         gig.id,
       );
@@ -367,6 +499,7 @@ export class BookingObject extends DurableObject<Env> {
           reason: "last_event",
         });
       this.sql.exec(`update events set deleted_at = ? where id = ?`, nowIso(), e.id);
+      this.sql.exec(`delete from lineup where event_id = ?`, e.id);
       this.touch(gig.id);
       return { action: "remove_event", entityType: "event", entityId: e.id, before: e };
     });
@@ -435,7 +568,16 @@ export class BookingObject extends DurableObject<Env> {
       (gig) => {
         const p = this.requirePerson(personId);
         if (p.role === "manager") this.keepAManager(p.id);
+        if (this.paidTo(p.id) !== 0)
+          throw new ObjectError(
+            "conflict",
+            "This person has been paid for this gig; reverse their payouts first",
+            {
+              reason: "has_payouts",
+            },
+          );
         this.sql.exec(`update people set removed_at = ? where id = ?`, nowIso(), p.id);
+        this.sql.exec(`delete from lineup where person_id = ?`, p.id);
         this.touch(gig.id);
         return {
           action: "remove_person",
@@ -447,6 +589,151 @@ export class BookingObject extends DurableObject<Env> {
       { returnView: !removingSelf },
     );
     return removingSelf ? { removed: true } : (result as BookingView);
+  }
+
+  // --- Money -------------------------------------------------------------------------
+  // Payments and payouts only ever grow: a correction is a reversing entry. None of these
+  // bump the gig's version (adding a payment never conflicts with someone's edit).
+
+  async recordPayment(input: MoneyEntryInput, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["record_payment", input], actor, key, "manager", (gig) => {
+      const id = this.insertEntry("payments", input, actor, null);
+      this.stamp(gig.id);
+      return { action: "record_payment", entityType: "payment", entityId: id, after: input };
+    });
+  }
+
+  async reversePayment(
+    paymentId: string,
+    note: string | null,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["reverse_payment", paymentId, note], actor, key, "manager", (gig) => {
+      const p = this.reversible("payments", paymentId, "Payment");
+      const id = this.insertEntry("payments", reversalOf(p, note), actor, p.id);
+      this.stamp(gig.id);
+      return {
+        action: "reverse_payment",
+        entityType: "payment",
+        entityId: id,
+        before: { payment_id: p.id, amount_paise: p.amount_paise },
+      };
+    });
+  }
+
+  async recordExpense(input: ExpenseInput, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["record_expense", input], actor, key, "manager", (gig) => {
+      if (input.event_id) this.requireEvent(input.event_id);
+      const id = ulid();
+      this.sql.exec(
+        `insert into expenses (id, event_id, category, amount_paise, spent_on, note, created_by, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        input.event_id,
+        input.category,
+        input.amount_paise,
+        input.spent_on,
+        input.note,
+        actor.userId,
+        nowIso(),
+      );
+      this.stamp(gig.id);
+      return { action: "record_expense", entityType: "expense", entityId: id, after: input };
+    });
+  }
+
+  async removeExpense(expenseId: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["remove_expense", expenseId], actor, key, "manager", (gig) => {
+      const e = this.expenseRows().find((x) => x.id === expenseId);
+      if (!e) throw new ObjectError("not_found", "Expense not found");
+      this.sql.exec(`update expenses set deleted_at = ? where id = ?`, nowIso(), e.id);
+      this.stamp(gig.id);
+      return { action: "remove_expense", entityType: "expense", entityId: e.id, before: e };
+    });
+  }
+
+  /** Replaces an event's lineup (who plays, their part and share). Checks the gig's version. */
+  async setLineup(
+    eventId: string,
+    version: number,
+    entries: LineupEntryInput[],
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["set_lineup", eventId, version, entries], actor, key, "manager", (gig) => {
+      this.checkVersion(gig, version);
+      const e = this.requireEvent(eventId);
+      const resolved = entries.map((x) => ({ ...x, person: this.pickPerson(x) }));
+      const ids = resolved.map((x) => x.person.id);
+      if (new Set(ids).size !== ids.length)
+        throw new ObjectError("validation_failed", "Someone is on the lineup twice");
+      const before = this.lineupRows().filter((l) => l.event_id === e.id);
+      this.sql.exec(`delete from lineup where event_id = ?`, e.id);
+      resolved.forEach((x, i) =>
+        this.sql.exec(
+          `insert into lineup (id, event_id, person_id, part, share_paise, position) values (?, ?, ?, ?, ?, ?)`,
+          ulid(),
+          e.id,
+          x.person.id,
+          x.part,
+          x.share_paise,
+          i,
+        ),
+      );
+      this.touch(gig.id);
+      return {
+        action: "set_lineup",
+        entityType: "event",
+        entityId: e.id,
+        before: before.map(({ person_id, part, share_paise }) => ({ person_id, part, share_paise })),
+        after: resolved.map((x) => ({ person_id: x.person.id, part: x.part, share_paise: x.share_paise })),
+      };
+    });
+  }
+
+  async recordPayout(
+    input: MoneyEntryInput & PersonPick & { event_id: string | null },
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["record_payout", input], actor, key, "manager", (gig) => {
+      const person = this.pickPerson(input);
+      if (input.event_id) this.requireEvent(input.event_id);
+      const id = this.insertEntry("payouts", input, actor, null, {
+        person_id: person.id,
+        event_id: input.event_id,
+      });
+      this.stamp(gig.id);
+      return {
+        action: "record_payout",
+        entityType: "payout",
+        entityId: id,
+        after: { ...input, person_id: person.id, person_name: undefined },
+      };
+    });
+  }
+
+  async reversePayout(
+    payoutId: string,
+    note: string | null,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["reverse_payout", payoutId, note], actor, key, "manager", (gig) => {
+      const p = this.reversible("payouts", payoutId, "Payout") as PayoutRow;
+      const id = this.insertEntry("payouts", reversalOf(p, note), actor, p.id, {
+        person_id: p.person_id,
+        event_id: p.event_id,
+      });
+      this.stamp(gig.id);
+      return {
+        action: "reverse_payout",
+        entityType: "payout",
+        entityId: id,
+        before: { payout_id: p.id, person_id: p.person_id, amount_paise: p.amount_paise },
+      };
+    });
   }
 
   // --- Reads -------------------------------------------------------------------------
@@ -478,12 +765,29 @@ export class BookingObject extends DurableObject<Env> {
     const people = this.personRows();
     const deleted = gig.deleted_at !== null;
 
-    const peopleOut: Record<string, PersonEventSummary[]> = {};
+    const peopleOut: GigSummaries["people"] = {};
     const monthsOut: Record<string, IndexCard[]> = {};
     if (!deleted) {
+      const lineup = this.lineupRows();
+      const totals = this.totals(gig, lineup);
       for (const p of people) {
         if (!p.user_id) continue;
-        peopleOut[p.user_id] = events.map((e) => ({
+        const mine = lineup.filter((l) => l.person_id === p.id);
+        const manager = p.role === "manager";
+        const gigRow: PersonGigSummary = {
+          gig_id: gig.id,
+          gig_title: gig.title,
+          status: gig.status,
+          role: p.role,
+          first_start_at: events[0]?.start_at ?? gig.created_at,
+          share_paise: sum(mine.map((l) => l.share_paise)),
+          paid_paise: this.paidTo(p.id),
+          fee_paise: manager ? gig.fee_paise : null,
+          received_paise: manager ? totals.received : null,
+          expenses_paise: manager ? totals.expenses : null,
+          shares_total_paise: manager ? totals.shares : null,
+        };
+        const rows = events.map((e) => ({
           gig_id: gig.id,
           event_id: e.id,
           gig_title: gig.title,
@@ -495,7 +799,10 @@ export class BookingObject extends DurableObject<Env> {
           venue_name: e.venue_name,
           status: gig.status,
           role: p.role,
+          part: mine.find((l) => l.event_id === e.id)?.part ?? null,
+          share_paise: mine.find((l) => l.event_id === e.id)?.share_paise ?? 0,
         }));
+        peopleOut[p.user_id] = { events: rows, gig: gigRow };
       }
       const managers = people.filter((p) => p.role === "manager" && p.user_id).map((p) => p.user_id!);
       for (const e of events) {
@@ -515,7 +822,7 @@ export class BookingObject extends DurableObject<Env> {
     for (const { kind, key } of this.sql.exec<{ kind: string; key: string }>(
       `select kind, key from _targets`,
     )) {
-      if (kind === "person") peopleOut[key] ??= [];
+      if (kind === "person") peopleOut[key] ??= { events: [], gig: null };
       else monthsOut[key] ??= [];
     }
     for (const id of Object.keys(peopleOut))
@@ -605,6 +912,141 @@ export class BookingObject extends DurableObject<Env> {
   }
 
   // --- Helpers ----------------------------------------------------------------------
+
+  private lineupRows(): LineupRow[] {
+    return this.sql
+      .exec<LineupRow>(
+        `select l.id, l.event_id, l.person_id, l.part, l.share_paise
+         from lineup l join events e on e.id = l.event_id
+         where e.deleted_at is null order by e.start_at, e.position, l.position`,
+      )
+      .toArray();
+  }
+
+  private entryRows(table: "payments"): EntryRow[];
+  private entryRows(table: "payouts"): PayoutRow[];
+  private entryRows(table: "payments" | "payouts"): EntryRow[] {
+    const extra = table === "payouts" ? ", person_id, event_id" : "";
+    return this.sql
+      .exec<EntryRow>(
+        `select id, amount_paise, paid_on, method, note, reverses_id, created_at${extra}
+         from ${table} order by paid_on, created_at, rowid`,
+      )
+      .toArray();
+  }
+
+  private expenseRows(): ExpenseRow[] {
+    return this.sql
+      .exec<ExpenseRow>(
+        `select id, event_id, category, amount_paise, spent_on, note, created_at
+         from expenses where deleted_at is null order by spent_on, created_at, rowid`,
+      )
+      .toArray();
+  }
+
+  private paidTo(personId: string): number {
+    return Number(
+      this.sql
+        .exec(`select coalesce(sum(amount_paise), 0) as n from payouts where person_id = ?`, personId)
+        .one().n,
+    );
+  }
+
+  private totals(gig: GigRow, lineup: LineupRow[]) {
+    const received = Number(
+      this.sql.exec(`select coalesce(sum(amount_paise), 0) as n from payments`).one().n,
+    );
+    const expenses = Number(
+      this.sql.exec(`select coalesce(sum(amount_paise), 0) as n from expenses where deleted_at is null`).one()
+        .n,
+    );
+    const shares = sum(lineup.map((l) => l.share_paise));
+    return { fee: gig.fee_paise, received, expenses, shares };
+  }
+
+  private insertEntry(
+    table: "payments" | "payouts",
+    input: MoneyEntryInput,
+    actor: Actor,
+    reverses: string | null,
+    payout?: { person_id: string; event_id: string | null },
+  ): string {
+    const id = ulid();
+    const cols = payout ? ", person_id, event_id" : "";
+    const marks = payout ? ", ?, ?" : "";
+    this.sql.exec(
+      `insert into ${table} (id, amount_paise, paid_on, method, note, reverses_id, created_by, created_at${cols})
+       values (?, ?, ?, ?, ?, ?, ?, ?${marks})`,
+      id,
+      input.amount_paise,
+      input.paid_on,
+      input.method,
+      input.note,
+      reverses,
+      actor.userId,
+      nowIso(),
+      ...(payout ? [payout.person_id, payout.event_id] : []),
+    );
+    return id;
+  }
+
+  /** A payment or payout that can still be reversed (not a correction, not already reversed). */
+  private reversible(table: "payments" | "payouts", id: string, what: string): EntryRow {
+    const rows = table === "payments" ? this.entryRows("payments") : this.entryRows("payouts");
+    const row = rows.find((r) => r.id === id);
+    if (!row) throw new ObjectError("not_found", `${what} not found`);
+    if (row.reverses_id)
+      throw new ObjectError(
+        "conflict",
+        `This is already a correction; record a new ${what.toLowerCase()} instead`,
+        {
+          reason: "is_reversal",
+        },
+      );
+    if (rows.some((r) => r.reverses_id === id))
+      throw new ObjectError("conflict", `This ${what.toLowerCase()} has already been reversed`, {
+        reason: "already_reversed",
+      });
+    return row;
+  }
+
+  /** Someone on the gig by id, or by exact name (case-insensitive); never a guess. */
+  private pickPerson(pick: PersonPick): PersonRow {
+    if (pick.person_id) return this.requirePerson(pick.person_id);
+    const name = pick.person_name?.trim().toLowerCase();
+    if (!name) throw new ObjectError("validation_failed", "Give a person_id or person_name");
+    const people = this.personRows();
+    const matches = people.filter((p) => p.name.toLowerCase() === name);
+    if (matches.length === 1) return matches[0]!;
+    if (matches.length > 1)
+      throw new ObjectError(
+        "ambiguous",
+        `More than one person on this gig is called "${pick.person_name}". Pick one by person_id.`,
+        {
+          field: "person_name",
+          candidates: matches.map((p) => ({ id: p.id, name: p.name, role: p.role })),
+        },
+      );
+    const close = people.filter((p) => p.name.toLowerCase().includes(name));
+    if (close.length)
+      throw new ObjectError(
+        "ambiguous",
+        `No one on this gig is called exactly "${pick.person_name}". Did you mean one of these? Use their person_id.`,
+        {
+          field: "person_name",
+          candidates: close.map((p) => ({ id: p.id, name: p.name, role: p.role })),
+        },
+      );
+    throw new ObjectError(
+      "not_found",
+      `No one called "${pick.person_name}" is on this gig. Add them first (add_gig_person).`,
+    );
+  }
+
+  /** A money change: the gig's updated_at moves, its version doesn't. */
+  private stamp(gigId: string) {
+    this.sql.exec(`update gig set updated_at = ? where id = ?`, nowIso(), gigId);
+  }
 
   private gigRow(): GigRow | null {
     return (this.sql.exec<GigRow>(`select * from gig limit 1`).toArray()[0] as GigRow | undefined) ?? null;
@@ -736,7 +1178,19 @@ export class BookingObject extends DurableObject<Env> {
 
   private viewFor(userId: string): BookingView {
     const gig = this.requireGig();
-    const people = this.personRows();
+    const allPeople = this.personRows();
+    const me = allPeople.find((p) => p.user_id === userId);
+    const settings = settingsOf(gig);
+    const manager = me?.role === "manager";
+    const see = {
+      lineup: manager || settings.players_see_lineup,
+      fee: manager || settings.players_see_fee,
+      shares: manager || settings.players_see_shares,
+    };
+    // Players who may not see the lineup see themselves and the managers only.
+    const people = see.lineup ? allPeople : allPeople.filter((p) => p.id === me?.id || p.role === "manager");
+    const names = new Map(allPeople.map((p) => [p.id, p.name]));
+    const lineup = this.lineupRows();
     return {
       id: gig.id,
       title: gig.title,
@@ -758,6 +1212,16 @@ export class BookingObject extends DurableObject<Env> {
         venue_name: e.venue_name,
         venue_city: e.venue_city,
         notes: e.notes,
+        lineup: lineup
+          .filter((l) => l.event_id === e.id && (see.lineup || l.person_id === me?.id))
+          .map((l) => ({
+            id: l.id,
+            person_id: l.person_id,
+            name: names.get(l.person_id) ?? "",
+            part: l.part,
+            is_me: l.person_id === me?.id,
+            share: see.shares || l.person_id === me?.id ? money(l.share_paise) : null,
+          })),
       })),
       people: people.map((p) => ({
         id: p.id,
@@ -767,11 +1231,122 @@ export class BookingObject extends DurableObject<Env> {
         is_me: p.user_id === userId,
         has_account: p.user_id !== null,
       })),
-      my_role: people.find((p) => p.user_id === userId)?.role ?? "player",
+      my_role: me?.role ?? "player",
+      settings,
+      money: this.moneyFor(gig, me?.id ?? null, see, manager, allPeople, lineup),
       created_at: gig.created_at,
       updated_at: gig.updated_at,
     };
   }
+
+  private moneyFor(
+    gig: GigRow,
+    myId: string | null,
+    see: { fee: boolean; shares: boolean },
+    manager: boolean,
+    people: PersonRow[],
+    lineup: LineupRow[],
+  ): GigMoney {
+    const t = this.totals(gig, lineup);
+    const payments = this.entryRows("payments");
+    const payouts = this.entryRows("payouts");
+    const payeeOf = (p: PersonRow): PayeeView => {
+      const share = sum(lineup.filter((l) => l.person_id === p.id).map((l) => l.share_paise));
+      const mine = payouts.filter((x) => x.person_id === p.id);
+      const paid = sum(mine.map((x) => x.amount_paise));
+      return {
+        person_id: p.id,
+        name: p.name,
+        is_me: p.id === myId,
+        share: money(share),
+        paid: money(paid),
+        owed: money(share - paid),
+        status: paymentStatus(share, paid),
+        payouts: entryViews(mine).map((v, i) => ({
+          ...v,
+          person_id: p.id,
+          event_id: mine[i]!.event_id,
+        })),
+      };
+    };
+    const me = people.find((p) => p.id === myId);
+    const payees = people.map(payeeOf).filter((x) => x.share.amount_paise !== 0 || x.payouts.length > 0);
+    return {
+      can_manage: manager,
+      fee: see.fee ? money(t.fee) : null,
+      received: see.fee ? money(t.received) : null,
+      balance: see.fee ? money(t.fee - t.received) : null,
+      payment_status: see.fee ? paymentStatus(t.fee, t.received) : null,
+      payments: see.fee ? entryViews(payments) : null,
+      mine: me
+        ? payeeOf(me)
+        : {
+            person_id: "",
+            name: "",
+            is_me: true,
+            share: money(0),
+            paid: money(0),
+            owed: money(0),
+            status: "paid",
+            payouts: [],
+          },
+      payees: see.shares ? payees : null,
+      expenses: manager
+        ? this.expenseRows().map((e) => ({
+            id: e.id,
+            event_id: e.event_id,
+            category: e.category,
+            amount: money(e.amount_paise),
+            spent_on: e.spent_on,
+            spent_on_display: formatDateIST(e.spent_on),
+            note: e.note,
+            created_at: e.created_at,
+          }))
+        : null,
+      expenses_total: manager ? money(t.expenses) : null,
+      shares_total: manager ? money(t.shares) : null,
+      unallocated: manager ? money(t.fee - t.shares) : null,
+      net: manager ? money(t.fee - t.shares - t.expenses) : null,
+    };
+  }
+}
+
+function settingsOf(gig: GigRow): GigSettings {
+  let stored: Partial<GigSettings> = {};
+  try {
+    stored = JSON.parse(gig.settings_json) as Partial<GigSettings>;
+  } catch {
+    // fall back to the defaults
+  }
+  return { ...GIG_SETTINGS_DEFAULTS, ...stored };
+}
+
+const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+
+/** Payments or payouts as the API shows them, with who reversed what. */
+function entryViews(rows: EntryRow[]): GigPaymentView[] {
+  const reversedBy = new Map(rows.filter((r) => r.reverses_id).map((r) => [r.reverses_id!, r.id]));
+  return rows.map((r) => ({
+    id: r.id,
+    amount: money(r.amount_paise),
+    paid_on: r.paid_on,
+    paid_on_display: formatDateIST(r.paid_on),
+    method: r.method,
+    note: r.note,
+    reverses_id: r.reverses_id,
+    reversed_by_id: reversedBy.get(r.id) ?? null,
+    created_at: r.created_at,
+  }));
+}
+
+/** The reversing entry for a payment or payout: same amount, negative, dated today. */
+function reversalOf(row: EntryRow, note: string | null): MoneyEntryInput {
+  return {
+    amount_paise: -row.amount_paise,
+    paid_on: isoDateIST(nowIso()),
+    method: row.method,
+    note,
+  };
 }
 
 function checkTimes(start: string, end: string | null) {

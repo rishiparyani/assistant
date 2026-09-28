@@ -143,6 +143,10 @@ Owner's request: make lineup visibility and who can set lineups / record payouts
 
 Discussed at length with the owner, who approved it ("I'm trusting you with the design; if something goes wrong we can change it"). Workspaces go away; a gig (booking, with one or more events) is the unit of sharing, money and consistency; per-gig roles (manager/player) and visibility (players see only their share by default); "collective" becomes a tag with people-only autofill; address book as fill-in templates; duplicate warnings (only for people you've played with) instead of merging. For high volume, and because the owner wants to learn scale: Durable Objects with SQLite (one per gig, one per person, month index, a few pending shards), D1 for identity and tags only, a transactional outbox per gig delivered through one Cloudflare Queue with a dead letter queue (no hybrid path), flush and rebuild tools, monitoring and email alerts to a dedicated address. Prod starts empty (test data only); the owner confirms right before old data is dropped. Load test deferred. Details: `docs/design/gig-centric.md`; concepts: `docs/learn/scale.md`.
 
+## 2026-09-28: Money on gig-centric gigs (R1 step 3)
+
+Small choices made while building step 3, within the approved design: the gig's full money comes back with every gig response (one call for the gig screen), filtered by role and the gig's three visibility settings. Money writes (payments, payouts, expenses) don't bump the gig's `version`, so recording a payment never makes someone else's edit fail; lineup changes do. Someone who has been paid can't be removed from a gig until their payouts are reversed (money is never orphaned). When a gig hides the lineup from players, they see only themselves and the managers in its people list too. Each person's summary gains one row per gig (`my_gigs`: my share and paid; the gig's fee, received, expenses and shares only for managers) for Home and reports in step 4.
+
 ## Open
 
 None.

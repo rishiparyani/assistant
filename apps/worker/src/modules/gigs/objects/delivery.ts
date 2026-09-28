@@ -14,8 +14,8 @@ type Objects = Pick<Env, "BOOKINGS" | "PEOPLE" | "MONTHS" | "PENDING">;
 export async function deliverSummaries(env: Objects, summaries: GigSummaries): Promise<void> {
   const { gig_id, seq } = summaries;
   await Promise.all([
-    ...Object.entries(summaries.people).map(([userId, rows]) =>
-      env.PEOPLE.getByName(personName(userId)).apply(gig_id, seq, rows),
+    ...Object.entries(summaries.people).map(([userId, s]) =>
+      env.PEOPLE.getByName(personName(userId)).apply(gig_id, seq, s.events, s.gig),
     ),
     ...Object.entries(summaries.months).map(([ym, cards]) =>
       env.MONTHS.getByName(monthName(ym)).apply(gig_id, seq, cards),
