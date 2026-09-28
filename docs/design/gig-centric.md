@@ -224,6 +224,17 @@ We watch object latency and storage per object; the load test is deferred (owner
 
 A scheduled job checks the custom metrics every few minutes and sends the emails; Cloudflare's own notifications cover usage where available. Every alert has a runbook note (what to do). **No personal data in logs or metrics:** ids and counts only.
 
+## 10b. Admin panel (owner only)
+
+A page only the app owner can open (access checked on the server against an owner list kept as a secret, never in the repo; every admin action audited):
+
+- **Health:** error rate and speed per operation, usage against every free-plan limit, outbox and queue backlogs, dead letter queue, summary lag, last backup and deploy.
+- **Usage:** sign-ups per day, daily and weekly active people, gigs created, actions by source (web, Siri, MCP).
+- **Tools:** Flush outboxes, Rebuild summaries (by month range), retry dead-letter messages.
+- **Counts only:** no one else's gigs, names, notes or money are viewable here, by design.
+
+Metrics are recorded as counters (Workers Analytics Engine; free allowance to be confirmed when built) and daily roll-ups, never as copies of user data.
+
 ## 11. Collaboration (designed now, built later)
 
 - Tables in the booking object: `comments`, `setlist_items` (per event, fractional position keys so a move touches one row), `checklist_items`, `schedule_items`.
@@ -244,7 +255,7 @@ A scheduled job checks the custom metrics every few minutes and sends the emails
 5. **Tags (collective and custom) and autofill; people without accounts** (attach on sign-up); **duplicate warnings** via the month index.
 6. **Screens** reworked throughout (Home, Gigs, gig page with events, address book, reports, settings), checked at 390 / 820 / 1280 px, light and dark.
 7. **Retire workspaces** (code, tables, collective page) and drop old data on prod (with the owner's OK).
-8. **Monitoring and alerts** (section 10a) grow with each step; the admin page lands with step 1's tools.
+8. **Monitoring and alerts** (section 10a) grow with each step; the **admin panel** (section 10b) is built right after step 2.
 9. Later: collaboration (section 11), load test when the owner decides.
 
 ## 13. Architecture rules that change
