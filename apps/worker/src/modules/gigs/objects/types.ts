@@ -13,7 +13,31 @@ export type PersonEventSummary = {
   venue_name: string | null;
   status: string;
   role: "manager" | "player";
+  /** My part and share on this event (0 if I'm not on its lineup). */
+  part: string | null;
+  share_paise: number;
 };
+
+/**
+ * One gig as a person sees it in reports: their own money always; the gig's full money
+ * only for its managers (null for players).
+ */
+export type PersonGigSummary = {
+  gig_id: string;
+  gig_title: string;
+  status: string;
+  role: "manager" | "player";
+  first_start_at: string;
+  share_paise: number;
+  paid_paise: number;
+  fee_paise: number | null;
+  received_paise: number | null;
+  expenses_paise: number | null;
+  shares_total_paise: number | null;
+};
+
+/** What one person receives about one gig (empty when they're no longer on it). */
+export type PersonSummary = { events: PersonEventSummary[]; gig: PersonGigSummary | null };
 
 /** One event's card in a month index (for duplicate warnings and date lookups). */
 export type IndexCard = {
@@ -34,8 +58,8 @@ export type IndexCard = {
 export interface GigSummaries {
   gig_id: string;
   seq: number;
-  /** user id → rows */
-  people: Record<string, PersonEventSummary[]>;
+  /** user id → their rows */
+  people: Record<string, PersonSummary>;
   /** "YYYY-MM" → cards */
   months: Record<string, IndexCard[]>;
 }

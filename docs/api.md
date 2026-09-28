@@ -27,7 +27,7 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 - API tokens: `create_api_token`, `list_api_tokens`, `revoke_api_token`
 - Calendar: private tokenised `.ics` feed URL per user (modules contribute events)
 
-## Gig-centric gigs (R1, step 2; docs/design/gig-centric.md)
+## Gig-centric gigs (R1, steps 2–3; docs/design/gig-centric.md)
 
 User-scoped routes under `/api` (access comes from each gig's own people and roles; people not on a gig get 404). Writes need an `Idempotency-Key`, which is stored **inside the gig's object**, not in D1; a retried create returns the same gig (the key maps to the gig id in the creator's person object).
 
@@ -42,6 +42,13 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 | `get_gig_history`                                          | `GET /gigs/:gig_id/history`                                                   | managers                                |
 | `add_gig_event`, `update_gig_event`, `remove_gig_event`    | `POST /gigs/:gig_id/events`, `PATCH`/`DELETE /gigs/:gig_id/events/:event_id`  | managers (a gig keeps ≥ 1 event)        |
 | `add_gig_person`, `update_gig_person`, `remove_gig_person` | `POST /gigs/:gig_id/people`, `PATCH`/`DELETE /gigs/:gig_id/people/:person_id` | managers (a gig keeps ≥ 1 manager)      |
+
+| `record_gig_payment`, `reverse_gig_payment` | `POST /gigs/:gig_id/payments`, `POST /gigs/:gig_id/payments/:payment_id/reverse` | managers |
+| `record_gig_expense`, `remove_gig_expense` | `POST /gigs/:gig_id/expenses`, `DELETE /gigs/:gig_id/expenses/:expense_id` | managers |
+| `set_event_lineup` | `PUT /gigs/:gig_id/events/:event_id/lineup` (with `version`) | managers |
+| `record_gig_payout`, `reverse_gig_payout` | `POST /gigs/:gig_id/payouts`, `POST /gigs/:gig_id/payouts/:payout_id/reverse` | managers |
+
+**Money (step 3).** `create_gig` and `update_gig` take `fee` (rupees) or `fee_paise`, and `settings` (`players_see_lineup` default on, `players_see_fee` and `players_see_shares` default off). Every gig response carries `settings` and `money`: fee side (`fee`, `received`, `balance`, `payment_status`, `payments`; null for players unless `players_see_fee`), `mine` (the caller's share, paid, owed, always), `payees` (everyone's; null for players unless `players_see_shares`) and managers-only `expenses`, `expenses_total`, `shares_total`, `unallocated`, `net`. Each event has a `lineup` (players who may not see the lineup get only their own entry, and `people` shows only them and the managers). Lineup shares: per person (`share`/`share_paise`), `split: "equal"` of `split_total`, or `percent` of `split_total`. People on lineups and payouts are picked by `person_id` or exact `person_name` (case-insensitive; near matches return `ambiguous` with candidates). Payments and payouts are append-only; reversing adds a negative entry (`409` `already_reversed` / `is_reversal`). Money writes don't change the gig's `version`. Removing someone who has been paid returns `409` `has_payouts`. Assistants must confirm every money write. `find_my_gigs` rows include my `part` and `share` per event.
 
 People are added by `user_id`, by `email` (matched to an account case-insensitively; otherwise kept as a name) or by `name`. Edits to details and events send the gig's `version`; a changed gig returns `409` with `details.reason = "version_mismatch"` and `current_version`. Other conflict reasons: `invalid_transition`, `last_event`, `last_manager`, `already_on_gig`, `idempotency_key_reused`. The old workspace gig tools are renamed `legacy_*` until they're retired (design step 7).
 

@@ -5,7 +5,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { ulid } from "@assistant/shared";
 import { migrate, type Migrations } from "../../../core/objects/storage.ts";
-import type { PersonEventSummary } from "./types.ts";
+import type { PersonEventSummary, PersonGigSummary } from "./types.ts";
 
 const MIGRATIONS: Migrations = [
   `
@@ -34,6 +34,26 @@ const MIGRATIONS: Migrations = [
   create table create_keys (key text primary key, gig_id text not null, created_at text not null);
   create index create_keys_created_idx on create_keys (created_at);
   `,
+  // Step 3: my part and share per event, and one row per gig with my money (and, for gigs
+  // I manage, the gig's money) for Home and reports.
+  `
+  alter table my_events add column part text;
+  alter table my_events add column share_paise integer not null default 0;
+  create table my_gigs (
+    gig_id text primary key,
+    gig_title text not null,
+    status text not null,
+    role text not null,
+    first_start_at text not null,
+    share_paise integer not null,
+    paid_paise integer not null,
+    fee_paise integer,
+    received_paise integer,
+    expenses_paise integer,
+    shares_total_paise integer
+  );
+  create index my_gigs_start_idx on my_gigs (first_start_at);
+  `,
 ];
 
 export class PersonObject extends DurableObject<Env> {
@@ -46,18 +66,41 @@ export class PersonObject extends DurableObject<Env> {
   }
 
   /** Replaces this gig's rows if `seq` is at least what was applied. Returns whether applied. */
-  async apply(gigId: string, seq: number, rows: PersonEventSummary[]): Promise<boolean> {
+  async apply(
+    gigId: string,
+    seq: number,
+    rows: PersonEventSummary[],
+    gig: PersonGigSummary | null = null,
+  ): Promise<boolean> {
     return this.ctx.storage.transactionSync(() => {
       const current = this.sql
         .exec<{ seq: number }>(`select seq from applied where gig_id = ?`, gigId)
         .toArray()[0]?.seq;
       if (current !== undefined && seq < current) return false;
       this.sql.exec(`delete from my_events where gig_id = ?`, gigId);
+      this.sql.exec(`delete from my_gigs where gig_id = ?`, gigId);
+      if (gig)
+        this.sql.exec(
+          `insert into my_gigs (gig_id, gig_title, status, role, first_start_at, share_paise, paid_paise, fee_paise,
+             received_paise, expenses_paise, shares_total_paise)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          gig.gig_id,
+          gig.gig_title,
+          gig.status,
+          gig.role,
+          gig.first_start_at,
+          gig.share_paise,
+          gig.paid_paise,
+          gig.fee_paise,
+          gig.received_paise,
+          gig.expenses_paise,
+          gig.shares_total_paise,
+        );
       for (const r of rows) {
         this.sql.exec(
           `insert into my_events (event_id, gig_id, gig_title, event_title, event_type, client_name, start_at, end_at,
-             venue_name, status, role)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             venue_name, status, role, part, share_paise)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           r.event_id,
           r.gig_id,
           r.gig_title,
@@ -69,6 +112,8 @@ export class PersonObject extends DurableObject<Env> {
           r.venue_name,
           r.status,
           r.role,
+          r.part ?? null,
+          r.share_paise ?? 0,
         );
       }
       this.sql.exec(
@@ -124,7 +169,7 @@ export class PersonObject extends DurableObject<Env> {
     return this.sql
       .exec<PersonEventSummary>(
         `select gig_id, event_id, gig_title, event_title, event_type, client_name, start_at, end_at, venue_name,
-                status, role
+                status, role, part, share_paise
          from my_events
          where start_at >= ? and start_at < ?
            and (? is null or start_at ${cmp} ? or (start_at = ? and event_id ${cmp} ?))
@@ -137,6 +182,19 @@ export class PersonObject extends DurableObject<Env> {
         after?.[0] ?? null,
         after?.[1] ?? null,
         q.limit ?? 1000,
+      )
+      .toArray();
+  }
+
+  /** My gigs with money, by first event (for Home and reports, step 4). */
+  async gigs(q: { from?: string; to?: string } = {}): Promise<PersonGigSummary[]> {
+    return this.sql
+      .exec<PersonGigSummary>(
+        `select gig_id, gig_title, status, role, first_start_at, share_paise, paid_paise, fee_paise, received_paise,
+                expenses_paise, shares_total_paise
+         from my_gigs where first_start_at >= ? and first_start_at < ? order by first_start_at`,
+        q.from ?? "",
+        q.to ?? "9999",
       )
       .toArray();
   }

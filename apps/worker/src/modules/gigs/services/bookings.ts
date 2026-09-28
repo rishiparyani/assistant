@@ -5,7 +5,17 @@ import {
   decodeCursor,
   encodeCursor,
   formatDateTimeIST,
+  money,
+  resolveMoney,
+  splitEqual,
+  splitPercent,
   ulid,
+  type GigPayoutRef,
+  type GigPaymentRef,
+  type RecordGigExpenseInput,
+  type RecordGigPaymentInput,
+  type RecordGigPayoutInput,
+  type SetEventLineupInput,
   type AddPersonInput,
   type BookingView,
   type CreateBookingInput,
@@ -27,6 +37,23 @@ import { bookingName, personName } from "../objects/names.ts";
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 const bookingStub = (ctx: OpUserCtx, gigId: string) => ctx.objects.BOOKINGS.getByName(bookingName(gigId));
 const personStub = (ctx: OpUserCtx) => ctx.objects.PEOPLE.getByName(personName(ctx.user.id));
+
+/** An amount from `<name>_paise` or `<name>` (rupees), as paise. */
+function paiseOf(input: Record<string, unknown>, name: string, required: true): number;
+function paiseOf(input: Record<string, unknown>, name: string, required?: false): number | undefined;
+function paiseOf(input: Record<string, unknown>, name: string, required = false): number | undefined {
+  let value: number | undefined;
+  try {
+    value = resolveMoney(input, name);
+  } catch (e) {
+    throw new AppError("validation_failed", (e as Error).message, { field: name });
+  }
+  if (value !== undefined && (!Number.isSafeInteger(value) || value < 0))
+    throw new AppError("validation_failed", `${name} must be a positive amount`, { field: name });
+  if (required && !value)
+    throw new AppError("validation_failed", `Give the ${name} (more than ₹0)`, { field: name });
+  return value;
+}
 
 type RawPerson = {
   user_id?: string;
@@ -91,6 +118,8 @@ export async function createBooking(
       status: input.status,
       client: input.client ?? null,
       notes: input.notes ?? null,
+      fee_paise: paiseOf(input, "fee") ?? 0,
+      settings: input.settings,
       events: input.events,
       people,
     },
@@ -105,8 +134,17 @@ export const bookingHistory = (ctx: OpUserCtx, gigId: string) =>
   bookingStub(ctx, gigId).history(actorOf(ctx));
 
 export function updateBooking(ctx: OpUserCtx, input: z.output<typeof UpdateBookingInput>) {
-  const { gig_id, ...rest } = input;
-  return bookingStub(ctx, gig_id).update(rest, actorOf(ctx), ctx.idempotencyKey);
+  const {
+    gig_id,
+    fee: _fee,
+    fee_paise: _paise,
+    ...rest
+  } = input as typeof input & { fee?: unknown; fee_paise?: unknown };
+  return bookingStub(ctx, gig_id).update(
+    { ...rest, fee_paise: paiseOf(input, "fee") },
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
 }
 
 export function setBookingStatus(
@@ -173,9 +211,125 @@ export async function findMyGigs(
     after: after as [string, string] | null,
   });
   const more = rows.length > input.limit;
-  const items = rows
-    .slice(0, input.limit)
-    .map((r) => ({ ...r, start_display: formatDateTimeIST(r.start_at) }));
+  const items = rows.slice(0, input.limit).map(({ share_paise, ...r }) => ({
+    ...r,
+    start_display: formatDateTimeIST(r.start_at),
+    share: money(share_paise),
+  }));
   const last = items.at(-1);
   return { items, next_cursor: more && last ? encodeCursor([last.start_at, last.event_id]) : null };
 }
+
+// --- Money (step 3) -------------------------------------------------------------------
+
+export function recordGigPayment(ctx: OpUserCtx, input: z.output<typeof RecordGigPaymentInput>) {
+  return bookingStub(ctx, input.gig_id).recordPayment(
+    {
+      amount_paise: paiseOf(input, "amount", true),
+      paid_on: input.paid_on,
+      method: input.method,
+      note: input.note ?? null,
+    },
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
+}
+
+export const reverseGigPayment = (ctx: OpUserCtx, input: z.output<typeof GigPaymentRef>) =>
+  bookingStub(ctx, input.gig_id).reversePayment(
+    input.payment_id,
+    input.note ?? null,
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
+
+export function recordGigExpense(ctx: OpUserCtx, input: z.output<typeof RecordGigExpenseInput>) {
+  return bookingStub(ctx, input.gig_id).recordExpense(
+    {
+      event_id: input.event_id ?? null,
+      category: input.category,
+      amount_paise: paiseOf(input, "amount", true),
+      spent_on: input.spent_on,
+      note: input.note ?? null,
+    },
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
+}
+
+export const removeGigExpense = (ctx: OpUserCtx, gigId: string, expenseId: string) =>
+  bookingStub(ctx, gigId).removeExpense(expenseId, actorOf(ctx), ctx.idempotencyKey);
+
+/**
+ * Works out each lineup entry's share: split equally, by percentages of split_total, or
+ * as given per person (missing shares are 0). The gig checks who the people are.
+ */
+export function lineupShares(input: z.output<typeof SetEventLineupInput>): number[] {
+  const entries = input.lineup;
+  const total = paiseOf(input, "split_total");
+  const percents = entries.map((e) => e.percent);
+  try {
+    if (input.split === "equal") {
+      if (total === undefined)
+        throw new AppError("validation_failed", "Give split_total to split equally", {
+          field: "split_total",
+        });
+      return entries.length ? splitEqual(total, entries.length) : [];
+    }
+    if (percents.some((p) => p !== undefined)) {
+      if (total === undefined)
+        throw new AppError("validation_failed", "Give split_total to split by percent", {
+          field: "split_total",
+        });
+      if (percents.some((p) => p === undefined))
+        throw new AppError("validation_failed", "Give a percent for everyone, or amounts for everyone");
+      return splitPercent(total, percents as number[]);
+    }
+  } catch (e) {
+    if (e instanceof AppError) throw e;
+    throw new AppError("validation_failed", (e as Error).message);
+  }
+  return entries.map((e) => paiseOf(e, "share") ?? 0);
+}
+
+export function setEventLineup(ctx: OpUserCtx, input: z.output<typeof SetEventLineupInput>) {
+  const shares = lineupShares(input);
+  return bookingStub(ctx, input.gig_id).setLineup(
+    input.event_id,
+    input.version,
+    input.lineup.map((e, i) => ({
+      person_id: e.person_id,
+      person_name: e.person_name,
+      part: e.part ?? null,
+      share_paise: shares[i]!,
+    })),
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
+}
+
+export function recordGigPayout(ctx: OpUserCtx, input: z.output<typeof RecordGigPayoutInput>) {
+  if (!input.person_id && !input.person_name)
+    throw new AppError("validation_failed", "Give a person_id or person_name", { field: "person_id" });
+  return bookingStub(ctx, input.gig_id).recordPayout(
+    {
+      person_id: input.person_id,
+      person_name: input.person_name,
+      event_id: input.event_id ?? null,
+      amount_paise: paiseOf(input, "amount", true),
+      paid_on: input.paid_on,
+      method: input.method,
+      note: input.note ?? null,
+    },
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
+}
+
+export const reverseGigPayout = (ctx: OpUserCtx, input: z.output<typeof GigPayoutRef>) =>
+  bookingStub(ctx, input.gig_id).reversePayout(
+    input.payout_id,
+    input.note ?? null,
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
