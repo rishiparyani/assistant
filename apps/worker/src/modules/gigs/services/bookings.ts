@@ -206,6 +206,8 @@ export async function findMyGigs(
   const rows = await personStub(ctx).events({
     from: input.from,
     to: input.to,
+    q: input.q,
+    status: input.status,
     order: input.order,
     limit: input.limit + 1,
     after: after as [string, string] | null,

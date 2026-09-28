@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **R1 step 4, Home and reports** (API; screens in step 6): `get_home` (`/me/overview`), `get_my_report` (`/me/report`), search and status filter on `find_my_gigs`. All from the caller's own person object (schema v5 adds client, type and payouts to `my_gigs`). Tests: 73 shared, 102 worker (3 new in `booking-home.test.ts`).
+
 - **R1 step 3, money, live on prod** ([rishiparyani/assistant#14](https://github.com/rishiparyani/assistant/pull/14); API only, screens in step 6): gig fee and who-sees-what settings on create/update, client payments and payouts (append-only, reversals), expenses, per-event lineup with part and share (per person, equal split or percent), people picked by id or exact name (near matches → candidates). Every gig response has `money` filtered by role and settings; person summaries gain my part/share per event and a `my_gigs` row with my money (and the gig's money for managers). Person object schema v4, gig object schema v3. Tests: 73 shared, 99 worker (3 new in `booking-money.test.ts`).
 
 - **Admin panel live on prod** ([rishiparyani/assistant#13](https://github.com/rishiparyani/assistant/pull/13)): `/admin` (link in Settings, admins only; others get 404). Owners from the `ADMIN_EMAILS` GitHub secret (added by the owner 2026-09-28; the deploy workflow copies it into the Worker), more admins added in the panel (D1 `admins`), admin actions in D1 `admin_audit` (migration `0002_admin`, which also indexes `user.createdAt` and `session.updatedAt`). Shows counts only: people (accounts, sign-ups, active), gigs created, delivery backlog; tools: flush outboxes, rebuild summaries. Modules contribute via `admin` in their definition. Tests: 96 worker (4 new in `admin.test.ts`).
@@ -35,7 +37,7 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. **R1 step 4, Home and reports** from person objects (`my_events`, `my_gigs`). Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
+1. **R1 step 5**: collective and custom tags, autofill, people without accounts, duplicate warnings. Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).

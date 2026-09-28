@@ -121,6 +121,8 @@ export const PersonRef = BookingRef.extend({ person_id: id("Person") });
 export const FindMyGigsInput = PageInput.extend({
   from: dateTime.optional().describe("Earliest event start (inclusive)"),
   to: dateTime.optional().describe("Latest event start (exclusive)"),
+  q: z.string().trim().min(1).max(100).optional().describe("Search gig title, event, client and venue"),
+  status: z.enum(["enquiry", "confirmed", "completed", "cancelled"]).optional(),
   order: z.enum(["asc", "desc"]).default("asc"),
 });
 

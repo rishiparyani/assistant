@@ -777,6 +777,8 @@ export class BookingObject extends DurableObject<Env> {
         const gigRow: PersonGigSummary = {
           gig_id: gig.id,
           gig_title: gig.title,
+          event_type: gig.event_type,
+          client_name: gig.client_name,
           status: gig.status,
           role: p.role,
           first_start_at: events[0]?.start_at ?? gig.created_at,
@@ -786,6 +788,7 @@ export class BookingObject extends DurableObject<Env> {
           received_paise: manager ? totals.received : null,
           expenses_paise: manager ? totals.expenses : null,
           shares_total_paise: manager ? totals.shares : null,
+          payouts_paise: manager ? totals.payouts : null,
         };
         const rows = events.map((e) => ({
           gig_id: gig.id,
@@ -961,7 +964,8 @@ export class BookingObject extends DurableObject<Env> {
         .n,
     );
     const shares = sum(lineup.map((l) => l.share_paise));
-    return { fee: gig.fee_paise, received, expenses, shares };
+    const payouts = Number(this.sql.exec(`select coalesce(sum(amount_paise), 0) as n from payouts`).one().n);
+    return { fee: gig.fee_paise, received, expenses, shares, payouts };
   }
 
   private insertEntry(

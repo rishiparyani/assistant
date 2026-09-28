@@ -25,6 +25,8 @@ export type PersonEventSummary = {
 export type PersonGigSummary = {
   gig_id: string;
   gig_title: string;
+  event_type: string | null;
+  client_name: string | null;
   status: string;
   role: "manager" | "player";
   first_start_at: string;
@@ -34,6 +36,7 @@ export type PersonGigSummary = {
   received_paise: number | null;
   expenses_paise: number | null;
   shares_total_paise: number | null;
+  payouts_paise: number | null;
 };
 
 /** What one person receives about one gig (empty when they're no longer on it). */

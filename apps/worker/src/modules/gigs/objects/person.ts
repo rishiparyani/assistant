@@ -54,6 +54,13 @@ const MIGRATIONS: Migrations = [
   );
   create index my_gigs_start_idx on my_gigs (first_start_at);
   `,
+  // Step 4: report filters (client, type) and what managers still owe their players.
+  `
+  alter table my_gigs add column event_type text;
+  alter table my_gigs add column client_name text;
+  alter table my_gigs add column payouts_paise integer;
+  create index my_gigs_client_idx on my_gigs (client_name);
+  `,
 ];
 
 export class PersonObject extends DurableObject<Env> {
@@ -81,11 +88,13 @@ export class PersonObject extends DurableObject<Env> {
       this.sql.exec(`delete from my_gigs where gig_id = ?`, gigId);
       if (gig)
         this.sql.exec(
-          `insert into my_gigs (gig_id, gig_title, status, role, first_start_at, share_paise, paid_paise, fee_paise,
-             received_paise, expenses_paise, shares_total_paise)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `insert into my_gigs (gig_id, gig_title, event_type, client_name, status, role, first_start_at, share_paise,
+             paid_paise, fee_paise, received_paise, expenses_paise, shares_total_paise, payouts_paise)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           gig.gig_id,
           gig.gig_title,
+          gig.event_type ?? null,
+          gig.client_name ?? null,
           gig.status,
           gig.role,
           gig.first_start_at,
@@ -95,6 +104,7 @@ export class PersonObject extends DurableObject<Env> {
           gig.received_paise,
           gig.expenses_paise,
           gig.shares_total_paise,
+          gig.payouts_paise ?? null,
         );
       for (const r of rows) {
         this.sql.exec(
@@ -158,6 +168,8 @@ export class PersonObject extends DurableObject<Env> {
     q: {
       from?: string;
       to?: string;
+      q?: string;
+      status?: string;
       order?: "asc" | "desc";
       limit?: number;
       after?: [string, string] | null;
@@ -172,11 +184,18 @@ export class PersonObject extends DurableObject<Env> {
                 status, role, part, share_paise
          from my_events
          where start_at >= ? and start_at < ?
+           and (? is null or status = ?)
+           and (? is null or lower(gig_title || ' ' || coalesce(event_title, '') || ' ' || coalesce(client_name, '')
+                || ' ' || coalesce(venue_name, '')) like ? escape '\\')
            and (? is null or start_at ${cmp} ? or (start_at = ? and event_id ${cmp} ?))
          order by start_at ${desc ? "desc" : "asc"}, event_id ${desc ? "desc" : "asc"}
          limit ?`,
         q.from ?? "",
         q.to ?? "9999",
+        q.status ?? null,
+        q.status ?? null,
+        q.q ? 1 : null,
+        q.q ? `%${q.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null,
         after ? 1 : null,
         after?.[0] ?? null,
         after?.[0] ?? null,
@@ -186,15 +205,27 @@ export class PersonObject extends DurableObject<Env> {
       .toArray();
   }
 
-  /** My gigs with money, by first event (for Home and reports, step 4). */
-  async gigs(q: { from?: string; to?: string } = {}): Promise<PersonGigSummary[]> {
+  /** My gigs with money, by first event, optionally filtered (Home and reports). */
+  async gigs(
+    q: { from?: string; to?: string; status?: string; role?: string; client?: string } = {},
+  ): Promise<PersonGigSummary[]> {
     return this.sql
       .exec<PersonGigSummary>(
-        `select gig_id, gig_title, status, role, first_start_at, share_paise, paid_paise, fee_paise, received_paise,
-                expenses_paise, shares_total_paise
-         from my_gigs where first_start_at >= ? and first_start_at < ? order by first_start_at`,
+        `select gig_id, gig_title, event_type, client_name, status, role, first_start_at, share_paise, paid_paise,
+                fee_paise, received_paise, expenses_paise, shares_total_paise, payouts_paise
+         from my_gigs
+         where first_start_at >= ? and first_start_at < ?
+           and (? is null or status = ?) and (? is null or role = ?)
+           and (? is null or lower(client_name) = lower(?))
+         order by first_start_at`,
         q.from ?? "",
         q.to ?? "9999",
+        q.status ?? null,
+        q.status ?? null,
+        q.role ?? null,
+        q.role ?? null,
+        q.client ?? null,
+        q.client ?? null,
       )
       .toArray();
   }
