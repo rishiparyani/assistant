@@ -43,11 +43,19 @@ export async function loadWorkspace(id: string, { force = false } = {}) {
 export interface NavItem {
   href: string;
   label: string;
-  icon: "home" | "gigs" | "people" | "band" | "settings";
+  icon: "home" | "gigs" | "people" | "band" | "reports" | "settings";
   exact?: boolean;
 }
 
-/** Navigation for a workspace, built from its enabled modules. */
+/** The app's navigation (gig-centric: no workspaces; docs/design/gig-centric.md §2). */
+export const MAIN_NAV: NavItem[] = [
+  { href: "/", label: "Home", icon: "home", exact: true },
+  { href: "/gigs", label: "Gigs", icon: "gigs" },
+  { href: "/reports", label: "Reports", icon: "reports" },
+  { href: "/settings", label: "Settings", icon: "settings" },
+];
+
+/** Navigation for an old workspace page (kept until workspaces are retired). */
 export function navFor(ws: WorkspaceDetail): NavItem[] {
   const base = `/w/${ws.id}`;
   const items: NavItem[] = [{ href: "/", label: "Home", icon: "home", exact: true }];

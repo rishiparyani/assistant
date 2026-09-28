@@ -1,7 +1,11 @@
 <script lang="ts">
-  let { rows = 3 }: { rows?: number } = $props();
+  import Spinner from "./Spinner.svelte";
+
+  // Placeholder rows while something loads, with a visible "Loading…" so it never looks stuck.
+  let { rows = 3, label = "Loading…" }: { rows?: number; label?: string } = $props();
 </script>
 
+<div class="head"><Spinner size={16} {label} /></div>
 <div class="sk" aria-busy="true" aria-label="Loading">
   {#each Array.from({ length: rows }, (_, i) => i) as i (i)}
     <div class="row">
@@ -12,6 +16,11 @@
 </div>
 
 <style>
+  .head {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-2) 0 var(--space-3);
+  }
   .sk {
     background: var(--surface);
     border: 1px solid var(--border);

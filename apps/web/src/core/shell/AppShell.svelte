@@ -1,18 +1,13 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import ChevronsUpDown from "@lucide/svelte/icons/chevrons-up-down";
   import { Avatar } from "../ui/index.ts";
   import { router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
-  import { current, navFor } from "../workspace.svelte.ts";
+  import { MAIN_NAV } from "../workspace.svelte.ts";
   import NavIcon from "./NavIcon.svelte";
-  import WorkspaceSwitcher from "./WorkspaceSwitcher.svelte";
 
   let { children }: { children: Snippet } = $props();
-  let switcherOpen = $state(false);
-
-  const ws = $derived(current.workspace);
-  const nav = $derived(ws ? navFor(ws) : []);
+  const nav = MAIN_NAV;
   // Depend on the route so "active" updates on navigation.
   const path = $derived((router.route, window.location.pathname));
   const active = (href: string, exact = false) =>
@@ -26,16 +21,6 @@
       <span class="mark">A</span>
       <span>Assistant</span>
     </div>
-    {#if ws}
-      <button class="ws-button" type="button" onclick={() => (switcherOpen = true)}>
-        <Avatar name={ws.name} size={32} square />
-        <span class="ws-text">
-          <span class="ws-name">{ws.name}</span>
-          <span class="ws-kind">{ws.kind === "personal" ? "Personal" : "Collective"}</span>
-        </span>
-        <ChevronsUpDown size={16} />
-      </button>
-    {/if}
     <nav aria-label="Main">
       {#each nav as item (item.href)}
         <a class="side-link" class:active={active(item.href, item.exact)} href={item.href}>
@@ -57,13 +42,7 @@
 
   <!-- Phone: top bar -->
   <header class="topbar">
-    {#if ws}
-      <button class="ws-chip" type="button" onclick={() => (switcherOpen = true)}>
-        <Avatar name={ws.name} size={26} square />
-        <span class="ws-name">{ws.name}</span>
-        <ChevronsUpDown size={15} />
-      </button>
-    {/if}
+    <a class="brand small" href="/"><span class="mark">A</span><span>Assistant</span></a>
     {#if session.me}
       <a href="/settings" aria-label="Settings"><Avatar name={session.me.user.name} size={32} /></a>
     {/if}
@@ -83,8 +62,6 @@
     {/each}
   </nav>
 </div>
-
-<WorkspaceSwitcher bind:open={switcherOpen} />
 
 <style>
   .shell {
@@ -111,25 +88,6 @@
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-bottom: 1px solid var(--separator);
-  }
-  .ws-chip {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-    height: 36px;
-    padding: 0 10px 0 5px;
-    border-radius: var(--radius-full);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-2);
-    cursor: pointer;
-  }
-  .ws-chip .ws-name {
-    color: var(--text);
-    font-weight: 600;
-    font-size: var(--text-sm);
-    max-width: 52vw;
   }
   .ws-name {
     overflow: hidden;
@@ -207,6 +165,10 @@
     font-size: var(--text-md);
     letter-spacing: -0.02em;
   }
+  .brand.small {
+    padding: 0;
+    font-size: var(--text-md);
+  }
   .mark {
     display: inline-flex;
     align-items: center;
@@ -218,7 +180,6 @@
     color: #fff;
     font-size: 15px;
   }
-  .ws-button,
   .me {
     display: flex;
     align-items: center;
@@ -248,7 +209,6 @@
     min-width: 0;
     flex: 1;
   }
-  .ws-button .ws-name,
   .me .ws-name {
     color: var(--text);
     font-weight: 600;

@@ -2,12 +2,15 @@
   import { navigate, router } from "./router.svelte.ts";
   import { refreshSession, session } from "./session.svelte.ts";
   import { current, lastWorkspaceId, loadWorkspace } from "./workspace.svelte.ts";
-  import { ConfirmHost, Skeleton, Toaster } from "./ui/index.ts";
+  import { ConfirmHost, Skeleton, Spinner, Toaster, TopProgress } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
   import Consent from "./pages/Consent.svelte";
   import Invite from "./pages/Invite.svelte";
-  import MeHome from "../modules/gigs/pages/MeHome.svelte";
+  import Home from "../modules/gigs/booking/Home.svelte";
+  import MyGigs from "../modules/gigs/booking/MyGigs.svelte";
+  import GigPage from "../modules/gigs/booking/GigPage.svelte";
+  import Reports from "../modules/gigs/booking/Reports.svelte";
   import Members from "./pages/Members.svelte";
   import Settings from "./pages/Settings.svelte";
   import Admin from "./pages/Admin.svelte";
@@ -33,17 +36,21 @@
       navigate(`/w/${route.params.workspaceId}/gigs`, { replace: true });
   });
 
-  // Keep the current workspace in step with the URL (Settings keeps the last one).
+  // Old workspace pages (kept until workspaces are retired) load their workspace.
   $effect(() => {
     if (!session.me) return;
     const id =
-      route.params.workspaceId ?? current.workspace?.id ?? lastWorkspaceId() ?? session.me.workspaces[0]?.id;
+      route.params.workspaceId ??
+      (route.name === "settings" ? (current.workspace?.id ?? lastWorkspaceId()) : null);
     if (id) loadWorkspace(id);
   });
 </script>
 
 {#await loading}
-  <div class="boot"><Skeleton rows={3} /></div>
+  <div class="boot-screen">
+    <span class="mark" aria-hidden="true">A</span>
+    <Spinner size={22} label="Loading…" />
+  </div>
 {:then}
   {#if route.name === "login"}
     <Login query={route.query} />
@@ -58,7 +65,15 @@
       {:else if route.name === "admin"}
         <Admin />
       {:else if route.name === "root"}
-        <MeHome />
+        <Home />
+      {:else if route.name === "my_gigs"}
+        <MyGigs />
+      {:else if route.name === "booking"}
+        {#key route.params.gigId}
+          <GigPage gigId={route.params.gigId!} />
+        {/key}
+      {:else if route.name === "reports"}
+        <Reports />
       {:else if route.params.workspaceId && current.error}
         <NotFound
           title="Workspace not available"
@@ -85,10 +100,32 @@
   <p class="boot">Can't reach the server: {err.message}</p>
 {/await}
 
+<TopProgress />
 <Toaster />
 <ConfirmHost />
 
 <style>
+  .boot-screen {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+  }
+  .mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #6366f1, #4338ca);
+    color: #fff;
+    font-size: 26px;
+    font-weight: 750;
+  }
   .boot {
     max-width: 420px;
     margin: 20vh auto;

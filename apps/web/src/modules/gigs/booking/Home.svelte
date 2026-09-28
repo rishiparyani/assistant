@@ -1,0 +1,207 @@
+<script lang="ts">
+  import type { GigAmount, HomeView } from "@assistant/shared";
+  import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
+  import Plus from "@lucide/svelte/icons/plus";
+  import {
+    Button,
+    Card,
+    EmptyState,
+    ListGroup,
+    ListRow,
+    PageHeader,
+    Pill,
+    Skeleton,
+    Stat,
+  } from "../../../core/ui/index.ts";
+  import { session } from "../../../core/session.svelte.ts";
+  import { bookingsApi } from "../gigs-api.ts";
+  import GigDate from "../GigDate.svelte";
+  import GigEditor from "./GigEditor.svelte";
+  import { statusLabel, statusTone } from "../status.ts";
+  import { time12 } from "../time.ts";
+
+  // Home: only my things (docs/design/gig-centric.md §2). Built from my own summaries,
+  // so it can lag a few seconds behind a change.
+  let data = $state<HomeView | null>(null);
+  let error = $state("");
+  let creating = $state(false);
+
+  async function load() {
+    try {
+      data = await bookingsApi.home();
+      error = "";
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+  void load();
+
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const firstName = $derived(session.me?.user.name.split(" ")[0] ?? "");
+  const today = new Date().toLocaleDateString("en-IN", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "Asia/Kolkata",
+  });
+  const sub = (g: GigAmount) => [g.first_start_display, g.client_name].filter(Boolean).join(" · ");
+</script>
+
+<PageHeader title="{greeting}, {firstName}" subtitle={today}>
+  {#snippet actions()}
+    <Button variant="primary" onclick={() => (creating = true)}>
+      {#snippet icon()}<Plus />{/snippet}
+      New gig
+    </Button>
+  {/snippet}
+</PageHeader>
+
+{#if error}
+  <ListGroup><ListRow title="Couldn't load your home" subtitle={error} /></ListGroup>
+{:else if !data}
+  <Skeleton rows={5} />
+{:else}
+  <div class="layout">
+    <div class="col">
+      <Card>
+        <div class="month">
+          <span class="eyebrow">{data.this_month.label}</span>
+          <div class="stats">
+            <Stat label="My earnings" value={data.this_month.earned.amount_display} />
+            <Stat label="Paid to me" value={data.this_month.received.amount_display} tone="green" />
+            <Stat label="Gigs" value={String(data.this_month.gigs)} />
+          </div>
+        </div>
+      </Card>
+
+      <ListGroup title="Owed to me" footer="Gigs already played where my share isn't fully paid.">
+        {#snippet action()}
+          <span class="total num" class:amber={data!.owed_to_me.total.amount_paise > 0}
+            >{data!.owed_to_me.total.amount_display}</span
+          >
+        {/snippet}
+        {#each data.owed_to_me.gigs as g (g.gig_id)}
+          <ListRow href="/gigs/{g.gig_id}" title={g.gig_title} subtitle={sub(g)}>
+            {#snippet trailing()}<span class="amt num">{g.amount.amount_display}</span>{/snippet}
+          </ListRow>
+        {:else}
+          <ListRow title="All settled" subtitle="Nobody owes you for gigs you've played." />
+        {/each}
+      </ListGroup>
+
+      {#if data.to_collect.gigs.length}
+        <ListGroup title="To collect from clients" footer="Played gigs you manage, not fully paid.">
+          {#snippet action()}<span class="total num">{data!.to_collect.total.amount_display}</span>{/snippet}
+          {#each data.to_collect.gigs as g (g.gig_id)}
+            <ListRow href="/gigs/{g.gig_id}" title={g.gig_title} subtitle={sub(g)}>
+              {#snippet trailing()}<span class="amt num">{g.amount.amount_display}</span>{/snippet}
+            </ListRow>
+          {/each}
+        </ListGroup>
+      {/if}
+
+      {#if data.to_pay.gigs.length}
+        <ListGroup
+          title="To pay the people playing"
+          footer="Shares not yet paid out on played gigs you manage."
+        >
+          {#snippet action()}<span class="total num">{data!.to_pay.total.amount_display}</span>{/snippet}
+          {#each data.to_pay.gigs as g (g.gig_id)}
+            <ListRow href="/gigs/{g.gig_id}" title={g.gig_title} subtitle={sub(g)}>
+              {#snippet trailing()}<span class="amt num">{g.amount.amount_display}</span>{/snippet}
+            </ListRow>
+          {/each}
+        </ListGroup>
+      {/if}
+    </div>
+
+    <div class="col">
+      <ListGroup title="Coming up">
+        {#snippet action()}<a class="link" href="/gigs">All gigs</a>{/snippet}
+        {#each data.upcoming as e (e.event_id)}
+          <ListRow
+            href="/gigs/{e.gig_id}"
+            title={e.event_title ? `${e.gig_title} · ${e.event_title}` : e.gig_title}
+            subtitle={[time12(e.start_at), e.venue_name, e.part, e.collective_name]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            {#snippet leading()}<GigDate iso={e.start_at} />{/snippet}
+            {#snippet trailing()}
+              <span class="right">
+                {#if e.share.amount_paise > 0}<span class="amt num">{e.share.amount_display}</span>{/if}
+                <Pill tone={statusTone(e.status)}>{statusLabel(e.status)}</Pill>
+              </span>
+            {/snippet}
+          </ListRow>
+        {:else}
+          <EmptyState title="Nothing coming up" text="Gigs you're on show up here, whoever added them.">
+            {#snippet icon()}<CalendarPlus size={26} />{/snippet}
+            {#snippet action()}<Button variant="tinted" onclick={() => (creating = true)}>Add a gig</Button
+              >{/snippet}
+          </EmptyState>
+        {/each}
+      </ListGroup>
+    </div>
+  </div>
+{/if}
+
+<GigEditor bind:open={creating} />
+
+<style>
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+  }
+  .col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+    align-content: start;
+  }
+  @media (min-width: 1100px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+      align-items: start;
+    }
+  }
+  .month {
+    display: grid;
+    gap: var(--space-3);
+  }
+  .eyebrow {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text-2);
+  }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+    gap: var(--space-3);
+  }
+  .total {
+    font-weight: 700;
+    color: var(--text);
+  }
+  .total.amber {
+    color: var(--amber);
+  }
+  .amt {
+    font-weight: 650;
+    color: var(--text);
+  }
+  .right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+  .link {
+    color: var(--accent-text);
+    font-weight: 600;
+    font-size: var(--text-sm);
+  }
+</style>
