@@ -4,7 +4,7 @@ _Updated: 2026-09-26_
 
 ## Last done
 
-- **R1 step 7, workspaces retired** (owner's OK 2026-09-28): old workspace/collective code, old gigs module operations and screens removed; D1 migration `0004_retire_workspaces` drops the 16 old tables (children first); Better Auth organization plugin off; operation registry is user-only with idempotency and audit inside objects. AGENTS.md rules rewritten for the gig-centric model; docs updated (`data-model.md` rewritten). Load test dropped from the plan. Tests: 72 shared, 49 worker; browser walkthroughs (gig flow, cache, live updates) pass.
+- **R1 step 7, workspaces retired, live on prod** ([rishiparyani/assistant#22](https://github.com/rishiparyani/assistant/pull/22); prod migrations 5; owner's OK 2026-09-28): old workspace/collective code, old gigs module operations and screens removed; D1 migration `0004_retire_workspaces` drops the 16 old tables (children first); Better Auth organization plugin off; operation registry is user-only with idempotency and audit inside objects. AGENTS.md rules rewritten for the gig-centric model; docs updated (`data-model.md` rewritten). Load test dropped from the plan. Tests: 72 shared, 49 worker; browser walkthroughs (gig flow, cache, live updates) pass.
 
 - **Owner feedback round 1**: gig page tabs (Details / Money / People) with each money list inside its card; cancel with keep or refund of an advance (gig object v5: `payments.kind`); add people from the lineup sheet (the "could only add myself" report: only people on the gig were listed). Monitoring part 1 live on prod (#19; the owner switched on Analytics Engine).
 
