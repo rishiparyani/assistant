@@ -39,10 +39,14 @@ const current = (ctx: OpUserCtx) =>
     .bind(ctx.user.id)
     .first<Row>();
 
-const audit = (ctx: OpUserCtx, action: string, entityId: string) =>
+/** Audit entry with what changed (link ids only, never the secret) and the request's key. */
+const audit = (ctx: OpUserCtx, action: string, entityId: string, detail: Record<string, string | null>) =>
   ctx.d1
-    .prepare(`insert into user_audit (id, user_id, source, action, entity_id) values (?, ?, ?, ?, ?)`)
-    .bind(ulid(), ctx.user.id, ctx.source, action, entityId);
+    .prepare(
+      `insert into user_audit (id, user_id, source, action, entity_id, detail_json, request_key)
+       values (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(ulid(), ctx.user.id, ctx.source, action, entityId, JSON.stringify(detail), ctx.idempotencyKey);
 
 export async function getCalendarFeed(ctx: OpUserCtx) {
   return view(ctx, await current(ctx));
@@ -79,12 +83,25 @@ export async function enableCalendarFeed(ctx: OpUserCtx, reset = false) {
          values (?, ?, 'calendar', 'Calendar feed', ?, ?, ?, ?)`,
       )
       .bind(id, ctx.user.id, await hashToken(token), await ctx.sealer.seal(token), ctx.idempotencyKey, now),
-    audit(ctx, existing ? "reset_calendar_feed" : "enable_calendar_feed", id),
+    audit(ctx, existing ? "reset_calendar_feed" : "enable_calendar_feed", id, {
+      before: existing?.id ?? null,
+      after: id,
+    }),
   ]);
   return view(ctx, await current(ctx));
 }
 
 export async function disableCalendarFeed(ctx: OpUserCtx) {
+  // A late repeat of this request must not switch off a link made after it.
+  if (ctx.idempotencyKey) {
+    const done = await ctx.d1
+      .prepare(
+        `select 1 from user_audit where user_id = ? and request_key = ? and action = 'disable_calendar_feed'`,
+      )
+      .bind(ctx.user.id, ctx.idempotencyKey)
+      .first();
+    if (done) return view(ctx, await current(ctx));
+  }
   const existing = await current(ctx);
   if (existing) {
     await ctx.d1.batch([
@@ -93,7 +110,7 @@ export async function disableCalendarFeed(ctx: OpUserCtx) {
           `update access_tokens set revoked_at = ? where user_id = ? and kind = 'calendar' and revoked_at is null`,
         )
         .bind(new Date().toISOString(), ctx.user.id),
-      audit(ctx, "disable_calendar_feed", existing.id),
+      audit(ctx, "disable_calendar_feed", existing.id, { before: existing.id, after: null }),
     ]);
   }
   return view(ctx, null);

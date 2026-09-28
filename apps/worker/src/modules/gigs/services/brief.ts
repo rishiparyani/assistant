@@ -11,7 +11,10 @@ import {
 } from "@assistant/shared";
 import type { z } from "zod";
 import type { OpUserCtx } from "../../../core/operations.ts";
-import { findMyGigs, getBooking } from "./bookings.ts";
+import { getBooking } from "./bookings.ts";
+import { personName } from "../objects/names.ts";
+
+const personStub = (ctx: OpUserCtx) => ctx.objects.PEOPLE.getByName(personName(ctx.user.id));
 import { getHome } from "./home.ts";
 
 /** "Sat, 12 Dec 2026, 7:00 pm IST" → "Sat, 12 Dec, 7:00 pm" */
@@ -25,14 +28,19 @@ const list = (parts: string[]) =>
 export async function getBrief(ctx: OpUserCtx, input: z.output<typeof BriefInput>): Promise<BriefView> {
   if (input.what === "next" || input.what === "week") {
     const now = new Date();
-    const page = await findMyGigs(ctx, {
+    // Cancelled gigs are left out in the query, so they never use up the limit.
+    const events = await personStub(ctx).events({
       from: now.toISOString(),
       to: input.what === "week" ? new Date(now.getTime() + 7 * 86400_000).toISOString() : undefined,
+      exclude_status: "cancelled",
       order: "asc",
-      limit: input.what === "next" ? 5 : 20,
+      limit: input.what === "next" ? 1 : 100,
     });
-    const events = page.items.filter((e) => e.status !== "cancelled");
-    const items = events.map((e) => ({
+    // One item per gig (its first event in the period), so a two-day wedding is one gig.
+    const firsts = [...new Map(events.map((e) => [e.gig_id, e])).values()].sort((a, b) =>
+      a.start_at.localeCompare(b.start_at),
+    );
+    const items = firsts.map((e) => ({
       gig_id: e.gig_id,
       title:
         e.event_title && e.event_title !== e.gig_title ? `${e.gig_title}: ${e.event_title}` : e.gig_title,
@@ -103,13 +111,8 @@ export async function pick(ctx: OpUserCtx, input: z.output<typeof PickInput>): P
     for (const p of gig.people) if (!p.is_me) add(p.name, p.id);
     return { choices };
   }
-  const page = await findMyGigs(ctx, { q: input.q, order: "desc", limit: 30 });
-  const seen = new Set<string>();
-  for (const e of page.items) {
-    if (e.status === "cancelled" || seen.has(e.gig_id)) continue;
-    seen.add(e.gig_id);
-    add(`${e.gig_title} · ${formatDateIST(e.start_at).replace(/ \d{4}$/, "")}`, e.gig_id);
-    if (seen.size >= 10) break;
-  }
+  // Distinct gigs (not events), not cancelled, latest first: straight from my gig rows.
+  for (const g of await personStub(ctx).pickGigs(input.q ?? null, 10))
+    add(`${g.gig_title} · ${formatDateIST(g.first_start_at).replace(/ \d{4}$/, "")}`, g.gig_id);
   return { choices };
 }

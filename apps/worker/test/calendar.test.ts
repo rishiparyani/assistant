@@ -113,9 +113,14 @@ describe("calendar feed", () => {
     expect((await call(pathOf(reset.url!))).status).toBe(200);
 
     // Off: link stops working.
-    expect((await as(me)("/me/calendar", { method: "DELETE" })).status).toBe(200);
+    const offKey = crypto.randomUUID();
+    expect((await as(me)("/me/calendar", { method: "DELETE", idempotencyKey: offKey })).status).toBe(200);
     expect((await call(pathOf(reset.url!))).status).toBe(404);
     expect((await json<CalendarFeedView>(await as(me)("/me/calendar"))).enabled).toBe(false);
+    // A late repeat of that "off" doesn't switch off a link made since.
+    const again = await json<CalendarFeedView>(await as(me)("/me/calendar", { body: {} }));
+    await as(me)("/me/calendar", { method: "DELETE", idempotencyKey: offKey });
+    expect((await call(pathOf(again.url!))).status).toBe(200);
   });
 
   it("marks enquiries tentative", async () => {

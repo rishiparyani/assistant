@@ -122,6 +122,38 @@ describe("address book", () => {
     expect((await contacts(me, "?kind=venue")).map((c) => c.id)).toEqual([club.id]);
   });
 
+  it("finds contacts by the start of any word or phone digits, and keeps renamed ones", async () => {
+    const me = await signUp("Test Me");
+    await as(me)("/me/contacts", {
+      body: { kind: "venue", name: "Test Blue Frog", city: "Test Pune", phone: "+91 90000 12345" },
+    });
+    const names = async (q: string) => (await contacts(me, `?q=${encodeURIComponent(q)}`)).map((c) => c.name);
+    expect(await names("frog")).toEqual(["Test Blue Frog"]);
+    expect(await names("blu fro")).toEqual(["Test Blue Frog"]);
+    expect(await names("pune")).toEqual(["Test Blue Frog"]);
+    expect(await names("+91 90000")).toEqual(["Test Blue Frog"]);
+    expect(await names("12345")).toEqual([]); // the middle of a number isn't a word start
+    expect(await names("rog")).toEqual([]);
+
+    // A learned client I rename is still the one gigs with the old name link to.
+    await as(me)("/gigs", {
+      body: { title: "Test A", client: { name: "Test Old Co" }, events: [{ start_at: "2026-12-12T19:00" }] },
+    });
+    const learned = await waitFor(
+      () => contacts(me, "?kind=client"),
+      (c) => c.length === 1,
+    );
+    await as(me)(`/me/contacts/${learned[0]!.id}`, { method: "PATCH", body: { name: "Test New Co" } });
+    await as(me)("/gigs", {
+      body: { title: "Test B", client: { name: "Test Old Co" }, events: [{ start_at: "2026-12-13T19:00" }] },
+    });
+    const after = await waitFor(
+      () => contacts(me, "?kind=client"),
+      (c) => c[0]?.gigs === 2,
+    );
+    expect(after.map((c) => [c.name, c.gigs])).toEqual([["Test New Co", 2]]);
+  });
+
   it("exports and restores an address book without overwriting", async () => {
     const me = await signUp("Test Me");
     await as(me)("/me/contacts", { body: { kind: "client", name: "Test Backup Client" } });

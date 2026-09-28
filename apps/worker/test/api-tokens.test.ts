@@ -127,6 +127,36 @@ describe("brief (Siri)", () => {
     expect((await api("/me/brief?what=nonsense")).status).toBe(400);
   });
 
+  it("skips cancelled gigs and counts gigs, not events", async () => {
+    const me = await signUp("Test Me");
+    const api = withToken((await makeToken(me, "Test Siri")).token);
+    const day = (d: number) => new Date(Date.now() + d * 86400_000 + 330 * 60_000).toISOString().slice(0, 10);
+    for (let i = 0; i < 3; i++) {
+      const g = await json<BookingView>(
+        await as(me)("/gigs", {
+          body: { title: `Test Off ${i}`, status: "confirmed", events: [{ start_at: `${day(1)}T1${i}:00` }] },
+        }),
+      );
+      await as(me)(`/gigs/${g.id}/status`, { body: { action: "cancel" } });
+    }
+    await as(me)("/gigs", {
+      body: {
+        title: "Test Two Day",
+        status: "confirmed",
+        events: [{ start_at: `${day(2)}T19:00` }, { start_at: `${day(3)}T19:00` }],
+      },
+    });
+    const next = await waitFor(
+      () => api("/me/brief?what=next").then((r) => json<BriefView>(r)),
+      (b) => b.items.length > 0 && b.items[0]!.title === "Test Two Day",
+    );
+    expect(next.text).toMatch(/^Your next gig is Test Two Day/);
+    const week = await json<BriefView>(await api("/me/brief?what=week"));
+    expect(week.text).toMatch(/^One gig in the next 7 days: Test Two Day/);
+    const pick = await json<{ choices: Record<string, string> }>(await api("/me/pick?q=test"));
+    expect(Object.keys(pick.choices)).toHaveLength(1);
+  });
+
   it("offers gigs and a gig's people to choose from", async () => {
     const me = await signUp("Test Me");
     const api = withToken((await makeToken(me, "Test Siri")).token);
@@ -143,7 +173,7 @@ describe("brief (Siri)", () => {
       () => api("/me/pick?q=pick").then((r) => json<{ choices: Record<string, string> }>(r)),
       (p) => Object.keys(p.choices).length > 0,
     );
-    expect(gigs.choices).toEqual({ "Test Pick Gig · Sun, 13 Dec": gig.id });
+    expect(gigs.choices).toEqual({ "Test Pick Gig · Sat, 12 Dec": gig.id });
     const people = await json<{ choices: Record<string, string> }>(await api(`/me/pick?gig_id=${gig.id}`));
     expect(Object.keys(people.choices)).toEqual(["Test Drummer"]);
   });
