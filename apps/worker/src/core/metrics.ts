@@ -27,14 +27,13 @@ export interface OperationStats {
 }
 
 /**
- * The last day's numbers per operation, from the Analytics Engine SQL API. Needs a
+ * The numbers per operation over the last `minutes` (default a day), from the Analytics Engine SQL API. Needs a
  * read-only token (Account Analytics: Read) and the account id; returns null without them.
  */
-export async function operationStats(env: {
-  ANALYTICS_TOKEN?: string;
-  CLOUDFLARE_ACCOUNT_ID?: string;
-  ENVIRONMENT: string;
-}): Promise<OperationStats[] | null> {
+export async function operationStats(
+  env: { ANALYTICS_TOKEN?: string; CLOUDFLARE_ACCOUNT_ID?: string; ENVIRONMENT: string },
+  minutes = 24 * 60,
+): Promise<OperationStats[] | null> {
   if (!env.ANALYTICS_TOKEN || !env.CLOUDFLARE_ACCOUNT_ID) return null;
   const dataset = env.ENVIRONMENT === "production" ? "assistant_metrics" : "assistant_dev_metrics";
   const sql = `
@@ -45,7 +44,7 @@ export async function operationStats(env: {
            quantileExactWeighted(0.5)(double1, _sample_interval) AS p50_ms,
            quantileExactWeighted(0.95)(double1, _sample_interval) AS p95_ms
     FROM ${dataset}
-    WHERE timestamp > NOW() - INTERVAL '1' DAY
+    WHERE timestamp > NOW() - INTERVAL '${Math.max(1, Math.round(minutes))}' MINUTE
     GROUP BY operation
     ORDER BY calls DESC
     LIMIT 50

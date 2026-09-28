@@ -163,6 +163,10 @@ Owner's feedback after using the app. The gig page gets three tabs (Details, Mon
 
 Owner's OK ("yes i'm okay with deleting the data"). Removed the workspace code (core workspaces, the old gigs module operations and services, collective settings, invitations, members, the old web pages and switcher) and dropped the old D1 tables in migration `0004_retire_workspaces` (children first, `defer_foreign_keys`). Better Auth's organization plugin is off; `session.activeOrganizationId` stays as an unused column (dropping a column means rebuilding the table, not worth the risk). The operation registry is now user-only: every write passes its Idempotency-Key to the object that owns the data, so the D1 `idempotency_keys`, `audit_log` and `confirm_tokens` tables went too; `api_tokens` and confirm tokens come back with T09/T10 designed for gigs. AGENTS.md rules 1–3, 8, 11, 12 and a new rule 16 describe the gig-centric model. The load test is dropped from the plan (owner, 2026-09-28).
 
+## 2026-09-28: Alerts by Telegram, checked by the Worker's own timer
+
+Owner: no alert email ("I don't want to get them on my email"); Telegram is fine ("if it crowds me with alerts I'm changing it"). A Worker cron (`*/15 * * * *`, one per Worker, within the free plan's limit) runs health checks: modules contribute them (`admin.checks`; gigs: updates stuck over 5 minutes, deliveries that failed every retry), core adds errors (over 2% of at least 20 calls in 15 minutes) and slowness (slowest 5% over 1.5 s) when the analytics token exists. State per check lives in D1 `alert_state`, written only on change; a failing check sends one message, a fixed one sends "fixed", one still failing is repeated at most once a day. Only production sends (switch in the admin panel). The bot token is a secret; the chat id is found from the owner's first message to the bot (`getUpdates`) and kept in `app_settings`. Dead-lettered summaries are consumed from the DLQ into D1 `dead_letters` for the alert and the admin retry tool. There's no external "app down" check yet (the Worker can't see itself down); Cloudflare's status page covers the platform.
+
 ## Open
 
 None.

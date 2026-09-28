@@ -133,7 +133,7 @@ export async function adminLog(env: Env) {
   }));
 }
 
-async function logAdmin(d1: D1Database, actorUserId: string, action: string, detail: unknown) {
+export async function logAdmin(d1: D1Database, actorUserId: string, action: string, detail: unknown) {
   await d1
     .prepare(`insert into admin_audit (id, actor_user_id, action, detail_json) values (?, ?, ?, ?)`)
     .bind(ulid(), actorUserId, action, JSON.stringify(detail))

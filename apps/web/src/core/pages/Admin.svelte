@@ -17,6 +17,7 @@
   } from "../ui/index.ts";
   import {
     adminApi,
+    type AdminAlerts,
     type AdminList,
     type AdminLogEntry,
     type AdminOperations,
@@ -32,6 +33,40 @@
   let admins = $state<AdminList | null>(null);
   let log = $state<AdminLogEntry[]>([]);
   let ops = $state<AdminOperations | null>(null);
+  let alerts = $state<AdminAlerts | null>(null);
+  let alertBusy = $state(false);
+
+  async function loadAlerts() {
+    try {
+      alerts = await adminApi.alerts();
+    } catch (e) {
+      toast.error(e);
+    }
+  }
+  async function toggleAlerts() {
+    if (!alerts) return;
+    alertBusy = true;
+    try {
+      await adminApi.setAlerts(!alerts.enabled);
+      await loadAlerts();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      alertBusy = false;
+    }
+  }
+  async function testAlert() {
+    alertBusy = true;
+    try {
+      await adminApi.testAlert();
+      toast.success("Sent. Check Telegram.");
+      await loadAlerts();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      alertBusy = false;
+    }
+  }
   let loading = $state(false);
   let newAdmin = $state("");
   let adding = $state(false);
@@ -48,6 +83,7 @@
       overview = o;
       admins = a;
       log = l;
+      void loadAlerts();
       // Slower (an analytics query); shown when it arrives.
       adminApi.operations().then(
         (r) => (ops = r),
@@ -160,37 +196,87 @@
       {/each}
     </div>
 
-    <ListGroup
-      title="Actions, last 24 hours"
-      footer={ops?.available
-        ? "Errors: server errors (5xx). Speed: typical and slowest 5%."
-        : "Needs a read-only analytics token (a one-time setup step)."}
-    >
-      {#if !ops}
-        <ListRow title="Loading…" />
-      {:else if ops.error}
-        <ListRow title={ops.error} />
-      {:else if !ops.available}
-        <ListRow
-          title="Not set up yet"
-          subtitle="Add the ANALYTICS_TOKEN secret to see per-action numbers."
-        />
-      {:else}
-        {#each ops.operations as o (o.operation)}
+    <div class="stack">
+      <ListGroup
+        title="Alerts"
+        footer="Checked every 15 minutes. One Telegram message when something breaks, one when it's fixed, a reminder at most once a day."
+      >
+        {#if !alerts}
+          <ListRow title="Loading…" />
+        {:else}
           <ListRow
-            title={o.operation.replace(/^[a-z]+\./, "").replaceAll("_", " ")}
-            subtitle="{o.calls} calls · {o.p50_ms} ms typical · {o.p95_ms} ms slowest 5%"
+            title="Telegram"
+            subtitle={!alerts.telegram.token
+              ? "Add the TELEGRAM_BOT_TOKEN secret (setup steps in docs/setup.md)."
+              : alerts.telegram.chat
+                ? "Connected to your chat."
+                : "Open your bot in Telegram, press Start and send it a message."}
           >
             {#snippet trailing()}
-              {#if o.server_errors > 0}<Pill tone="red">{o.server_errors} errors</Pill>
-              {:else}<Pill tone="green">OK</Pill>{/if}
+              <Pill tone={alerts!.telegram.token && alerts!.telegram.chat ? "green" : "amber"}
+                >{alerts!.telegram.token && alerts!.telegram.chat ? "Ready" : "Not set up"}</Pill
+              >
             {/snippet}
           </ListRow>
+          <label class="toggle">
+            <span>Send alerts from this app</span>
+            <input
+              type="checkbox"
+              role="switch"
+              checked={alerts.enabled}
+              disabled={alertBusy}
+              onchange={toggleAlerts}
+            />
+          </label>
+          {#each alerts.checks as c (c.id)}
+            <ListRow
+              title={c.label}
+              subtitle={c.ok ? undefined : [c.detail, c.fix].filter(Boolean).join(" · ")}
+            >
+              {#snippet trailing()}<Pill tone={c.ok ? "green" : "red"}>{c.ok ? "OK" : "Problem"}</Pill
+                >{/snippet}
+            </ListRow>
+          {/each}
+          <div class="row-actions">
+            <Button size="sm" variant="tinted" loading={alertBusy} onclick={testAlert}
+              >Send a test message</Button
+            >
+          </div>
+        {/if}
+      </ListGroup>
+
+      <ListGroup
+        title="Actions, last 24 hours"
+        footer={ops?.available
+          ? "Errors: server errors (5xx). Speed: typical and slowest 5%."
+          : "Needs a read-only analytics token (a one-time setup step)."}
+      >
+        {#if !ops}
+          <ListRow title="Loading…" />
+        {:else if ops.error}
+          <ListRow title={ops.error} />
+        {:else if !ops.available}
+          <ListRow
+            title="Not set up yet"
+            subtitle="Add the ANALYTICS_TOKEN secret to see per-action numbers."
+          />
         {:else}
-          <ListRow title="No calls yet" />
-        {/each}
-      {/if}
-    </ListGroup>
+          {#each ops.operations as o (o.operation)}
+            <ListRow
+              title={o.operation.replace(/^[a-z]+\./, "").replaceAll("_", " ")}
+              subtitle="{o.calls} calls · {o.p50_ms} ms typical · {o.p95_ms} ms slowest 5%"
+            >
+              {#snippet trailing()}
+                {#if o.server_errors > 0}<Pill tone="red">{o.server_errors} errors</Pill>
+                {:else}<Pill tone="green">OK</Pill>{/if}
+              {/snippet}
+            </ListRow>
+          {:else}
+            <ListRow title="No calls yet" />
+          {/each}
+        {/if}
+      </ListGroup>
+    </div>
 
     <h2 class="heading">Tools</h2>
     <div class="grid">
@@ -339,6 +425,56 @@
     background: var(--grey-soft);
     color: var(--text-2);
     cursor: pointer;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 52px;
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--separator);
+    cursor: pointer;
+  }
+  .toggle input {
+    appearance: none;
+    flex-shrink: 0;
+    position: relative;
+    width: 50px;
+    height: 30px;
+    border-radius: var(--radius-full);
+    background: var(--grey-soft);
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .toggle input::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s;
+  }
+  .toggle input:checked {
+    background: var(--green);
+    border-color: var(--green);
+  }
+  .toggle input:checked::after {
+    transform: translateX(20px);
+  }
+  .stack {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+    margin-bottom: var(--space-6);
+  }
+  .row-actions {
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--separator);
   }
   .generated {
     color: var(--text-3);

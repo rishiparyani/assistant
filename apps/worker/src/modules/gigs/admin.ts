@@ -3,7 +3,7 @@
 import { isoDateIST } from "@assistant/shared";
 import type { AdminCtx, ModuleAdmin } from "../../core/module.ts";
 import { AppError } from "../../core/errors.ts";
-import { flushOutboxes, rebuildSummaries } from "./objects/delivery.ts";
+import { flushOutboxes, rebuildSummaries, retryDeadLetters } from "./objects/delivery.ts";
 import { monthName, pendingName, PENDING_SHARDS } from "./objects/names.ts";
 
 const thisMonth = () => isoDateIST(new Date().toISOString()).slice(0, 7);
@@ -57,7 +57,40 @@ export const gigsAdmin: ModuleAdmin = {
       },
     ];
   },
+  async checks(ctx) {
+    const pending = await waiting(ctx);
+    const ageMin = pending.oldest ? Math.round((Date.now() - Date.parse(pending.oldest)) / 60_000) : 0;
+    const dead = await ctx.d1
+      .prepare(`select count(distinct gig_id) as n from dead_letters`)
+      .first<{ n: number }>();
+    return [
+      {
+        id: "gigs.delivery_stuck",
+        label: "Updates stuck",
+        ok: ageMin < 5,
+        detail: `${pending.count} gig${pending.count === 1 ? "" : "s"} waiting, oldest ${ageMin} min`,
+        fix: "Admin panel → Flush outboxes. If it keeps happening, the queue may be down (Cloudflare status).",
+      },
+      {
+        id: "gigs.dead_letters",
+        label: "Failed deliveries",
+        ok: (dead?.n ?? 0) === 0,
+        detail: `${dead?.n ?? 0} gig${dead?.n === 1 ? "" : "s"} couldn't update people's Homes after every retry`,
+        fix: "Admin panel → Retry failed deliveries.",
+      },
+    ];
+  },
   tools: [
+    {
+      id: "retry_dead",
+      label: "Retry failed deliveries",
+      description:
+        "Send the gigs whose updates failed every retry to people's Homes again, straight from each gig.",
+      async run(ctx) {
+        const { gigs } = await retryDeadLetters(ctx.objects, ctx.d1);
+        return `Re-sent ${gigs} gig${gigs === 1 ? "" : "s"}.`;
+      },
+    },
     {
       id: "flush",
       label: "Flush outboxes",

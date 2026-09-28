@@ -6,6 +6,7 @@
 // they have. Each message is acknowledged on its own; failures are retried and end up in
 // the dead letter queue after the retries run out.
 import { bookingName, monthName, monthsBetween, pendingName, personName, PENDING_SHARDS } from "./names.ts";
+import { ulid } from "@assistant/shared";
 import type { GigSummaries, SummaryMessage } from "./types.ts";
 
 /** The object namespaces delivery needs (a Worker env or a service's ctx.objects). */
@@ -78,4 +79,31 @@ export async function rebuildSummaries(env: Objects, from: string, to: string): 
     }
   }
   return { gigs };
+}
+
+// --- Dead letters (deliveries that failed every retry) ---------------------------------
+
+/** Records dead-lettered messages in D1 so the owner hears about them and can retry. */
+export async function recordDeadLetters(batch: MessageBatch<SummaryMessage>, d1: D1Database): Promise<void> {
+  await d1.batch(
+    batch.messages.map((m) =>
+      d1
+        .prepare(`insert into dead_letters (id, gig_id, seq) values (?, ?, ?)`)
+        .bind(ulid(), m.body.gig_id, String(m.body.seq)),
+    ),
+  );
+  batch.ackAll();
+}
+
+/** Re-announces every dead-lettered gig (current state; receivers take the newest) and clears the list. */
+export async function retryDeadLetters(env: Objects, d1: D1Database): Promise<{ gigs: number }> {
+  const { results } = await d1
+    .prepare(`select distinct gig_id from dead_letters limit 500`)
+    .all<{ gig_id: string }>();
+  for (const { gig_id } of results) {
+    const summaries = await env.BOOKINGS.getByName(bookingName(gig_id)).summaries();
+    if (summaries) await deliverSummaries(env, summaries);
+    await d1.prepare(`delete from dead_letters where gig_id = ?`).bind(gig_id).run();
+  }
+  return { gigs: results.length };
 }

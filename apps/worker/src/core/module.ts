@@ -41,11 +41,27 @@ export interface AdminTool {
 export interface ModuleAdmin {
   sections?: (ctx: AdminCtx) => Promise<AdminSection[]>;
   tools?: readonly AdminTool[];
+  /** Health checks run every 15 minutes; a failing one alerts the owner (design §10a). */
+  checks?: (ctx: AdminCtx) => Promise<HealthCheck[]>;
+}
+
+export interface HealthCheck {
+  /** Stable id, e.g. "gigs.delivery_stuck". */
+  id: string;
+  /** Short name for messages, e.g. "Updates stuck". */
+  label: string;
+  ok: boolean;
+  /** What's wrong (counts only, never personal data). */
+  detail?: string;
+  /** What to do about it. */
+  fix?: string;
 }
 
 /** A queue this module consumes. `name` is the queue's base name; dev uses `<name>-dev`. */
 export interface ModuleQueue {
   name: string;
+  /** The dev environment's queue name; defaults to `<name>-dev`. */
+  devName?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each queue has its own body type
   handle: (batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) => Promise<void>;
 }

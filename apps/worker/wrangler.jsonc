@@ -50,10 +50,14 @@
         "max_retries": 10,
         "dead_letter_queue": "summaries-dev-dlq",
       },
+      // Failed-every-retry messages: recorded for alerts and the retry tool.
+      { "queue": "summaries-dev-dlq", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3 },
     ],
   },
   // Per-action counts, errors and timings for the admin panel (ids and numbers only).
   "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "assistant_dev_metrics" }],
+  // Health checks and alerts every 15 minutes, plus nightly jobs (core/scheduled.ts).
+  "triggers": { "crons": ["*/15 * * * *"] },
   "vars": {
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://assistant-dev.rishiparyani.workers.dev",
@@ -96,9 +100,11 @@
             "max_retries": 10,
             "dead_letter_queue": "summaries-dlq",
           },
+          { "queue": "summaries-dlq", "max_batch_size": 10, "max_batch_timeout": 5, "max_retries": 3 },
         ],
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "assistant_metrics" }],
+      "triggers": { "crons": ["*/15 * * * *"] },
       "vars": {
         "ENVIRONMENT": "production",
         "BASE_URL": "https://assistant.rishiparyani.workers.dev",
