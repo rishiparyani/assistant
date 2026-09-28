@@ -1,4 +1,5 @@
 // The web app's only way to reach the backend. No business logic here.
+import { untrack } from "svelte";
 import { activity } from "./activity.svelte.ts";
 import {
   isHealthResponse,
@@ -25,7 +26,8 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   const headers: Record<string, string> = body === undefined ? {} : { "content-type": "application/json" };
   // Every write carries a fresh key so a retried request can't happen twice.
   if (method !== "GET") headers["idempotency-key"] = crypto.randomUUID();
-  activity.pending++;
+  // untrack: requests often start inside an $effect, which must not depend on this counter.
+  untrack(() => activity.pending++);
   let res: Response;
   try {
     res = await fetch(path, {
@@ -34,7 +36,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } finally {
-    activity.pending--;
+    untrack(() => activity.pending--);
   }
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => null)) as T | ApiErrorBody | null;

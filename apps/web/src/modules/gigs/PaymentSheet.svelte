@@ -57,8 +57,14 @@
   <form id={formId} class="form" onsubmit={submit}>
     <MoneyField label={amountLabel} bind:value={amount} required />
     <Chips label="Method" options={METHODS} bind:value={method} />
-    <TextField label="Date" type="date" bind:value={paidOn} required />
-    <TextField label="Note" bind:value={note} placeholder="Optional, e.g. advance, UPI ref" maxlength={500} />
+    <TextField label="Date" id="pay-date-{uid}" type="date" bind:value={paidOn} required />
+    <TextField
+      label="Note"
+      id="pay-note-{uid}"
+      bind:value={note}
+      placeholder="Optional, e.g. advance, UPI ref"
+      maxlength={500}
+    />
   </form>
   {#snippet footer()}
     <Button onclick={() => (open = false)}>Cancel</Button>

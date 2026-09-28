@@ -8,11 +8,22 @@
     hint,
     required = false,
     placeholder = "0",
-  }: { label: string; value?: string; hint?: string; required?: boolean; placeholder?: string } = $props();
+    id,
+  }: {
+    label: string;
+    value?: string;
+    hint?: string;
+    required?: boolean;
+    placeholder?: string;
+    id?: string;
+  } = $props();
+  // Unique per instance: the same form can be on a page twice (payment and payout sheets).
+  const uid = $props.id();
 </script>
 
 <TextField
   {label}
+  id={id ?? `money-${uid}`}
   bind:value
   prefix="₹"
   inputmode="decimal"

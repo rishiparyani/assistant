@@ -131,20 +131,24 @@
 {:else}
   <div class="layout">
     <div class="col">
-      <Card>
-        <div class="block">
-          <span class="eyebrow">My share · {report.mine.gigs} {report.mine.gigs === 1 ? "gig" : "gigs"}</span>
-          <div class="stats">
-            <Stat label="Earned" value={report.mine.share.amount_display} />
-            <Stat label="Paid to me" value={report.mine.paid.amount_display} tone="green" />
-            <Stat
-              label="Still owed"
-              value={report.mine.owed.amount_display}
-              tone={report.mine.owed.amount_paise > 0 ? "amber" : undefined}
-            />
+      {#if !report.managed || report.mine.share.amount_paise !== 0 || report.mine.paid.amount_paise !== 0}
+        <Card>
+          <div class="block">
+            <span class="eyebrow"
+              >My share · {report.mine.gigs} {report.mine.gigs === 1 ? "gig" : "gigs"}</span
+            >
+            <div class="stats">
+              <Stat label="Earned" value={report.mine.share.amount_display} />
+              <Stat label="Paid to me" value={report.mine.paid.amount_display} tone="green" />
+              <Stat
+                label="Still owed"
+                value={report.mine.owed.amount_display}
+                tone={report.mine.owed.amount_paise > 0 ? "amber" : undefined}
+              />
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      {/if}
       {#if report.managed}
         <Card>
           <div class="block">
