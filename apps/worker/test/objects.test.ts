@@ -31,8 +31,8 @@ function newGig(managerId: string, playerId: string) {
     title: "Test Sangeet",
     events: [{ title: "Sangeet", start_at: inDays(10), venue_name: "Test Hall" }],
     people: [
-      { user_id: managerId, name: "Test Manager", role: "manager" as const },
-      { user_id: playerId, name: "Test Player", role: "player" as const },
+      { user_id: managerId, name: "Test Manager", email: null, phone: null, role: "manager" as const },
+      { user_id: playerId, name: "Test Player", email: null, phone: null, role: "player" as const },
     ],
   };
   return { gigId, stub, input };
@@ -240,6 +240,8 @@ describe("receivers", () => {
     event_id: `${gigId}-e1`,
     gig_title: title,
     event_title: null,
+    event_type: null,
+    client_name: null,
     start_at: inDays(5),
     end_at: null,
     venue_name: null,
@@ -261,7 +263,7 @@ describe("receivers", () => {
     const person = env.PEOPLE.getByName(personName("user-r2"));
     await person.events();
     await runInDurableObject(person, (_i, state) => {
-      expect(state.storage.sql.exec(`select version from _schema`).one().version).toBe(1);
+      expect(state.storage.sql.exec(`select version from _schema`).one().version).toBe(3);
     });
   });
 });

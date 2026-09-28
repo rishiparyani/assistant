@@ -6,6 +6,8 @@ export type PersonEventSummary = {
   event_id: string;
   gig_title: string;
   event_title: string | null;
+  event_type: string | null;
+  client_name: string | null;
   start_at: string;
   end_at: string | null;
   venue_name: string | null;

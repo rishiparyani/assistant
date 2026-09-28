@@ -5,3 +5,4 @@ export * from "./money.ts";
 export * from "./venues.ts";
 export * from "./me.ts";
 export * from "./settings.ts";
+export * from "./booking.ts";

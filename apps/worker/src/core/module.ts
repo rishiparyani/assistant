@@ -45,8 +45,10 @@ export function defineModule<const M extends ModuleDefinition>(module: M): M {
   for (const op of module.operations ?? []) {
     if (!op.id.startsWith(`${module.id}.`))
       throw new Error(`Operation ${op.id} must start with "${module.id}."`);
-    if (op.scope === "user" && op.kind !== "read")
-      throw new Error(`Module operation ${op.id}: user-scoped module operations must be reads`);
+    if (op.scope === "user" && op.kind !== "read" && op.idempotency !== "object")
+      throw new Error(
+        `Module operation ${op.id}: user-scoped module writes must keep their data (and idempotency) in an object`,
+      );
   }
   return module;
 }

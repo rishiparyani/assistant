@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **R1 step 2, gigs API** (branch): `/api/gigs` create/get/update/status/delete/history, events and people with manager/player roles, version checks, `/api/me/gigs` from person summaries; idempotency and audit inside each gig; retried creates reach the same gig; registry option `idempotency: "object"` and `ctx.objects` (Durable Object namespaces only); old gig tools renamed `legacy_*`. Tests: 73 shared, 92 worker (8 new in `bookings.test.ts`).
+
 - **R1 step 1, foundation** (branch; no visible change): Durable Objects for gigs, people, month indexes and pending lists, with per-object migrations, idempotency and audit inside the gig, the outbox → `summaries` queue → consumer path (combining per gig, sequence numbers, dead letter queue), retries that never give up, flush and rebuild tools; deploy workflow creates the queues; tests: 73 shared, 84 worker (9 new in `objects.test.ts`). See `docs/architecture.md` → Gig-centric storage.
 
 - **Design approved: gig-centric, scale-ready** (`docs/design/gig-centric.md`, learning notes `docs/learn/scale.md`, decision 2026-09-28): gigs with events, per-gig roles, collective as a tag, Durable Objects per gig/person/month index, outbox → Cloudflare Queue, monitoring and email alerts. Build started (R1 step 1).
@@ -29,8 +31,8 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Step 1 is deployed on dev (2026-09-28; the token could already create queues). It isn't reachable through the API yet, so it goes to prod together with step 2, once there's something to verify end to end.
-2. **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
+1. Ship steps 1–2 to prod (API only, nothing visible yet), then the **admin panel** (design §10b), then **step 3, money**.
+2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
 

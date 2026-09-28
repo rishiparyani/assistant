@@ -4,6 +4,7 @@ import type { HealthResponse } from "@assistant/shared";
 import type { ModuleDefinition } from "./module.ts";
 import type { AppEnv } from "./context.ts";
 import { AppError } from "./errors.ts";
+import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
 import { workspaceOperations } from "./workspaces/operations.ts";
@@ -34,6 +35,9 @@ export function createApp({ modules }: AppOptions) {
 
   app.onError((err, c) => {
     if (err instanceof AppError) return c.json(err.toJSON(), err.status);
+    // Errors thrown inside Durable Objects arrive as plain errors carrying their code.
+    const fromObject = toAppError(err);
+    if (fromObject) return c.json(fromObject.toJSON(), fromObject.status);
     if (err instanceof RangeError) {
       // Thrown by shared parsers (money, dates) on bad input.
       return c.json({ error: { code: "validation_failed", message: err.message } }, 400);
