@@ -107,3 +107,6 @@ export const api = {
   invitation: (id: string) => request<InvitationView>("GET", `/api/invitations/${id}`),
   acceptInvitation: (id: string) => request<WorkspaceSummary>("POST", `/api/invitations/${id}/accept`, {}),
 };
+
+/** A readable message for any thrown value. */
+export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));

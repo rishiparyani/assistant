@@ -5,6 +5,7 @@
   import { session } from "../session.svelte.ts";
   import { MAIN_NAV } from "../workspace.svelte.ts";
   import NavIcon from "./NavIcon.svelte";
+  import PullToRefresh from "./PullToRefresh.svelte";
 
   let { children }: { children: Snippet } = $props();
   const nav = MAIN_NAV;
@@ -14,6 +15,7 @@
     exact ? path === href : path === href || path.startsWith(`${href}/`);
 </script>
 
+<PullToRefresh />
 <div class="shell">
   <!-- Tablet/laptop: sidebar -->
   <aside class="sidebar">

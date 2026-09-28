@@ -15,6 +15,7 @@
     toast,
   } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import { createQuery } from "../../../core/query.svelte.ts";
   import GigDate from "../GigDate.svelte";
   import GigEditor from "./GigEditor.svelte";
   import { statusLabel, statusTone } from "../status.ts";
@@ -24,12 +25,19 @@
   type Tab = "upcoming" | "past" | "all";
   let tab = $state<Tab>("upcoming");
   let query = $state("");
-  let items = $state<MyEventView[] | null>(null);
-  let cursor = $state<string | null>(null);
+  let search = $state(""); // the query, settled for 200 ms
+  let extra = $state<MyEventView[]>([]); // pages loaded with "Show more"
+  let nextCursor = $state<string | null | undefined>(undefined);
   let loadingMore = $state(false);
   let creating = $state(false);
 
-  function params(extra: Record<string, string> = {}) {
+  $effect(() => {
+    const q = query.trim();
+    const t = setTimeout(() => (search = q), 200);
+    return () => clearTimeout(t);
+  });
+
+  function params(extraParams: Record<string, string> = {}) {
     const now = new Date().toISOString();
     const base =
       tab === "upcoming"
@@ -37,35 +45,29 @@
         : tab === "past"
           ? { to: now, order: "desc" as const }
           : { order: "desc" as const };
-    return { ...base, q: query.trim() || undefined, limit: 30, ...extra };
+    return { ...base, q: search || undefined, limit: 30, ...extraParams };
   }
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  // The first page of each tab and search is cached (shown at once, refreshed behind).
+  const first = createQuery(
+    () => `gigs:${tab}:${search}`,
+    () => bookingsApi.myGigs(params()),
+  );
   $effect(() => {
-    const p = params();
-    items = null;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      bookingsApi.myGigs(p).then(
-        (page) => {
-          items = page.items;
-          cursor = page.next_cursor;
-        },
-        (e) => {
-          toast.error(e);
-          items = [];
-        },
-      );
-    }, 150);
+    void first.data;
+    extra = [];
+    nextCursor = undefined;
   });
+  const items = $derived(first.data ? [...first.data.items, ...extra] : null);
+  const cursor = $derived(nextCursor === undefined ? (first.data?.next_cursor ?? null) : nextCursor);
 
   async function more() {
     if (!cursor) return;
     loadingMore = true;
     try {
       const page = await bookingsApi.myGigs(params({ cursor }));
-      items = [...(items ?? []), ...page.items];
-      cursor = page.next_cursor;
+      extra = [...extra, ...page.items];
+      nextCursor = page.next_cursor;
     } catch (e) {
       toast.error(e);
     } finally {
