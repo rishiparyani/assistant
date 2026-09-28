@@ -63,6 +63,10 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 
 People are added by `user_id`, by `email` (matched to an account case-insensitively; otherwise kept as a name) or by `name`. Edits to details and events send the gig's `version`; a changed gig returns `409` with `details.reason = "version_mismatch"` and `current_version`. Other conflict reasons: `invalid_transition`, `last_event`, `last_manager`, `already_on_gig`, `idempotency_key_reused`. The old workspace gig tools are renamed `legacy_*` until they're retired (design step 7).
 
+## Live updates
+
+`GET /api/live` (WebSocket; signed-in session; the `Origin` must be the app's own, so other sites can't open it with your cookies). The connection goes to your person object, which sends `{"type":"gig_changed","gig_id":"…"}` whenever a gig you're on changes (after its summary reaches you, usually within about a second). Send `ping` to keep it open (answered `pong` without waking the object). At most 8 open connections per person; the oldest is closed. The web app keeps one open while visible and refreshes what's on screen on each notice.
+
 ## Admin panel (owner-only; docs/design/gig-centric.md §10b)
 
 Plain routes, not operations (never MCP tools or Siri actions). Admins are the emails in the `ADMIN_EMAILS` secret (owners; can't be removed from the panel) plus those added in the panel (D1 `admins`). Everyone else gets 404. Counts only; no one's gigs, names or money.

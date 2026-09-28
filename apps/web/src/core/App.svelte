@@ -2,6 +2,7 @@
   import { navigate, router } from "./router.svelte.ts";
   import { refreshSession, session } from "./session.svelte.ts";
   import { current, lastWorkspaceId, loadWorkspace } from "./workspace.svelte.ts";
+  import { setLive } from "./live.ts";
   import { ConfirmHost, Skeleton, Spinner, Toaster, TopProgress } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
@@ -22,6 +23,9 @@
   const PUBLIC = new Set(["login", "consent", "invite"]);
   // Opens at once with the user saved on this device; the server check runs alongside.
   void refreshSession();
+
+  // Live updates while signed in.
+  $effect(() => setLive(!!session.me));
   const route = $derived(router.route);
 
   // Signed-out users go to sign-in (and come back afterwards).

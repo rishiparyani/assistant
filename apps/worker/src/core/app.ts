@@ -4,6 +4,7 @@ import type { HealthResponse } from "@assistant/shared";
 import type { ModuleDefinition } from "./module.ts";
 import type { AppEnv } from "./context.ts";
 import { AppError } from "./errors.ts";
+import { requireUser } from "./context.ts";
 import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
 import { adminRoutes } from "./admin/routes.ts";
@@ -68,6 +69,19 @@ export function createApp({ modules }: AppOptions) {
       console.error("health: database check failed", err);
       return c.json({ error: { code: "database_unavailable", message: "Database check failed" } }, 503);
     }
+  });
+
+  // Live updates (decision 2026-09-28): one WebSocket per open app, handed to the module
+  // that owns them. Cookies ride along on cross-site WebSocket requests, so the origin
+  // must be ours (no cross-site hijacking).
+  const live = modules.find((m) => m.live)?.live;
+  app.get("/api/live", requireUser, async (c) => {
+    if (!live) throw new AppError("not_found", "Live updates aren't available");
+    if (c.req.header("origin") !== new URL(c.env.BASE_URL).origin)
+      throw new AppError("forbidden", "Live updates only from the app itself");
+    if (c.req.header("upgrade")?.toLowerCase() !== "websocket")
+      return c.json({ error: { code: "upgrade_required", message: "Use a WebSocket" } }, 426);
+    return live(c.env, c.get("userCtx").user.id, c.req.raw);
   });
 
   app.route("/", authRoutes);
