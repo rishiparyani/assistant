@@ -32,7 +32,7 @@ The repo is public: anyone can read the code, commit history, issues, PRs, Actio
 - Every workflow sets minimal `permissions:` (default `contents: read`).
 - Pin third-party actions to a full commit SHA, not a tag.
 - Never `echo` secrets or print data rows; don't use `set -x` in steps that touch secrets.
-- **Backups never go to Actions artifacts or logs** (both are public). Nightly export goes straight to a private R2 bucket.
+- **Backups never go to Actions artifacts or logs** (both are public). Nightly export goes straight from the Worker to a private folder in the owner's Google Drive.
 - Prod deploys use a GitHub Environment (`production`) limited to the `main` branch.
 
 **App-level:** the prod app URL being public is fine; everything behind it needs auth. The `.ics` feed URL is a secret (tokenised) and must be revocable.

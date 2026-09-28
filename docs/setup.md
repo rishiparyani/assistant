@@ -78,3 +78,11 @@ Status of each is tracked in `tasks/STATUS.md` under "Owner setup".
 **Cloudflare Workers + D1 free plan** (per day, reset 00:00 UTC = 05:30 IST): 100,000 Worker requests; 10 ms CPU per request; D1 5 million rows read, 100,000 rows written; 5 GB total D1 storage. Over the limit on the free plan, requests fail until reset; nothing is charged. Upgrade path: Workers Paid, $5/month. Keep usage low: index every filtered column, never scan whole tables, no polling from clients.
 
 Check current numbers in Cloudflare's and GitHub's docs before relying on them; they change.
+
+## Google Drive backups (owner, once)
+
+1. Google Cloud console → the project used for Google sign-in → search **Google Drive API** → **Enable**.
+2. **Google Auth Platform** (or APIs & Services) → **Clients** → the web client → **Authorized redirect URIs** → add `https://assistant.rishiparyani.workers.dev/api/admin/drive/callback` and `https://assistant-dev.rishiparyani.workers.dev/api/admin/drive/callback` → **Save**.
+3. In the app: Settings → **Admin panel** → **Backups** → **Connect Google Drive** → choose the account → allow. Backups then run every night; "Back up now" runs one immediately.
+
+Restore: Admin panel → Backups → **Restore from a file** (owners only). It only adds what's missing.

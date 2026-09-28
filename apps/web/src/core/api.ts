@@ -83,7 +83,27 @@ export const adminApi = {
   alerts: () => request<AdminAlerts>("GET", "/api/admin/alerts"),
   setAlerts: (enabled: boolean) => request<{ enabled: boolean }>("POST", "/api/admin/alerts", { enabled }),
   testAlert: () => request<{ sent: boolean }>("POST", "/api/admin/alerts/test", {}),
+  backup: () => request<AdminBackup>("GET", "/api/admin/backup"),
+  backupNow: () => request<AdminBackup["last"]>("POST", "/api/admin/backup/run", {}),
+  disconnectDrive: () => request<{ connected: boolean }>("POST", "/api/admin/drive/disconnect", {}),
+  restore: async (file: File) => {
+    const res = await fetch("/api/admin/restore?confirm=RESTORE", {
+      method: "POST",
+      headers: { "idempotency-key": crypto.randomUUID() },
+      body: file,
+    });
+    const body = (await res.json()) as { rows: number; modules: Record<string, number> } & ApiErrorBody;
+    if (!res.ok)
+      throw new ApiError(res.status, body.error?.code ?? "unknown", body.error?.message ?? "Restore failed");
+    return body;
+  },
 };
+
+export interface AdminBackup {
+  google_configured: boolean;
+  connected: boolean;
+  last: { at: string; ok: boolean; bytes?: number; file?: string; error?: string } | null;
+}
 
 export interface AdminAlerts {
   enabled: boolean;

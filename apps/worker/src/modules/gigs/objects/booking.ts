@@ -33,13 +33,31 @@ import {
   outboxFailed,
   outboxNote,
   setMeta,
+  exportTables,
+  importTables,
   type Actor,
   type AuditEntry,
+  type ObjectDump,
   type Migrations,
 } from "../../../core/objects/storage.ts";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import { createdMonthOf, monthName, monthOf, pendingName, pendingShard } from "./names.ts";
 import type { GigSummaries, IndexCard, PersonGigSummary, SummaryMessage } from "./types.ts";
+
+/** What a backup holds for each gig. */
+const BACKUP_TABLES = [
+  "gig",
+  "gig_tags",
+  "events",
+  "people",
+  "lineup",
+  "payments",
+  "payouts",
+  "expenses",
+  "_audit",
+  "_targets",
+  "_meta",
+] as const;
 
 const MIGRATIONS: Migrations = [
   BASE_TABLES +
@@ -960,6 +978,28 @@ export class BookingObject extends DurableObject<Env> {
       people: peopleOut,
       months: monthsOut,
     };
+  }
+
+  // --- Backups ----------------------------------------------------------------------
+
+  /** Everything needed to restore this gig (not idempotency records or the outbox). */
+  async exportData(): Promise<ObjectDump | null> {
+    if (!this.gigRow()) return null;
+    return exportTables(this.sql, BACKUP_TABLES);
+  }
+
+  /** Restores a backup into this (empty) gig, then re-announces it so Homes catch up. */
+  async importData(dump: ObjectDump): Promise<boolean> {
+    if (this.gigRow()) return false; // never overwrite a gig that exists
+    importTables(this.ctx.storage, dump, BACKUP_TABLES);
+    this.ctx.storage.transactionSync(() => {
+      // In a fresh environment the month registry and pending lists don't know this gig.
+      setMeta(this.sql, "registered", "0");
+      setMeta(this.sql, "pending", "0");
+      bumpAndNote(this.sql);
+    });
+    await this.scheduleDelivery();
+    return true;
   }
 
   // --- Outbox delivery (alarm) --------------------------------------------------------

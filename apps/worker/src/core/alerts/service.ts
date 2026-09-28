@@ -7,6 +7,7 @@ import { objectBindings } from "../context.ts";
 import { operationStats } from "../metrics.ts";
 import { getSetting, setSetting } from "../settings.ts";
 import { sendTelegram } from "./telegram.ts";
+import { backupStatus, driveConnected } from "../backup/service.ts";
 
 const REMIND_MS = 24 * 3600_000;
 
@@ -41,6 +42,30 @@ async function coreChecks(env: AlertEnv): Promise<HealthCheck[]> {
   ];
 }
 
+/** Backups: fails when the last one failed or none succeeded for 26 hours (once connected). */
+async function backupCheck(env: AlertEnv, now = new Date()): Promise<HealthCheck[]> {
+  if (!(await driveConnected(env))) return [];
+  const last = await backupStatus(env);
+  const since = await getSetting(env.DB, "drive_connected_at");
+  const lastOkAge = last?.ok ? now.getTime() - Date.parse(last.at) : null;
+  const connectedAge = since ? now.getTime() - Date.parse(since) : 0;
+  const overdue = lastOkAge === null ? connectedAge > 26 * 3600_000 : lastOkAge > 26 * 3600_000;
+  return [
+    {
+      id: "core.backup",
+      label: "Backup",
+      ok: !(last && !last.ok) && !overdue,
+      detail:
+        last && !last.ok
+          ? `Last backup failed: ${last.error}`
+          : overdue
+            ? "No backup in over a day"
+            : undefined,
+      fix: "Admin panel → Backups → Back up now; if Google Drive was disconnected, connect it again.",
+    },
+  ];
+}
+
 export async function collectChecks(
   env: AlertEnv,
   modules: readonly ModuleDefinition[],
@@ -48,6 +73,7 @@ export async function collectChecks(
   const ctx: AdminCtx = { d1: env.DB, objects: objectBindings(env) };
   const lists = await Promise.all([
     coreChecks(env),
+    backupCheck(env),
     ...modules.map(async (m) => {
       if (!m.admin?.checks) return [];
       try {

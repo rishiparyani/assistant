@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **Backups to Google Drive** (decision 2026-09-28): nightly (~02:30 IST) gzip JSON of D1 (secrets blanked) + every gig object, uploaded by the Worker to "Assistant backups (<env>)" with `drive.file` scope; newest 60 kept; restore (owners, never overwrites); "Backup" alert when failed/overdue; admin panel Backups section (connect, back up now, disconnect, restore). Owner steps in `docs/setup.md` → Google Drive backups. Alerts live on prod (#23).
+
 - **Alerts** (decision 2026-09-28): Worker cron every 15 min runs health checks (updates stuck, failed deliveries; errors and slowness with the analytics token) and sends Telegram messages on change only (production only; admin switch; test button). DLQ consumer records dead letters; admin tool "Retry failed deliveries". D1 migration `0005_alerts` (`app_settings`, `alert_state`, `dead_letters`). Owner step: `TELEGRAM_BOT_TOKEN` secret + send the bot a message.
 
 - **R1 step 7, workspaces retired, live on prod** ([rishiparyani/assistant#22](https://github.com/rishiparyani/assistant/pull/22); prod migrations 5; owner's OK 2026-09-28): old workspace/collective code, old gigs module operations and screens removed; D1 migration `0004_retire_workspaces` drops the 16 old tables (children first); Better Auth organization plugin off; operation registry is user-only with idempotency and audit inside objects. AGENTS.md rules rewritten for the gig-centric model; docs updated (`data-model.md` rewritten). Load test dropped from the plan. Tests: 72 shared, 49 worker; browser walkthroughs (gig flow, cache, live updates) pass.

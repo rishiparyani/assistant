@@ -18,6 +18,7 @@
   import {
     adminApi,
     type AdminAlerts,
+    type AdminBackup,
     type AdminList,
     type AdminLogEntry,
     type AdminOperations,
@@ -35,6 +36,54 @@
   let ops = $state<AdminOperations | null>(null);
   let alerts = $state<AdminAlerts | null>(null);
   let alertBusy = $state(false);
+  let backup = $state<AdminBackup | null>(null);
+  let backupBusy = $state("");
+
+  async function loadBackup() {
+    try {
+      backup = await adminApi.backup();
+    } catch (e) {
+      toast.error(e);
+    }
+  }
+  async function backupAction(name: string, fn: () => Promise<unknown>, done: string) {
+    backupBusy = name;
+    try {
+      await fn();
+      toast.success(done);
+      await loadBackup();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      backupBusy = "";
+    }
+  }
+  async function restoreFile(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+    const ok = await confirm({
+      title: `Restore from ${file.name}?`,
+      message: "Only puts back what's missing: existing gigs and accounts are never changed.",
+      confirmLabel: "Restore",
+    });
+    if (!ok) return;
+    await backupAction(
+      "restore",
+      async () => {
+        const r = await adminApi.restore(file);
+        toast.success(`Restored ${r.rows} rows and ${r.modules.gigs ?? 0} gigs`);
+      },
+      "Restore finished",
+    );
+  }
+  // Coming back from Google after connecting Drive.
+  $effect(() => {
+    const q = new URLSearchParams(window.location.search).get("drive");
+    if (q === "connected") toast.success("Google Drive connected. Backups run every night.");
+    if (q === "error") toast.error("Couldn't connect Google Drive. Try again.");
+  });
 
   async function loadAlerts() {
     try {
@@ -84,6 +133,7 @@
       admins = a;
       log = l;
       void loadAlerts();
+      void loadBackup();
       // Slower (an analytics query); shown when it arrives.
       adminApi.operations().then(
         (r) => (ops = r),
@@ -197,6 +247,68 @@
     </div>
 
     <div class="stack">
+      <ListGroup
+        title="Backups"
+        footer="Every night at about 2:30 am, to an “Assistant backups” folder in your Google Drive. The app can only see files it made. The newest 60 are kept."
+      >
+        {#if !backup}
+          <ListRow title="Loading…" />
+        {:else}
+          <ListRow
+            title="Google Drive"
+            subtitle={backup.connected
+              ? "Connected"
+              : backup.google_configured
+                ? "Not connected yet"
+                : "Google sign-in isn't set up on this app"}
+          >
+            {#snippet trailing()}<Pill tone={backup!.connected ? "green" : "amber"}
+                >{backup!.connected ? "Connected" : "Not set up"}</Pill
+              >{/snippet}
+          </ListRow>
+          <ListRow
+            title="Last backup"
+            subtitle={backup.last
+              ? `${when(backup.last.at)}${backup.last.ok ? ` · ${Math.max(1, Math.round((backup.last.bytes ?? 0) / 1024))} KB` : ` · ${backup.last.error}`}`
+              : "None yet"}
+          >
+            {#snippet trailing()}
+              {#if backup!.last}<Pill tone={backup!.last.ok ? "green" : "red"}
+                  >{backup!.last.ok ? "OK" : "Failed"}</Pill
+                >{/if}
+            {/snippet}
+          </ListRow>
+          <div class="row-actions wrap">
+            {#if backup.connected}
+              <Button
+                size="sm"
+                variant="tinted"
+                loading={backupBusy === "run"}
+                onclick={() => backupAction("run", adminApi.backupNow, "Backed up")}>Back up now</Button
+              >
+              <Button
+                size="sm"
+                variant="ghost"
+                loading={backupBusy === "disconnect"}
+                onclick={() => backupAction("disconnect", adminApi.disconnectDrive, "Disconnected")}
+                >Disconnect</Button
+              >
+            {:else if backup.google_configured}
+              <Button size="sm" variant="primary" href="/api/admin/drive/connect">Connect Google Drive</Button
+              >
+            {/if}
+            <label class="file-btn">
+              {backupBusy === "restore" ? "Restoring…" : "Restore from a file"}
+              <input
+                type="file"
+                accept=".gz,.json,application/gzip,application/json"
+                onchange={restoreFile}
+              />
+            </label>
+          </div>
+        {/if}
+      </ListGroup>
+
       <ListGroup
         title="Alerts"
         footer="Checked every 15 minutes. One Telegram message when something breaks, one when it's fixed, a reminder at most once a day."
@@ -465,6 +577,30 @@
   }
   .toggle input:checked::after {
     transform: translateX(20px);
+  }
+  .wrap {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .file-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .file-btn input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
   }
   .stack {
     display: grid;
