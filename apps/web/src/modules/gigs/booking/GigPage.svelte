@@ -34,6 +34,7 @@
   import NotFound from "../../../core/pages/NotFound.svelte";
   import { ApiError } from "../../../core/api.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import { createQuery, dropCache } from "../../../core/query.svelte.ts";
   import PaymentSheet from "../PaymentSheet.svelte";
   import { methodLabel } from "../options.ts";
   import { paymentLabel, paymentTone, statusLabel, statusTone } from "../status.ts";
@@ -47,8 +48,16 @@
   // One gig: always exact (read from the gig itself), showing only what I may see.
   let { gigId }: { gigId: string } = $props();
 
-  let gig = $state<BookingView | null>(null);
-  let missing = $state(false);
+  // Shows the last known gig at once, then refreshes from the gig itself.
+  const q = createQuery<BookingView>(
+    () => `gig:${gigId}`,
+    () => bookingsApi.get(gigId),
+  );
+  const gig = $derived(q.data ?? null);
+  const missing = $derived(q.error instanceof ApiError && q.error.status === 404);
+  $effect(() => {
+    if (missing) dropCache(`gig:${gigId}`);
+  });
   let busy = $state("");
 
   let editOpen = $state(false);
@@ -63,17 +72,7 @@
   let payoutOpen = $state(false);
   let payoutFor = $state<PayeeView | null>(null);
 
-  async function load() {
-    try {
-      gig = await bookingsApi.get(gigId);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 404) missing = true;
-      else toast.error(e);
-    }
-  }
-  void load();
-
-  const set = (g: BookingView) => (gig = g);
+  const set = (g: BookingView) => q.set(g);
   const manager = $derived(gig?.my_role === "manager");
   const money = $derived(gig?.money);
   const progress = $derived(
@@ -86,7 +85,7 @@
   async function act(name: string, fn: () => Promise<BookingView>, done: string) {
     busy = name;
     try {
-      gig = await fn();
+      q.set(await fn());
       toast.success(done);
     } catch (e) {
       toast.error(e);
@@ -540,7 +539,7 @@
     suggested={money.balance?.amount_paise}
     submitLabel="Save payment"
     onsubmit={async (v) => {
-      gig = await bookingsApi.recordPayment(gigId, v);
+      q.set(await bookingsApi.recordPayment(gigId, v));
     }}
   />
   <PaymentSheet
@@ -549,7 +548,7 @@
     suggested={payoutFor?.owed.amount_paise}
     submitLabel="Save payout"
     onsubmit={async (v) => {
-      gig = await bookingsApi.recordPayout(gigId, { ...v, person_id: payoutFor!.person_id });
+      q.set(await bookingsApi.recordPayout(gigId, { ...v, person_id: payoutFor!.person_id }));
     }}
   />
   <ExpenseSheet bind:open={expenseOpen} {gig} onsaved={set} />

@@ -16,6 +16,7 @@
     toast,
   } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import { createQuery } from "../../../core/query.svelte.ts";
   import { statusLabel, statusTone } from "../status.ts";
   import { todayIST } from "../time.ts";
 
@@ -23,15 +24,14 @@
   // gigs I manage. Filters: role, collective, custom tags (all must match).
   type Range = "month" | "last_month" | "year" | "custom";
   let range = $state<Range>("month");
-  let from = $state("");
-  let to = $state("");
+  const today = todayIST();
+  let from = $state(bounds("month")[0]);
+  let to = $state(bounds("month")[1]);
   let role = $state("");
   let collective = $state("");
   let tag = $state("");
   let tags = $state<MyTagView[]>([]);
-  let report = $state<MyReportView | null>(null);
 
-  const today = todayIST();
   function bounds(r: Range): [string, string] {
     const [y, m] = today.split("-").map(Number) as [number, number];
     const pad = (n: number) => String(n).padStart(2, "0");
@@ -54,23 +54,21 @@
     () => {},
   );
 
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  const params = $derived({
+    from,
+    to,
+    role: role || undefined,
+    collective: collective || undefined,
+    tags: tag || undefined,
+  });
+  // Each period and filter combination is cached (shown at once, refreshed behind).
+  const q = createQuery<MyReportView>(
+    () => `report:${JSON.stringify(params)}`,
+    () => bookingsApi.report(params),
+  );
+  const report = $derived(q.data ?? null);
   $effect(() => {
-    const p = {
-      from,
-      to,
-      role: role || undefined,
-      collective: collective || undefined,
-      tags: tag || undefined,
-    };
-    if (!p.from || !p.to) return;
-    clearTimeout(timer);
-    timer = setTimeout(() => {
-      bookingsApi.report(p).then(
-        (r) => (report = r),
-        (e) => toast.error(e),
-      );
-    }, 150);
+    if (q.error) toast.error(q.error);
   });
 
   const collectives = $derived(tags.filter((t) => t.kind === "collective"));

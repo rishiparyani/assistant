@@ -14,6 +14,8 @@
     Stat,
   } from "../../../core/ui/index.ts";
   import { session } from "../../../core/session.svelte.ts";
+  import { createQuery } from "../../../core/query.svelte.ts";
+  import { errorText } from "../../../core/api.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import GigDate from "../GigDate.svelte";
   import GigEditor from "./GigEditor.svelte";
@@ -22,19 +24,14 @@
 
   // Home: only my things (docs/design/gig-centric.md §2). Built from my own summaries,
   // so it can lag a few seconds behind a change.
-  let data = $state<HomeView | null>(null);
-  let error = $state("");
+  // Shows the last known Home at once, then refreshes in the background.
+  const home = createQuery<HomeView>(
+    () => "home",
+    () => bookingsApi.home(),
+  );
+  const data = $derived(home.data);
+  const error = $derived(!home.data && home.error ? errorText(home.error) : "");
   let creating = $state(false);
-
-  async function load() {
-    try {
-      data = await bookingsApi.home();
-      error = "";
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-    }
-  }
-  void load();
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";

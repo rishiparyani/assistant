@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **Smooth app, step 1: device cache** (decision 2026-09-28): screens show their last data at once and refresh behind (`core/query.svelte.ts`, used by Home, Gigs, gig page, Reports); the app opens with the saved user; pull to refresh; refresh when returning to the app; sign-out clears saved data. Measured with a 4 s server delay: Home back in 0.07 s, cold start to Home 0.6 s. Also: the home-screen app reloads itself when a new version is deployed (#16).
+
 - **R1 steps 4–6 live on prod** ([rishiparyani/assistant#15](https://github.com/rishiparyani/assistant/pull/15); prod health migrations 4, new routes 401 signed out). **R1 step 6, screens**: new navigation (Home, Gigs, Reports, Settings; no workspace switcher) and pages on the gig API: Home (`booking/Home.svelte`), Gigs list with search, gig page (events with lineups, people, client payment, shares and payouts, expenses and net, who-sees-what switches, status actions), New/Edit gig (events, people by email or name, collective with autofill, tags, duplicate warnings), Reports (period, role, collective, tag). Loading states (owner's request): splash in `index.html` before the app starts, labelled placeholders, top progress bar while requests are in flight (`core/activity.svelte.ts`, `TopProgress`). Browser walkthrough (create → lineup → payment → payout → expense → setting → player's view) and screenshots at 390/820/1280, light and dark, no overflow or page errors. Old workspace pages still work by URL (`/w/...`) until step 7.
 - Review fixes on steps 4–5 (Codex): tags reach the shared registry only after the gig accepts the edit; Home filters cancelled events in the query; reports load tags for the date range only.
 

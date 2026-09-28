@@ -20,7 +20,8 @@
   import NotFound from "./pages/NotFound.svelte";
 
   const PUBLIC = new Set(["login", "consent", "invite"]);
-  const loading = refreshSession();
+  // Opens at once with the user saved on this device; the server check runs alongside.
+  void refreshSession();
   const route = $derived(router.route);
 
   // Signed-out users go to sign-in (and come back afterwards).
@@ -46,12 +47,14 @@
   });
 </script>
 
-{#await loading}
+{#if !session.loaded}
   <div class="boot-screen">
     <span class="mark" aria-hidden="true">A</span>
     <Spinner size={22} label="Loading…" />
   </div>
-{:then}
+{:else if session.error}
+  <p class="boot">Can't reach the server: {session.error}</p>
+{:else}
   {#if route.name === "login"}
     <Login query={route.query} />
   {:else if route.name === "consent"}
@@ -96,9 +99,7 @@
       {/if}
     </AppShell>
   {/if}
-{:catch err}
-  <p class="boot">Can't reach the server: {err.message}</p>
-{/await}
+{/if}
 
 <TopProgress />
 <Toaster />
