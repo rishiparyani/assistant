@@ -22,12 +22,12 @@ describe("Better Auth schema", () => {
   });
 
   it("would catch a missing column (guard self-check)", async () => {
-    await env.DB.exec(`alter table organization drop column kind`);
+    await env.DB.exec(`alter table passkey drop column name`);
     try {
       const { toBeAdded } = await getMigrations(options());
-      expect(toBeAdded.map((t) => t.table)).toContain("organization");
+      expect(toBeAdded.map((t) => t.table)).toContain("passkey");
     } finally {
-      await env.DB.exec(`alter table organization add column kind text`);
+      await env.DB.exec(`alter table passkey add column name text`);
     }
   });
 });

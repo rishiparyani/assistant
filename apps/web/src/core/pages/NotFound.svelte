@@ -10,5 +10,5 @@
 
 <EmptyState {title} {text}>
   {#snippet icon()}<Compass size={26} />{/snippet}
-  {#snippet action()}<Button href="/" variant="primary">Go to my workspaces</Button>{/snippet}
+  {#snippet action()}<Button href="/" variant="primary">Go to Home</Button>{/snippet}
 </EmptyState>

@@ -5,6 +5,9 @@ import { PageInput } from "../../core/pagination.ts";
 import { dateTime, id, moneyFields, optionalText } from "./common.ts";
 import type { GigMoney, LineupView } from "./booking-money.ts";
 
+export const GIG_STATUSES = ["enquiry", "confirmed", "completed", "cancelled"] as const;
+export type GigStatus = (typeof GIG_STATUSES)[number];
+
 export const BOOKING_ROLES = ["manager", "player"] as const;
 export type BookingRole = (typeof BOOKING_ROLES)[number];
 

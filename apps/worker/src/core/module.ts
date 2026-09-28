@@ -1,19 +1,8 @@
 // The contract every feature module implements (see docs/modules.md).
-import type { ObjectBindings, UserCtx } from "./context.ts";
-import type { AnyOperation, Change } from "./operations.ts";
-
-/** Statements a module adds to a core write, committed in the same batch with their audit entries. */
-export interface HookResult {
-  statements: D1PreparedStatement[];
-  changes: Change[];
-}
+import type { ObjectBindings } from "./context.ts";
+import type { AnyOperation } from "./operations.ts";
 
 export interface ModuleHooks {
-  /**
-   * A user joined a shared workspace (created it, or accepted an invitation). Runs before the
-   * core write; the returned statements are committed with it.
-   */
-  memberJoined?: (ctx: UserCtx, args: { workspaceId: string }) => Promise<HookResult>;
   /**
    * A new account was created (sign-up). Runs after the account exists; failures are
    * logged and never block sign-up, so hooks must have their own safety net.
@@ -70,8 +59,7 @@ export interface ModuleDefinition {
   schema?: Record<string, unknown>;
   /**
    * Actions, each exposed as an HTTP route (and an MCP tool in T10). Ids start with `<id>.`.
-   * Workspace-scoped by default; user-scoped operations (e.g. the Me Home across workspaces)
-   * must only read workspaces the user belongs to that have the module enabled.
+   * Writes keep their data, idempotency record and audit entry in a Durable Object.
    */
   operations?: readonly AnyOperation[];
   hooks?: ModuleHooks;
@@ -90,10 +78,6 @@ export function defineModule<const M extends ModuleDefinition>(module: M): M {
   for (const op of module.operations ?? []) {
     if (!op.id.startsWith(`${module.id}.`))
       throw new Error(`Operation ${op.id} must start with "${module.id}."`);
-    if (op.scope === "user" && op.kind !== "read" && op.idempotency !== "object")
-      throw new Error(
-        `Module operation ${op.id}: user-scoped module writes must keep their data (and idempotency) in an object`,
-      );
   }
   return module;
 }

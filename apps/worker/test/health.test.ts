@@ -14,7 +14,7 @@ describe("GET /api/health", () => {
     const body = await res.json();
     expect(isHealthResponse(body)).toBe(true);
     // environment comes from wrangler.jsonc, or .dev.vars when present locally.
-    expect(body).toMatchObject({ ok: true, modules: ["gigs"], migrations: 4 });
+    expect(body).toMatchObject({ ok: true, modules: ["gigs"], migrations: 5 });
   });
 
   it("returns a JSON 404 for unknown API routes", async () => {

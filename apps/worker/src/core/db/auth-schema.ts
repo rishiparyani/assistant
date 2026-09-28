@@ -1,7 +1,6 @@
 // Better Auth's tables, mirrored in Drizzle so one migration history covers the whole
 // database. Names and types follow Better Auth exactly (camelCase columns, `date`
 // type); test/auth-schema.test.ts fails if Better Auth expects anything missing.
-// Workspaces = `organization` rows (with `kind`); memberships = `member` rows.
 import { customType, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 // Better Auth's SQLite dialect declares timestamps as `date` and stores ISO strings.
@@ -36,6 +35,7 @@ export const session = sqliteTable(
     userId: text("userId")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Left from the retired workspaces (Better Auth organizations); unused.
     activeOrganizationId: text("activeOrganizationId"),
   },
   // updatedAt: admin panel "active people" counts (sessions refresh as people use the app).
@@ -75,56 +75,6 @@ export const verification = sqliteTable(
     updatedAt: date("updatedAt").notNull(),
   },
   (t) => [index("verification_identifier_idx").on(t.identifier)],
-);
-
-/** A workspace: `kind` is "personal" or "band". */
-export const organization = sqliteTable("organization", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  logo: text("logo"),
-  createdAt: date("createdAt").notNull(),
-  metadata: text("metadata"),
-  kind: text("kind"),
-});
-
-/** A workspace membership with role "owner" or "member". */
-export const member = sqliteTable(
-  "member",
-  {
-    id: text("id").primaryKey(),
-    organizationId: text("organizationId")
-      .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
-    userId: text("userId")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    role: text("role").notNull(),
-    createdAt: date("createdAt").notNull(),
-  },
-  (t) => [index("member_organizationId_idx").on(t.organizationId), index("member_userId_idx").on(t.userId)],
-);
-
-export const invitation = sqliteTable(
-  "invitation",
-  {
-    id: text("id").primaryKey(),
-    organizationId: text("organizationId")
-      .notNull()
-      .references(() => organization.id, { onDelete: "cascade" }),
-    email: text("email").notNull(),
-    role: text("role"),
-    status: text("status").notNull(),
-    expiresAt: date("expiresAt").notNull(),
-    createdAt: date("createdAt").notNull(),
-    inviterId: text("inviterId")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-  },
-  (t) => [
-    index("invitation_organizationId_idx").on(t.organizationId),
-    index("invitation_email_idx").on(t.email),
-  ],
 );
 
 export const jwks = sqliteTable("jwks", {

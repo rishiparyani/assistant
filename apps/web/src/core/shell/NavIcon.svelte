@@ -5,7 +5,7 @@
   import Users from "@lucide/svelte/icons/users";
   import Settings from "@lucide/svelte/icons/settings";
   import ChartColumn from "@lucide/svelte/icons/chart-column";
-  import type { NavItem } from "../workspace.svelte.ts";
+  import type { NavItem } from "./nav.ts";
 
   let {
     icon,

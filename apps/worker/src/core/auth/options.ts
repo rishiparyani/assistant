@@ -1,7 +1,7 @@
 // Better Auth configuration (from the T00 spike). Shared by the Worker, the schema
-// guard test and, in T03, the /auth routes. Workspaces = Better Auth organizations.
+// guard test and the /auth routes.
 import type { BetterAuthOptions } from "better-auth";
-import { jwt, organization } from "better-auth/plugins";
+import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
 import { ulid } from "@assistant/shared";
@@ -33,15 +33,6 @@ export function authOptions(cfg: AuthConfig) {
       ? { google: { clientId: cfg.google.clientId, clientSecret: cfg.google.clientSecret } }
       : {},
     plugins: [
-      organization({
-        schema: {
-          organization: {
-            additionalFields: {
-              kind: { type: "string", required: false, defaultValue: "band", input: true },
-            },
-          },
-        },
-      }),
       passkey({ rpID: url.hostname, rpName: "Assistant", origin: url.origin }),
       jwt(),
       oauthProvider({

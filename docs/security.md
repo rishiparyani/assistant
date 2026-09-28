@@ -4,7 +4,7 @@
 - Better Auth sessions in HttpOnly, Secure, SameSite cookies; origin checks on state-changing requests.
 - No password login (hashing can exceed the 10 ms CPU limit): Google, passkeys, email magic links.
 - One authorization middleware for every route and MCP tool: user → membership → role → module enabled → token scope. Non-members get 404, not 403.
-- Better Auth's organization/admin endpoints are blocked; workspace changes only go through `/api` (authorized + audited).
+- Better Auth's admin and OAuth-client administration endpoints are blocked; app data changes only go through `/api` (checked and audited inside each gig's object).
 - Zod validation on every input. Drizzle parameterised queries only; no raw SQL from clients or AI.
 - Secrets as Worker secrets; never in the repo. `.dev.vars` is git-ignored.
 - API tokens stored hashed, scoped per module/operation, revocable, `last_used_at` tracked.

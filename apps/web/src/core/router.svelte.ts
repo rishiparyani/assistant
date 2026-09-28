@@ -14,12 +14,6 @@ const PATTERNS: [string, RegExp][] = [
   ["my_gigs", /^\/gigs$/],
   ["booking", /^\/gigs\/(?<gigId>[^/]+)$/],
   ["reports", /^\/reports$/],
-  ["invite", /^\/invite\/(?<invitationId>[^/]+)$/],
-  ["home", /^\/w\/(?<workspaceId>[^/]+)$/],
-  ["members", /^\/w\/(?<workspaceId>[^/]+)\/members$/],
-  ["gigs", /^\/w\/(?<workspaceId>[^/]+)\/gigs$/],
-  ["gig", /^\/w\/(?<workspaceId>[^/]+)\/gigs\/(?<gigId>[^/]+)$/],
-  ["people", /^\/w\/(?<workspaceId>[^/]+)\/people$/],
 ];
 
 function match(location: Location): Route {

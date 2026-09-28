@@ -9,7 +9,7 @@ import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
 import { adminRoutes } from "./admin/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
-import { workspaceOperations } from "./workspaces/operations.ts";
+import { coreOperations } from "./me.ts";
 
 export interface AppOptions {
   modules: readonly ModuleDefinition[];
@@ -20,13 +20,7 @@ export function createApp({ modules }: AppOptions) {
   const userCreated = modules.flatMap((m) => (m.hooks?.userCreated ? [m.hooks.userCreated] : []));
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate module ids: ${ids.join(", ")}`);
   const moduleSchemas = Object.assign({}, ...modules.map((m) => m.schema ?? {}));
-  const operations: AnyOperation[] = [
-    ...workspaceOperations(
-      ids,
-      modules.map((m) => m.hooks ?? {}),
-    ),
-    ...modules.flatMap((m) => m.operations ?? []),
-  ];
+  const operations: AnyOperation[] = [...coreOperations, ...modules.flatMap((m) => m.operations ?? [])];
 
   const app = new Hono<AppEnv>();
 

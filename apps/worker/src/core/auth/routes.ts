@@ -7,9 +7,8 @@ import {
 import type { AppEnv } from "../context.ts";
 import { getAuth } from "./auth.ts";
 
-// Workspace/membership changes go through /api (authorization + audit log), and OAuth
-// client/resource administration isn't exposed. Everything else (sign-in, callbacks,
-// session, passkeys, the OAuth flow for MCP connectors) passes through.
+// OAuth client/resource administration isn't exposed. Everything else (sign-in,
+// callbacks, session, passkeys, the OAuth flow for MCP connectors) passes through.
 const BLOCKED = [
   /^\/auth\/organization(\/|$)/,
   /^\/auth\/admin(\/|$)/,
@@ -21,29 +20,19 @@ export const authRoutes = new Hono<AppEnv>()
     if (BLOCKED.some((re) => re.test(c.req.path))) {
       return c.json({ error: { code: "not_found", message: "Not found" } }, 404);
     }
-    return getAuth({ env: c.env, moduleIds: c.get("moduleIds"), userCreated: c.get("userCreated") }).handler(
-      c.req.raw,
-    );
+    return getAuth({ env: c.env, userCreated: c.get("userCreated") }).handler(c.req.raw);
   })
   // OAuth discovery for MCP connectors (Better Auth serves these under /auth; clients
   // also look at the root and at path-inserted variants).
   .get("/.well-known/oauth-authorization-server/auth", (c) =>
-    oauthProviderAuthServerMetadata(
-      getAuth({ env: c.env, moduleIds: c.get("moduleIds"), userCreated: c.get("userCreated") }),
-    )(c.req.raw),
+    oauthProviderAuthServerMetadata(getAuth({ env: c.env, userCreated: c.get("userCreated") }))(c.req.raw),
   )
   .get("/.well-known/oauth-authorization-server", (c) =>
-    oauthProviderAuthServerMetadata(
-      getAuth({ env: c.env, moduleIds: c.get("moduleIds"), userCreated: c.get("userCreated") }),
-    )(c.req.raw),
+    oauthProviderAuthServerMetadata(getAuth({ env: c.env, userCreated: c.get("userCreated") }))(c.req.raw),
   )
   .get("/.well-known/openid-configuration/auth", (c) =>
-    oauthProviderOpenIdConfigMetadata(
-      getAuth({ env: c.env, moduleIds: c.get("moduleIds"), userCreated: c.get("userCreated") }),
-    )(c.req.raw),
+    oauthProviderOpenIdConfigMetadata(getAuth({ env: c.env, userCreated: c.get("userCreated") }))(c.req.raw),
   )
   .get("/.well-known/openid-configuration", (c) =>
-    oauthProviderOpenIdConfigMetadata(
-      getAuth({ env: c.env, moduleIds: c.get("moduleIds"), userCreated: c.get("userCreated") }),
-    )(c.req.raw),
+    oauthProviderOpenIdConfigMetadata(getAuth({ env: c.env, userCreated: c.get("userCreated") }))(c.req.raw),
   );

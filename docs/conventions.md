@@ -27,7 +27,7 @@
 ## Tests
 
 - Vitest with the Workers pool, local D1.
-- Every module: service tests + a test that one workspace can't read or write another's data.
+- Every module: service tests + a test that people without access (not on the gig) can't read or change its data.
 - Money logic (balances, reversals, status) gets table-driven tests.
 
 ## Git
