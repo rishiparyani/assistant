@@ -33,6 +33,7 @@ import type { Actor } from "../../../core/objects/storage.ts";
 import { AppError } from "../../../core/errors.ts";
 import type { PersonInput } from "../objects/booking.ts";
 import { bookingName, personName } from "../objects/names.ts";
+import { gigTagRefs, recordAwaiting } from "./tags.ts";
 
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 const bookingStub = (ctx: OpUserCtx, gigId: string) => ctx.objects.BOOKINGS.getByName(bookingName(gigId));
@@ -110,8 +111,10 @@ export async function createBooking(
 
   // Retries of the same request must reach the same gig, so the id comes from the key.
   const gigId = ctx.idempotencyKey ? await personStub(ctx).gigIdForKey(ctx.idempotencyKey) : ulid();
-  return bookingStub(ctx, gigId).create(
+  const tags = await gigTagRefs(ctx, input);
+  const view = await bookingStub(ctx, gigId).create(
     {
+      ...tags,
       gig_id: gigId,
       title: input.title,
       event_type: input.event_type ?? null,
@@ -126,6 +129,8 @@ export async function createBooking(
     actorOf(ctx),
     ctx.idempotencyKey,
   );
+  if (people.some((p) => p.email && !p.user_id)) await recordAwaiting(ctx.d1, ctx.objects, gigId);
+  return view;
 }
 
 export const getBooking = (ctx: OpUserCtx, gigId: string) => bookingStub(ctx, gigId).view(actorOf(ctx));
@@ -133,15 +138,17 @@ export const getBooking = (ctx: OpUserCtx, gigId: string) => bookingStub(ctx, gi
 export const bookingHistory = (ctx: OpUserCtx, gigId: string) =>
   bookingStub(ctx, gigId).history(actorOf(ctx));
 
-export function updateBooking(ctx: OpUserCtx, input: z.output<typeof UpdateBookingInput>) {
+export async function updateBooking(ctx: OpUserCtx, input: z.output<typeof UpdateBookingInput>) {
   const {
     gig_id,
     fee: _fee,
     fee_paise: _paise,
+    collective: _collective,
+    tags: _tags,
     ...rest
   } = input as typeof input & { fee?: unknown; fee_paise?: unknown };
   return bookingStub(ctx, gig_id).update(
-    { ...rest, fee_paise: paiseOf(input, "fee") },
+    { ...rest, ...(await gigTagRefs(ctx, input)), fee_paise: paiseOf(input, "fee") },
     actorOf(ctx),
     ctx.idempotencyKey,
   );
@@ -177,7 +184,9 @@ export const removeBookingEvent = (ctx: OpUserCtx, gigId: string, eventId: strin
 
 export async function addBookingPerson(ctx: OpUserCtx, input: z.output<typeof AddPersonInput>) {
   const [person] = await resolvePeople(ctx, [input]);
-  return bookingStub(ctx, input.gig_id).addPerson(person!, actorOf(ctx), ctx.idempotencyKey);
+  const view = await bookingStub(ctx, input.gig_id).addPerson(person!, actorOf(ctx), ctx.idempotencyKey);
+  if (person!.email && !person!.user_id) await recordAwaiting(ctx.d1, ctx.objects, input.gig_id);
+  return view;
 }
 
 export function updateBookingPerson(ctx: OpUserCtx, input: z.output<typeof UpdatePersonInput>) {
@@ -217,6 +226,7 @@ export async function findMyGigs(
     ...r,
     start_display: formatDateTimeIST(r.start_at),
     share: money(share_paise),
+    collective_name: r.collective_name ?? null,
   }));
   const last = items.at(-1);
   return { items, next_cursor: more && last ? encodeCursor([last.start_at, last.event_id]) : null };

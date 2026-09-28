@@ -147,6 +147,10 @@ Discussed at length with the owner, who approved it ("I'm trusting you with the 
 
 Small choices made while building step 3, within the approved design: the gig's full money comes back with every gig response (one call for the gig screen), filtered by role and the gig's three visibility settings. Money writes (payments, payouts, expenses) don't bump the gig's `version`, so recording a payment never makes someone else's edit fail; lineup changes do. Someone who has been paid can't be removed from a gig until their payouts are reversed (money is never orphaned). When a gig hides the lineup from players, they see only themselves and the managers in its people list too. Each person's summary gains one row per gig (`my_gigs`: my share and paid; the gig's fee, received, expenses and shares only for managers) for Home and reports in step 4.
 
+## 2026-09-28: Tags, autofill, pending people, duplicates (R1 step 5)
+
+Choices within the approved design: the tag registry in D1 is shared by everyone, one tag per kind and normalised name (lowercase, single spaces), so grouping works across managers; tags can't be renamed yet (a rename would have to touch every gig's snapshot; add it with a background job if it's ever needed). Up to 10 custom tags per gig. Autofill and duplicate warnings use two new rows in each person's summaries: whether they could see the gig's lineup, and the account ids of the people they could see on it. People added by an email with no account go into D1 `pending_people`; a new module hook `userCreated` attaches them on sign-up, and loading Home retries anything left (sign-up never fails because of it). Duplicate warnings show only the other manager's name, the date and the venue, never the gig's title or client.
+
 ## Open
 
 None.

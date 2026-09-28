@@ -14,7 +14,17 @@ export interface ModuleHooks {
    * core write; the returned statements are committed with it.
    */
   memberJoined?: (ctx: UserCtx, args: { workspaceId: string }) => Promise<HookResult>;
+  /**
+   * A new account was created (sign-up). Runs after the account exists; failures are
+   * logged and never block sign-up, so hooks must have their own safety net.
+   */
+  userCreated?: UserCreatedHook;
 }
+
+export type UserCreatedHook = (
+  deps: { d1: D1Database; objects: ObjectBindings },
+  user: { id: string; name: string; email: string },
+) => Promise<void>;
 
 /** Admin panel (docs/design/gig-centric.md §10b): counts only, never other people's data. */
 export interface AdminStat {

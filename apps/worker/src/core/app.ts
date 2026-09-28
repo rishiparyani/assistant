@@ -16,6 +16,7 @@ export interface AppOptions {
 
 export function createApp({ modules }: AppOptions) {
   const ids = modules.map((m) => m.id);
+  const userCreated = modules.flatMap((m) => (m.hooks?.userCreated ? [m.hooks.userCreated] : []));
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate module ids: ${ids.join(", ")}`);
   const moduleSchemas = Object.assign({}, ...modules.map((m) => m.schema ?? {}));
   const operations: AnyOperation[] = [
@@ -30,6 +31,7 @@ export function createApp({ modules }: AppOptions) {
 
   app.use(async (c, next) => {
     c.set("moduleIds", ids);
+    c.set("userCreated", userCreated);
     c.set("moduleSchemas", moduleSchemas);
     await next();
   });

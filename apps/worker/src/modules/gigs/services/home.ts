@@ -19,6 +19,7 @@ import type { z } from "zod";
 import type { OpUserCtx } from "../../../core/operations.ts";
 import { AppError } from "../../../core/errors.ts";
 import { personName } from "../objects/names.ts";
+import { attachPendingPeople, findTags, tagKey } from "./tags.ts";
 import type { PersonGigSummary } from "../objects/types.ts";
 
 const MONTHS = [
@@ -67,6 +68,9 @@ export async function getHome(ctx: OpUserCtx): Promise<HomeView> {
     Number(ym.slice(5)) === 12
       ? `${Number(ym.slice(0, 4)) + 1}-01`
       : `${ym.slice(0, 5)}${String(Number(ym.slice(5)) + 1).padStart(2, "0")}`;
+  // Safety net for sign-up: gigs that added my email before I had an account.
+  if (ctx.user.email)
+    await attachPendingPeople(ctx.d1, ctx.objects, { id: ctx.user.id, email: ctx.user.email });
   const person = personStub(ctx);
   const [events, gigs] = await Promise.all([person.events({ from: nowIso, limit: 40 }), person.gigs()]);
 
@@ -85,6 +89,7 @@ export async function getHome(ctx: OpUserCtx): Promise<HomeView> {
         ...e,
         start_display: formatDateTimeIST(e.start_at),
         share: money(share_paise),
+        collective_name: e.collective_name ?? null,
       })),
     this_month: {
       label: monthLabel(ym),
@@ -129,13 +134,20 @@ export async function getMyReport(
   input: z.output<typeof MyReportInput>,
 ): Promise<MyReportView> {
   if (input.to < input.from) throw new AppError("validation_failed", "`to` is before `from`");
+  const [collective] = input.collective ? await findTags(ctx.d1, "collective", [input.collective]) : [];
+  const tags = input.tags.length ? await findTags(ctx.d1, "custom", input.tags) : [];
+  // An unknown collective or tag matches no gigs.
+  const unknown = (input.collective && !collective) || tags.length < new Set(input.tags.map(tagKey)).size;
   let rows: PersonGigSummary[] = await personStub(ctx).gigs({
     from: dayStart(input.from),
     to: dayStart(nextDay(input.to)),
     status: input.status,
     role: input.role,
     client: input.client,
+    collective_id: collective?.id,
+    tag_ids: tags.map((t) => t.id),
   });
+  if (unknown) rows = [];
   if (!input.status) rows = rows.filter((g) => g.status !== "cancelled");
 
   const months = new Map<string, PersonGigSummary[]>();
@@ -161,6 +173,8 @@ export async function getMyReport(
       return {
         gig_id: g.gig_id,
         gig_title: g.gig_title,
+        collective_name: g.collective?.name ?? null,
+        tags: (g.tags ?? []).map((t) => t.name),
         client_name: g.client_name,
         event_type: g.event_type,
         status: g.status,

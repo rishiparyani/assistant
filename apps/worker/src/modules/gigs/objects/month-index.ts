@@ -22,6 +22,11 @@ const MIGRATIONS: Migrations = [
   create table applied (gig_id text primary key, seq integer not null);
   create table created (gig_id text primary key);
   `,
+  // Step 5: duplicate warnings match on venue or client, and show the venue's name.
+  `
+  alter table cards add column venue_name text;
+  alter table cards add column client_key text;
+  `,
 ];
 
 export class MonthIndexObject extends DurableObject<Env> {
@@ -42,8 +47,9 @@ export class MonthIndexObject extends DurableObject<Env> {
       this.sql.exec(`delete from cards where gig_id = ?`, gigId);
       for (const c of cards) {
         this.sql.exec(
-          `insert into cards (event_id, gig_id, start_at, date, venue_key, status, manager_user_ids)
-           values (?, ?, ?, ?, ?, ?, ?)`,
+          `insert into cards (event_id, gig_id, start_at, date, venue_key, status, manager_user_ids, venue_name,
+             client_key)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           c.event_id,
           c.gig_id,
           c.start_at,
@@ -51,6 +57,8 @@ export class MonthIndexObject extends DurableObject<Env> {
           c.venue_key,
           c.status,
           JSON.stringify(c.manager_user_ids),
+          c.venue_name ?? null,
+          c.client_key ?? null,
         );
       }
       this.sql.exec(
@@ -65,7 +73,7 @@ export class MonthIndexObject extends DurableObject<Env> {
   async onDate(date: string): Promise<IndexCard[]> {
     return this.sql
       .exec<Omit<IndexCard, "manager_user_ids"> & { manager_user_ids: string }>(
-        `select gig_id, event_id, start_at, date, venue_key, status, manager_user_ids
+        `select gig_id, event_id, start_at, date, venue_key, venue_name, client_key, status, manager_user_ids
          from cards where date = ? order by start_at`,
         date,
       )

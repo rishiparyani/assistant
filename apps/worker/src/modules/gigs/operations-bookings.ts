@@ -13,6 +13,9 @@ import {
   GigPaymentRef,
   GigPayoutRef,
   MyReportInput,
+  AutofillInput,
+  DuplicateCheckInput,
+  FindMyTagsInput,
   PersonRef,
   RecordGigExpenseInput,
   RecordGigPaymentInput,
@@ -26,13 +29,14 @@ import { defineOperation } from "../../core/operations.ts";
 import { z } from "zod";
 import * as b from "./services/bookings.ts";
 import * as h from "./services/home.ts";
+import * as t from "./services/tags.ts";
 
 export const bookingOperations = [
   defineOperation({
     id: "gigs.create_booking",
     tool: "create_gig",
     description:
-      "Create a gig with one or more events (date, time, venue) and the people on it. You become its manager. Times without an offset are India time.",
+      "Create a gig with one or more events (date, time, venue) and the people on it. You become its manager. Times without an offset are India time. Optional: collective (band name) and custom tags. Check check_gig_duplicates first; for a collective, suggest_gig_people offers the people from its last gig.",
     scope: "user",
     kind: "write",
     idempotency: "object",
@@ -287,5 +291,39 @@ export const bookingOperations = [
     http: { method: "GET", path: "/me/report" },
     input: MyReportInput,
     handler: (ctx, input) => h.getMyReport(ctx, input),
+  }),
+  // --- Tags, autofill, duplicates (step 5) -------------------------------------------
+  defineOperation({
+    id: "gigs.find_my_tags",
+    tool: "find_my_tags",
+    description:
+      "Collectives and custom tags on gigs I'm on, most used first (for suggestions and report filters).",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/tags" },
+    input: FindMyTagsInput,
+    handler: (ctx, input) => t.findMyTags(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.suggest_gig_people",
+    tool: "suggest_gig_people",
+    description:
+      "People from my latest gig with this collective (whose lineup I could see), to fill in a new gig. Names only: no roles or amounts.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/autofill" },
+    input: AutofillInput,
+    handler: (ctx, input) => t.autofill(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.check_gig_duplicates",
+    tool: "check_gig_duplicates",
+    description:
+      "Before creating a gig: does someone I've played with already have a gig that day at this venue or for this client? Shows their name so I can ask to be added instead. Never blocks.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/duplicates" },
+    input: DuplicateCheckInput,
+    handler: (ctx, input) => t.checkDuplicates(ctx, input),
   }),
 ];

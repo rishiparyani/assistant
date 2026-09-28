@@ -22,6 +22,13 @@
       "when": 1790615457525,
       "tag": "0002_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790618210431,
+      "tag": "0003_gig_tags",
+      "breakpoints": true
     }
   ]
 }

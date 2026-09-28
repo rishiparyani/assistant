@@ -16,6 +16,7 @@ export type PersonEventSummary = {
   /** My part and share on this event (0 if I'm not on its lineup). */
   part: string | null;
   share_paise: number;
+  collective_name?: string | null;
 };
 
 /**
@@ -37,6 +38,12 @@ export type PersonGigSummary = {
   expenses_paise: number | null;
   shares_total_paise: number | null;
   payouts_paise: number | null;
+  collective?: { id: string; name: string } | null;
+  tags?: { id: string; name: string }[];
+  /** Whether this person may see the gig's lineup (autofill only uses such gigs). */
+  lineup_visible?: boolean;
+  /** Other people with accounts on the gig that this person may see (for duplicate warnings). */
+  co_user_ids?: string[];
 };
 
 /** What one person receives about one gig (empty when they're no longer on it). */
@@ -49,6 +56,8 @@ export type IndexCard = {
   start_at: string;
   date: string;
   venue_key: string | null;
+  venue_name?: string | null;
+  client_key?: string | null;
   status: string;
   manager_user_ids: string[];
 };

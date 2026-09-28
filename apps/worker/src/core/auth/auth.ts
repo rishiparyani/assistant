@@ -2,13 +2,17 @@
 import { betterAuth } from "better-auth";
 import { authOptions } from "./options.ts";
 import { createPersonalWorkspace } from "../workspaces/service.ts";
+import { objectBindings } from "../context.ts";
+import type { UserCreatedHook } from "../module.ts";
 
 export interface AuthDeps {
   env: Env;
   moduleIds: readonly string[];
+  /** Modules' sign-up hooks (e.g. gigs attaches people added by email). */
+  userCreated?: readonly UserCreatedHook[];
 }
 
-export function createAuth({ env, moduleIds }: AuthDeps) {
+export function createAuth({ env, moduleIds, userCreated = [] }: AuthDeps) {
   const base = authOptions({
     baseURL: env.BASE_URL,
     secret: env.BETTER_AUTH_SECRET,
@@ -25,6 +29,13 @@ export function createAuth({ env, moduleIds }: AuthDeps) {
           // Every new user gets a personal workspace with all modules enabled.
           after: async (user) => {
             await createPersonalWorkspace(env.DB, { id: user.id, name: user.name }, moduleIds);
+            for (const hook of userCreated) {
+              try {
+                await hook({ d1: env.DB, objects: objectBindings(env) }, user);
+              } catch (err) {
+                console.error("sign-up hook failed; it will be retried by the module's safety net", err);
+              }
+            }
           },
         },
       },
