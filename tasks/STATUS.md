@@ -4,6 +4,8 @@ _Updated: 2026-09-28_
 
 ## Last done
 
+- **MCP server (T10)** (decision 2026-09-28): `/mcp` with tools from the operation registry, OAuth connect via the consent page, two-step confirm for money/cancel/delete, data fenced as data, `mcp` audit source. Settings → "AI assistants" card (address, Claude and ChatGPT steps). Tests: 3 new in `mcp.test.ts` (full OAuth flow, tools, confirm, retries, access); browser check of consent → code → token → tool call. Owner step: add the connector in Claude (and ChatGPT) with `https://assistant.rishiparyani.workers.dev/mcp`; the old spike connector can be removed.
+
 - **API tokens and Siri Shortcuts (T09)** (decision 2026-09-28): Settings → Siri and Shortcuts (make a token, read or read+change, shown once; list with last used; revoke). Bearer tokens on operation routes only (`requireCaller`, `sessionOnly` ops), audited as `siri`. `get_brief` (spoken answers) and `pick` (choices for Shortcuts). Guide: `shortcuts/README.md` (Next gig, Gigs this week, Who owes me, Who do I owe, Clients who owe, Record payment, Record payout, Add gig). Tests: 4 new in `api-tokens.test.ts`. Calendar feed live on prod ([rishiparyani/assistant#26](https://github.com/rishiparyani/assistant/pull/26)).
 
 - **Calendar feed (T08)** (decision 2026-09-28): Settings → Calendar: turn on, "Add to Apple Calendar" (webcal), copy link (Google steps shown), new link, turn off. `/api/calendar/<token>.ics` with my gigs' events (no money; cancelled/tentative marked). D1 migration `0006_access_tokens` (`access_tokens`, `user_audit`); core hook `calendar` in module definitions; `ctx.sealer`. Tests: 63 worker (4 new in `calendar.test.ts`); browser check at 390/820/1280 light and dark. Address book live on prod ([rishiparyani/assistant#25](https://github.com/rishiparyani/assistant/pull/25)).
@@ -63,7 +65,7 @@ _Updated: 2026-09-28_
 
 ## Next
 
-1. MCP (T10), notifications (T11). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
+1. Notifications (T11). PR with T09 + T10 waits for the owner's OK (security changes). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).

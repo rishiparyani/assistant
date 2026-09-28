@@ -183,6 +183,10 @@ One secret link per person (`/api/calendar/cal_<random>.ics`) that Apple and Goo
 
 Tokens (`ast_…`) live in D1 `access_tokens` next to calendar links: SHA-256 hash only (shown once; a retried create answers 409 rather than a second secret), up to 10 per person, scope read or read+write, revoked (never deleted), "last used" at most once a day. `requireCaller` accepts a session or a token, and only operation routes use it; operations marked `sessionOnly` (token and calendar management) and every non-operation route (admin, live updates) stay session-only, so a leaked token can't mint more tokens or reach admin. Token calls are audited as source `siri`. For Shortcuts, two thin reads: `get_brief` returns a sentence to speak (next gig, week, owed to me, to collect, to pay), built from Home and my gigs, and `pick` returns label → id dictionaries for "Choose from List". Every write shortcut shows an alert (Cancel) before calling. Recipes in `shortcuts/README.md`; nothing to install beyond the Shortcuts app.
 
+## 2026-09-28: MCP server on the operation registry (T10)
+
+`/mcp` replaces the T00 spike: stateless JSON-RPC over POST, tools generated from every operation that isn't `sessionOnly`, with JSON Schemas from the same Zod inputs (`z.toJSONSchema`, input side). OAuth is Better Auth's provider (as in the spike): JWT access tokens for the `/mcp` audience verified in-process. Two-step writes (rule 9) without server state: the preview's `confirm_token` is sealed (AES-GCM, key from BETTER_AUTH_SECRET) over {person, tool, hash of the exact arguments, expiry 10 min}; the confirming call must match, and its idempotency key is derived from the token so retries are harmless. Other writes use an optional `request_id` as the idempotency key. Data in results is fenced (`<data>` plus a note) and the server instructions say text from data is never instructions. Settings has an "AI assistants" card with the address and steps for Claude and ChatGPT. Connecting is the owner's step (their accounts).
+
 ## Open
 
 None.

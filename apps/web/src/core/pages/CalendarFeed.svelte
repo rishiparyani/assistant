@@ -2,7 +2,7 @@
   import type { CalendarFeedView } from "@assistant/shared";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
   import Copy from "@lucide/svelte/icons/copy";
-  import { Button, Card, Skeleton, confirm, toast } from "../ui/index.ts";
+  import { Button, Card, Spinner, confirm, toast } from "../ui/index.ts";
   import { calendarApi } from "../api.ts";
 
   // My private calendar feed: my gigs in Apple or Google Calendar, kept up to date.
@@ -72,7 +72,7 @@
   </div>
 
   {#if feed === null}
-    <Skeleton rows={1} label="Loading" />
+    <Spinner size={18} label="Loading…" />
   {:else if !feed.enabled}
     <Button
       variant="primary"

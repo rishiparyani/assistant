@@ -4,7 +4,11 @@ import type { HealthResponse } from "@assistant/shared";
 import type { ModuleDefinition } from "./module.ts";
 import type { AppEnv } from "./context.ts";
 import { AppError } from "./errors.ts";
-import { requireUser } from "./context.ts";
+import { requireUser, userCtxFor } from "./context.ts";
+import { getAuth } from "./auth/auth.ts";
+import { MCP_PATH, OAUTH_SCOPES } from "./auth/options.ts";
+import { issuer, mcpUrl, mcpUserId, resourceMetadataUrl } from "./mcp/auth.ts";
+import { handleMcp } from "./mcp/server.ts";
 import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
 import { adminRoutes } from "./admin/routes.ts";
@@ -91,6 +95,45 @@ export function createApp({ modules }: AppOptions) {
       "x-robots-tag": "noindex",
     });
   });
+
+  // MCP (T10): AI assistants connect with OAuth (consent in the app) and call the
+  // operations as tools. Stateless: POST only.
+  const mcpUnauthorized = (baseUrl: string, description: string) =>
+    new Response(JSON.stringify({ error: "invalid_token", error_description: description }), {
+      status: 401,
+      headers: {
+        "content-type": "application/json",
+        "www-authenticate": `Bearer error="invalid_token", error_description="${description}", resource_metadata="${resourceMetadataUrl(baseUrl)}"`,
+      },
+    });
+  app.post(MCP_PATH, async (c) => {
+    const token = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+    if (!token) return mcpUnauthorized(c.env.BASE_URL, "Missing bearer token");
+    const userId = await mcpUserId(c.env, c.get("userCreated"), token);
+    const user = userId
+      ? await c.env.DB.prepare(`select id, name, email, image from "user" where id = ?`)
+          .bind(userId)
+          .first<{ id: string; name: string; email: string; image: string | null }>()
+      : null;
+    if (!user) return mcpUnauthorized(c.env.BASE_URL, "Invalid or expired token");
+    return handleMcp(c.env, operations, userCtxFor(c.env, moduleSchemas, user, "mcp", null), c.req.raw);
+  });
+  app.on(
+    ["GET", "DELETE"],
+    MCP_PATH,
+    () => new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } }),
+  );
+  for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"]) {
+    app.get(path, async (c) =>
+      c.json({
+        resource: mcpUrl(c.env.BASE_URL),
+        authorization_servers: [await issuer(getAuth({ env: c.env, userCreated: c.get("userCreated") }))],
+        scopes_supported: OAUTH_SCOPES,
+        bearer_methods_supported: ["header"],
+        resource_name: "Assistant",
+      }),
+    );
+  }
 
   app.route("/", authRoutes);
   app.route("/", adminRoutes(modules));

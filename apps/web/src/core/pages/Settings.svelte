@@ -11,6 +11,7 @@
   import { adminApi } from "../api.ts";
   import CalendarFeed from "./CalendarFeed.svelte";
   import ApiTokens from "./ApiTokens.svelte";
+  import AiAssistants from "./AiAssistants.svelte";
 
   // Only admins see the admin panel link.
   let isAdmin = $state(false);
@@ -97,6 +98,8 @@
   <CalendarFeed />
 
   <ApiTokens />
+
+  <AiAssistants />
 
   <ListGroup
     title="Passkeys"

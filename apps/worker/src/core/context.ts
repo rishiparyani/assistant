@@ -100,7 +100,7 @@ export const requireCaller = createMiddleware<AppEnv>(async (c, next) => {
   await next();
 });
 
-function userCtxFor(
+export function userCtxFor(
   env: Env,
   schemas: Record<string, unknown>,
   user: { id: string; name: string; email: string; image?: string | null },
