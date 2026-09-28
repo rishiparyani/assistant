@@ -6,6 +6,7 @@ import type { ModuleDefinition } from "../module.ts";
 import { objectBindings, requireUser, type AppEnv } from "../context.ts";
 import { AppError } from "../errors.ts";
 import * as admin from "./service.ts";
+import { operationStats } from "../metrics.ts";
 
 const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   if (!(await admin.isAdmin(c.env, c.get("userCtx").user.email)))
@@ -39,5 +40,16 @@ export function adminRoutes(modules: readonly ModuleDefinition[]) {
     );
   });
   r.get("/api/admin/log", async (c) => c.json(await admin.adminLog(c.env)));
+  // Per-action counts, errors and speed over the last day (Analytics Engine). Needs the
+  // read-only ANALYTICS_TOKEN secret; says so instead of failing when it's missing.
+  r.get("/api/admin/operations", async (c) => {
+    try {
+      const operations = await operationStats(c.env);
+      return c.json({ available: operations !== null, operations: operations ?? [] });
+    } catch (err) {
+      console.error("admin: operation stats failed", err);
+      return c.json({ available: false, operations: [], error: "Couldn't read the numbers right now" });
+    }
+  });
   return r;
 }

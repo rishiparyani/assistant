@@ -52,6 +52,8 @@
       },
     ],
   },
+  // Per-action counts, errors and timings for the admin panel (ids and numbers only).
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "assistant_dev_metrics" }],
   "vars": {
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://assistant-dev.rishiparyani.workers.dev",
@@ -96,6 +98,7 @@
           },
         ],
       },
+      "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "assistant_metrics" }],
       "vars": {
         "ENVIRONMENT": "production",
         "BASE_URL": "https://assistant.rishiparyani.workers.dev",

@@ -9,6 +9,8 @@ import { requireUser, requireWorkspace, type AppEnv, type Ctx, type UserCtx } fr
 import { auditStatement } from "./audit.ts";
 import { AppError } from "./errors.ts";
 import { parse } from "./validation.ts";
+import { toAppError } from "./objects/errors.ts";
+import { recordOperation } from "./metrics.ts";
 
 export type OperationScope = "user" | "workspace";
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -240,7 +242,23 @@ export function registerOperations(app: Hono<AppEnv>, ops: readonly AnyOperation
           ]
         : [requireUser];
 
+    // Every call is counted with its status and duration (admin panel; design §10a).
     const handler: Handler<AppEnv> = async (c) => {
+      const started = Date.now();
+      let status = 500;
+      try {
+        const res = await run(c);
+        status = res.status;
+        return res;
+      } catch (err) {
+        status = err instanceof AppError ? err.status : (toAppError(err)?.status ?? 500);
+        throw err;
+      } finally {
+        recordOperation(c.env, op.id, status, Date.now() - started);
+      }
+    };
+
+    const run = async (c: Context<AppEnv>): Promise<Response> => {
       const raw = await readInput(c, op);
       const input = parse(op.input, raw);
       const base = op.scope === "workspace" ? c.get("ctx") : c.get("userCtx");

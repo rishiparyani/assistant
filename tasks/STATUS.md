@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **Monitoring, part 1**: every API action is counted with its status and duration in Workers Analytics Engine (`core/metrics.ts`, binding `METRICS`, datasets `assistant_dev_metrics` / `assistant_metrics`; ids and numbers only). Admin panel "Actions, last 24 hours" (`GET /api/admin/operations`) reads them once the optional `ANALYTICS_TOKEN` secret exists. Live updates (#18) and device cache (#17) are on prod.
+
 - **Smooth app, step 2: live updates**: `GET /api/live` WebSocket to the person object (hibernating; `setWebSocketAutoResponse` answers pings), which sends `gig_changed` after applying a summary; module hook `live` in `ModuleDefinition`, origin check in core. Web: `core/live.ts` connects while visible and signed in, reconnects with back-off, refreshes on-screen queries (bunched). Two-browser check: a co-manager's payment shows on the other's open gig page in ~1.9 s, Home too. Tests: 108 worker (2 new in `live.test.ts`).
 - **Smooth app, step 1** live on prod (#17).
 
@@ -47,7 +49,7 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. **R1 step 7, retire workspaces** (needs the owner's OK before dropping old prod data), then monitoring and alerts (design §10a). Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
+1. Waiting on the owner: (a) OK to retire workspaces and drop old test data (R1 step 7); (b) how to send alerts: GitHub failure emails (free) or a domain for Cloudflare Email Routing; (c) optional `ANALYTICS_TOKEN` secret for per-action numbers. Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).

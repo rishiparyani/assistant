@@ -15,7 +15,13 @@
     confirm,
     toast,
   } from "../ui/index.ts";
-  import { adminApi, type AdminList, type AdminLogEntry, type AdminOverview } from "../api.ts";
+  import {
+    adminApi,
+    type AdminList,
+    type AdminLogEntry,
+    type AdminOperations,
+    type AdminOverview,
+  } from "../api.ts";
   import { session } from "../session.svelte.ts";
   import NotFound from "./NotFound.svelte";
 
@@ -25,6 +31,7 @@
   let overview = $state<AdminOverview | null>(null);
   let admins = $state<AdminList | null>(null);
   let log = $state<AdminLogEntry[]>([]);
+  let ops = $state<AdminOperations | null>(null);
   let loading = $state(false);
   let newAdmin = $state("");
   let adding = $state(false);
@@ -41,6 +48,11 @@
       overview = o;
       admins = a;
       log = l;
+      // Slower (an analytics query); shown when it arrives.
+      adminApi.operations().then(
+        (r) => (ops = r),
+        () => (ops = { available: false, operations: [], error: "Couldn't load" }),
+      );
     } catch (e) {
       toast.error(e);
     } finally {
@@ -147,6 +159,38 @@
         </Card>
       {/each}
     </div>
+
+    <ListGroup
+      title="Actions, last 24 hours"
+      footer={ops?.available
+        ? "Errors: server errors (5xx). Speed: typical and slowest 5%."
+        : "Needs a read-only analytics token (a one-time setup step)."}
+    >
+      {#if !ops}
+        <ListRow title="Loading…" />
+      {:else if ops.error}
+        <ListRow title={ops.error} />
+      {:else if !ops.available}
+        <ListRow
+          title="Not set up yet"
+          subtitle="Add the ANALYTICS_TOKEN secret to see per-action numbers."
+        />
+      {:else}
+        {#each ops.operations as o (o.operation)}
+          <ListRow
+            title={o.operation.replace(/^[a-z]+\./, "").replaceAll("_", " ")}
+            subtitle="{o.calls} calls · {o.p50_ms} ms typical · {o.p95_ms} ms slowest 5%"
+          >
+            {#snippet trailing()}
+              {#if o.server_errors > 0}<Pill tone="red">{o.server_errors} errors</Pill>
+              {:else}<Pill tone="green">OK</Pill>{/if}
+            {/snippet}
+          </ListRow>
+        {:else}
+          <ListRow title="No calls yet" />
+        {/each}
+      {/if}
+    </ListGroup>
 
     <h2 class="heading">Tools</h2>
     <div class="grid">

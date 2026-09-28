@@ -87,7 +87,22 @@ export const adminApi = {
   runTool: (id: string, input: Record<string, string>) =>
     request<{ result: string }>("POST", `/api/admin/tools/${id}`, input),
   log: () => request<AdminLogEntry[]>("GET", "/api/admin/log"),
+  operations: () => request<AdminOperations>("GET", "/api/admin/operations"),
 };
+
+export interface AdminOperations {
+  /** False until the read-only analytics token is set up. */
+  available: boolean;
+  operations: {
+    operation: string;
+    calls: number;
+    server_errors: number;
+    client_errors: number;
+    p50_ms: number;
+    p95_ms: number;
+  }[];
+  error?: string;
+}
 
 export const api = {
   health: async (): Promise<HealthResponse> => {

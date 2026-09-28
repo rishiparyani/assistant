@@ -47,6 +47,14 @@ describe("admin panel", () => {
     expect(JSON.stringify(o)).not.toContain("@example.com"); // nothing identifying anyone
   });
 
+  it("says per-action numbers need the analytics token, and hides them from others", async () => {
+    const someone = await signUp();
+    expect((await call("/api/admin/operations", { cookie: someone.cookie })).status).toBe(404);
+    const res = await call("/api/admin/operations", { cookie: await owner() });
+    expect(res.status).toBe(200);
+    expect(await json(res)).toEqual({ available: false, operations: [] });
+  });
+
   it("lets admins add and remove admins, but never the owners", async () => {
     const boss = await owner();
     const helper = await signUp("Test Helper");

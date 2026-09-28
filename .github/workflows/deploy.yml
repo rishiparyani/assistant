@@ -105,6 +105,9 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           # Admin panel owners (docs/design/gig-centric.md §10b); optional.
           ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
+          # Admin panel per-action numbers (read-only analytics token); optional.
+          ANALYTICS_TOKEN: ${{ secrets.ANALYTICS_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
@@ -112,6 +115,10 @@ jobs:
           printf '%s' "$GOOGLE_CLIENT_SECRET" | pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --name "$WORKER_NAME" > /dev/null
           if [ -n "$ADMIN_EMAILS" ]; then
             printf '%s' "$ADMIN_EMAILS" | pnpm exec wrangler secret put ADMIN_EMAILS --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$ANALYTICS_TOKEN" ]; then
+            printf '%s' "$ANALYTICS_TOKEN" | pnpm exec wrangler secret put ANALYTICS_TOKEN --name "$WORKER_NAME" > /dev/null
+            printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --name "$WORKER_NAME" > /dev/null
           fi
           # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
           if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then
