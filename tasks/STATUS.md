@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **R1 step 7, workspaces retired** (owner's OK 2026-09-28): old workspace/collective code, old gigs module operations and screens removed; D1 migration `0004_retire_workspaces` drops the 16 old tables (children first); Better Auth organization plugin off; operation registry is user-only with idempotency and audit inside objects. AGENTS.md rules rewritten for the gig-centric model; docs updated (`data-model.md` rewritten). Load test dropped from the plan. Tests: 72 shared, 49 worker; browser walkthroughs (gig flow, cache, live updates) pass.
+
 - **Owner feedback round 1**: gig page tabs (Details / Money / People) with each money list inside its card; cancel with keep or refund of an advance (gig object v5: `payments.kind`); add people from the lineup sheet (the "could only add myself" report: only people on the gig were listed). Monitoring part 1 live on prod (#19; the owner switched on Analytics Engine).
 
 - **Monitoring, part 1**: every API action is counted with its status and duration in Workers Analytics Engine (`core/metrics.ts`, binding `METRICS`, datasets `assistant_dev_metrics` / `assistant_metrics`; ids and numbers only). Admin panel "Actions, last 24 hours" (`GET /api/admin/operations`) reads them once the optional `ANALYTICS_TOKEN` secret exists. Live updates (#18) and device cache (#17) are on prod.
@@ -51,7 +53,7 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Waiting on the owner: (a) OK to retire workspaces and drop old test data (R1 step 7); (b) how to send alerts: GitHub failure emails (free) or a domain for Cloudflare Email Routing; (c) optional `ANALYTICS_TOKEN` secret for per-action numbers. Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
+1. Alerts: owner to choose Telegram (proposed: Worker cron checks every 15 min → Telegram bot; no email) — then build. Optional `ANALYTICS_TOKEN` secret (owner). Then backups (T12), address book, calendar feed (T08), Siri (T09), MCP (T10), notifications (T11). Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).

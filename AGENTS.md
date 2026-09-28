@@ -6,7 +6,7 @@ Instructions for every coding agent (Claude Code, Codex, others) working in this
 
 **Assistant**: a personal/band assistant for a guitarist in Pune, India who plays in several bands. One backend, many clients: web app/PWA, Siri Shortcuts, and AI assistants over MCP (Claude, ChatGPT, others).
 
-Shared workspaces are called **collectives** in everything a person reads; code and data keep `kind = "band"` (see docs/decisions.md, 2026-09-27).
+A **collective** is a tag on gigs (e.g. a band's name), not a shared space; there are no workspaces (see docs/decisions.md, 2026-09-28).
 
 It is built as a **small core plus feature modules**. The first module is **Gigs** (gig management, Phase 1). Later modules (music library/setlists, stage mode, and possibly unrelated personal tasks) plug into the same core without changing it. See [docs/modules.md](docs/modules.md).
 
@@ -44,23 +44,24 @@ Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = w
 
 ## Architecture rules (non-negotiable)
 
-**Transition in progress (R1, decided 2026-09-28):** the app is moving from workspaces to a gig-centric, scale-ready design ([docs/design/gig-centric.md](docs/design/gig-centric.md)). New code follows the design's section 13 (partition by entity in Durable Objects, authorization per gig, idempotency and audit inside the object that writes, never write per action to one shared place, outbox → queue for summaries). Rules 1–3 below describe the old workspace code, which stays until step 7 of the design's work plan retires it.
+Gig-centric and scale-ready ([docs/design/gig-centric.md](docs/design/gig-centric.md); workspaces were retired in R1 step 7, 2026-09-28).
 
-1. **Shared database, `workspace_id` on every tenant row.** Personal workspace per user + one per band. Memberships with roles (owner, member).
-2. **All data access goes through one scoped layer**: services take a context `{db, user, workspace, source}`.
-3. **Authorization in one middleware**: user → membership → role (→ module enabled for workspace → token scope). Tested: a user can't read another workspace's data.
+1. **Partition by entity.** A Durable Object per gig (booking), per person, per month index; D1 holds identity, the tag registry and admin tables only. **Never write per action to one shared place.**
+2. **Services run against the object that owns the data**; route handlers get `{user, source, objects}` and pass the caller to the object.
+3. **Authorization per gig:** user (session/token) → the gig's object checks that person's role on that gig (→ token scope). People not on a gig get 404. Tested.
 4. **ULIDs for all IDs.** Never auto-increment.
 5. **Money as integer paise.** API returns `amount_paise` plus a display string ("₹10,000").
 6. **Payments are transactions**, never a paid flag. Corrections are reversing entries. Balance and payment status are derived, never stored.
 7. **Business logic lives in services.** Routes and MCP tools are thin adapters generated from one **operation** definition per action.
-8. **Idempotency key on every write** (`Idempotency-Key` header), response stored 24 h.
+8. **Idempotency key on every write** (`Idempotency-Key` header), stored 24 h inside the object that performs the write.
 9. **Two-step writes for money, cancellations and deletes from MCP**: preview returns a confirm token (~10 min), commit applies it.
 10. **No silent fuzzy matching on writes.** Ambiguous names return candidates.
-11. **Audit log for every write**: actor, source (web/siri/mcp/system), module, action, entity, before/after.
-12. **Indexes on every filtered column.** No full-table scans (D1 bills rows scanned).
+11. **Audit log for every write**, inside the object: actor, source (web/siri/mcp/system), action, entity, before/after.
+12. **Indexes on every filtered column**, in D1 and inside each object. No full-table scans.
 13. **Soft delete** (`deleted_at`) for user-facing entities.
 14. **Never edit an applied migration**; add a new one.
-15. **Modules depend on core, never on each other's internals.** Cross-module access goes through the other module's exported service functions. Core never imports a module.
+15. **Modules depend on core, never on each other's internals.** Modules own their object classes. Cross-module access goes through the other module's exported service functions. Core never imports a module.
+16. **Changes reach other objects through the outbox → queue**, never by writing to them directly in the request; receivers apply by sequence number (repeats and reordering are harmless).
 
 ## Layout
 

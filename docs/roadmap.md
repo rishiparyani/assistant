@@ -1,5 +1,7 @@
 # Roadmap
 
+> **Superseded in part (2026-09-28):** workspaces were replaced by the gig-centric design (docs/design/gig-centric.md); read "workspace" below as history.
+
 ## Phase 1 (now): core + Gigs
 
 See [phase-1.md](phase-1.md). Gigs, clients, venues, fees, payments, expenses, balances, schedule, reports, workspaces, Siri Shortcuts, MCP server, web app, .ics feed.

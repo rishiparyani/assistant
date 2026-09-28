@@ -187,7 +187,7 @@ This is the **transactional outbox**. Home and reports catch up within seconds; 
 | Queue budget       | free plan: 10,000 operations/day | one message per gig change (not per recipient); notes wait in the outbox if the limit is hit; alert at 70% and 90%                           |
 | One booking object | heavy traffic on one gig         | a normal gig is nowhere near the limit (hundreds of requests a second per object); a public page would be cached, not served from the object |
 
-We watch object latency and storage per object; the load test is deferred (owner's call).
+We watch object latency and storage per object; no load test (owner's call, 2026-09-28).
 
 ## 9. Correctness under concurrency
 
@@ -256,7 +256,7 @@ Metrics are recorded as counters (Workers Analytics Engine; free allowance to be
 6. **Screens** reworked throughout (Home, Gigs, gig page with events, address book, reports, settings), checked at 390 / 820 / 1280 px, light and dark.
 7. **Retire workspaces** (code, tables, collective page) and drop old data on prod (with the owner's OK).
 8. **Monitoring and alerts** (section 10a) grow with each step; the **admin panel** (section 10b) is built right after step 2.
-9. Later: collaboration (section 11), load test when the owner decides.
+9. Later: collaboration (section 11). (No load test: owner's call.)
 
 ## 13. Architecture rules that change
 

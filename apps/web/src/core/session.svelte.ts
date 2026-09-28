@@ -1,4 +1,4 @@
-// The signed-in user and their workspaces, loaded once and refreshed after changes.
+// The signed-in user, loaded once and refreshed after changes.
 // The last known user is kept on the device so the app opens instantly; the server
 // check runs in the background and signs out if the session has ended.
 import type { MeResponse } from "@assistant/shared";

@@ -29,6 +29,13 @@
       "when": 1790618210431,
       "tag": "0003_gig_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790625263000,
+      "tag": "0004_retire_workspaces",
+      "breakpoints": true
     }
   ]
 }

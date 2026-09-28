@@ -1,5 +1,7 @@
 # Phase 1: core + Gigs module
 
+> **Superseded in part (2026-09-28):** workspaces were replaced by the gig-centric design (docs/design/gig-centric.md); read "workspace" below as history.
+
 ## Scope
 
 Core: auth, workspaces (personal + bands), memberships, authorization middleware, operation registry, idempotency, confirm tokens, audit log, API tokens, module enablement, basic notifications, backups.

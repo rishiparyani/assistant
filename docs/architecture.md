@@ -16,7 +16,7 @@ Clients (web app, Siri Shortcuts, Claude/ChatGPT/Le Chat via MCP) hold no busine
 ```
  web app ─┐
  Siri ────┼─► Worker ─► auth middleware ─► operation ─► service ─► D1
- MCP ─────┘              (user, workspace,   (Zod in/out)  (ctx-scoped)
+ MCP ─────┘              (user, objects,    (Zod in/out)  (ctx-scoped)
                           role, module, scope)                └─► audit_log
 ```
 
@@ -35,11 +35,11 @@ The Worker is split into **core** and **modules**. Full contract: [modules.md](m
 
 **Core** (`apps/worker/src/core/`) knows nothing about gigs:
 
-- Auth (Better Auth), users, workspaces, memberships, roles
-- Authorization middleware and the service context `{db, user, workspace, source}`
+- Auth (Better Auth), users; roles live on each gig (manager/player), checked inside the gig's object
+- Sign-in middleware and the service context `{db, user, objects, source}`
 - Operation registry → REST routes + MCP tools
 - Idempotency keys, confirm tokens (two-step writes), audit log
-- API tokens with scopes, module enablement per workspace
+- API tokens with scopes (T09)
 - Notifications (web push, email), calendar feed plumbing, backups
 - Shared helpers: ULIDs, money (paise), dates (UTC stored, Asia/Kolkata displayed), pagination, errors
 
@@ -51,18 +51,18 @@ The Worker is split into **core** and **modules**. Full contract: [modules.md](m
 
 ## Stack and why
 
-| Piece      | Choice                                                                           | Notes                                                                                                                      |
-| ---------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Compute    | Cloudflare Workers                                                               | Free plan; 10 ms CPU limit per request shapes some choices (no password hashing).                                          |
-| Data       | Cloudflare D1 (SQLite)                                                           | Billed per rows read/written, no idle compute. Includes auth tables.                                                       |
-| Auth       | Better Auth in the Worker                                                        | Google, passkeys, email magic links. OAuth provider for MCP connectors. Organization plugin as workspaces (verify in T00). |
-| ORM        | Drizzle                                                                          | Schema + versioned migrations for D1.                                                                                      |
-| Routing    | Hono                                                                             |                                                                                                                            |
-| Validation | Zod                                                                              | Schemas in `packages/shared`, used by Worker and web app.                                                                  |
-| Web        | Vite + Svelte SPA                                                                | Becomes the offline PWA in Phase 2.                                                                                        |
-| Files      | R2 (backups, small app files), Google Drive (large media, links only in Phase 1) |                                                                                                                            |
-| Email      | A free-tier email service                                                        | Magic links, summaries.                                                                                                    |
-| Tooling    | TypeScript, pnpm workspaces, Vitest (Workers pool), GitHub Actions               |                                                                                                                            |
+| Piece      | Choice                                                                           | Notes                                                                                                                     |
+| ---------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Compute    | Cloudflare Workers                                                               | Free plan; 10 ms CPU limit per request shapes some choices (no password hashing).                                         |
+| Data       | Cloudflare D1 (SQLite)                                                           | Billed per rows read/written, no idle compute. Includes auth tables.                                                      |
+| Auth       | Better Auth in the Worker                                                        | Google, passkeys, email magic links. OAuth provider for MCP connectors. No organizations (workspaces retired 2026-09-28). |
+| ORM        | Drizzle                                                                          | Schema + versioned migrations for D1.                                                                                     |
+| Routing    | Hono                                                                             |                                                                                                                           |
+| Validation | Zod                                                                              | Schemas in `packages/shared`, used by Worker and web app.                                                                 |
+| Web        | Vite + Svelte SPA                                                                | Becomes the offline PWA in Phase 2.                                                                                       |
+| Files      | R2 (backups, small app files), Google Drive (large media, links only in Phase 1) |                                                                                                                           |
+| Email      | A free-tier email service                                                        | Magic links, summaries.                                                                                                   |
+| Tooling    | TypeScript, pnpm workspaces, Vitest (Workers pool), GitHub Actions               |                                                                                                                           |
 
 Target recurring cost: the domain only. Decision history: [decisions.md](decisions.md).
 
@@ -72,6 +72,6 @@ Separate dev and prod D1 databases (and R2 buckets). Local dev uses `wrangler de
 
 ## Designing for later moves
 
-- `workspace_id` on every tenant row + ULIDs + a single scoped data layer means moving a band to its own database later is a data migration, not a rewrite.
+- Each gig, person and month index is its own small database (Durable Object), so growth spreads across many objects instead of one shared database (docs/design/gig-centric.md).
 - Operations are defined once, so a new client (e.g. a Telegram bot, WhatsApp) is another adapter, not new logic.
 - Modules are independent, so a module can be disabled, rewritten or removed without touching others.

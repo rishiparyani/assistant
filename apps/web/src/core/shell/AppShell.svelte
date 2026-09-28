@@ -3,7 +3,7 @@
   import { Avatar } from "../ui/index.ts";
   import { router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
-  import { MAIN_NAV } from "../workspace.svelte.ts";
+  import { MAIN_NAV } from "./nav.ts";
   import NavIcon from "./NavIcon.svelte";
   import PullToRefresh from "./PullToRefresh.svelte";
 

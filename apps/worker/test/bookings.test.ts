@@ -1,7 +1,6 @@
 // R1 step 2: gig-centric gigs over HTTP (docs/design/gig-centric.md). Each gig is its own
 // Durable Object; access comes from the gig's people and roles. Fake data only.
 import { describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
 import type { BookingView, MyEventView, Page } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
@@ -83,11 +82,6 @@ describe("creating gigs", () => {
     expect((await json<BookingView>(again)).id).toBe(first.id);
     const other = await createGig(owner, { title: "Something else" }, "create-1");
     expect(other.status).toBe(409);
-    // Nothing is written to the shared idempotency table for these operations.
-    const row = await env.DB.prepare(`select count(*) as n from idempotency_keys where key = ?`)
-      .bind("create-1")
-      .first<{ n: number }>();
-    expect(row?.n).toBe(0);
   });
 
   it("validates input and needs sign-in", async () => {

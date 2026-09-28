@@ -1,5 +1,5 @@
 // Drizzle over the D1 binding. Services get this through their context, never
-// straight from env, so every query stays workspace-scoped.
+// straight from env.
 import { drizzle, type DrizzleD1Database } from "drizzle-orm/d1";
 import * as coreSchema from "./schema.ts";
 

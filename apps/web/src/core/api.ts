@@ -1,15 +1,7 @@
 // The web app's only way to reach the backend. No business logic here.
 import { untrack } from "svelte";
 import { activity } from "./activity.svelte.ts";
-import {
-  isHealthResponse,
-  type ApiErrorBody,
-  type HealthResponse,
-  type InvitationView,
-  type MeResponse,
-  type WorkspaceDetail,
-  type WorkspaceSummary,
-} from "@assistant/shared";
+import { isHealthResponse, type ApiErrorBody, type HealthResponse, type MeResponse } from "@assistant/shared";
 
 export class ApiError extends Error {
   constructor(
@@ -111,16 +103,6 @@ export const api = {
     return body;
   },
   me: () => request<MeResponse>("GET", "/api/me"),
-  createWorkspace: (name: string) => request<WorkspaceSummary>("POST", "/api/workspaces", { name }),
-  workspace: (id: string) => request<WorkspaceDetail>("GET", `/api/w/${id}`),
-  invite: (workspaceId: string, email: string) =>
-    request<InvitationView>("POST", `/api/w/${workspaceId}/invitations`, { email }),
-  cancelInvitation: (workspaceId: string, invitationId: string) =>
-    request<{ canceled: boolean }>("DELETE", `/api/w/${workspaceId}/invitations/${invitationId}`),
-  removeMember: (workspaceId: string, memberId: string) =>
-    request<{ removed: boolean }>("DELETE", `/api/w/${workspaceId}/members/${memberId}`),
-  invitation: (id: string) => request<InvitationView>("GET", `/api/invitations/${id}`),
-  acceptInvitation: (id: string) => request<WorkspaceSummary>("POST", `/api/invitations/${id}/accept`, {}),
 };
 
 /** A readable message for any thrown value. */
