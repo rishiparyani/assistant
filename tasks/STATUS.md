@@ -4,7 +4,13 @@ _Updated: 2026-09-26_
 
 ## Last done
 
-- **Collective settings** (PR next): per-collective Gigs settings on the Collective page (owners change, members see): who sees who's playing, who can set the lineup, who can record payouts (owners only / everyone). Enforced in services (`set_gig_lineup`, `record_payout`, `reverse_payout`, `create_musician`), `get_gig_money` returns `permissions`; the gig page follows them. Stored in `workspace_modules.settings_json`. Tests: 73 shared, 75 worker.
+- **R1 step 2, gigs API** (branch): `/api/gigs` create/get/update/status/delete/history, events and people with manager/player roles, version checks, `/api/me/gigs` from person summaries; idempotency and audit inside each gig; retried creates reach the same gig; registry option `idempotency: "object"` and `ctx.objects` (Durable Object namespaces only); old gig tools renamed `legacy_*`. Tests: 73 shared, 92 worker (8 new in `bookings.test.ts`).
+
+- **R1 step 1, foundation** (branch; no visible change): Durable Objects for gigs, people, month indexes and pending lists, with per-object migrations, idempotency and audit inside the gig, the outbox → `summaries` queue → consumer path (combining per gig, sequence numbers, dead letter queue), retries that never give up, flush and rebuild tools; deploy workflow creates the queues; tests: 73 shared, 84 worker (9 new in `objects.test.ts`). See `docs/architecture.md` → Gig-centric storage.
+
+- **Design approved: gig-centric, scale-ready** (`docs/design/gig-centric.md`, learning notes `docs/learn/scale.md`, decision 2026-09-28): gigs with events, per-gig roles, collective as a tag, Durable Objects per gig/person/month index, outbox → Cloudflare Queue, monitoring and email alerts. Build started (R1 step 1).
+
+- **Collective settings live on prod** ([rishiparyani/assistant#11](https://github.com/rishiparyani/assistant/pull/11)): per-collective Gigs settings on the Collective page (owners change, members see): who sees who's playing, who can set the lineup, who can record payouts (owners only / everyone). Enforced in services (`set_gig_lineup`, `record_payout`, `reverse_payout`, `create_musician`), `get_gig_money` returns `permissions`; the gig page follows them. Stored in `workspace_modules.settings_json`. Tests: 73 shared, 75 worker.
 - **Me Home live on prod** ([rishiparyani/assistant#10](https://github.com/rishiparyani/assistant/pull/10)).
 
 - **T06 part 1, Me Home**: `gigs.get_my_home` (user-scoped read: upcoming gigs I play, earned/received this month, owed to me per collective and from clients in my personal space, what I owe musicians in collectives I own, collectives where I'm not on the roster); Home at `/` is this view, `/w/:id` opens that workspace's gigs. Members see the gig lineup (names, roles) without others' amounts. Core: module `hooks.memberJoined` (committed with the core write, audited under the module) and user-scoped module reads; gigs puts people on the roster when they join (links an unlinked entry with the same email, else creates one); one account can't be linked twice per collective (409). "Collective" is the product word (PR #9). Tests: 72 shared, 70 worker.
@@ -25,8 +31,10 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T06** rest: collective views (schedule, outstanding, monthly report, payouts owed) and `get_my_earnings`; see `tasks/backlog.md`.
+1. Ship steps 1–2 to prod (API only, nothing visible yet), then the **admin panel** (design §10b), then **step 3, money**.
+2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
+3. Paused: the rest of T06 (collective views), replaced by R1.
+4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
 
 ## Open decisions
 
@@ -55,6 +63,10 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.workers.dev (Claude connector `Assistant` points at it) until T10 replaces it.
 
 ## Gotchas
+
+- Durable Object alarms fire by themselves in tests right after `setAlarm(now)`; to observe a failed hand-over, break the queue binding (`runInDurableObject`, replace `env.SUMMARIES`) before the change, then use `runDurableObjectAlarm` to force a retry.
+- Month-index objects are shared by every gig with events that month; in tests, filter cards by gig id.
+- Interfaces don't satisfy `SqlStorage.exec<T>`'s record constraint; use `type` aliases for row shapes.
 
 - "Collective" is the product word for a shared workspace; code and data say `band`. Use "collective" in UI copy and operation descriptions.
 

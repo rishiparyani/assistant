@@ -41,6 +41,11 @@ interface OpExtras {
    * The only way an operation writes.
    */
   commit(statements: D1PreparedStatement[], changes: Change | Change[]): Promise<D1Result[]>;
+  /**
+   * The request's Idempotency-Key, for operations whose data lives in a Durable Object
+   * (`idempotency: "object"`): the object stores the key with its own write.
+   */
+  idempotencyKey: string | null;
 }
 
 export type OpUserCtx = UserCtx & OpExtras;
@@ -65,6 +70,13 @@ export interface OperationDef<
   http: { method: HttpMethod; path: string; status?: 200 | 201 };
   /** Two-step from MCP (money, cancellations, deletes); used in T10. */
   confirm?: boolean;
+  /**
+   * Where writes keep their idempotency records: "registry" (default) stores them in D1;
+   * "object" passes the key to the handler (ctx.idempotencyKey), which hands it to the
+   * Durable Object that owns the data, so nothing is written to a shared place per action.
+   * Such operations also audit inside the object instead of through ctx.commit.
+   */
+  idempotency?: "registry" | "object";
   input: S;
   handler: (ctx: Sc extends "workspace" ? OpCtx : OpUserCtx, input: z.output<S>) => Promise<O>;
 }
@@ -123,9 +135,13 @@ function makeCommit(base: UserCtx | Ctx, info: OperationInfo): OpExtras["commit"
 }
 
 /** Builds the context an operation handler receives. Also used by the MCP adapter (T10). */
-export function operationContext(op: AnyOperation, base: UserCtx | Ctx): OpUserCtx | OpCtx {
+export function operationContext(
+  op: AnyOperation,
+  base: UserCtx | Ctx,
+  idempotencyKey: string | null = null,
+): OpUserCtx | OpCtx {
   const info = operationInfo(op);
-  return { ...base, operation: info, commit: makeCommit(base, info) };
+  return { ...base, operation: info, commit: makeCommit(base, info), idempotencyKey };
 }
 
 // --- Idempotency (architecture rule 8) ---------------------------------------
@@ -239,6 +255,10 @@ export function registerOperations(app: Hono<AppEnv>, ops: readonly AnyOperation
           "validation_failed",
           "Writes need an Idempotency-Key header (a unique value per action)",
         );
+      }
+      if (op.idempotency === "object") {
+        const result = await op.handler(operationContext(op, base, key), input);
+        return c.json(result ?? null, status);
       }
       const workspaceId = op.scope === "workspace" ? (base as Ctx).workspace.id : "";
       const hash = await sha256(JSON.stringify([op.id, workspaceId, raw]));

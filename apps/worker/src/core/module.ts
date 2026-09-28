@@ -16,6 +16,13 @@ export interface ModuleHooks {
   memberJoined?: (ctx: UserCtx, args: { workspaceId: string }) => Promise<HookResult>;
 }
 
+/** A queue this module consumes. `name` is the queue's base name; dev uses `<name>-dev`. */
+export interface ModuleQueue {
+  name: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- each queue has its own body type
+  handle: (batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) => Promise<void>;
+}
+
 export interface ModuleDefinition {
   /** Stable id, used in operation ids and scopes (e.g. "gigs"). */
   id: string;
@@ -30,14 +37,18 @@ export interface ModuleDefinition {
    */
   operations?: readonly AnyOperation[];
   hooks?: ModuleHooks;
+  /** Queues this module consumes (e.g. gigs' summaries queue). */
+  queues?: readonly ModuleQueue[];
 }
 
 export function defineModule<const M extends ModuleDefinition>(module: M): M {
   for (const op of module.operations ?? []) {
     if (!op.id.startsWith(`${module.id}.`))
       throw new Error(`Operation ${op.id} must start with "${module.id}."`);
-    if (op.scope === "user" && op.kind !== "read")
-      throw new Error(`Module operation ${op.id}: user-scoped module operations must be reads`);
+    if (op.scope === "user" && op.kind !== "read" && op.idempotency !== "object")
+      throw new Error(
+        `Module operation ${op.id}: user-scoped module writes must keep their data (and idempotency) in an object`,
+      );
   }
   return module;
 }

@@ -138,7 +138,7 @@ export const gigsOperations = [
   // --- Gigs ---
   defineOperation({
     id: "gigs.create_gig",
-    tool: "create_gig",
+    tool: "legacy_create_gig",
     description:
       "Add a gig. Times are India time unless an offset is given. Client and venue can be given by id or exact name; ambiguous names return candidates.",
     scope: "workspace",
@@ -159,7 +159,7 @@ export const gigsOperations = [
   }),
   defineOperation({
     id: "gigs.get_gig",
-    tool: "get_gig",
+    tool: "legacy_get_gig",
     description: "One gig with its client, venue and fee.",
     scope: "workspace",
     kind: "read",
@@ -169,7 +169,7 @@ export const gigsOperations = [
   }),
   defineOperation({
     id: "gigs.update_gig",
-    tool: "update_gig",
+    tool: "legacy_update_gig",
     description:
       "Change a gig's details (not its status). Omitted fields stay the same; null clears a field.",
     scope: "workspace",
@@ -211,7 +211,7 @@ export const gigsOperations = [
   }),
   defineOperation({
     id: "gigs.delete_gig",
-    tool: "delete_gig",
+    tool: "legacy_delete_gig",
     description: "Delete a gig entered by mistake (only if no payments are recorded; otherwise cancel it).",
     scope: "workspace",
     kind: "write",

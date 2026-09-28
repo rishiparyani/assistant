@@ -27,6 +27,24 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 - API tokens: `create_api_token`, `list_api_tokens`, `revoke_api_token`
 - Calendar: private tokenised `.ics` feed URL per user (modules contribute events)
 
+## Gig-centric gigs (R1, step 2; docs/design/gig-centric.md)
+
+User-scoped routes under `/api` (access comes from each gig's own people and roles; people not on a gig get 404). Writes need an `Idempotency-Key`, which is stored **inside the gig's object**, not in D1; a retried create returns the same gig (the key maps to the gig id in the creator's person object).
+
+| Operation (tool)                                           | Route                                                                         | Who                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------- |
+| `create_gig`                                               | `POST /gigs`                                                                  | anyone signed in; becomes manager       |
+| `find_my_gigs`                                             | `GET /me/gigs?from=&to=&order=&limit=&cursor=`                                | me (from my summaries; may lag seconds) |
+| `get_gig`                                                  | `GET /gigs/:gig_id`                                                           | people on the gig                       |
+| `update_gig`                                               | `PATCH /gigs/:gig_id` (with `version`)                                        | managers                                |
+| `set_gig_status`                                           | `POST /gigs/:gig_id/status` (`confirm`/`complete`/`cancel`)                   | managers                                |
+| `delete_gig`                                               | `DELETE /gigs/:gig_id`                                                        | managers (soft delete)                  |
+| `get_gig_history`                                          | `GET /gigs/:gig_id/history`                                                   | managers                                |
+| `add_gig_event`, `update_gig_event`, `remove_gig_event`    | `POST /gigs/:gig_id/events`, `PATCH`/`DELETE /gigs/:gig_id/events/:event_id`  | managers (a gig keeps ≥ 1 event)        |
+| `add_gig_person`, `update_gig_person`, `remove_gig_person` | `POST /gigs/:gig_id/people`, `PATCH`/`DELETE /gigs/:gig_id/people/:person_id` | managers (a gig keeps ≥ 1 manager)      |
+
+People are added by `user_id`, by `email` (matched to an account case-insensitively; otherwise kept as a name) or by `name`. Edits to details and events send the gig's `version`; a changed gig returns `409` with `details.reason = "version_mismatch"` and `current_version`. Other conflict reasons: `invalid_transition`, `last_event`, `last_manager`, `already_on_gig`, `idempotency_key_reused`. The old workspace gig tools are renamed `legacy_*` until they're retired (design step 7).
+
 ## Gigs module operations (Phase 1)
 
 Implemented in T04 (all under `/api/w/:workspaceId`):

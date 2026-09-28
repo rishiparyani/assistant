@@ -44,6 +44,8 @@ Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = w
 
 ## Architecture rules (non-negotiable)
 
+**Transition in progress (R1, decided 2026-09-28):** the app is moving from workspaces to a gig-centric, scale-ready design ([docs/design/gig-centric.md](docs/design/gig-centric.md)). New code follows the design's section 13 (partition by entity in Durable Objects, authorization per gig, idempotency and audit inside the object that writes, never write per action to one shared place, outbox → queue for summaries). Rules 1–3 below describe the old workspace code, which stays until step 7 of the design's work plan retires it.
+
 1. **Shared database, `workspace_id` on every tenant row.** Personal workspace per user + one per band. Memberships with roles (owner, member).
 2. **All data access goes through one scoped layer**: services take a context `{db, user, workspace, source}`.
 3. **Authorization in one middleware**: user → membership → role (→ module enabled for workspace → token scope). Tested: a user can't read another workspace's data.
