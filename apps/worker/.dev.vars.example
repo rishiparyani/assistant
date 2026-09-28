@@ -8,3 +8,8 @@ GOOGLE_CLIENT_ID=placeholder.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=placeholder
 # Admin panel owners (comma-separated emails). In prod/dev this is a GitHub secret.
 ADMIN_EMAILS=admin@example.com
+
+# Optional: per-action numbers in the admin panel (Analytics Engine SQL API).
+# A Cloudflare API token with only "Account Analytics: Read", and the account id.
+ANALYTICS_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=
