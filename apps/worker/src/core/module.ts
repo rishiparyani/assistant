@@ -83,6 +83,12 @@ export interface ModuleDefinition {
   queues?: readonly ModuleQueue[];
   /** Sections and tools for the owner-only admin panel. */
   admin?: ModuleAdmin;
+  /** The module's own data in nightly backups (core/backup). */
+  backup?: {
+    export: (ctx: AdminCtx) => Promise<unknown>;
+    /** Restores into empty objects only; returns how many were restored. */
+    import: (ctx: AdminCtx, data: unknown) => Promise<number>;
+  };
   /**
    * Live updates: takes a signed-in user's WebSocket upgrade (from `/api/live`, already
    * authenticated and origin-checked by core) and returns the 101 response. One module.

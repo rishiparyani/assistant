@@ -9,6 +9,18 @@ import * as admin from "./service.ts";
 import { operationStats } from "../metrics.ts";
 import { alertsEnabled, collectChecks, setAlertsEnabled } from "../alerts/service.ts";
 import { sendTelegram, telegramChat } from "../alerts/telegram.ts";
+import { getSetting, setSetting } from "../settings.ts";
+import { authUrl, exchangeCode } from "../backup/drive.ts";
+import {
+  backupStatus,
+  disconnectDrive,
+  driveConnected,
+  gunzip,
+  restoreBackup,
+  runBackup,
+  saveDriveToken,
+  type BackupFile,
+} from "../backup/service.ts";
 
 const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
   if (!(await admin.isAdmin(c.env, c.get("userCtx").user.email)))
@@ -42,6 +54,83 @@ export function adminRoutes(modules: readonly ModuleDefinition[]) {
     );
   });
   r.get("/api/admin/log", async (c) => c.json(await admin.adminLog(c.env)));
+  // Backups to Google Drive (decision 2026-09-28).
+  r.get("/api/admin/backup", async (c) =>
+    c.json({
+      google_configured: !!(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET),
+      connected: await driveConnected(c.env),
+      last: await backupStatus(c.env),
+    }),
+  );
+  // Starts the Google consent for Drive (files this app creates only).
+  r.get("/api/admin/drive/connect", async (c) => {
+    if (!c.env.GOOGLE_CLIENT_ID) throw new AppError("validation_failed", "Google sign-in isn't set up");
+    const state = crypto.randomUUID();
+    const expires = Date.now() + 10 * 60_000;
+    await setSetting(c.env.DB, "drive_oauth_state", `${state}|${c.get("userCtx").user.id}|${expires}`);
+    return c.redirect(authUrl(c.env.GOOGLE_CLIENT_ID, `${c.env.BASE_URL}/api/admin/drive/callback`, state));
+  });
+  r.get("/api/admin/drive/callback", async (c) => {
+    const saved = (await getSetting(c.env.DB, "drive_oauth_state"))?.split("|");
+    await setSetting(c.env.DB, "drive_oauth_state", null); // one use only
+    const ok =
+      saved &&
+      saved[0] === c.req.query("state") &&
+      saved[1] === c.get("userCtx").user.id &&
+      Date.now() < Number(saved[2]);
+    const code = c.req.query("code");
+    if (!ok || !code) return c.redirect("/admin?drive=error");
+    try {
+      const refresh = await exchangeCode(
+        {
+          clientId: c.env.GOOGLE_CLIENT_ID,
+          clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+          redirectUri: `${c.env.BASE_URL}/api/admin/drive/callback`,
+        },
+        code,
+      );
+      await saveDriveToken(c.env, refresh);
+      await admin.logAdmin(c.env.DB, c.get("userCtx").user.id, "drive_connected", {});
+      return c.redirect("/admin?drive=connected");
+    } catch (err) {
+      console.error("backup: couldn't connect Google Drive", err);
+      return c.redirect("/admin?drive=error");
+    }
+  });
+  r.post("/api/admin/drive/disconnect", async (c) => {
+    await disconnectDrive(c.env);
+    await admin.logAdmin(c.env.DB, c.get("userCtx").user.id, "drive_disconnected", {});
+    return c.json({ connected: false });
+  });
+  r.post("/api/admin/backup/run", async (c) => {
+    const status = await runBackup(c.env, modules);
+    if (!status) throw new AppError("validation_failed", "Connect Google Drive first");
+    await admin.logAdmin(c.env.DB, c.get("userCtx").user.id, "backup_run", { ok: status.ok });
+    return c.json(status);
+  });
+  // Restore (owners only): puts back what's missing, never overwrites. Body: the backup
+  // file (gzip or plain JSON), with ?confirm=RESTORE.
+  r.post("/api/admin/restore", async (c) => {
+    if (!admin.ownerEmails(c.env).includes(c.get("userCtx").user.email.toLowerCase()))
+      throw new AppError("forbidden", "Only owners can restore");
+    if (c.req.query("confirm") !== "RESTORE")
+      throw new AppError("validation_failed", "Add ?confirm=RESTORE to restore");
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    const text =
+      bytes[0] === 0x1f && bytes[1] === 0x8b ? await gunzip(bytes) : new TextDecoder().decode(bytes);
+    let file: BackupFile;
+    try {
+      file = JSON.parse(text) as BackupFile;
+    } catch {
+      throw new AppError("validation_failed", "Not a backup file");
+    }
+    const result = await restoreBackup(c.env, modules, file).catch((err: Error) => {
+      throw new AppError("validation_failed", err.message);
+    });
+    await admin.logAdmin(c.env.DB, c.get("userCtx").user.id, "restore", result);
+    return c.json(result);
+  });
+
   // Alerts (design §10a): Telegram status, on/off, the checks right now, a test message.
   r.get("/api/admin/alerts", async (c) => {
     const [checks, enabled, chat, state] = await Promise.all([

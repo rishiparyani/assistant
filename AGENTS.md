@@ -27,7 +27,7 @@ This repository is **public**. Full rules: [docs/security.md](docs/security.md#p
 
 - **Never commit or post secrets** (tokens, keys, `.dev.vars`, feed URLs) anywhere: code, docs, commits, issues, PRs, Actions logs. A leaked secret must be rotated; deleting it from git is not enough.
 - **Never commit real personal data.** Tests, seeds, fixtures, examples and screenshots use obviously fake data. No DB exports or backups in the repo.
-- **Workflows:** secrets only on `push`/`schedule`/`workflow_dispatch`; never `pull_request_target`; minimal `permissions:`; actions pinned to commit SHAs; never print secrets or data rows; backups go to private R2, never to Actions artifacts or logs.
+- **Workflows:** secrets only on `push`/`schedule`/`workflow_dispatch`; never `pull_request_target`; minimal `permissions:`; actions pinned to commit SHAs; never print secrets or data rows; backups go to the owner's private Google Drive (made by the Worker itself), never to the repo, Actions artifacts or logs.
 - Before every commit, check the diff for anything secret or personal.
 
 ## Deploys and accounts
@@ -40,7 +40,7 @@ Agents never deploy from their session and never hold the Cloudflare token. GitH
 
 ## Stack
 
-Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = web app) · Cloudflare D1 · Drizzle ORM + migrations · Hono · Zod · Better Auth (Google, passkeys, magic links; OAuth provider for MCP) · Vite + Svelte SPA · Cloudflare R2 (backups, small files) · Google Drive (large media, later) · TypeScript, pnpm workspaces, Vitest (Workers pool) · GitHub Actions. Details: [docs/architecture.md](docs/architecture.md).
+Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = web app) · Cloudflare D1 · Drizzle ORM + migrations · Hono · Zod · Better Auth (Google, passkeys, magic links; OAuth provider for MCP) · Vite + Svelte SPA · Google Drive (nightly backups, `drive.file` scope; large media later) · TypeScript, pnpm workspaces, Vitest (Workers pool) · GitHub Actions. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Architecture rules (non-negotiable)
 

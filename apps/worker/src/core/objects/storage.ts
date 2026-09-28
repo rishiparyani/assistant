@@ -198,3 +198,43 @@ export async function hashOf(value: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+// --- Backups (docs/decisions.md 2026-09-28, "Backups to Google Drive") ----------------
+
+export type TableDump = Record<string, Record<string, SqlStorageValue>[]>;
+export interface ObjectDump {
+  /** The object's schema version (`_schema`); imports need the same version. */
+  version: number;
+  tables: TableDump;
+}
+
+/** Every row of the given tables, with the object's schema version. */
+export function exportTables(sql: SqlStorage, tables: readonly string[]): ObjectDump {
+  const version = Number(sql.exec(`select version from _schema`).one().version);
+  const out: TableDump = {};
+  for (const t of tables) out[t] = sql.exec(`select * from ${t}`).toArray();
+  return { version, tables: out };
+}
+
+/**
+ * Puts a dump back into an empty object (same schema version). Rows are inserted as-is,
+ * inside one transaction; nothing is overwritten.
+ */
+export function importTables(storage: DurableObjectStorage, dump: ObjectDump, tables: readonly string[]) {
+  const sql = storage.sql;
+  const version = Number(sql.exec(`select version from _schema`).one().version);
+  if (dump.version !== version)
+    throw new Error(`Backup is from schema version ${dump.version}; this object is at ${version}`);
+  storage.transactionSync(() => {
+    for (const t of tables) {
+      for (const row of dump.tables[t] ?? []) {
+        const cols = Object.keys(row);
+        if (!cols.length) continue;
+        sql.exec(
+          `insert or ignore into ${t} (${cols.join(", ")}) values (${cols.map(() => "?").join(", ")})`,
+          ...cols.map((c) => row[c] ?? null),
+        );
+      }
+    }
+  });
+}
