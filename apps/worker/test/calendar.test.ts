@@ -85,7 +85,8 @@ describe("calendar feed", () => {
     expect(ics).toContain("Client: Test Client\\, Pune");
     expect(ics).toContain(`UID:${gig.events[0]!.id}@assistant`);
     expect(ics).toContain("STATUS:CONFIRMED");
-    expect(ics).not.toContain("50"); // no money in the feed
+    // No money in the feed (fee was ₹50,000).
+    for (const money of ["₹", "50,000", "50000", "5000000"]) expect(ics).not.toContain(money);
     const r = await call(pathOf(on.url!));
     expect(r.headers.get("content-type")).toContain("text/calendar");
 
