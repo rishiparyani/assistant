@@ -28,6 +28,23 @@ export const GigSettingsInput = z
   .describe("Change only the settings you give");
 
 const title = z.string().trim().min(1).max(160);
+
+export const TagName = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .transform((v) => v.replace(/\s+/g, " "));
+const tagFields = {
+  collective: TagName.nullish().describe(
+    'The collective (band) this gig is for, e.g. "Monsoon Project"; null clears it',
+  ),
+  tags: z
+    .array(TagName)
+    .max(10)
+    .optional()
+    .describe('Custom tags, e.g. ["Wedding", "Out of town"]; replaces the current ones'),
+};
 const name = z.string().trim().min(1).max(120);
 
 /** Client details kept on the gig itself (a snapshot; editing an address book never changes gigs). */
@@ -64,6 +81,7 @@ export const CreateBookingInput = z.object({
   notes: optionalText(4000),
   ...moneyFields("fee"),
   settings: GigSettingsInput.optional(),
+  ...tagFields,
   events: z.array(EventInput).min(1).max(20).describe("At least one event"),
   people: z.array(PersonInput).max(100).default([]).describe("You are added as a manager"),
 });
@@ -83,6 +101,7 @@ export const UpdateBookingInput = BookingRef.extend({
   notes: optionalText(4000),
   ...moneyFields("fee"),
   settings: GigSettingsInput.optional(),
+  ...tagFields,
 });
 
 export const BookingStatusInput = BookingRef.extend({
@@ -121,6 +140,8 @@ export const PersonRef = BookingRef.extend({ person_id: id("Person") });
 export const FindMyGigsInput = PageInput.extend({
   from: dateTime.optional().describe("Earliest event start (inclusive)"),
   to: dateTime.optional().describe("Latest event start (exclusive)"),
+  q: z.string().trim().min(1).max(100).optional().describe("Search gig title, event, client and venue"),
+  status: z.enum(["enquiry", "confirmed", "completed", "cancelled"]).optional(),
   order: z.enum(["asc", "desc"]).default("asc"),
 });
 
@@ -155,6 +176,8 @@ export interface BookingView {
   cancel_reason: string | null;
   client: { name: string; phone: string | null; organisation: string | null } | null;
   notes: string | null;
+  collective: TagView | null;
+  tags: TagView[];
   version: number;
   events: BookingEventView[];
   people: BookingPersonView[];
@@ -183,4 +206,10 @@ export interface MyEventView {
   /** My part and share on this event (share 0 if I'm not on its lineup). */
   part: string | null;
   share: { amount_paise: number; amount_display: string };
+  collective_name: string | null;
+}
+
+export interface TagView {
+  id: string;
+  name: string;
 }

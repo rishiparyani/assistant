@@ -14,7 +14,7 @@ const PAYMENT: Record<PaymentStatus, { label: string; tone: Tone }> = {
   overpaid: { label: "Overpaid", tone: "violet" },
 };
 
-export const statusLabel = (s: GigStatus) => GIG[s].label;
-export const statusTone = (s: GigStatus) => GIG[s].tone;
+export const statusLabel = (s: GigStatus | string) => GIG[s as GigStatus]?.label ?? s;
+export const statusTone = (s: GigStatus | string): Tone => GIG[s as GigStatus]?.tone ?? "grey";
 export const paymentLabel = (s: PaymentStatus) => PAYMENT[s].label;
 export const paymentTone = (s: PaymentStatus) => PAYMENT[s].tone;

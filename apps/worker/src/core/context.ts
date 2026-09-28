@@ -7,6 +7,7 @@ import { createDb, type Db } from "./db/client.ts";
 import { member, organization, workspaceModules, type Source } from "./db/schema.ts";
 import { getAuth } from "./auth/auth.ts";
 import { AppError } from "./errors.ts";
+import type { UserCreatedHook } from "./module.ts";
 
 export interface CtxUser {
   id: string;
@@ -60,13 +61,14 @@ export type AppEnv = {
     userCtx: UserCtx;
     ctx: Ctx;
     moduleIds: readonly string[];
+    userCreated: readonly UserCreatedHook[];
     moduleSchemas: Record<string, unknown>;
   };
 };
 
 /** Requires a signed-in user (session cookie; API tokens and OAuth arrive in T09/T10). */
 export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
-  const auth = getAuth({ env: c.env, moduleIds: c.get("moduleIds") });
+  const auth = getAuth({ env: c.env, moduleIds: c.get("moduleIds"), userCreated: c.get("userCreated") });
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) throw new AppError("unauthenticated", "Sign in required");
   const { user } = session;

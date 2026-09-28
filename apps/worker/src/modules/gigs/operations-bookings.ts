@@ -12,6 +12,10 @@ import {
   GigExpenseRef,
   GigPaymentRef,
   GigPayoutRef,
+  MyReportInput,
+  AutofillInput,
+  DuplicateCheckInput,
+  FindMyTagsInput,
   PersonRef,
   RecordGigExpenseInput,
   RecordGigPaymentInput,
@@ -22,14 +26,17 @@ import {
   UpdatePersonInput,
 } from "@assistant/shared";
 import { defineOperation } from "../../core/operations.ts";
+import { z } from "zod";
 import * as b from "./services/bookings.ts";
+import * as h from "./services/home.ts";
+import * as t from "./services/tags.ts";
 
 export const bookingOperations = [
   defineOperation({
     id: "gigs.create_booking",
     tool: "create_gig",
     description:
-      "Create a gig with one or more events (date, time, venue) and the people on it. You become its manager. Times without an offset are India time.",
+      "Create a gig with one or more events (date, time, venue) and the people on it. You become its manager. Times without an offset are India time. Optional: collective (band name) and custom tags. Check check_gig_duplicates first; for a collective, suggest_gig_people offers the people from its last gig.",
     scope: "user",
     kind: "write",
     idempotency: "object",
@@ -41,7 +48,7 @@ export const bookingOperations = [
     id: "gigs.find_my_gigs",
     tool: "find_my_gigs",
     description:
-      "My gigs' events, soonest first (or latest first with order=desc), optionally between two times. May lag a few seconds behind changes.",
+      "My gigs' events, soonest first (or latest first with order=desc), optionally between two times, by status, or matching a search (title, event, client, venue). May lag a few seconds behind changes.",
     scope: "user",
     kind: "read",
     http: { method: "GET", path: "/me/gigs" },
@@ -261,5 +268,62 @@ export const bookingOperations = [
     http: { method: "POST", path: "/gigs/:gig_id/payouts/:payout_id/reverse", status: 201 },
     input: GigPayoutRef,
     handler: (ctx, input) => b.reverseGigPayout(ctx, input),
+  }),
+  // --- Home and reports (step 4): from my own summaries only. ------------------------
+  defineOperation({
+    id: "gigs.get_home",
+    tool: "get_home",
+    description:
+      "My Home: next events, this month's gigs and earnings, what's owed to me, and for gigs I manage, what's still due from clients and still to pay the people playing. May lag a few seconds behind changes.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/overview" },
+    input: z.object({}),
+    handler: (ctx) => h.getHome(ctx),
+  }),
+  defineOperation({
+    id: "gigs.get_my_report",
+    tool: "get_my_report",
+    description:
+      "My money between two dates (India), by month and by gig: my shares, paid and owed; for gigs I manage also fee, received, expenses and net. Cancelled gigs are left out unless you ask for them by status. Filter by role or client.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/report" },
+    input: MyReportInput,
+    handler: (ctx, input) => h.getMyReport(ctx, input),
+  }),
+  // --- Tags, autofill, duplicates (step 5) -------------------------------------------
+  defineOperation({
+    id: "gigs.find_my_tags",
+    tool: "find_my_tags",
+    description:
+      "Collectives and custom tags on gigs I'm on, most used first (for suggestions and report filters).",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/tags" },
+    input: FindMyTagsInput,
+    handler: (ctx, input) => t.findMyTags(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.suggest_gig_people",
+    tool: "suggest_gig_people",
+    description:
+      "People from my latest gig with this collective (whose lineup I could see), to fill in a new gig. Names only: no roles or amounts.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/autofill" },
+    input: AutofillInput,
+    handler: (ctx, input) => t.autofill(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.check_gig_duplicates",
+    tool: "check_gig_duplicates",
+    description:
+      "Before creating a gig: does someone I've played with already have a gig that day at this venue or for this client? Shows their name so I can ask to be added instead. Never blocks.",
+    scope: "user",
+    kind: "read",
+    http: { method: "GET", path: "/me/duplicates" },
+    input: DuplicateCheckInput,
+    handler: (ctx, input) => t.checkDuplicates(ctx, input),
   }),
 ];

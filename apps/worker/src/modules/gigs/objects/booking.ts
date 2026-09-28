@@ -142,6 +142,12 @@ const MIGRATIONS: Migrations = [
     deleted_at text
   );
   `,
+  // Step 5: a collective tag and custom tags (ids from the D1 tag registry, names as snapshots).
+  `
+  alter table gig add column collective_tag_id text;
+  alter table gig add column collective_name text;
+  create table gig_tags (tag_id text primary key, name text not null, position integer not null);
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -190,6 +196,11 @@ export interface ExpenseInput {
   note: string | null;
 }
 export type SettingsInput = Partial<GigSettings>;
+/** A tag from the D1 registry (the Worker resolves names to ids). */
+export interface TagRef {
+  id: string;
+  name: string;
+}
 
 export interface CreateGigInput {
   gig_id: string;
@@ -200,6 +211,8 @@ export interface CreateGigInput {
   notes?: string | null;
   fee_paise?: number;
   settings?: SettingsInput;
+  collective?: TagRef | null;
+  tags?: TagRef[];
   events: EventInput[];
   people: PersonInput[];
 }
@@ -211,6 +224,8 @@ export interface UpdateGigInput {
   notes?: string | null;
   fee_paise?: number;
   settings?: SettingsInput;
+  collective?: TagRef | null;
+  tags?: TagRef[];
 }
 export interface UpdateEventInput {
   version: number;
@@ -235,6 +250,8 @@ type GigRow = {
   notes: string | null;
   fee_paise: number;
   settings_json: string;
+  collective_tag_id: string | null;
+  collective_name: string | null;
   version: number;
   created_by: string;
   created_at: string;
@@ -317,8 +334,8 @@ export class BookingObject extends DurableObject<Env> {
       const ts = nowIso();
       this.sql.exec(
         `insert into gig (id, title, event_type, status, client_name, client_phone, client_organisation, notes,
-           fee_paise, settings_json, created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           fee_paise, settings_json, collective_tag_id, collective_name, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         input.gig_id,
         input.title,
         input.event_type ?? null,
@@ -329,11 +346,14 @@ export class BookingObject extends DurableObject<Env> {
         input.notes ?? null,
         input.fee_paise ?? 0,
         JSON.stringify(input.settings ?? {}),
+        input.collective?.id ?? null,
+        input.collective?.name ?? null,
         actor.userId,
         ts,
         ts,
       );
       input.events.forEach((e, i) => this.insertEvent(e, i));
+      this.setTags(input.tags ?? []);
       for (const p of dedupePeople(input.people)) this.insertPerson(p, actor.userId!, ts);
       const after = this.viewFor(actor.userId!);
       audit(this.sql, actor, { action: "create_gig", entityType: "gig", entityId: input.gig_id, after });
@@ -360,10 +380,17 @@ export class BookingObject extends DurableObject<Env> {
         settings_json: input.settings
           ? JSON.stringify({ ...settingsOf(gig), ...input.settings })
           : gig.settings_json,
+        collective_tag_id:
+          input.collective === undefined ? gig.collective_tag_id : (input.collective?.id ?? null),
+        collective_name:
+          input.collective === undefined ? gig.collective_name : (input.collective?.name ?? null),
       };
+      const tagsBefore = this.tagRows().map((t) => t.name);
+      if (input.tags) this.setTags(input.tags);
       this.sql.exec(
         `update gig set title = ?, event_type = ?, client_name = ?, client_phone = ?, client_organisation = ?,
-           notes = ?, fee_paise = ?, settings_json = ?, version = version + 1, updated_at = ? where id = ?`,
+           notes = ?, fee_paise = ?, settings_json = ?, collective_tag_id = ?, collective_name = ?,
+           version = version + 1, updated_at = ? where id = ?`,
         next.title,
         next.event_type,
         next.client_name,
@@ -372,6 +399,8 @@ export class BookingObject extends DurableObject<Env> {
         next.notes,
         next.fee_paise,
         next.settings_json,
+        next.collective_tag_id,
+        next.collective_name,
         nowIso(),
         gig.id,
       );
@@ -379,8 +408,8 @@ export class BookingObject extends DurableObject<Env> {
         action: "update_gig",
         entityType: "gig",
         entityId: gig.id,
-        before: pickKeys(gig, next),
-        after: next,
+        before: { ...pickKeys(gig, next), tags: input.tags ? tagsBefore : undefined },
+        after: { ...next, tags: input.tags?.map((t) => t.name) },
       };
     });
   }
@@ -591,6 +620,46 @@ export class BookingObject extends DurableObject<Env> {
     return removingSelf ? { removed: true } : (result as BookingView);
   }
 
+  /**
+   * Someone added by email signed up: link that person on this gig to their new account,
+   * so the gig reaches their Home. System action (from sign-up); checks the email matches.
+   */
+  async attachAccount(personId: string, userId: string, email: string): Promise<boolean> {
+    const gig = this.gigRow();
+    if (!gig || gig.deleted_at) return false;
+    const attached = this.ctx.storage.transactionSync(() => {
+      const p = this.sql
+        .exec<{ id: string; user_id: string | null; email: string | null }>(
+          `select id, user_id, email from people where id = ? and removed_at is null`,
+          personId,
+        )
+        .toArray()[0];
+      if (!p || p.user_id || (p.email ?? "").toLowerCase() !== email.toLowerCase()) return false;
+      if (this.personRows().some((x) => x.user_id === userId)) return false; // already on the gig
+      this.sql.exec(`update people set user_id = ?, email = null where id = ?`, userId, p.id);
+      this.touch(gig.id);
+      audit(
+        this.sql,
+        { userId, source: "system" },
+        { action: "attach_account", entityType: "person", entityId: p.id, after: { user_id: userId } },
+      );
+      bumpAndNote(this.sql);
+      return true;
+    });
+    if (attached) await this.scheduleDelivery();
+    return attached;
+  }
+
+  /** People added by an email with no account yet (the Worker records them in D1). */
+  async awaitingAccounts(): Promise<{ person_id: string; email: string }[]> {
+    return this.sql
+      .exec<{ person_id: string; email: string }>(
+        `select id as person_id, lower(email) as email from people
+         where user_id is null and email is not null and removed_at is null`,
+      )
+      .toArray();
+  }
+
   // --- Money -------------------------------------------------------------------------
   // Payments and payouts only ever grow: a correction is a reversing entry. None of these
   // bump the gig's version (adding a payment never conflicts with someone's edit).
@@ -770,6 +839,8 @@ export class BookingObject extends DurableObject<Env> {
     if (!deleted) {
       const lineup = this.lineupRows();
       const totals = this.totals(gig, lineup);
+      const tagRows = this.tagRows();
+      const settings = settingsOf(gig);
       for (const p of people) {
         if (!p.user_id) continue;
         const mine = lineup.filter((l) => l.person_id === p.id);
@@ -777,6 +848,8 @@ export class BookingObject extends DurableObject<Env> {
         const gigRow: PersonGigSummary = {
           gig_id: gig.id,
           gig_title: gig.title,
+          event_type: gig.event_type,
+          client_name: gig.client_name,
           status: gig.status,
           role: p.role,
           first_start_at: events[0]?.start_at ?? gig.created_at,
@@ -786,6 +859,18 @@ export class BookingObject extends DurableObject<Env> {
           received_paise: manager ? totals.received : null,
           expenses_paise: manager ? totals.expenses : null,
           shares_total_paise: manager ? totals.shares : null,
+          payouts_paise: manager ? totals.payouts : null,
+          collective: gig.collective_tag_id
+            ? { id: gig.collective_tag_id, name: gig.collective_name ?? "" }
+            : null,
+          tags: tagRows.map((t) => ({ id: t.tag_id, name: t.name })),
+          lineup_visible: manager || settings.players_see_lineup,
+          co_user_ids: (manager || settings.players_see_lineup
+            ? people
+            : people.filter((x) => x.role === "manager")
+          )
+            .filter((x) => x.user_id && x.user_id !== p.user_id)
+            .map((x) => x.user_id!),
         };
         const rows = events.map((e) => ({
           gig_id: gig.id,
@@ -801,6 +886,7 @@ export class BookingObject extends DurableObject<Env> {
           role: p.role,
           part: mine.find((l) => l.event_id === e.id)?.part ?? null,
           share_paise: mine.find((l) => l.event_id === e.id)?.share_paise ?? 0,
+          collective_name: gig.collective_name,
         }));
         peopleOut[p.user_id] = { events: rows, gig: gigRow };
       }
@@ -812,7 +898,9 @@ export class BookingObject extends DurableObject<Env> {
           event_id: e.id,
           start_at: e.start_at,
           date: isoDateIST(e.start_at),
-          venue_key: e.venue_name ? e.venue_name.trim().toLowerCase() : null,
+          venue_key: nameKey(e.venue_name),
+          venue_name: e.venue_name,
+          client_key: nameKey(gig.client_name),
           status: gig.status,
           manager_user_ids: managers,
         });
@@ -961,7 +1049,8 @@ export class BookingObject extends DurableObject<Env> {
         .n,
     );
     const shares = sum(lineup.map((l) => l.share_paise));
-    return { fee: gig.fee_paise, received, expenses, shares };
+    const payouts = Number(this.sql.exec(`select coalesce(sum(amount_paise), 0) as n from payouts`).one().n);
+    return { fee: gig.fee_paise, received, expenses, shares, payouts };
   }
 
   private insertEntry(
@@ -1041,6 +1130,22 @@ export class BookingObject extends DurableObject<Env> {
       "not_found",
       `No one called "${pick.person_name}" is on this gig. Add them first (add_gig_person).`,
     );
+  }
+
+  private tagRows(): { tag_id: string; name: string }[] {
+    return this.sql
+      .exec<{ tag_id: string; name: string }>(`select tag_id, name from gig_tags order by position`)
+      .toArray();
+  }
+
+  private setTags(tags: TagRef[]) {
+    this.sql.exec(`delete from gig_tags`);
+    const seen = new Set<string>();
+    tags.forEach((t, i) => {
+      if (seen.has(t.id)) return;
+      seen.add(t.id);
+      this.sql.exec(`insert into gig_tags (tag_id, name, position) values (?, ?, ?)`, t.id, t.name, i);
+    });
   }
 
   /** A money change: the gig's updated_at moves, its version doesn't. */
@@ -1201,6 +1306,10 @@ export class BookingObject extends DurableObject<Env> {
         ? { name: gig.client_name, phone: gig.client_phone, organisation: gig.client_organisation }
         : null,
       notes: gig.notes,
+      collective: gig.collective_tag_id
+        ? { id: gig.collective_tag_id, name: gig.collective_name ?? "" }
+        : null,
+      tags: this.tagRows().map((t) => ({ id: t.tag_id, name: t.name })),
       version: gig.version,
       events: this.eventRows().map((e) => ({
         id: e.id,
@@ -1309,6 +1418,12 @@ export class BookingObject extends DurableObject<Env> {
       net: manager ? money(t.fee - t.shares - t.expenses) : null,
     };
   }
+}
+
+/** How venues and clients are compared for duplicate warnings. */
+function nameKey(name: string | null): string | null {
+  const k = name?.trim().toLowerCase().replace(/\s+/g, " ");
+  return k ? k : null;
 }
 
 function settingsOf(gig: GigRow): GigSettings {

@@ -54,7 +54,48 @@ const MIGRATIONS: Migrations = [
   );
   create index my_gigs_start_idx on my_gigs (first_start_at);
   `,
+  // Step 4: report filters (client, type) and what managers still owe their players.
+  `
+  alter table my_gigs add column event_type text;
+  alter table my_gigs add column client_name text;
+  alter table my_gigs add column payouts_paise integer;
+  create index my_gigs_client_idx on my_gigs (client_name);
+  `,
+  // Step 5: collective and custom tags (report filters, suggestions, autofill) and the
+  // people I've been on gigs with (duplicate warnings only look at their gigs).
+  `
+  alter table my_events add column collective_name text;
+  alter table my_gigs add column collective_tag_id text;
+  alter table my_gigs add column collective_name text;
+  alter table my_gigs add column lineup_visible integer not null default 0;
+  create index my_gigs_collective_idx on my_gigs (collective_tag_id);
+  create table my_gig_tags (gig_id text not null, tag_id text not null, name text not null, primary key (gig_id, tag_id));
+  create index my_gig_tags_tag_idx on my_gig_tags (tag_id);
+  create table my_gig_people (gig_id text not null, user_id text not null, primary key (gig_id, user_id));
+  create index my_gig_people_user_idx on my_gig_people (user_id);
+  `,
 ];
+
+/** A my_gigs row as stored (tags and flags are shaped on the way out). */
+type GigRow = {
+  gig_id: string;
+  gig_title: string;
+  event_type: string | null;
+  client_name: string | null;
+  status: string;
+  role: "manager" | "player";
+  first_start_at: string;
+  share_paise: number;
+  paid_paise: number;
+  fee_paise: number | null;
+  received_paise: number | null;
+  expenses_paise: number | null;
+  shares_total_paise: number | null;
+  payouts_paise: number | null;
+  collective_tag_id: string | null;
+  collective_name: string | null;
+  lineup_visible: number;
+};
 
 export class PersonObject extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -79,13 +120,27 @@ export class PersonObject extends DurableObject<Env> {
       if (current !== undefined && seq < current) return false;
       this.sql.exec(`delete from my_events where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gigs where gig_id = ?`, gigId);
+      this.sql.exec(`delete from my_gig_tags where gig_id = ?`, gigId);
+      this.sql.exec(`delete from my_gig_people where gig_id = ?`, gigId);
+      for (const t of gig?.tags ?? [])
+        this.sql.exec(
+          `insert or ignore into my_gig_tags (gig_id, tag_id, name) values (?, ?, ?)`,
+          gigId,
+          t.id,
+          t.name,
+        );
+      for (const u of gig?.co_user_ids ?? [])
+        this.sql.exec(`insert or ignore into my_gig_people (gig_id, user_id) values (?, ?)`, gigId, u);
       if (gig)
         this.sql.exec(
-          `insert into my_gigs (gig_id, gig_title, status, role, first_start_at, share_paise, paid_paise, fee_paise,
-             received_paise, expenses_paise, shares_total_paise)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `insert into my_gigs (gig_id, gig_title, event_type, client_name, status, role, first_start_at, share_paise,
+             paid_paise, fee_paise, received_paise, expenses_paise, shares_total_paise, payouts_paise,
+             collective_tag_id, collective_name, lineup_visible)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           gig.gig_id,
           gig.gig_title,
+          gig.event_type ?? null,
+          gig.client_name ?? null,
           gig.status,
           gig.role,
           gig.first_start_at,
@@ -95,12 +150,16 @@ export class PersonObject extends DurableObject<Env> {
           gig.received_paise,
           gig.expenses_paise,
           gig.shares_total_paise,
+          gig.payouts_paise ?? null,
+          gig.collective?.id ?? null,
+          gig.collective?.name ?? null,
+          gig.lineup_visible ? 1 : 0,
         );
       for (const r of rows) {
         this.sql.exec(
           `insert into my_events (event_id, gig_id, gig_title, event_title, event_type, client_name, start_at, end_at,
-             venue_name, status, role, part, share_paise)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             venue_name, status, role, part, share_paise, collective_name)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           r.event_id,
           r.gig_id,
           r.gig_title,
@@ -114,6 +173,7 @@ export class PersonObject extends DurableObject<Env> {
           r.role,
           r.part ?? null,
           r.share_paise ?? 0,
+          r.collective_name ?? null,
         );
       }
       this.sql.exec(
@@ -158,6 +218,10 @@ export class PersonObject extends DurableObject<Env> {
     q: {
       from?: string;
       to?: string;
+      q?: string;
+      status?: string;
+      /** Leave out events of gigs with this status (Home skips cancelled ones). */
+      exclude_status?: string;
       order?: "asc" | "desc";
       limit?: number;
       after?: [string, string] | null;
@@ -169,14 +233,23 @@ export class PersonObject extends DurableObject<Env> {
     return this.sql
       .exec<PersonEventSummary>(
         `select gig_id, event_id, gig_title, event_title, event_type, client_name, start_at, end_at, venue_name,
-                status, role, part, share_paise
+                status, role, part, share_paise, collective_name
          from my_events
          where start_at >= ? and start_at < ?
+           and (? is null or status = ?) and (? is null or status <> ?)
+           and (? is null or lower(gig_title || ' ' || coalesce(event_title, '') || ' ' || coalesce(client_name, '')
+                || ' ' || coalesce(venue_name, '')) like ? escape '\\')
            and (? is null or start_at ${cmp} ? or (start_at = ? and event_id ${cmp} ?))
          order by start_at ${desc ? "desc" : "asc"}, event_id ${desc ? "desc" : "asc"}
          limit ?`,
         q.from ?? "",
         q.to ?? "9999",
+        q.status ?? null,
+        q.status ?? null,
+        q.exclude_status ?? null,
+        q.exclude_status ?? null,
+        q.q ? 1 : null,
+        q.q ? `%${q.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null,
         after ? 1 : null,
         after?.[0] ?? null,
         after?.[0] ?? null,
@@ -186,16 +259,127 @@ export class PersonObject extends DurableObject<Env> {
       .toArray();
   }
 
-  /** My gigs with money, by first event (for Home and reports, step 4). */
-  async gigs(q: { from?: string; to?: string } = {}): Promise<PersonGigSummary[]> {
-    return this.sql
-      .exec<PersonGigSummary>(
-        `select gig_id, gig_title, status, role, first_start_at, share_paise, paid_paise, fee_paise, received_paise,
-                expenses_paise, shares_total_paise
-         from my_gigs where first_start_at >= ? and first_start_at < ? order by first_start_at`,
+  /** My gigs with money, by first event, optionally filtered (Home and reports). */
+  async gigs(
+    q: {
+      from?: string;
+      to?: string;
+      status?: string;
+      role?: string;
+      client?: string;
+      collective_id?: string;
+      /** Gigs carrying all of these tags. */
+      tag_ids?: string[];
+      /** Load each gig's custom tags (reports); Home doesn't need them. */
+      with_tags?: boolean;
+    } = {},
+  ): Promise<PersonGigSummary[]> {
+    const tagIds = (q.tag_ids ?? []).slice(0, 10);
+    const tagClause = tagIds
+      .map(() => ` and gig_id in (select gig_id from my_gig_tags where tag_id = ?)`)
+      .join("");
+    const rows = this.sql
+      .exec<GigRow>(
+        `select gig_id, gig_title, event_type, client_name, status, role, first_start_at, share_paise, paid_paise,
+                fee_paise, received_paise, expenses_paise, shares_total_paise, payouts_paise,
+                collective_tag_id, collective_name, lineup_visible
+         from my_gigs
+         where first_start_at >= ? and first_start_at < ?
+           and (? is null or status = ?) and (? is null or role = ?)
+           and (? is null or lower(client_name) = lower(?))
+           and (? is null or collective_tag_id = ?)${tagClause}
+         order by first_start_at, gig_id`,
         q.from ?? "",
         q.to ?? "9999",
+        q.status ?? null,
+        q.status ?? null,
+        q.role ?? null,
+        q.role ?? null,
+        q.client ?? null,
+        q.client ?? null,
+        q.collective_id ?? null,
+        q.collective_id ?? null,
+        ...tagIds,
       )
       .toArray();
+    const tags = new Map<string, { id: string; name: string }[]>();
+    // Only the tags of gigs in the same date range (a person's history can be long).
+    for (const t of q.with_tags
+      ? this.sql.exec<{ gig_id: string; tag_id: string; name: string }>(
+          `select t.gig_id, t.tag_id, t.name from my_gig_tags t join my_gigs g on g.gig_id = t.gig_id
+           where g.first_start_at >= ? and g.first_start_at < ?`,
+          q.from ?? "",
+          q.to ?? "9999",
+        )
+      : [])
+      tags.set(t.gig_id, [...(tags.get(t.gig_id) ?? []), { id: t.tag_id, name: t.name }]);
+    return rows.map(({ collective_tag_id, collective_name, lineup_visible, ...g }) => ({
+      ...g,
+      collective: collective_tag_id ? { id: collective_tag_id, name: collective_name ?? "" } : null,
+      tags: tags.get(g.gig_id) ?? [],
+      lineup_visible: lineup_visible === 1,
+    }));
+  }
+
+  /** Tags on gigs I'm on, most used first (suggestions; collective ones also for autofill). */
+  async tags(q: { kind?: "collective" | "custom"; search?: string } = {}) {
+    const like = q.search ? `%${q.search.toLowerCase()}%` : null;
+    const custom = this.sql
+      .exec<{ id: string; name: string; gigs: number }>(
+        `select tag_id as id, max(name) as name, count(*) as gigs from my_gig_tags
+         where (? is null or lower(name) like ?) group by tag_id order by gigs desc, name limit 50`,
+        like,
+        like,
+      )
+      .toArray()
+      .map((t) => ({ ...t, kind: "custom" as const }));
+    const collective = this.sql
+      .exec<{ id: string; name: string; gigs: number }>(
+        `select collective_tag_id as id, max(collective_name) as name, count(*) as gigs from my_gigs
+         where collective_tag_id is not null and (? is null or lower(collective_name) like ?)
+         group by collective_tag_id order by gigs desc, name limit 50`,
+        like,
+        like,
+      )
+      .toArray()
+      .map((t) => ({ ...t, kind: "collective" as const }));
+    if (q.kind === "custom") return custom;
+    if (q.kind === "collective") return collective;
+    return [...collective, ...custom];
+  }
+
+  /** My latest gig with this collective tag whose lineup I could see (for autofill). */
+  async latestWithCollective(collectiveId: string): Promise<string | null> {
+    return (
+      this.sql
+        .exec<{ gig_id: string }>(
+          `select gig_id from my_gigs where collective_tag_id = ? and lineup_visible = 1
+           order by first_start_at desc limit 1`,
+          collectiveId,
+        )
+        .toArray()[0]?.gig_id ?? null
+    );
+  }
+
+  /** Which of these people I've been on a gig with. */
+  async knownAmong(userIds: string[]): Promise<string[]> {
+    const known = new Set(
+      this.sql
+        .exec<{ user_id: string }>(`select distinct user_id from my_gig_people`)
+        .toArray()
+        .map((r) => r.user_id),
+    );
+    return userIds.filter((u) => known.has(u));
+  }
+
+  /** Which of these gigs I'm on. */
+  async onGigs(gigIds: string[]): Promise<string[]> {
+    const mine = new Set(
+      this.sql
+        .exec<{ gig_id: string }>(`select gig_id from my_gigs`)
+        .toArray()
+        .map((r) => r.gig_id),
+    );
+    return gigIds.filter((g) => mine.has(g));
   }
 }

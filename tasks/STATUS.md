@@ -4,7 +4,14 @@ _Updated: 2026-09-26_
 
 ## Last done
 
-- **R1 step 3, money** (branch, API only; screens come in step 6): gig fee and who-sees-what settings on create/update, client payments and payouts (append-only, reversals), expenses, per-event lineup with part and share (per person, equal split or percent), people picked by id or exact name (near matches → candidates). Every gig response has `money` filtered by role and settings; person summaries gain my part/share per event and a `my_gigs` row with my money (and the gig's money for managers). Person object schema v4, gig object schema v3. Tests: 73 shared, 99 worker (3 new in `booking-money.test.ts`).
+- **R1 step 6, screens**: new navigation (Home, Gigs, Reports, Settings; no workspace switcher) and pages on the gig API: Home (`booking/Home.svelte`), Gigs list with search, gig page (events with lineups, people, client payment, shares and payouts, expenses and net, who-sees-what switches, status actions), New/Edit gig (events, people by email or name, collective with autofill, tags, duplicate warnings), Reports (period, role, collective, tag). Loading states (owner's request): splash in `index.html` before the app starts, labelled placeholders, top progress bar while requests are in flight (`core/activity.svelte.ts`, `TopProgress`). Browser walkthrough (create → lineup → payment → payout → expense → setting → player's view) and screenshots at 390/820/1280, light and dark, no overflow or page errors. Old workspace pages still work by URL (`/w/...`) until step 7.
+- Review fixes on steps 4–5 (Codex): tags reach the shared registry only after the gig accepts the edit; Home filters cancelled events in the query; reports load tags for the date range only.
+
+- **R1 step 5, tags, autofill, people without accounts, duplicate warnings** (API; screens in step 6): collective and custom tags on gigs (D1 tag registry, migration `0003_gig_tags`), report filters by collective and tags, `find_my_tags`, `suggest_gig_people` (autofill), `check_gig_duplicates` (month index, only people I've played with), people added by email attach on sign-up (D1 `pending_people`, core hook `userCreated`, Home retries). Gig object v4, person object v6, month index v2. Tests: 73 shared, 106 worker (4 new in `booking-tags.test.ts`).
+
+- **R1 step 4, Home and reports** (API; screens in step 6): `get_home` (`/me/overview`), `get_my_report` (`/me/report`), search and status filter on `find_my_gigs`. All from the caller's own person object (schema v5 adds client, type and payouts to `my_gigs`). Tests: 73 shared, 102 worker (3 new in `booking-home.test.ts`).
+
+- **R1 step 3, money, live on prod** ([rishiparyani/assistant#14](https://github.com/rishiparyani/assistant/pull/14); API only, screens in step 6): gig fee and who-sees-what settings on create/update, client payments and payouts (append-only, reversals), expenses, per-event lineup with part and share (per person, equal split or percent), people picked by id or exact name (near matches → candidates). Every gig response has `money` filtered by role and settings; person summaries gain my part/share per event and a `my_gigs` row with my money (and the gig's money for managers). Person object schema v4, gig object schema v3. Tests: 73 shared, 99 worker (3 new in `booking-money.test.ts`).
 
 - **Admin panel live on prod** ([rishiparyani/assistant#13](https://github.com/rishiparyani/assistant/pull/13)): `/admin` (link in Settings, admins only; others get 404). Owners from the `ADMIN_EMAILS` GitHub secret (added by the owner 2026-09-28; the deploy workflow copies it into the Worker), more admins added in the panel (D1 `admins`), admin actions in D1 `admin_audit` (migration `0002_admin`, which also indexes `user.createdAt` and `session.updatedAt`). Shows counts only: people (accounts, sign-ups, active), gigs created, delivery backlog; tools: flush outboxes, rebuild summaries. Modules contribute via `admin` in their definition. Tests: 96 worker (4 new in `admin.test.ts`).
 
@@ -35,7 +42,7 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. **R1 step 4, Home and reports** from person objects (`my_events`, `my_gigs`). Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
+1. **R1 step 7, retire workspaces** (needs the owner's OK before dropping old prod data), then monitoring and alerts (design §10a). Later for the panel: per-action counts, errors and speed via Workers Analytics Engine, and email alerts (design §10a).
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
@@ -90,3 +97,6 @@ Nothing. The spike stays deployed at https://assistant-spike.rishiparyani.worker
 - Agent sessions can reach `*.rishiparyani.workers.dev` (custom network allowlist, 2026-09-26): verify live apps with curl or headless Chromium.
 - **Workflow since `main` is protected:** work on a branch (deploys to dev); when a task is done and verified, open a PR to `main` and merge it after CI passes (owner OK'd, 2026-09-26), then tell the owner what went live.
 - Agent sessions can't reach `api.cloudflare.com` (network policy), and shouldn't: deploys go through GitHub Actions only.
+
+- Any `$state` changed by the API client (like the request counter) must be changed inside `untrack`, or every `$effect` that starts a request re-runs forever and freezes the page.
+- A form used twice on one page (payment and payout sheets) needs unique field ids (`$props.id()`), or labels point at the other copy.

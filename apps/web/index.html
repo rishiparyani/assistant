@@ -15,9 +15,64 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Assistant</title>
+    <style>
+      /* Shown until the app starts, so a slow connection never looks like a blank page. */
+      .splash {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        font:
+          500 15px/1.4 system-ui,
+          -apple-system,
+          sans-serif;
+        color: #6b6b76;
+        background: #f4f4f6;
+      }
+      .splash-mark {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 52px;
+        height: 52px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, #6366f1, #4338ca);
+        color: #fff;
+        font-size: 26px;
+        font-weight: 750;
+      }
+      .splash-spin {
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        border: 2.5px solid rgba(99, 102, 241, 0.25);
+        border-top-color: #6366f1;
+        animation: splash-spin 0.8s linear infinite;
+      }
+      @keyframes splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      @media (prefers-color-scheme: dark) {
+        .splash {
+          background: #0c0c10;
+          color: #a1a1ab;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="splash" role="status" aria-live="polite">
+        <span class="splash-mark" aria-hidden="true">A</span>
+        <span class="splash-spin" aria-hidden="true"></span>
+        <span>Loading…</span>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

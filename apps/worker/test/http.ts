@@ -39,8 +39,7 @@ export async function json<T = any>(res: Response): Promise<T> {
 
 let n = 0;
 /** Signs up a new user (email/password works on localhost only) and returns its cookie. */
-export async function signUp(name = "Test User") {
-  const email = `test-${Date.now()}-${++n}@example.com`;
+export async function signUp(name = "Test User", email = `test-${Date.now()}-${++n}@example.com`) {
   const res = await call("/auth/sign-up/email", { body: { name, email, password: "test-password-123" } });
   if (res.status !== 200) throw new Error(`sign-up failed: ${res.status} ${await res.text()}`);
   const cookie = res.headers
