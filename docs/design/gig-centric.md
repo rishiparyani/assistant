@@ -16,14 +16,15 @@ So the app becomes **gig-centric**: a gig (booking) is the unit of sharing, mone
 
 ## 2. Concepts (what people see)
 
-| Concept                         | What it is                                                                                                                                                                             |
-| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Gig** (internally: _booking_) | One engagement with a client: fee, client payments, expenses, people, notes. Has **one or more events**.                                                                               |
-| **Event**                       | A performance within a gig: date/time, venue, lineup with shares, payouts. Most gigs have one event; a wedding may have mehendi, sangeet and reception.                                |
-| **People on a gig**             | Everyone involved, with a **role**: _manager_ (runs the gig) or _player_ (plays). A person may have an account or be just a name (stand-in, session player). Anyone can be on any gig. |
-| **Lineup**                      | Per event: which people play, their part (e.g. drums), their share.                                                                                                                    |
-| **Collective tag**              | Optional label on a gig, e.g. "Monsoon Project". Used for reports, filtering and autofill. Has an id behind the name, so renames don't break grouping.                                 |
-| **Address book**                | Each person's own clients, venues and musicians. Used to **fill in** a gig; the gig keeps its own copy of the details, so editing the address book never changes past gigs.            |
+| Concept                         | What it is                                                                                                                                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Gig** (internally: _booking_) | One engagement with a client: fee, client payments, expenses, people, notes. Has **one or more events**.                                                                                               |
+| **Event**                       | A performance within a gig: date/time, venue, lineup with shares, payouts. Most gigs have one event; a wedding may have mehendi, sangeet and reception.                                                |
+| **People on a gig**             | Everyone involved, with a **role**: _manager_ (runs the gig) or _player_ (plays). A person may have an account or be just a name (stand-in, session player). Anyone can be on any gig.                 |
+| **Lineup**                      | Per event: which people play, their part (e.g. drums), their share.                                                                                                                                    |
+| **Collective tag**              | Optional label on a gig, e.g. "Monsoon Project". Used for reports, filtering and autofill. Has an id behind the name, so renames don't break grouping.                                                 |
+| **Custom tags**                 | Any number of free labels on a gig, e.g. "Wedding", "Corporate", "Out of town", "Invoiced". Set by managers, seen by everyone on the gig, used as report filters (combinable with the collective tag). |
+| **Address book**                | Each person's own clients, venues and musicians. Used to **fill in** a gig; the gig keeps its own copy of the details, so editing the address book never changes past gigs.                            |
 
 There are no workspaces, no memberships and no collective settings pages. Each person has **Home** (gigs they're on, their money), **Gigs** (list and search), **Reports**, **Address book** and **Settings**.
 
@@ -36,7 +37,8 @@ There are no workspaces, no memberships and no collective settings pages. Each p
 5. **People without accounts:** added by name (optionally email/phone). If they sign up later with that email, those gigs attach to their account and appear on their Home.
 6. **Duplicates:** when you create a gig, the app warns if someone you know already has a gig on that date at that venue or for that client: _"Ananya has a gig on 12 Dec at JW Marriott — is this the same one? Ask to be added instead."_ It never merges automatically.
 7. **Money:** always per gig. Client payments and expenses belong to the gig; shares and payouts belong to events and people. Append-only with reversing entries, as today.
-8. **Collaboration (later):** notes and comments, setlists (reorderable, live, offline on stage), checklists, run of show. Designed for now, built after the core rework (section 11).
+8. **Custom tags:** managers add any number; suggestions come from tags on gigs you're on (so "Wedding" and "wedding" don't split); reports filter by any tag or combination. Only collective tags offer autofill.
+9. **Collaboration (later):** notes and comments, setlists (reorderable, live, offline on stage), checklists, run of show. Designed for now, built after the core rework (section 11).
 
 ## 3. Permissions per gig
 
@@ -100,7 +102,8 @@ All tables use ULIDs, integer paise, UTC ISO times, as today. Each object runs i
 
 ### Booking object (`booking:<gig id>`)
 
-- `gig`: id, title, status (`enquiry`/`confirmed`/`completed`/`cancelled`), client snapshot (name, phone, organisation, address-book id), fee_paise, tag_id + tag_name snapshot, notes, settings (JSON: `players_see_lineup`, `players_see_fee`, `players_see_shares`), version, created_by, timestamps, deleted_at.
+- `gig`: id, title, status (`enquiry`/`confirmed`/`completed`/`cancelled`), client snapshot (name, phone, organisation, address-book id), fee_paise, collective tag (id + name snapshot), notes, settings (JSON: `players_see_lineup`, `players_see_fee`, `players_see_shares`), version, created_by, timestamps, deleted_at.
+- `gig_tags`: tag id, name snapshot, kind (`custom`). The collective tag is on `gig`.
 - `events`: id, title (e.g. "Sangeet"), start_at, end_at, venue snapshot, notes, position, deleted_at.
 - `people`: id, user_id (nullable), name, email, phone, role (`manager`/`player`), added_by, timestamps, removed_at.
 - `lineup`: id, event_id, person_id, part (e.g. "drums"), share_paise. Unique (event_id, person_id).
@@ -116,9 +119,9 @@ Derived, never stored: balance, payment status, owed per person, net.
 
 ### Person object (`person:<user id>`)
 
-- `my_events`: one row per event I'm on: gig id, event id, title, start_at, venue name, client name, tag id, my role, my part, my share, paid to me, owed to me; for gigs I manage also fee, received, balance, shares total, expenses, net. Updated by the booking's outbox.
+- `my_events`: one row per event I'm on: gig id, event id, title, start_at, venue name, client name, collective tag id, custom tag ids, my role, my part, my share, paid to me, owed to me; for gigs I manage also fee, received, balance, shares total, expenses, net. Updated by the booking's outbox.
 - `address_book`: clients, venues, musicians (my own; used to fill in gigs).
-- `tags_seen`: tags on gigs I'm on (for suggestions and autofill).
+- `tags_seen`: tags on gigs I'm on, with kind (for suggestions; collective ones also for autofill).
 - `applied`: which booking updates have been applied (booking id → last sequence number), so deliveries can be repeated or arrive out of order safely.
 
 ### Index object (`index:<YYYY-MM>`)
@@ -132,7 +135,7 @@ Derived, never stored: balance, payment status, owed per person, net.
 ### D1
 
 - Better Auth tables (users, sessions, accounts, passkeys, OAuth for MCP), API tokens.
-- `tags`: id, name, created_by, timestamps (written only on create and rename).
+- `tags`: id, name, kind (`collective` | `custom`), created_by, timestamps (written only on create and rename).
 - `pending_people`: email → gig ids, for people added before they have an account (so sign-up can attach them). Written only when adding someone without an account.
 
 Workspace tables (`organization`, `member`, `invitation`, `workspace_modules`) and the gigs module's D1 tables are retired.
@@ -169,7 +172,7 @@ This is the **transactional outbox**. Home and reports catch up within seconds; 
 ## 7. How reads flow
 
 - **Gig page:** one call to `booking:<id>`, which returns only what the caller may see (section 3).
-- **Home and reports:** one call to `person:<me>`; SQL over my summary rows (by month, tag, client, status).
+- **Home and reports:** one call to `person:<me>`; SQL over my summary rows (by month, collective tag, custom tags, client, status; tags combinable).
 - **Duplicate warning on create:** one call to `index:<month of the date>` for cards on that date matching venue or client, **only for gigs of people I've been on gigs with** (showing their name).
 - **Group report for a tag, e.g. "Monsoon this year":** built from my summary rows (only my money), so no cross-person query is needed.
 
@@ -238,7 +241,7 @@ A scheduled job checks the custom metrics every few minutes and sends the emails
 2. **Gigs:** create gig with events, people and roles, client/venue snapshot from the address book, status, edit with version check, delete/cancel; permissions per section 3; API and MCP operations reworked (routes under `/api/gigs/:gig_id/...`).
 3. **Money:** payments, expenses, lineup with shares per event, payouts, derived views; per-gig visibility settings.
 4. **Home and reports** from person objects; Gigs list and search.
-5. **Tags and autofill; people without accounts** (attach on sign-up); **duplicate warnings** via the month index.
+5. **Tags (collective and custom) and autofill; people without accounts** (attach on sign-up); **duplicate warnings** via the month index.
 6. **Screens** reworked throughout (Home, Gigs, gig page with events, address book, reports, settings), checked at 390 / 820 / 1280 px, light and dark.
 7. **Retire workspaces** (code, tables, collective page) and drop old data on prod (with the owner's OK).
 8. **Monitoring and alerts** (section 10a) grow with each step; the admin page lands with step 1's tools.
@@ -264,3 +267,4 @@ Rules 4–7, 9, 10, 13, 14 stay as they are.
 2. **Wording:** people see "Gig", with "Events" inside (e.g. "Sangeet", "Reception").
 3. **Delivery:** one path, outbox → Cloudflare Queue (no hybrid); the outbox guarantees nothing is lost, the queue delivers.
 4. **Alerts:** email to a dedicated address.
+5. **Custom tags** (added 2026-09-28): any number per gig, set by managers, used as report filters.
