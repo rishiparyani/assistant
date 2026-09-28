@@ -107,7 +107,12 @@ export const UpdateBookingInput = BookingRef.extend({
 export const BookingStatusInput = BookingRef.extend({
   action: z.enum(["confirm", "complete", "cancel"]),
   reason: optionalText(500),
-});
+  ...moneyFields("refund"),
+  refund_method: z
+    .enum(["cash", "upi", "bank", "cheque", "other"])
+    .default("upi")
+    .describe("How the refund was paid back"),
+}).describe("When cancelling, refund (rupees) or refund_paise returns part or all of what the client paid");
 
 export const AddEventInput = BookingRef.extend(EventInput.shape);
 export const UpdateEventInput = BookingRef.extend({

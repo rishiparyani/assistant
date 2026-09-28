@@ -26,6 +26,7 @@ import {
   type UpdateEventInput,
   type UpdatePersonInput,
   type AddEventInput,
+  type BookingStatusInput,
 } from "@assistant/shared";
 import type { z } from "zod";
 import type { OpUserCtx } from "../../../core/operations.ts";
@@ -169,15 +170,14 @@ export async function updateBooking(ctx: OpUserCtx, input: z.output<typeof Updat
   );
 }
 
-export function setBookingStatus(
-  ctx: OpUserCtx,
-  input: { gig_id: string; action: "confirm" | "complete" | "cancel"; reason?: string | null },
-) {
+export function setBookingStatus(ctx: OpUserCtx, input: z.output<typeof BookingStatusInput>) {
+  const refund = paiseOf(input, "refund");
   return bookingStub(ctx, input.gig_id).setStatus(
     input.action,
     input.reason ?? null,
     actorOf(ctx),
     ctx.idempotencyKey,
+    refund ? { amount_paise: refund, method: input.refund_method } : null,
   );
 }
 

@@ -76,6 +76,8 @@ type Money = { amount_paise: number; amount_display: string };
 
 export interface GigPaymentView {
   id: string;
+  /** "refund": money returned to the client (e.g. when a gig is cancelled). */
+  kind: "payment" | "refund";
   amount: Money;
   paid_on: string;
   paid_on_display: string;
@@ -135,6 +137,8 @@ export interface GigMoney {
   can_manage: boolean;
   /** Fee side (fee, payments, balance); null fields when hidden. */
   fee: Money | null;
+  /** Cancelled gigs: what was kept (paid and not refunded), which is the gig's income. */
+  kept: Money | null;
   received: Money | null;
   /** fee − received (negative = overpaid). */
   balance: Money | null;

@@ -25,6 +25,7 @@
     ListRow,
     PageHeader,
     Pill,
+    Segmented,
     Skeleton,
     Stat,
     confirm,
@@ -44,6 +45,7 @@
   import GigEditor from "./GigEditor.svelte";
   import LineupSheet from "./LineupSheet.svelte";
   import PersonSheet from "./PersonSheet.svelte";
+  import CancelSheet from "./CancelSheet.svelte";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
   let { gigId }: { gigId: string } = $props();
@@ -71,6 +73,11 @@
   let personFor = $state<BookingPersonView | null>(null);
   let payoutOpen = $state(false);
   let payoutFor = $state<PayeeView | null>(null);
+  let cancelOpen = $state(false);
+
+  // Three tabs keep the page short: what and when, the money, and who's on it.
+  type Tab = "details" | "money" | "people";
+  let tab = $state<Tab>("details");
 
   const set = (g: BookingView) => q.set(g);
   const manager = $derived(gig?.my_role === "manager");
@@ -92,16 +99,6 @@
     } finally {
       busy = "";
     }
-  }
-
-  async function cancelGig() {
-    const ok = await confirm({
-      title: "Cancel this gig?",
-      message: "It stays in everyone's history as cancelled. Money already recorded is kept.",
-      confirmLabel: "Cancel gig",
-      destructive: true,
-    });
-    if (ok) await act("cancel", () => bookingsApi.setStatus(gigId, "cancel"), "Gig cancelled");
   }
 
   async function deleteGig() {
@@ -200,63 +197,70 @@
     {/snippet}
   </PageHeader>
 
-  <div class="layout">
-    <div class="col">
-      <Card>
-        <div class="hero">
-          <div class="pills">
-            <Pill tone={statusTone(gig.status)}>{statusLabel(gig.status)}</Pill>
-            {#if gig.event_type}<Pill>{gig.event_type[0]!.toUpperCase() + gig.event_type.slice(1)}</Pill>{/if}
-            {#if gig.collective}<Pill tone="violet">{gig.collective.name}</Pill>{/if}
-            {#each gig.tags as t (t.id)}<Pill tone="blue">{t.name}</Pill>{/each}
-            <Pill>{manager ? "You manage this" : "You're playing"}</Pill>
-          </div>
-          {#if gig.client}
-            <ul class="facts">
-              <li>
-                <User size={18} /><span
-                  >{gig.client.name}{#if gig.client.phone}<span class="muted">
-                      · {gig.client.phone}</span
-                    >{/if}</span
-                >
-              </li>
-            </ul>
-          {/if}
-          {#if gig.status === "cancelled" && gig.cancel_reason}<p class="muted">
-              Cancelled: {gig.cancel_reason}
-            </p>{/if}
-          {#if manager && live}
-            <div class="actions">
-              {#if gig.status === "enquiry"}
-                <Button
-                  variant="tinted"
-                  loading={busy === "confirm"}
-                  onclick={() =>
-                    act("confirm", () => bookingsApi.setStatus(gigId, "confirm"), "Gig confirmed")}
-                >
-                  {#snippet icon()}<Check />{/snippet}
-                  Confirm
-                </Button>
-              {:else}
-                <Button
-                  variant="tinted"
-                  loading={busy === "complete"}
-                  onclick={() =>
-                    act("complete", () => bookingsApi.setStatus(gigId, "complete"), "Marked as played")}
-                >
-                  {#snippet icon()}<Check />{/snippet}
-                  Mark played
-                </Button>
-              {/if}
-              <Button variant="ghost" loading={busy === "cancel"} onclick={cancelGig}>
-                {#snippet icon()}<Ban />{/snippet}
-                Cancel gig
-              </Button>
-            </div>
-          {/if}
+  <div class="page">
+    <Card>
+      <div class="hero">
+        <div class="pills">
+          <Pill tone={statusTone(gig.status)}>{statusLabel(gig.status)}</Pill>
+          {#if gig.event_type}<Pill>{gig.event_type[0]!.toUpperCase() + gig.event_type.slice(1)}</Pill>{/if}
+          {#if gig.collective}<Pill tone="violet">{gig.collective.name}</Pill>{/if}
+          {#each gig.tags as t (t.id)}<Pill tone="blue">{t.name}</Pill>{/each}
+          <Pill>{manager ? "You manage this" : "You're playing"}</Pill>
         </div>
-      </Card>
+        {#if gig.client}
+          <p class="client">
+            <User size={18} /><span
+              >{gig.client.name}{#if gig.client.phone}<span class="muted">
+                  · {gig.client.phone}</span
+                >{/if}</span
+            >
+          </p>
+        {/if}
+        {#if gig.status === "cancelled" && gig.cancel_reason}<p class="muted">
+            Cancelled: {gig.cancel_reason}
+          </p>{/if}
+        {#if manager && live}
+          <div class="actions">
+            {#if gig.status === "enquiry"}
+              <Button
+                variant="tinted"
+                loading={busy === "confirm"}
+                onclick={() => act("confirm", () => bookingsApi.setStatus(gigId, "confirm"), "Gig confirmed")}
+              >
+                {#snippet icon()}<Check />{/snippet}
+                Confirm
+              </Button>
+            {:else}
+              <Button
+                variant="tinted"
+                loading={busy === "complete"}
+                onclick={() =>
+                  act("complete", () => bookingsApi.setStatus(gigId, "complete"), "Marked as played")}
+              >
+                {#snippet icon()}<Check />{/snippet}
+                Mark played
+              </Button>
+            {/if}
+            <Button variant="ghost" onclick={() => (cancelOpen = true)}>
+              {#snippet icon()}<Ban />{/snippet}
+              Cancel gig
+            </Button>
+          </div>
+        {/if}
+      </div>
+    </Card>
 
+    <Segmented
+      label="Sections"
+      bind:value={tab}
+      options={[
+        { value: "details", label: gig.events.length > 1 ? `Events (${gig.events.length})` : "Details" },
+        { value: "money", label: "Money" },
+        { value: "people", label: `People (${gig.people.length})` },
+      ]}
+    />
+
+    {#if tab === "details"}
       {#each gig.events as e, i (e.id)}
         <ListGroup title={e.title ?? (gig.events.length > 1 ? `Event ${i + 1}` : "When and where")}>
           {#snippet action()}
@@ -310,99 +314,86 @@
           Add an event (e.g. Reception)
         </Button>
       {/if}
-
       {#if gig.notes}
         <ListGroup title="Notes"><p class="notes">{gig.notes}</p></ListGroup>
       {/if}
-
-      <ListGroup title="People">
-        {#snippet action()}
-          {#if manager}<button class="link" onclick={() => openPerson(null)}>Add</button>{/if}
-        {/snippet}
-        {#each gig.people as p (p.id)}
-          <ListRow
-            title={p.is_me ? `${p.name} (you)` : p.name}
-            subtitle={p.has_account ? undefined : "No account yet"}
-            onclick={manager || p.is_me ? () => openPerson(p) : undefined}
-          >
-            {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
-            {#snippet trailing()}<Pill tone={p.role === "manager" ? "accent" : undefined}
-                >{p.role === "manager" ? "Manager" : "Player"}</Pill
-              >{/snippet}
-          </ListRow>
-        {/each}
-      </ListGroup>
-    </div>
-
-    <div class="col">
+    {:else if tab === "money"}
       {#if money.fee && money.received && money.balance && money.payment_status}
-        <Card>
-          <div class="money">
+        {@const cancelled = gig.status === "cancelled"}
+        <ListGroup title="Client payments">
+          <div class="summary">
             <div class="money-head">
-              <h2>Client payment</h2>
-              <Pill tone={paymentTone(money.payment_status)}>{paymentLabel(money.payment_status)}</Pill>
+              <span class="muted">{cancelled ? "Gig cancelled" : "From the client"}</span>
+              {#if cancelled}<Pill>Cancelled</Pill>{:else}<Pill tone={paymentTone(money.payment_status)}
+                  >{paymentLabel(money.payment_status)}</Pill
+                >{/if}
             </div>
             <div class="stats">
               <Stat label="Fee" value={money.fee.amount_display} />
-              <Stat label="Received" value={money.received.amount_display} tone="green" />
-              <Stat
-                label={money.balance.amount_paise < 0 ? "Overpaid" : "Balance"}
-                value={money.balance.amount_display.replace("-", "")}
-                tone={money.balance.amount_paise > 0
-                  ? "amber"
-                  : money.balance.amount_paise < 0
-                    ? "violet"
-                    : undefined}
-              />
+              {#if cancelled && money.kept}
+                <Stat label="Kept" value={money.kept.amount_display} tone="green" />
+              {:else}
+                <Stat label="Received" value={money.received.amount_display} tone="green" />
+                <Stat
+                  label={money.balance.amount_paise < 0 ? "Overpaid" : "Balance"}
+                  value={money.balance.amount_display.replace("-", "")}
+                  tone={money.balance.amount_paise > 0
+                    ? "amber"
+                    : money.balance.amount_paise < 0
+                      ? "violet"
+                      : undefined}
+                />
+              {/if}
             </div>
-            <div
-              class="bar"
-              role="progressbar"
-              aria-label="Received"
-              aria-valuenow={Math.round(progress)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-            >
-              <span style:width="{progress}%"></span>
-            </div>
+            {#if !cancelled}
+              <div
+                class="bar"
+                role="progressbar"
+                aria-label="Received"
+                aria-valuenow={Math.round(progress)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
+                <span style:width="{progress}%"></span>
+              </div>
+            {/if}
             {#if manager}
-              <Button variant="primary" full onclick={() => (payOpen = true)}>
+              <Button variant={cancelled ? "secondary" : "primary"} full onclick={() => (payOpen = true)}>
                 {#snippet icon()}<Plus />{/snippet}
                 Record client payment
               </Button>
             {/if}
           </div>
-        </Card>
-        {#if money.payments?.length}
-          <ListGroup title="Client payments">
-            {#each money.payments as p (p.id)}
-              <ListRow
-                title="{p.amount.amount_display} · {methodLabel(p.method)}"
-                subtitle={[p.paid_on_display, p.note].filter(Boolean).join(" · ")}
-              >
-                {#snippet trailing()}
-                  {#if p.reversed_by_id}<Pill>Reversed</Pill>
-                  {:else if p.reverses_id}<Pill tone="violet">Correction</Pill>
-                  {:else if manager}
-                    <button
-                      class="icon-btn"
-                      aria-label="Reverse payment of {p.amount.amount_display}"
-                      onclick={() => reverse("payment", p.id, `the ${p.amount.amount_display} payment`)}
-                      ><Undo size={18} /></button
-                    >
-                  {/if}
-                {/snippet}
-              </ListRow>
-            {/each}
-          </ListGroup>
-        {/if}
+          {#each money.payments ?? [] as p (p.id)}
+            <ListRow
+              title="{p.kind === 'refund' ? 'Refund' : methodLabel(p.method)} · {p.amount.amount_display}"
+              subtitle={[p.paid_on_display, p.kind === "refund" ? methodLabel(p.method) : null, p.note]
+                .filter(Boolean)
+                .join(" · ")}
+            >
+              {#snippet trailing()}
+                {#if p.kind === "refund"}<Pill tone="amber">Refund</Pill>
+                {:else if p.reversed_by_id}<Pill>Reversed</Pill>
+                {:else if p.reverses_id}<Pill tone="violet">Correction</Pill>
+                {:else if manager}
+                  <button
+                    class="icon-btn"
+                    aria-label="Reverse payment of {p.amount.amount_display}"
+                    onclick={() => reverse("payment", p.id, `the ${p.amount.amount_display} payment`)}
+                    ><Undo size={18} /></button
+                  >
+                {/if}
+              {/snippet}
+            </ListRow>
+          {/each}
+        </ListGroup>
       {/if}
 
       {#if !manager && (money.mine.share.amount_paise > 0 || money.mine.payouts.length)}
-        <Card>
-          <div class="money">
+        <ListGroup title="Your share">
+          <div class="summary">
             <div class="money-head">
-              <h2>Your share</h2>
+              <span class="muted">For playing this gig</span>
               <Pill tone={paymentTone(money.mine.status)}>{payoutLabel(money.mine.status)}</Pill>
             </div>
             <div class="stats">
@@ -415,14 +406,18 @@
               />
             </div>
           </div>
-        </Card>
+          {#each money.mine.payouts as x (x.id)}
+            <ListRow
+              title="Paid · {x.amount.amount_display}"
+              subtitle="{x.paid_on_display} · {methodLabel(x.method)}"
+            />
+          {/each}
+        </ListGroup>
       {/if}
 
       {#if money.payees}
-        <ListGroup
-          title="Shares and payouts"
-          footer={manager ? "Tap someone to record a payout." : undefined}
-        >
+        {@const payouts = money.payees.flatMap((p) => p.payouts.map((x) => ({ ...x, name: p.name })))}
+        <ListGroup title="Shares and payouts" footer={manager ? "Tap someone to pay them." : undefined}>
           {#each money.payees as p (p.person_id)}
             <ListRow
               title={p.is_me ? `${p.name} (you)` : p.name}
@@ -438,12 +433,10 @@
               {/snippet}
             </ListRow>
           {:else}
-            <ListRow title="No shares yet" subtitle="Set each event's lineup to share the fee." />
+            <ListRow title="No shares yet" subtitle="Set each event's lineup (Details) to share the fee." />
           {/each}
-        </ListGroup>
-        {@const payouts = money.payees.flatMap((p) => p.payouts.map((x) => ({ ...x, name: p.name })))}
-        {#if payouts.length}
-          <ListGroup title="Payouts">
+          {#if payouts.length}
+            <p class="sub">Payments made</p>
             {#each payouts as p (p.id)}
               <ListRow
                 title="{p.name} · {p.amount.amount_display}"
@@ -464,13 +457,14 @@
                 {/snippet}
               </ListRow>
             {/each}
-          </ListGroup>
-        {/if}
+          {/if}
+        </ListGroup>
       {/if}
 
       {#if money.expenses && money.net && money.shares_total && money.expenses_total}
-        <ListGroup title="Expenses">
-          {#snippet action()}<button class="link" onclick={() => (expenseOpen = true)}>Add</button>{/snippet}
+        <ListGroup title="Expenses and net">
+          {#snippet action()}<button class="link" onclick={() => (expenseOpen = true)}>Add expense</button
+            >{/snippet}
           {#each money.expenses as x (x.id)}
             <ListRow
               title="{x.category} · {x.amount.amount_display}"
@@ -484,23 +478,39 @@
                 >
               {/snippet}
             </ListRow>
-          {:else}
-            <ListRow title="No expenses" subtitle="Travel, food, equipment…" />
           {/each}
-        </ListGroup>
-        <Card>
-          <div class="stats">
-            <Stat label="Shares" value={money.shares_total.amount_display} />
-            <Stat label="Expenses" value={money.expenses_total.amount_display} />
-            <Stat
-              label="Net"
-              value={money.net.amount_display}
-              tone={money.net.amount_paise < 0 ? "red" : "green"}
-              hint="Fee − shares − expenses"
-            />
+          <div class="summary totals">
+            <div class="stats">
+              <Stat label="Shares" value={money.shares_total.amount_display} />
+              <Stat label="Expenses" value={money.expenses_total.amount_display} />
+              <Stat
+                label="Net"
+                value={money.net.amount_display}
+                tone={money.net.amount_paise < 0 ? "red" : "green"}
+                hint={gig.status === "cancelled" ? "Kept − shares − expenses" : "Fee − shares − expenses"}
+              />
+            </div>
           </div>
-        </Card>
+        </ListGroup>
       {/if}
+    {:else}
+      <ListGroup title="People on this gig">
+        {#snippet action()}
+          {#if manager}<button class="link" onclick={() => openPerson(null)}>Add</button>{/if}
+        {/snippet}
+        {#each gig.people as p (p.id)}
+          <ListRow
+            title={p.is_me ? `${p.name} (you)` : p.name}
+            subtitle={p.has_account ? undefined : "No account yet"}
+            onclick={manager || p.is_me ? () => openPerson(p) : undefined}
+          >
+            {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
+            {#snippet trailing()}<Pill tone={p.role === "manager" ? "accent" : undefined}
+                >{p.role === "manager" ? "Manager" : "Player"}</Pill
+              >{/snippet}
+          </ListRow>
+        {/each}
+      </ListGroup>
 
       {#if manager}
         <ListGroup
@@ -529,10 +539,11 @@
           </Button>
         </div>
       {/if}
-    </div>
+    {/if}
   </div>
 
   <GigEditor bind:open={editOpen} {gig} onsaved={set} />
+  <CancelSheet bind:open={cancelOpen} {gig} onsaved={set} />
   <PaymentSheet
     bind:open={payOpen}
     title="Record client payment"
@@ -558,26 +569,42 @@
 {/if}
 
 <style>
-  .layout {
+  .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
+    max-width: 760px;
   }
-  .col {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
-    align-content: start;
-    min-width: 0;
-  }
-  .col > :global(.btn) {
+  .page > :global(.btn) {
     justify-self: start;
   }
-  @media (min-width: 1100px) {
-    .layout {
-      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-      align-items: start;
-    }
+  .client {
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+    margin: 0;
+  }
+  .client :global(svg) {
+    color: var(--text-3);
+    flex-shrink: 0;
+  }
+  .summary {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-4);
+  }
+  .summary.totals {
+    border-top: 1px solid var(--separator);
+  }
+  .sub {
+    margin: 0;
+    padding: var(--space-3) var(--space-4) var(--space-1);
+    border-top: 1px solid var(--separator);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-3);
   }
   .hero {
     display: grid;
@@ -632,20 +659,11 @@
     padding: var(--space-3) var(--space-4);
     border-top: 1px solid var(--separator);
   }
-  .money {
-    display: grid;
-    gap: var(--space-4);
-  }
   .money-head {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: var(--space-2);
-  }
-  h2 {
-    margin: 0;
-    font-size: var(--text-lg);
-    font-weight: 700;
   }
   .stats {
     display: grid;

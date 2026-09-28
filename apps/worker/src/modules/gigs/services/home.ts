@@ -152,7 +152,9 @@ export async function getMyReport(
     with_tags: true,
   });
   if (unknown) rows = [];
-  if (!input.status) rows = rows.filter((g) => g.status !== "cancelled");
+  // Cancelled gigs count only when money moved (an advance kept, or someone paid).
+  if (!input.status)
+    rows = rows.filter((g) => g.status !== "cancelled" || (g.received_paise ?? 0) > 0 || g.paid_paise !== 0);
 
   const months = new Map<string, PersonGigSummary[]>();
   for (const g of rows) {

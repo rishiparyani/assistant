@@ -148,6 +148,11 @@ const MIGRATIONS: Migrations = [
   alter table gig add column collective_name text;
   create table gig_tags (tag_id text primary key, name text not null, position integer not null);
   `,
+  // Refunds (e.g. an advance returned when a gig is cancelled) are their own entries, not
+  // corrections: kind 'refund', negative amount.
+  `
+  alter table payments add column kind text not null default 'payment';
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -285,6 +290,7 @@ type LineupRow = {
 };
 type EntryRow = {
   id: string;
+  kind: "payment" | "refund";
   amount_paise: number;
   paid_on: string;
   method: PaymentMethod;
@@ -419,13 +425,18 @@ export class BookingObject extends DurableObject<Env> {
     return this.update({ version, title }, actor, key);
   }
 
+  /**
+   * Confirm, complete or cancel. Cancelling can refund part or all of what the client
+   * paid (in the same step); whatever isn't refunded is kept as the gig's income.
+   */
   async setStatus(
     action: "confirm" | "complete" | "cancel",
     reason: string | null,
     actor: Actor,
     key: string | null,
+    refund: { amount_paise: number; method: PaymentMethod } | null = null,
   ): Promise<BookingView> {
-    return this.write(["status", action, reason], actor, key, "manager", (gig) => {
+    return this.write(["status", action, reason, refund], actor, key, "manager", (gig) => {
       const t = TRANSITIONS[action];
       if (gig.status === t.to) return null; // already there: nothing to do
       if (!t.from.includes(gig.status))
@@ -433,6 +444,27 @@ export class BookingObject extends DurableObject<Env> {
           reason: "invalid_transition",
           status: gig.status,
         });
+      if (refund && refund.amount_paise > 0) {
+        if (action !== "cancel") throw new ObjectError("validation_failed", "Refunds go with a cancellation");
+        const received = this.totals(gig, []).received;
+        if (refund.amount_paise > received)
+          throw new ObjectError("validation_failed", "You can't refund more than the client paid", {
+            reason: "refund_too_large",
+            received_paise: received,
+          });
+        const id = this.insertEntry(
+          "payments",
+          {
+            amount_paise: -refund.amount_paise,
+            paid_on: isoDateIST(nowIso()),
+            method: refund.method,
+            note: "Refund on cancellation",
+          },
+          actor,
+          null,
+        );
+        this.sql.exec(`update payments set kind = 'refund' where id = ?`, id);
+      }
       this.sql.exec(
         `update gig set status = ?, cancel_reason = ?, version = version + 1, updated_at = ? where id = ?`,
         t.to,
@@ -445,7 +477,11 @@ export class BookingObject extends DurableObject<Env> {
         entityType: "gig",
         entityId: gig.id,
         before: { status: gig.status },
-        after: { status: t.to, reason: action === "cancel" ? reason : undefined },
+        after: {
+          status: t.to,
+          reason: action === "cancel" ? reason : undefined,
+          refund_paise: refund?.amount_paise || undefined,
+        },
       };
     });
   }
@@ -855,7 +891,7 @@ export class BookingObject extends DurableObject<Env> {
           first_start_at: events[0]?.start_at ?? gig.created_at,
           share_paise: sum(mine.map((l) => l.share_paise)),
           paid_paise: this.paidTo(p.id),
-          fee_paise: manager ? gig.fee_paise : null,
+          fee_paise: manager ? totals.fee : null,
           received_paise: manager ? totals.received : null,
           expenses_paise: manager ? totals.expenses : null,
           shares_total_paise: manager ? totals.shares : null,
@@ -1017,7 +1053,8 @@ export class BookingObject extends DurableObject<Env> {
     const extra = table === "payouts" ? ", person_id, event_id" : "";
     return this.sql
       .exec<EntryRow>(
-        `select id, amount_paise, paid_on, method, note, reverses_id, created_at${extra}
+        `select id, ${table === "payments" ? "kind" : "'payment' as kind"}, amount_paise, paid_on, method, note,
+                reverses_id, created_at${extra}
          from ${table} order by paid_on, created_at, rowid`,
       )
       .toArray();
@@ -1050,7 +1087,9 @@ export class BookingObject extends DurableObject<Env> {
     );
     const shares = sum(lineup.map((l) => l.share_paise));
     const payouts = Number(this.sql.exec(`select coalesce(sum(amount_paise), 0) as n from payouts`).one().n);
-    return { fee: gig.fee_paise, received, expenses, shares, payouts };
+    // A cancelled gig earns only what the client paid and wasn't refunded.
+    const fee = gig.status === "cancelled" ? Math.max(0, received) : gig.fee_paise;
+    return { fee, received, expenses, shares, payouts };
   }
 
   private insertEntry(
@@ -1084,6 +1123,10 @@ export class BookingObject extends DurableObject<Env> {
     const rows = table === "payments" ? this.entryRows("payments") : this.entryRows("payouts");
     const row = rows.find((r) => r.id === id);
     if (!row) throw new ObjectError("not_found", `${what} not found`);
+    if (row.kind === "refund")
+      throw new ObjectError("conflict", "A refund can't be reversed; record a new payment instead", {
+        reason: "is_refund",
+      });
     if (row.reverses_id)
       throw new ObjectError(
         "conflict",
@@ -1382,7 +1425,8 @@ export class BookingObject extends DurableObject<Env> {
     const payees = people.map(payeeOf).filter((x) => x.share.amount_paise !== 0 || x.payouts.length > 0);
     return {
       can_manage: manager,
-      fee: see.fee ? money(t.fee) : null,
+      fee: see.fee ? money(gig.fee_paise) : null,
+      kept: see.fee && gig.status === "cancelled" ? money(t.fee) : null,
       received: see.fee ? money(t.received) : null,
       balance: see.fee ? money(t.fee - t.received) : null,
       payment_status: see.fee ? paymentStatus(t.fee, t.received) : null,
@@ -1448,6 +1492,7 @@ function entryViews(rows: EntryRow[]): GigPaymentView[] {
     paid_on_display: formatDateIST(r.paid_on),
     method: r.method,
     note: r.note,
+    kind: r.kind,
     reverses_id: r.reverses_id,
     reversed_by_id: reversedBy.get(r.id) ?? null,
     created_at: r.created_at,

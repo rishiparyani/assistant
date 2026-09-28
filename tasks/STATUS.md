@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **Owner feedback round 1**: gig page tabs (Details / Money / People) with each money list inside its card; cancel with keep or refund of an advance (gig object v5: `payments.kind`); add people from the lineup sheet (the "could only add myself" report: only people on the gig were listed). Monitoring part 1 live on prod (#19; the owner switched on Analytics Engine).
+
 - **Monitoring, part 1**: every API action is counted with its status and duration in Workers Analytics Engine (`core/metrics.ts`, binding `METRICS`, datasets `assistant_dev_metrics` / `assistant_metrics`; ids and numbers only). Admin panel "Actions, last 24 hours" (`GET /api/admin/operations`) reads them once the optional `ANALYTICS_TOKEN` secret exists. Live updates (#18) and device cache (#17) are on prod.
 
 - **Smooth app, step 2: live updates**: `GET /api/live` WebSocket to the person object (hibernating; `setWebSocketAutoResponse` answers pings), which sends `gig_changed` after applying a summary; module hook `live` in `ModuleDefinition`, origin check in core. Web: `core/live.ts` connects while visible and signed in, reconnects with back-off, refreshes on-screen queries (bunched). Two-browser check: a co-manager's payment shows on the other's open gig page in ~1.9 s, Home too. Tests: 108 worker (2 new in `live.test.ts`).
