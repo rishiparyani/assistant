@@ -91,8 +91,11 @@ describe("booking object", () => {
     // Same key, same request: same answer, nothing done twice.
     expect(await stub.create(input, actor("user-m1"), "key-1")).toEqual(view);
     // Same key, different request: refused.
-    await expect(stub.create({ ...input, title: "Other" }, actor("user-m1"), "key-1")).rejects.toThrow(
-      /different request/,
+    expect(await errorOf(stub.create({ ...input, title: "Other" }, actor("user-m1"), "key-1"))).toMatchObject(
+      {
+        code: "conflict",
+        details: { reason: "idempotency_key_reused" },
+      },
     );
     // New key: the gig already exists.
     expect((await errorOf(stub.create(input, actor("user-m1"), "key-2")))?.code).toBe("conflict");

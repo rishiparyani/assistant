@@ -3,6 +3,8 @@
 // migrations run when the object wakes, writes are idempotent and audited, and changes
 // that others must hear about go through a one-row outbox.
 
+import { ObjectError } from "./errors.ts";
+
 /** Ordered schema migrations; index + 1 is the version. Never edit one that has shipped. */
 export type Migrations = readonly string[];
 
@@ -95,12 +97,6 @@ export function audit(sql: SqlStorage, actor: Actor, entry: AuditEntry) {
 
 const IDEMPOTENCY_TTL_MS = 24 * 3600_000;
 
-export class IdempotencyConflict extends Error {
-  constructor() {
-    super("This Idempotency-Key was already used for a different request");
-  }
-}
-
 /**
  * Runs `write` once per key, atomically with its own writes: a repeat with the same key
  * returns the stored result without running again. Must be called with synchronous work
@@ -124,7 +120,10 @@ export function idempotent<T>(
         )
         .toArray()[0];
       if (row) {
-        if (row.request_hash !== requestHash) throw new IdempotencyConflict();
+        if (row.request_hash !== requestHash)
+          throw new ObjectError("conflict", "This Idempotency-Key was already used for a different request", {
+            reason: "idempotency_key_reused",
+          });
         return JSON.parse(row.response_json) as T;
       }
     }
