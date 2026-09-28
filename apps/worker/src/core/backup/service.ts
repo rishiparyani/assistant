@@ -19,6 +19,8 @@ const D1_TABLES: Record<string, readonly string[]> = {
   pending_people: [],
   admins: [],
   admin_audit: [],
+  // access_tokens is left out on purpose: links and tokens are made again after a restore.
+  user_audit: [],
 };
 
 export interface BackupFile {

@@ -2,7 +2,7 @@
 // Objects, docs/design/gig-centric.md §4). Conventions: ULID text ids, snake_case, UTC
 // ISO timestamps as text, indexes on every filtered column.
 import { sql } from "drizzle-orm";
-import { index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { user } from "./auth-schema.ts";
 
 export * from "./auth-schema.ts";
@@ -57,3 +57,49 @@ export const alertState = sqliteTable("alert_state", {
   since: text("since"),
   lastSentAt: text("last_sent_at"),
 });
+
+/**
+ * Secrets people use to reach their own data without signing in: a private calendar feed
+ * link (kind "calendar", one per person) and, from T09, API tokens for Siri Shortcuts.
+ * Only a SHA-256 hash is used to look them up; calendar links are also kept sealed
+ * (encrypted) so the settings page can show them again. Written only when created or revoked.
+ */
+export const accessTokens = sqliteTable(
+  "access_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["calendar", "api"] }).notNull(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    sealed: text("sealed"),
+    scopes: text("scopes").notNull().default(""),
+    createdAt: timestamp("created_at"),
+    lastUsedAt: text("last_used_at"),
+    revokedAt: text("revoked_at"),
+    /** The Idempotency-Key of the request that made it (a retry returns the same token). */
+    requestKey: text("request_key"),
+  },
+  (t) => [
+    uniqueIndex("access_tokens_hash_idx").on(t.tokenHash),
+    index("access_tokens_user_idx").on(t.userId, t.kind),
+    index("access_tokens_request_idx").on(t.requestKey),
+  ],
+);
+
+/** What people did to their own account-level settings (tokens, feeds). */
+export const userAudit = sqliteTable(
+  "user_audit",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    source: text("source", { enum: SOURCES }).notNull(),
+    action: text("action").notNull(),
+    entityId: text("entity_id").notNull(),
+    detailJson: text("detail_json"),
+    createdAt: timestamp("created_at"),
+  },
+  (t) => [index("user_audit_user_idx").on(t.userId, t.createdAt)],
+);

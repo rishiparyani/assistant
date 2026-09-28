@@ -9,6 +9,7 @@
   import { navigate } from "../router.svelte.ts";
   import { refreshSession, session } from "../session.svelte.ts";
   import { adminApi } from "../api.ts";
+  import CalendarFeed from "./CalendarFeed.svelte";
 
   // Only admins see the admin panel link.
   let isAdmin = $state(false);
@@ -91,6 +92,8 @@
       </div>
     </Card>
   {/if}
+
+  <CalendarFeed />
 
   <ListGroup
     title="Passkeys"

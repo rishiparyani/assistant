@@ -4,6 +4,8 @@ _Updated: 2026-09-28_
 
 ## Last done
 
+- **Calendar feed (T08)** (decision 2026-09-28): Settings → Calendar: turn on, "Add to Apple Calendar" (webcal), copy link (Google steps shown), new link, turn off. `/api/calendar/<token>.ics` with my gigs' events (no money; cancelled/tentative marked). D1 migration `0006_access_tokens` (`access_tokens`, `user_audit`); core hook `calendar` in module definitions; `ctx.sealer`. Tests: 63 worker (4 new in `calendar.test.ts`); browser check at 390/820/1280 light and dark. Address book live on prod ([rishiparyani/assistant#25](https://github.com/rishiparyani/assistant/pull/25)).
+
 - **Address book** (decision 2026-09-28): my clients, venues and people in my person object (schema v7), filled in from gigs I manage (via the summaries, managers only) and by hand; `find_contacts`, `save_contact`, `update_contact`, `remove_contact` (`/api/me/contacts`); in nightly backups. Web: "Contacts" tab (search, kinds, add/edit/remove sheet) and suggestions while typing client, venue or person in the new-gig form (`core/ui/SuggestField`; picking fills phone, city, email/account). Tests: 57 worker (3 new in `contacts.test.ts`); browser walkthrough at 390/820/1280 light and dark.
 
 - **Backups to Google Drive, live on prod** ([rishiparyani/assistant#24](https://github.com/rishiparyani/assistant/pull/24)) (decision 2026-09-28): nightly (~02:30 IST) gzip JSON of D1 (secrets blanked) + every gig object, uploaded by the Worker to "Assistant backups (<env>)" with `drive.file` scope; newest 60 kept; restore (owners, never overwrites); "Backup" alert when failed/overdue; admin panel Backups section (connect, back up now, disconnect, restore). Owner steps in `docs/setup.md` → Google Drive backups. Alerts live on prod (#23).
@@ -59,7 +61,7 @@ _Updated: 2026-09-28_
 
 ## Next
 
-1. Calendar feed (T08), then Siri with API tokens (T09), MCP (T10), notifications (T11). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
+1. Siri with API tokens (T09), MCP (T10), notifications (T11). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).

@@ -43,6 +43,13 @@
       "when": 1790626664540,
       "tag": "0005_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790629059981,
+      "tag": "0006_access_tokens",
+      "breakpoints": true
     }
   ]
 }

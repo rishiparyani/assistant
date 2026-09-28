@@ -1,4 +1,5 @@
 // The contract every feature module implements (see docs/modules.md).
+import type { CalendarEvent } from "./calendar/ics.ts";
 import type { ObjectBindings } from "./context.ts";
 import type { AnyOperation } from "./operations.ts";
 
@@ -94,6 +95,12 @@ export interface ModuleDefinition {
    * authenticated and origin-checked by core) and returns the 101 response. One module.
    */
   live?: (env: Env, userId: string, request: Request) => Promise<Response>;
+  /** Events for this person's private calendar feed (T08), e.g. their gigs. */
+  calendar?: (ctx: CalendarCtx, userId: string) => Promise<CalendarEvent[]>;
+}
+
+export interface CalendarCtx extends AdminCtx {
+  baseUrl: string;
 }
 
 export function defineModule<const M extends ModuleDefinition>(module: M): M {

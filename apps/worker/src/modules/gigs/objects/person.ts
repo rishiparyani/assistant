@@ -769,4 +769,34 @@ export class PersonObject extends DurableObject<Env> {
     });
     return added;
   }
+
+  // --- Calendar feed -------------------------------------------------------------------
+
+  /** My events from `from` on (cancelled ones too, so calendars remove them), soonest first. */
+  async calendarEvents(from: string, limit = 500) {
+    return this.sql
+      .exec<{
+        event_id: string;
+        gig_id: string;
+        gig_title: string;
+        event_title: string | null;
+        client_name: string | null;
+        start_at: string;
+        end_at: string | null;
+        venue_name: string | null;
+        status: string;
+        role: "manager" | "player";
+        part: string | null;
+        collective_name: string | null;
+        updated_at: string | null;
+      }>(
+        `select e.event_id, e.gig_id, e.gig_title, e.event_title, e.client_name, e.start_at, e.end_at,
+           e.venue_name, e.status, e.role, e.part, e.collective_name, a.at as updated_at
+         from my_events e left join applied a on a.gig_id = e.gig_id
+         where e.start_at >= ? order by e.start_at limit ?`,
+        from,
+        limit,
+      )
+      .toArray();
+  }
 }

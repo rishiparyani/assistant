@@ -2,6 +2,7 @@
 import { z } from "zod";
 import type { MeResponse } from "@assistant/shared";
 import { defineOperation } from "./operations.ts";
+import { calendarOperations } from "./calendar/operations.ts";
 
 export const coreOperations = [
   defineOperation({
@@ -13,4 +14,5 @@ export const coreOperations = [
     input: z.object({}),
     handler: async (ctx): Promise<MeResponse> => ({ user: ctx.user }),
   }),
+  ...calendarOperations,
 ];

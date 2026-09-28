@@ -5,6 +5,7 @@ import { createDb, type Db } from "./db/client.ts";
 import type { Source } from "./db/schema.ts";
 import { getAuth } from "./auth/auth.ts";
 import { AppError } from "./errors.ts";
+import { decryptSecret, encryptSecret } from "./crypto.ts";
 import type { UserCreatedHook } from "./module.ts";
 
 export interface CtxUser {
@@ -39,6 +40,25 @@ export interface UserCtx {
   user: CtxUser;
   source: Source;
   baseUrl: string;
+  /** Encrypts / decrypts small secrets kept in D1 (the key itself stays out of services). */
+  sealer: Sealer;
+}
+
+export interface Sealer {
+  seal: (plaintext: string) => Promise<string>;
+  unseal: (sealed: string) => Promise<string>;
+}
+
+export function sealerFor(env: Env): Sealer {
+  const secret = (env as { BETTER_AUTH_SECRET?: string }).BETTER_AUTH_SECRET;
+  const need = () => {
+    if (!secret) throw new Error("BETTER_AUTH_SECRET is missing");
+    return secret;
+  };
+  return {
+    seal: (text) => encryptSecret(need(), text),
+    unseal: (sealed) => decryptSecret(need(), sealed),
+  };
 }
 
 export type AppEnv = {
@@ -64,6 +84,7 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
     user: { id: user.id, name: user.name, email: user.email, image: user.image ?? null },
     source: "web",
     baseUrl: c.env.BASE_URL,
+    sealer: sealerFor(c.env),
   });
   await next();
 });

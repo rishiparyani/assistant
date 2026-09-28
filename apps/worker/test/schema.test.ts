@@ -16,6 +16,7 @@ describe("migrations", () => {
     ).all<{ name: string }>();
     expect(results.map((r) => r.name)).toEqual(
       [
+        "access_tokens",
         "account",
         "admin_audit",
         "admins",
@@ -35,6 +36,7 @@ describe("migrations", () => {
         "session",
         "tags",
         "user",
+        "user_audit",
         "verification",
       ].sort(),
     );
@@ -87,6 +89,14 @@ describe("indexes", () => {
     [`select gig_id, person_id from pending_people where email = ?`, "pending_people_email_person_uidx"],
     [`select * from admin_audit order by created_at desc limit 50`, "admin_audit_created_idx"],
     [`select count(*) from "user" where createdAt >= ?`, "user_createdAt_idx"],
+    [
+      `select id, user_id from access_tokens where token_hash = ? and kind = 'calendar' and revoked_at is null`,
+      "access_tokens_hash_idx",
+    ],
+    [
+      `select id from access_tokens where user_id = ? and kind = 'calendar' and revoked_at is null`,
+      "access_tokens_user_idx",
+    ],
   ])("%s uses %s", async (query, indexName) => {
     const params = (query.match(/\?/g) ?? []).map(() => "x");
     const { results } = await env.DB.prepare(`explain query plan ${query}`)

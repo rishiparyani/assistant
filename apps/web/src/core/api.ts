@@ -1,7 +1,13 @@
 // The web app's only way to reach the backend. No business logic here.
 import { untrack } from "svelte";
 import { activity } from "./activity.svelte.ts";
-import { isHealthResponse, type ApiErrorBody, type HealthResponse, type MeResponse } from "@assistant/shared";
+import {
+  isHealthResponse,
+  type ApiErrorBody,
+  type CalendarFeedView,
+  type HealthResponse,
+  type MeResponse,
+} from "@assistant/shared";
 
 export class ApiError extends Error {
   constructor(
@@ -136,3 +142,10 @@ export const api = {
 
 /** A readable message for any thrown value. */
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/** My private calendar feed link (core, T08). */
+export const calendarApi = {
+  get: () => request<CalendarFeedView>("GET", "/api/me/calendar"),
+  enable: (reset = false) => request<CalendarFeedView>("POST", "/api/me/calendar", reset ? { reset } : {}),
+  disable: () => request<CalendarFeedView>("DELETE", "/api/me/calendar"),
+};

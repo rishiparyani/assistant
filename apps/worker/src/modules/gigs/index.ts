@@ -6,6 +6,7 @@ import { gigsAdmin } from "./admin.ts";
 import { attachPendingPeople } from "./services/tags.ts";
 import { personName } from "./objects/names.ts";
 import { exportGigs, importGigs } from "./backup.ts";
+import { gigsCalendar } from "./calendar.ts";
 
 export const gigsModule = defineModule({
   id: "gigs",
@@ -29,4 +30,6 @@ export const gigsModule = defineModule({
   // Each person's object holds their open apps' WebSockets and tells them when a gig
   // they're on changes.
   live: (env, userId, request) => env.PEOPLE.getByName(personName(userId)).fetch(request),
+  // My gigs in my private calendar feed.
+  calendar: gigsCalendar,
 });
