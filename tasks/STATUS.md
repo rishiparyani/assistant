@@ -29,7 +29,7 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Owner: add **Queues: Edit** to the Cloudflare API token (the deploy workflow creates the queues). Then verify the step 1 deploy on dev and ship it.
+1. Step 1 is deployed on dev (2026-09-28; the token could already create queues). It isn't reachable through the API yet, so it goes to prod together with step 2, once there's something to verify end to end.
 2. **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
