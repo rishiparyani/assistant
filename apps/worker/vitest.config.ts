@@ -23,5 +23,10 @@ export default defineConfig({
       },
     })),
   ],
-  test: { setupFiles: ["./test/setup.ts"] },
+  test: {
+    setupFiles: ["./test/setup.ts"],
+    // Tests that wait for summaries to be delivered poll for up to 8 s (waitFor), and CI
+    // runners can be several times slower than a laptop; 5 s (the default) cut them short.
+    testTimeout: 30_000,
+  },
 });
