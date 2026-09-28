@@ -9,6 +9,8 @@ Gig-centric (docs/design/gig-centric.md §5, decided 2026-09-28). Workspaces wer
 - **Month index** (`index:<YYYY-MM>`): one card per event (date, venue, client, managers, status) for duplicate warnings; `created` registry used by the rebuild tool.
 - **Pending** (`pending:<shard>`): gigs whose outbox couldn't be handed to the queue yet.
 
+- **Inbox** (`inbox:<user id>`, core): `notifications` (latest 100; read or not) and `devices` (push subscriptions, up to 10).
+
 Each object migrates its own schema when it wakes (`_schema` table).
 
 ## D1 (shared, written rarely)

@@ -6,3 +6,4 @@ export * from "./pagination.ts";
 export * from "./me.ts";
 export * from "./calendar.ts";
 export * from "./tokens.ts";
+export * from "./notifications.ts";

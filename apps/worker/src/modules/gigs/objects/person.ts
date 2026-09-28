@@ -3,7 +3,7 @@
 // may repeat or arrive out of order: a delivery replaces the gig's rows only if its
 // sequence number isn't older than what's already applied.
 import { DurableObject } from "cloudflare:workers";
-import { ulid } from "@assistant/shared";
+import { formatDateTimeIST, formatINR, ulid } from "@assistant/shared";
 import type { ContactKind, ContactView } from "@assistant/shared";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import {
@@ -16,6 +16,8 @@ import {
   type Migrations,
 } from "../../../core/objects/storage.ts";
 import type { LearnedContact, PersonEventSummary, PersonGigSummary } from "./types.ts";
+import { notify } from "../../../core/push/notify.ts";
+import type { NewNotification } from "../../../core/push/inbox.ts";
 
 const MIGRATIONS: Migrations = [
   `
@@ -221,6 +223,88 @@ export class PersonObject extends DurableObject<Env> {
     }
   }
 
+  /** Whose object this is (from its name, `person:<user id>`). */
+  private get userId(): string | null {
+    const name = this.ctx.id.name;
+    return name?.startsWith("person:") ? name.slice("person:".length) : null;
+  }
+
+  /**
+   * What to tell me about this delivery, compared with what I had (run before replacing
+   * the rows). Nothing for changes I made myself, or for gigs that are over.
+   */
+  private noticesFor(
+    gigId: string,
+    rows: PersonEventSummary[],
+    gig: PersonGigSummary | null,
+  ): NewNotification[] {
+    const me = this.userId;
+    if (!gig || !me || gig.changed_by === me) return [];
+    const before = this.sql
+      .exec<{ status: string; paid_paise: number; gig_title: string }>(
+        `select status, paid_paise, gig_title from my_gigs where gig_id = ?`,
+        gigId,
+      )
+      .toArray()[0];
+    const url = `/gigs/${gigId}`;
+    const now = new Date().toISOString();
+    const next = rows
+      .filter((r) => r.start_at >= now)
+      .sort((a, b) => a.start_at.localeCompare(b.start_at))[0];
+    const where = (r: PersonEventSummary | undefined) =>
+      r
+        ? [formatDateTimeIST(r.start_at).replace(/ IST$/, ""), r.venue_name].filter(Boolean).join(" · ")
+        : null;
+    const out: NewNotification[] = [];
+    if (!before) {
+      if (gig.status !== "cancelled" && next)
+        out.push({
+          kind: "gig_added",
+          title: `You're on “${gig.gig_title}”`,
+          body: [where(next), gig.role === "manager" ? "as a manager" : null].filter(Boolean).join(" · "),
+          url,
+        });
+      return out;
+    }
+    if (before.status !== "cancelled" && gig.status === "cancelled") {
+      out.push({ kind: "gig_cancelled", title: `“${gig.gig_title}” was cancelled`, body: where(next), url });
+      return out;
+    }
+    if (before.status === "enquiry" && gig.status === "confirmed")
+      out.push({ kind: "gig_confirmed", title: `“${gig.gig_title}” is confirmed`, body: where(next), url });
+    if (gig.paid_paise > before.paid_paise)
+      out.push({
+        kind: "paid",
+        title: `You were paid ${formatINR(gig.paid_paise - before.paid_paise)}`,
+        body: `For “${gig.gig_title}”`,
+        url,
+      });
+    // A time or venue change on an event that's still ahead.
+    const old = new Map(
+      this.sql
+        .exec<{ event_id: string; start_at: string; venue_name: string | null }>(
+          `select event_id, start_at, venue_name from my_events where gig_id = ?`,
+          gigId,
+        )
+        .toArray()
+        .map((e) => [e.event_id, e]),
+    );
+    const moved = rows.find((r) => {
+      const o = old.get(r.event_id);
+      return (
+        o && r.start_at >= now && (o.start_at !== r.start_at || (o.venue_name ?? "") !== (r.venue_name ?? ""))
+      );
+    });
+    if (moved && gig.status !== "cancelled")
+      out.push({
+        kind: "gig_changed",
+        title: `“${gig.gig_title}” changed`,
+        body: `Now ${where(moved)}`,
+        url,
+      });
+    return out;
+  }
+
   /** Replaces this gig's rows if `seq` is at least what was applied. Returns whether applied. */
   async apply(
     gigId: string,
@@ -228,11 +312,13 @@ export class PersonObject extends DurableObject<Env> {
     rows: PersonEventSummary[],
     gig: PersonGigSummary | null = null,
   ): Promise<boolean> {
+    let notices: NewNotification[] = [];
     const applied = this.ctx.storage.transactionSync(() => {
       const current = this.sql
         .exec<{ seq: number }>(`select seq from applied where gig_id = ?`, gigId)
         .toArray()[0]?.seq;
       if (current !== undefined && seq < current) return false;
+      notices = this.noticesFor(gigId, rows, gig);
       this.sql.exec(`delete from my_events where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gigs where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gig_tags where gig_id = ?`, gigId);
@@ -302,6 +388,8 @@ export class PersonObject extends DurableObject<Env> {
       return true;
     });
     if (applied) this.notify(gigId);
+    // Tell me what changed, unless I changed it (best effort; never blocks the update).
+    if (applied && this.userId) for (const n of notices) await notify(this.env, this.userId, n);
     return applied;
   }
 

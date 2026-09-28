@@ -4,6 +4,7 @@ import type { MeResponse } from "@assistant/shared";
 import { defineOperation } from "./operations.ts";
 import { calendarOperations } from "./calendar/operations.ts";
 import { apiTokenOperations } from "./api-tokens.ts";
+import { notificationOperations } from "./push/operations.ts";
 
 export const coreOperations = [
   defineOperation({
@@ -17,4 +18,5 @@ export const coreOperations = [
   }),
   ...calendarOperations,
   ...apiTokenOperations,
+  ...notificationOperations,
 ];

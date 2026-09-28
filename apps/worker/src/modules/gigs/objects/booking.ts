@@ -895,6 +895,10 @@ export class BookingObject extends DurableObject<Env> {
       const totals = this.totals(gig, lineup);
       const tagRows = this.tagRows();
       const settings = settingsOf(gig);
+      const changedBy =
+        this.sql
+          .exec<{ actor_user_id: string | null }>(`select actor_user_id from _audit order by id desc limit 1`)
+          .toArray()[0]?.actor_user_id ?? null;
       for (const p of people) {
         if (!p.user_id) continue;
         const mine = lineup.filter((l) => l.person_id === p.id);
@@ -925,6 +929,7 @@ export class BookingObject extends DurableObject<Env> {
           )
             .filter((x) => x.user_id && x.user_id !== p.user_id)
             .map((x) => x.user_id!),
+          changed_by: changedBy,
           ...(manager ? { contacts: this.learnedContacts(gig, events, people, p.user_id) } : {}),
         };
         const rows = events.map((e) => ({

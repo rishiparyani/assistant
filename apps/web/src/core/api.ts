@@ -9,6 +9,7 @@ import {
   type CreatedApiTokenView,
   type HealthResponse,
   type MeResponse,
+  type NotificationsView,
 } from "@assistant/shared";
 
 export class ApiError extends Error {
@@ -158,4 +159,10 @@ export const tokensApi = {
   create: (name: string, write: boolean) =>
     request<CreatedApiTokenView>("POST", "/api/me/tokens", { name, write }),
   revoke: (id: string) => request<{ revoked: true }>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
+};
+
+/** My notifications (core, T11). */
+export const notificationsApi = {
+  list: () => request<NotificationsView>("GET", "/api/me/notifications?limit=20"),
+  markAllRead: () => request<{ unread: 0 }>("POST", "/api/me/notifications/read", {}),
 };

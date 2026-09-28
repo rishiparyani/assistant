@@ -25,3 +25,6 @@ export {
   PendingObject,
   PersonObject,
 } from "./modules/gigs/objects/index.ts";
+
+// Core: one inbox (notifications, push devices) per person.
+export { InboxObject } from "./core/push/inbox.ts";

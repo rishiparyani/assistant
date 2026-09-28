@@ -10,6 +10,7 @@
   import { refreshSession, session } from "../session.svelte.ts";
   import { adminApi } from "../api.ts";
   import CalendarFeed from "./CalendarFeed.svelte";
+  import Notifications from "./Notifications.svelte";
   import ApiTokens from "./ApiTokens.svelte";
   import AiAssistants from "./AiAssistants.svelte";
 
@@ -94,6 +95,8 @@
       </div>
     </Card>
   {/if}
+
+  <Notifications />
 
   <CalendarFeed />
 
