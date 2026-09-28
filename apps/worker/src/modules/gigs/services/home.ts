@@ -72,7 +72,10 @@ export async function getHome(ctx: OpUserCtx): Promise<HomeView> {
   if (ctx.user.email)
     await attachPendingPeople(ctx.d1, ctx.objects, { id: ctx.user.id, email: ctx.user.email });
   const person = personStub(ctx);
-  const [events, gigs] = await Promise.all([person.events({ from: nowIso, limit: 40 }), person.gigs()]);
+  const [events, gigs] = await Promise.all([
+    person.events({ from: nowIso, exclude_status: "cancelled", limit: 8 }),
+    person.gigs(),
+  ]);
 
   const live = gigs.filter((g) => g.status !== "cancelled");
   const played = live.filter((g) => g.first_start_at <= nowIso);
@@ -146,6 +149,7 @@ export async function getMyReport(
     client: input.client,
     collective_id: collective?.id,
     tag_ids: tags.map((t) => t.id),
+    with_tags: true,
   });
   if (unknown) rows = [];
   if (!input.status) rows = rows.filter((g) => g.status !== "cancelled");

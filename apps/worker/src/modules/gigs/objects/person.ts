@@ -220,6 +220,8 @@ export class PersonObject extends DurableObject<Env> {
       to?: string;
       q?: string;
       status?: string;
+      /** Leave out events of gigs with this status (Home skips cancelled ones). */
+      exclude_status?: string;
       order?: "asc" | "desc";
       limit?: number;
       after?: [string, string] | null;
@@ -234,7 +236,7 @@ export class PersonObject extends DurableObject<Env> {
                 status, role, part, share_paise, collective_name
          from my_events
          where start_at >= ? and start_at < ?
-           and (? is null or status = ?)
+           and (? is null or status = ?) and (? is null or status <> ?)
            and (? is null or lower(gig_title || ' ' || coalesce(event_title, '') || ' ' || coalesce(client_name, '')
                 || ' ' || coalesce(venue_name, '')) like ? escape '\\')
            and (? is null or start_at ${cmp} ? or (start_at = ? and event_id ${cmp} ?))
@@ -244,6 +246,8 @@ export class PersonObject extends DurableObject<Env> {
         q.to ?? "9999",
         q.status ?? null,
         q.status ?? null,
+        q.exclude_status ?? null,
+        q.exclude_status ?? null,
         q.q ? 1 : null,
         q.q ? `%${q.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null,
         after ? 1 : null,
@@ -266,6 +270,8 @@ export class PersonObject extends DurableObject<Env> {
       collective_id?: string;
       /** Gigs carrying all of these tags. */
       tag_ids?: string[];
+      /** Load each gig's custom tags (reports); Home doesn't need them. */
+      with_tags?: boolean;
     } = {},
   ): Promise<PersonGigSummary[]> {
     const tagIds = (q.tag_ids ?? []).slice(0, 10);
@@ -297,9 +303,15 @@ export class PersonObject extends DurableObject<Env> {
       )
       .toArray();
     const tags = new Map<string, { id: string; name: string }[]>();
-    for (const t of this.sql.exec<{ gig_id: string; tag_id: string; name: string }>(
-      `select gig_id, tag_id, name from my_gig_tags`,
-    ))
+    // Only the tags of gigs in the same date range (a person's history can be long).
+    for (const t of q.with_tags
+      ? this.sql.exec<{ gig_id: string; tag_id: string; name: string }>(
+          `select t.gig_id, t.tag_id, t.name from my_gig_tags t join my_gigs g on g.gig_id = t.gig_id
+           where g.first_start_at >= ? and g.first_start_at < ?`,
+          q.from ?? "",
+          q.to ?? "9999",
+        )
+      : [])
       tags.set(t.gig_id, [...(tags.get(t.gig_id) ?? []), { id: t.tag_id, name: t.name }]);
     return rows.map(({ collective_tag_id, collective_name, lineup_visible, ...g }) => ({
       ...g,

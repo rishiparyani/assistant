@@ -10,6 +10,7 @@ import type {
   MyTagView,
   Page,
 } from "@assistant/shared";
+import { env } from "cloudflare:workers";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -72,6 +73,20 @@ describe("tags", () => {
     expect(await report("collective=Test%20Monsoon%20Project")).toEqual(["Test A", "Test B"]);
     expect(await report("tags=wedding,out%20of%20town")).toEqual(["Test A"]);
     expect(await report("tags=Nope")).toEqual([]);
+
+    // Players and strangers can't add tags to the shared registry through an edit.
+    const stranger = await signUp("Test Stranger");
+    for (const u of [mate, stranger]) {
+      const res = await as(u)(`/gigs/${a.id}`, {
+        method: "PATCH",
+        body: { version: a.version, tags: [`Test Spam ${u.id}`] },
+      });
+      expect([403, 404]).toContain(res.status);
+      const row = await env.DB.prepare(`select count(*) as n from tags where name = ?`)
+        .bind(`Test Spam ${u.id}`)
+        .first<{ n: number }>();
+      expect(row?.n).toBe(0);
+    }
 
     // Clearing the collective on an edit.
     const edited = await json<BookingView>(

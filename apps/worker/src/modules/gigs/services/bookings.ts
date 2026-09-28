@@ -138,6 +138,21 @@ export const getBooking = (ctx: OpUserCtx, gigId: string) => bookingStub(ctx, gi
 export const bookingHistory = (ctx: OpUserCtx, gigId: string) =>
   bookingStub(ctx, gigId).history(actorOf(ctx));
 
+/**
+ * Tag refs for an edit. New tag names are added to the shared registry, so only after the
+ * gig confirms the caller manages it (others get the gig's own 404/403, and nothing is written).
+ */
+async function managerTagRefs(
+  ctx: OpUserCtx,
+  gigId: string,
+  input: { collective?: string | null; tags?: string[] },
+) {
+  if (input.collective === undefined && input.tags === undefined) return {};
+  const view = await bookingStub(ctx, gigId).view(actorOf(ctx));
+  if (view.my_role !== "manager") throw new AppError("forbidden", "Only the gig's managers can do this");
+  return gigTagRefs(ctx, input);
+}
+
 export async function updateBooking(ctx: OpUserCtx, input: z.output<typeof UpdateBookingInput>) {
   const {
     gig_id,
@@ -148,7 +163,7 @@ export async function updateBooking(ctx: OpUserCtx, input: z.output<typeof Updat
     ...rest
   } = input as typeof input & { fee?: unknown; fee_paise?: unknown };
   return bookingStub(ctx, gig_id).update(
-    { ...rest, ...(await gigTagRefs(ctx, input)), fee_paise: paiseOf(input, "fee") },
+    { ...rest, ...(await managerTagRefs(ctx, gig_id, input)), fee_paise: paiseOf(input, "fee") },
     actorOf(ctx),
     ctx.idempotencyKey,
   );
