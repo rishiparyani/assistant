@@ -85,6 +85,10 @@ Decided 2026-09-26: UI work runs alongside backend work from here on; every task
 - AC: members see only what the API gives them (own share), with no broken empty sections.
 - Status: **done 2026-09-26**. The web app picks clients, venues and musicians by id from searchable pickers (with inline "Add …"), so ambiguous names can't arise there; the candidates answer matters for MCP/Siri (T09, T10).
 
+## R1 Gig-centric rework (proposed; see docs/design/gig-centric.md)
+
+- Status: design written 2026-09-28, waiting for owner review. Replaces workspaces/collectives; supersedes the remaining T06 collective views. Steps in the design's section 12.
+
 ## T06 Me Home and gigs views (see decision 2026-09-27)
 
 - AC: user-scoped `get_my_home` (upcoming gigs across my workspaces, owed to me per collective, earned this month, payouts I owe in collectives I own) and `get_my_earnings`; workspace-scoped `get_schedule`, `get_outstanding_payments`, `get_monthly_report`, `get_payouts_owed`; display strings; queries use indexes (`EXPLAIN QUERY PLAN`); only my own amounts from collectives where I'm a member.

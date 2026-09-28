@@ -139,6 +139,10 @@ For the Me Home and roster linking, the module contract gains (1) read-only `sco
 
 Owner's request: make lineup visibility and who can set lineups / record payouts configurable per collective, including "everyone". Stored as Gigs settings in `workspace_modules.settings_json` (no migration), changed by owners on the Collective page, audited. Defaults: members see who plays; only owners set lineups and record payouts. Anyone allowed to set lineups or record payouts also sees everyone's shares (you can't split or pay without them); expenses and net stay owners-only; roster edits and account links stay owners-only. Supersedes "lineup and payouts stay owner-only" in the earlier 2026-09-27 entry.
 
+## 2026-09-28: Gig-centric, scale-ready design (proposed, pending owner review)
+
+Discussed with the owner: drop workspaces; a gig (booking, with one or more events) is the unit of sharing, money and consistency; "collective" becomes a tag with people-only autofill; per-gig roles (manager/player) and visibility; address book as fill-in templates; duplicate warnings instead of merging. For high volume and to learn scale: Durable Objects with SQLite (one per gig, one per person, month index), D1 for identity and tags, transactional outbox for summaries. Prod starts empty (test data only). Details: `docs/design/gig-centric.md`. Becomes final (and updates the architecture rules) once the owner approves the design.
+
 ## Open
 
 None.

@@ -4,6 +4,8 @@ _Updated: 2026-09-26_
 
 ## Last done
 
+- **Design proposed: gig-centric, scale-ready** (`docs/design/gig-centric.md`, learning notes `docs/learn/scale.md`), after a long discussion with the owner (summary in `docs/decisions.md`, 2026-09-28). Waiting for the owner's review. Nothing built yet.
+
 - **Collective settings live on prod** ([rishiparyani/assistant#11](https://github.com/rishiparyani/assistant/pull/11)): per-collective Gigs settings on the Collective page (owners change, members see): who sees who's playing, who can set the lineup, who can record payouts (owners only / everyone). Enforced in services (`set_gig_lineup`, `record_payout`, `reverse_payout`, `create_musician`), `get_gig_money` returns `permissions`; the gig page follows them. Stored in `workspace_modules.settings_json`. Tests: 73 shared, 75 worker.
 - **Me Home live on prod** ([rishiparyani/assistant#10](https://github.com/rishiparyani/assistant/pull/10)).
 
@@ -25,8 +27,9 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
-2. **T06** rest: collective views (schedule, outstanding, monthly report, payouts owed) and `get_my_earnings`; see `tasks/backlog.md`.
+1. Owner reviews `docs/design/gig-centric.md` (open points in its section 14). Then build it in the steps of its section 12.
+2. Paused until then: the rest of T06 (collective views), since collectives are being replaced.
+3. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
 
 ## Open decisions
 
