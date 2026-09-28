@@ -111,6 +111,43 @@ describe("client payments", () => {
   });
 });
 
+describe("cancelling with an advance", () => {
+  it("refunds part of the advance and keeps the rest as income", async () => {
+    const { owner, mate, gig } = await setUp();
+    await as(owner)(`/gigs/${gig.id}/payments`, { body: { amount: "20000", method: "upi" } });
+
+    const tooMuch = await as(owner)(`/gigs/${gig.id}/status`, {
+      body: { action: "cancel", refund: "25000" },
+    });
+    expect(tooMuch.status).toBe(400);
+
+    const res = await as(owner)(`/gigs/${gig.id}/status`, {
+      body: {
+        action: "cancel",
+        reason: "Client postponed indefinitely",
+        refund: "15000",
+        refund_method: "bank",
+      },
+    });
+    expect(res.status).toBe(200);
+    const view = await json<BookingView>(res);
+    expect(view.status).toBe("cancelled");
+    expect(view.money).toMatchObject({
+      fee: { amount_display: "₹1,00,000" },
+      kept: { amount_display: "₹5,000" },
+      received: { amount_display: "₹5,000" },
+      net: { amount_display: "₹5,000" },
+    });
+    const refund = view.money.payments!.find((p) => p.kind === "refund")!;
+    expect(refund).toMatchObject({ amount: { amount_display: "-₹15,000" }, method: "bank" });
+    const rev = await as(owner)(`/gigs/${gig.id}/payments/${refund.id}/reverse`, { body: {} });
+    expect(rev.status).toBe(409);
+
+    // Players can't cancel; the kept advance shows in the manager's report.
+    expect((await as(mate)(`/gigs/${gig.id}/status`, { body: { action: "cancel" } })).status).toBe(403);
+  });
+});
+
 describe("lineup, payouts and expenses", () => {
   it("splits shares, pays people, and shows each player only their own money", async () => {
     const { owner, mate, other, gig, person } = await setUp();

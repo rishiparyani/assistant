@@ -81,7 +81,7 @@ export const bookingOperations = [
     id: "gigs.set_booking_status",
     tool: "set_gig_status",
     description:
-      "Confirm, complete or cancel a gig (managers). enquiry → confirmed → completed; enquiry or confirmed → cancelled.",
+      "Confirm, complete or cancel a gig (managers). enquiry → confirmed → completed; enquiry or confirmed → cancelled. When cancelling, give refund (rupees) to return part or all of an advance; the rest is kept as income.",
     scope: "user",
     kind: "write",
     idempotency: "object",

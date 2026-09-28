@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { BookingEventView, BookingView } from "@assistant/shared";
   import { formatINR, parseINR, splitEqual, splitPercent } from "@assistant/shared";
+  import { untrack } from "svelte";
+  import Plus from "@lucide/svelte/icons/plus";
   import { Avatar, Button, Segmented, Sheet, TextField, toast } from "../../../core/ui/index.ts";
   import MoneyField from "../MoneyField.svelte";
   import { bookingsApi, type LineupFields } from "../gigs-api.ts";
@@ -27,8 +29,12 @@
   let total = $state("");
   let busy = $state(false);
 
+  // Set up once per opening (the gig changes while open when someone is added).
   $effect(() => {
     if (!open) return;
+    untrack(setUp);
+  });
+  function setUp() {
     chosen = Object.fromEntries(
       event.lineup.map((l) => [
         l.person_id,
@@ -40,7 +46,7 @@
     // Split the fee across events by default.
     const fee = gig.money.fee?.amount_paise ?? 0;
     total = fee ? String(Math.floor(fee / gig.events.length) / 100) : "";
-  });
+  }
 
   function toggle(id: string) {
     if (chosen[id]) {
@@ -82,6 +88,34 @@
   });
   const allocated = $derived(preview.reduce<number>((s, v) => s + (v ?? 0), 0));
   const eventName = $derived(event.title ?? (gig.events.length > 1 ? "this event" : "the gig"));
+
+  // Add someone to the gig right here, and put them on this lineup.
+  let newPerson = $state("");
+  let adding = $state(false);
+  async function addPerson(e: SubmitEvent) {
+    e.preventDefault();
+    const who = newPerson.trim();
+    if (!who) return;
+    adding = true;
+    try {
+      const before = new Set(gig.people.map((p) => p.id));
+      const updated = await bookingsApi.addPerson(
+        gig.id,
+        who.includes("@") ? { email: who, role: "player" } : { name: who, role: "player" },
+      );
+      onsaved(updated);
+      const added = updated.people.find((p) => !before.has(p.id));
+      if (added && !chosen[added.id]) {
+        chosen[added.id] = { part: "", share: "", percent: "" };
+        order = [...order, added.id];
+      }
+      newPerson = "";
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      adding = false;
+    }
+  }
 
   async function save() {
     busy = true;
@@ -173,7 +207,16 @@
       </div>
     {/each}
   </div>
-  <p class="hint">Only people on the gig can play. Add someone under People first.</p>
+  <form class="add" onsubmit={addPerson}>
+    <input
+      bind:value={newPerson}
+      placeholder="Add someone: email or name"
+      aria-label="Add someone to this gig"
+      maxlength={200}
+    />
+    <Button type="submit" size="sm" loading={adding}>{#snippet icon()}<Plus />{/snippet}Add</Button>
+  </form>
+  <p class="hint">With an email, they'll see this gig when they sign in. Added as a player.</p>
 
   <div class="totals">
     <span>Shared <strong class="num">{formatINR(allocated)}</strong></span>
@@ -258,6 +301,21 @@
   }
   .inputs.single {
     grid-template-columns: 1fr;
+  }
+  .add {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .add input {
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 16px;
   }
   .totals {
     display: flex;

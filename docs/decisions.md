@@ -155,6 +155,10 @@ Choices within the approved design: the tag registry in D1 is shared by everyone
 
 Owner's request ("I want a smooth app experience… something like Firebase"). Step one: reads use a stale-while-revalidate cache (`apps/web/src/core/query.svelte.ts`): a screen shows its last known data at once, from memory or from `localStorage` (per signed-in user, at most 60 entries), and refreshes in the background; writes put their result straight in. The signed-in user is kept on the device too, so the app opens without waiting for the server (a 401 on the background check signs out). Pull to refresh at the top of a page, and returning to the app, refresh what's on screen. Sign-out clears everything saved. Trade-off: the last-seen gigs and amounts stay on the phone until sign-out (it's the owner's own device; nothing else is stored). Step two, next: live updates over WebSockets from the person and gig Durable Objects (hibernating connections), which refresh the affected screens within about a second. Full offline editing stays later (stage mode).
 
+## 2026-09-28: Gig page tabs, refunds on cancellation
+
+Owner's feedback after using the app. The gig page gets three tabs (Details, Money, People) instead of one long page; each money list lives inside its own card (client payments; shares and payouts with "payments made"; expenses and net). Cancelling can refund part or all of an advance in the same step (`refund`/`refund_paise` on `set_gig_status`); refunds are payments of kind `refund` (negative, not reversible, unlike a correction). A cancelled gig's income is what was kept (paid minus refunded): its money view shows `kept`, and its net, summaries and reports use that. Reports include cancelled gigs when money moved. The lineup sheet can add people to the gig directly (email or name), since only people on the gig can be on a lineup.
+
 ## Open
 
 None.

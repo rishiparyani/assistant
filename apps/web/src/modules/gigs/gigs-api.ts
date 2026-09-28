@@ -100,8 +100,12 @@ export const bookingsApi = {
   get: (id: string) => request<BookingView>("GET", base(id)),
   update: (id: string, version: number, body: GigFields) =>
     request<BookingView>("PATCH", base(id), { version, ...body }),
-  setStatus: (id: string, action: "confirm" | "complete" | "cancel", reason?: string) =>
-    request<BookingView>("POST", `${base(id)}/status`, { action, reason }),
+  setStatus: (
+    id: string,
+    action: "confirm" | "complete" | "cancel",
+    extra: { reason?: string; refund?: string; refund_method?: PaymentMethod } = {},
+  ) => request<BookingView>("POST", `${base(id)}/status`, { action, ...extra }),
+
   remove: (id: string) => request<{ deleted: true }>("DELETE", base(id)),
 
   addEvent: (id: string, e: EventFields) => request<BookingView>("POST", `${base(id)}/events`, e),
