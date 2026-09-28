@@ -17,6 +17,8 @@ Each object migrates its own schema when it wakes (`_schema` table).
 - `tags`: the tag registry (one per kind and normalised name).
 - `pending_people`: email → gig and person, for people added before they had an account.
 - `admins`, `admin_audit`: the admin panel.
+- `access_tokens`: calendar feed links now, API tokens from T09 (SHA-256 hash for lookup; calendar links also sealed with a key derived from `BETTER_AUTH_SECRET` so settings can show them again; revoked, never deleted). Not in backups: links are made again after a restore.
+- `user_audit`: what people did to their own links and tokens.
 
 ## Conventions
 

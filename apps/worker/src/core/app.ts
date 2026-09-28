@@ -10,6 +10,7 @@ import { authRoutes } from "./auth/routes.ts";
 import { adminRoutes } from "./admin/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
+import { calendarFeed } from "./calendar/service.ts";
 
 export interface AppOptions {
   modules: readonly ModuleDefinition[];
@@ -76,6 +77,19 @@ export function createApp({ modules }: AppOptions) {
     if (c.req.header("upgrade")?.toLowerCase() !== "websocket")
       return c.json({ error: { code: "upgrade_required", message: "Use a WebSocket" } }, 426);
     return live(c.env, c.get("userCtx").user.id, c.req.raw);
+  });
+
+  // Private calendar feed (T08): no sign-in, the secret link is the key. 404 for
+  // unknown or revoked links, without saying which.
+  app.get("/api/calendar/:file", async (c) => {
+    const file = c.req.param("file");
+    const ics = file.endsWith(".ics") ? await calendarFeed(c.env, modules, file.slice(0, -4)) : null;
+    if (ics === null) return c.text("Not found", 404);
+    return c.body(ics, 200, {
+      "content-type": "text/calendar; charset=utf-8",
+      "cache-control": "private, max-age=300",
+      "x-robots-tag": "noindex",
+    });
   });
 
   app.route("/", authRoutes);

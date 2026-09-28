@@ -16,7 +16,9 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 ## Core operations
 
 - `GET /api/me` (`get_me`): the signed-in user.
-- Planned: API tokens for Siri and scripts (T09), calendar feed (T08), MCP (T10).
+- `GET /api/me/calendar` (`get_calendar_feed`), `POST /api/me/calendar` (`enable_calendar_feed`, `{reset: true}` for a new link), `DELETE /api/me/calendar` (`disable_calendar_feed`): my private calendar feed link (`url`, `webcal_url`, `last_used_at`). One per person; switching on again returns the same link; a retry with the same Idempotency-Key too.
+- `GET /api/calendar/<token>.ics` (no sign-in; the link is the key): my events as iCalendar, 90 days back onwards, cancelled ones marked `STATUS:CANCELLED`, enquiries `TENTATIVE`, no money. Unknown or revoked links get a plain 404. Modules add events through `calendar` in their definition.
+- Planned: API tokens for Siri and scripts (T09), MCP (T10).
 
 ## Gigs (docs/design/gig-centric.md)
 
