@@ -6,6 +6,7 @@ import { memberJoined } from "./services/roster-link.ts";
 import { consumeSummaries } from "./objects/delivery.ts";
 import { gigsAdmin } from "./admin.ts";
 import { attachPendingPeople } from "./services/tags.ts";
+import { personName } from "./objects/names.ts";
 
 export const gigsModule = defineModule({
   id: "gigs",
@@ -18,4 +19,7 @@ export const gigsModule = defineModule({
   },
   queues: [{ name: "summaries", handle: (batch, env) => consumeSummaries(batch, env) }],
   admin: gigsAdmin,
+  // Each person's object holds their open apps' WebSockets and tells them when a gig
+  // they're on changes.
+  live: (env, userId, request) => env.PEOPLE.getByName(personName(userId)).fetch(request),
 });

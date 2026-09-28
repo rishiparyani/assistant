@@ -79,6 +79,11 @@ export interface ModuleDefinition {
   queues?: readonly ModuleQueue[];
   /** Sections and tools for the owner-only admin panel. */
   admin?: ModuleAdmin;
+  /**
+   * Live updates: takes a signed-in user's WebSocket upgrade (from `/api/live`, already
+   * authenticated and origin-checked by core) and returns the 101 response. One module.
+   */
+  live?: (env: Env, userId: string, request: Request) => Promise<Response>;
 }
 
 export function defineModule<const M extends ModuleDefinition>(module: M): M {

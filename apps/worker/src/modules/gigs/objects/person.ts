@@ -76,6 +76,8 @@ const MIGRATIONS: Migrations = [
   `,
 ];
 
+const MAX_SOCKETS = 8;
+
 /** A my_gigs row as stored (tags and flags are shaped on the way out). */
 type GigRow = {
   gig_id: string;
@@ -104,6 +106,53 @@ export class PersonObject extends DurableObject<Env> {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+    // Keep-alive pings are answered without waking the object (hibernation).
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
+
+  // --- Live updates ------------------------------------------------------------------
+  // The person's open apps connect here (via /api/live). Connections hibernate while idle,
+  // so they cost nothing until something changes.
+
+  override async fetch(request: Request): Promise<Response> {
+    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
+      return new Response("Expected a WebSocket", { status: 426 });
+    // A few devices at most; drop the oldest beyond that.
+    const open = this.ctx.getWebSockets();
+    for (const old of open.slice(0, Math.max(0, open.length - (MAX_SOCKETS - 1)))) {
+      try {
+        old.close(1000, "Too many connections");
+      } catch {
+        // already closed
+      }
+    }
+    const { 0: client, 1: server } = new WebSocketPair();
+    this.ctx.acceptWebSocket(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  override async webSocketMessage(): Promise<void> {
+    // Clients only send pings (answered automatically); nothing else is accepted.
+  }
+
+  override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+    try {
+      ws.close(code === 1005 ? 1000 : code, "Closed");
+    } catch {
+      // already closed
+    }
+  }
+
+  /** Tells this person's open apps that a gig changed (they refresh what's on screen). */
+  private notify(gigId: string) {
+    const message = JSON.stringify({ type: "gig_changed", gig_id: gigId });
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(message);
+      } catch {
+        // closed in the meantime
+      }
+    }
   }
 
   /** Replaces this gig's rows if `seq` is at least what was applied. Returns whether applied. */
@@ -113,7 +162,7 @@ export class PersonObject extends DurableObject<Env> {
     rows: PersonEventSummary[],
     gig: PersonGigSummary | null = null,
   ): Promise<boolean> {
-    return this.ctx.storage.transactionSync(() => {
+    const applied = this.ctx.storage.transactionSync(() => {
       const current = this.sql
         .exec<{ seq: number }>(`select seq from applied where gig_id = ?`, gigId)
         .toArray()[0]?.seq;
@@ -185,6 +234,8 @@ export class PersonObject extends DurableObject<Env> {
       );
       return true;
     });
+    if (applied) this.notify(gigId);
+    return applied;
   }
 
   /**
