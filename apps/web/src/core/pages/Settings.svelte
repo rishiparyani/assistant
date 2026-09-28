@@ -3,10 +3,22 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Trash from "@lucide/svelte/icons/trash-2";
   import LogOut from "@lucide/svelte/icons/log-out";
+  import Gauge from "@lucide/svelte/icons/gauge";
   import { Avatar, Card, ListGroup, ListRow, PageHeader, toast } from "../ui/index.ts";
   import { authClient, passkeys, type PasskeyInfo } from "../auth.ts";
   import { navigate } from "../router.svelte.ts";
   import { refreshSession, session } from "../session.svelte.ts";
+  import { adminApi } from "../api.ts";
+
+  // Only admins see the admin panel link.
+  let isAdmin = $state(false);
+  $effect(() => {
+    if (session.me)
+      adminApi.me().then(
+        (r) => (isAdmin = r.is_admin),
+        () => (isAdmin = false),
+      );
+  });
 
   let list = $state<PasskeyInfo[] | null>(null);
   let busy = $state(false);
@@ -104,6 +116,14 @@
     </ListRow>
   </ListGroup>
 
+  {#if isAdmin}
+    <ListGroup>
+      <ListRow title="Admin panel" subtitle="Health, usage and repair tools" href="/admin">
+        {#snippet leading()}<span class="admin-icon"><Gauge size={20} /></span>{/snippet}
+      </ListRow>
+    </ListGroup>
+  {/if}
+
   <ListGroup>
     <ListRow title="Sign out" destructive onclick={signOut} chevron={false}>
       {#snippet leading()}<span class="key out"><LogOut size={18} /></span>{/snippet}
@@ -113,6 +133,16 @@
 </div>
 
 <style>
+  .admin-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
   .stack {
     display: grid;
     gap: var(--space-6);

@@ -1,5 +1,5 @@
 // The contract every feature module implements (see docs/modules.md).
-import type { UserCtx } from "./context.ts";
+import type { ObjectBindings, UserCtx } from "./context.ts";
 import type { AnyOperation, Change } from "./operations.ts";
 
 /** Statements a module adds to a core write, committed in the same batch with their audit entries. */
@@ -14,6 +14,34 @@ export interface ModuleHooks {
    * core write; the returned statements are committed with it.
    */
   memberJoined?: (ctx: UserCtx, args: { workspaceId: string }) => Promise<HookResult>;
+}
+
+/** Admin panel (docs/design/gig-centric.md §10b): counts only, never other people's data. */
+export interface AdminStat {
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: "ok" | "warn" | "bad";
+}
+export interface AdminSection {
+  title: string;
+  stats: AdminStat[];
+}
+export interface AdminCtx {
+  d1: D1Database;
+  objects: ObjectBindings;
+}
+export interface AdminTool {
+  id: string;
+  label: string;
+  description: string;
+  /** Optional inputs, e.g. a month range. */
+  fields?: { name: string; label: string; placeholder?: string }[];
+  run: (ctx: AdminCtx, input: Record<string, string>) => Promise<string>;
+}
+export interface ModuleAdmin {
+  sections?: (ctx: AdminCtx) => Promise<AdminSection[]>;
+  tools?: readonly AdminTool[];
 }
 
 /** A queue this module consumes. `name` is the queue's base name; dev uses `<name>-dev`. */
@@ -39,6 +67,8 @@ export interface ModuleDefinition {
   hooks?: ModuleHooks;
   /** Queues this module consumes (e.g. gigs' summaries queue). */
   queues?: readonly ModuleQueue[];
+  /** Sections and tools for the owner-only admin panel. */
+  admin?: ModuleAdmin;
 }
 
 export function defineModule<const M extends ModuleDefinition>(module: M): M {

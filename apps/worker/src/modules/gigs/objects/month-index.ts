@@ -77,6 +77,10 @@ export class MonthIndexObject extends DurableObject<Env> {
     this.sql.exec(`insert or ignore into created (gig_id) values (?)`, gigId);
   }
 
+  async createdCount(): Promise<number> {
+    return Number(this.sql.exec(`select count(*) as n from created`).one().n);
+  }
+
   async createdGigs(): Promise<string[]> {
     return this.sql
       .exec<{ gig_id: string }>(`select gig_id from created order by gig_id`)

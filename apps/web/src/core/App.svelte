@@ -10,6 +10,7 @@
   import MeHome from "../modules/gigs/pages/MeHome.svelte";
   import Members from "./pages/Members.svelte";
   import Settings from "./pages/Settings.svelte";
+  import Admin from "./pages/Admin.svelte";
   import Gigs from "../modules/gigs/pages/Gigs.svelte";
   import Gig from "../modules/gigs/pages/Gig.svelte";
   import People from "../modules/gigs/pages/People.svelte";
@@ -54,6 +55,8 @@
     <AppShell>
       {#if route.name === "settings"}
         <Settings />
+      {:else if route.name === "admin"}
+        <Admin />
       {:else if route.name === "root"}
         <MeHome />
       {:else if route.params.workspaceId && current.error}

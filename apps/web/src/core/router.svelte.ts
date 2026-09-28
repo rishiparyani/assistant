@@ -10,6 +10,7 @@ const PATTERNS: [string, RegExp][] = [
   ["login", /^\/login$/],
   ["consent", /^\/consent$/],
   ["settings", /^\/settings$/],
+  ["admin", /^\/admin$/],
   ["invite", /^\/invite\/(?<invitationId>[^/]+)$/],
   ["home", /^\/w\/(?<workspaceId>[^/]+)$/],
   ["members", /^\/w\/(?<workspaceId>[^/]+)\/members$/],

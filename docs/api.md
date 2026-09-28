@@ -45,6 +45,18 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 
 People are added by `user_id`, by `email` (matched to an account case-insensitively; otherwise kept as a name) or by `name`. Edits to details and events send the gig's `version`; a changed gig returns `409` with `details.reason = "version_mismatch"` and `current_version`. Other conflict reasons: `invalid_transition`, `last_event`, `last_manager`, `already_on_gig`, `idempotency_key_reused`. The old workspace gig tools are renamed `legacy_*` until they're retired (design step 7).
 
+## Admin panel (owner-only; docs/design/gig-centric.md §10b)
+
+Plain routes, not operations (never MCP tools or Siri actions). Admins are the emails in the `ADMIN_EMAILS` secret (owners; can't be removed from the panel) plus those added in the panel (D1 `admins`). Everyone else gets 404. Counts only; no one's gigs, names or money.
+
+| Route                                                              | What                                                                                                 |
+| ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `GET /api/admin/me`                                                | `{ is_admin }` (any signed-in user; the app shows the link only to admins)                           |
+| `GET /api/admin/overview`                                          | sections of counts (people from D1; each module adds its own via `admin.sections`) and the tool list |
+| `GET`, `POST /api/admin/admins`, `DELETE /api/admin/admins/:email` | list, add, remove admins                                                                             |
+| `POST /api/admin/tools/:module.tool`                               | run a module tool (gigs: `flush`, `rebuild` with `from`/`to` months)                                 |
+| `GET /api/admin/log`                                               | last 50 admin actions (D1 `admin_audit`)                                                             |
+
 ## Gigs module operations (Phase 1)
 
 Implemented in T04 (all under `/api/w/:workspaceId`):

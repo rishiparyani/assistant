@@ -8,7 +8,10 @@
 import { bookingName, monthName, monthsBetween, pendingName, personName, PENDING_SHARDS } from "./names.ts";
 import type { GigSummaries, SummaryMessage } from "./types.ts";
 
-export async function deliverSummaries(env: Env, summaries: GigSummaries): Promise<void> {
+/** The object namespaces delivery needs (a Worker env or a service's ctx.objects). */
+type Objects = Pick<Env, "BOOKINGS" | "PEOPLE" | "MONTHS" | "PENDING">;
+
+export async function deliverSummaries(env: Objects, summaries: GigSummaries): Promise<void> {
   const { gig_id, seq } = summaries;
   await Promise.all([
     ...Object.entries(summaries.people).map(([userId, rows]) =>
@@ -20,7 +23,7 @@ export async function deliverSummaries(env: Env, summaries: GigSummaries): Promi
   ]);
 }
 
-export async function consumeSummaries(batch: MessageBatch<SummaryMessage>, env: Env): Promise<void> {
+export async function consumeSummaries(batch: MessageBatch<SummaryMessage>, env: Objects): Promise<void> {
   const byGig = new Map<string, Message<SummaryMessage>[]>();
   for (const msg of batch.messages) {
     const list = byGig.get(msg.body.gig_id) ?? [];
@@ -44,7 +47,7 @@ export async function consumeSummaries(batch: MessageBatch<SummaryMessage>, env:
 // --- Safety-net tools (admin page buttons from step 1's admin work; runnable any time) --
 
 /** Asks every gig on the pending lists to hand its waiting note to the queue now. */
-export async function flushOutboxes(env: Env): Promise<{ gigs: number }> {
+export async function flushOutboxes(env: Objects): Promise<{ gigs: number }> {
   let gigs = 0;
   for (let shard = 0; shard < PENDING_SHARDS; shard++) {
     const waiting = await env.PENDING.getByName(pendingName(shard)).list();
@@ -62,7 +65,7 @@ export async function flushOutboxes(env: Env): Promise<{ gigs: number }> {
  * delivering them directly (not through the queue), so it works even when the queue
  * doesn't. Safe to run any time: receivers keep whichever state is newest.
  */
-export async function rebuildSummaries(env: Env, from: string, to: string): Promise<{ gigs: number }> {
+export async function rebuildSummaries(env: Objects, from: string, to: string): Promise<{ gigs: number }> {
   let gigs = 0;
   for (const ym of monthsBetween(from, to)) {
     const ids = await env.MONTHS.getByName(monthName(ym)).createdGigs();

@@ -4,6 +4,7 @@ import { gigsOperations } from "./operations.ts";
 import { bookingOperations } from "./operations-bookings.ts";
 import { memberJoined } from "./services/roster-link.ts";
 import { consumeSummaries } from "./objects/delivery.ts";
+import { gigsAdmin } from "./admin.ts";
 
 export const gigsModule = defineModule({
   id: "gigs",
@@ -12,4 +13,5 @@ export const gigsModule = defineModule({
   operations: [...gigsOperations, ...bookingOperations],
   hooks: { memberJoined },
   queues: [{ name: "summaries", handle: (batch, env) => consumeSummaries(batch, env) }],
+  admin: gigsAdmin,
 });

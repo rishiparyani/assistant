@@ -18,6 +18,7 @@ export default defineConfig({
           BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-00",
           GOOGLE_CLIENT_ID: "test.apps.googleusercontent.com",
           GOOGLE_CLIENT_SECRET: "test",
+          ADMIN_EMAILS: "Owner.Admin@example.com, second.owner@example.com",
         },
       },
     })),
