@@ -4,7 +4,7 @@ _Updated: 2026-09-26_
 
 ## Last done
 
-- **Design proposed: gig-centric, scale-ready** (`docs/design/gig-centric.md`, learning notes `docs/learn/scale.md`), after a long discussion with the owner (summary in `docs/decisions.md`, 2026-09-28). Waiting for the owner's review. Nothing built yet.
+- **Design approved: gig-centric, scale-ready** (`docs/design/gig-centric.md`, learning notes `docs/learn/scale.md`, decision 2026-09-28): gigs with events, per-gig roles, collective as a tag, Durable Objects per gig/person/month index, outbox → Cloudflare Queue, monitoring and email alerts. Build started (R1 step 1).
 
 - **Collective settings live on prod** ([rishiparyani/assistant#11](https://github.com/rishiparyani/assistant/pull/11)): per-collective Gigs settings on the Collective page (owners change, members see): who sees who's playing, who can set the lineup, who can record payouts (owners only / everyone). Enforced in services (`set_gig_lineup`, `record_payout`, `reverse_payout`, `create_musician`), `get_gig_money` returns `permissions`; the gig page follows them. Stored in `workspace_modules.settings_json`. Tests: 73 shared, 75 worker.
 - **Me Home live on prod** ([rishiparyani/assistant#10](https://github.com/rishiparyani/assistant/pull/10)).
@@ -27,8 +27,8 @@ _Updated: 2026-09-26_
 
 ## Next
 
-1. Owner reviews `docs/design/gig-centric.md` (open points in its section 14). Then build it in the steps of its section 12.
-2. Paused until then: the rest of T06 (collective views), since collectives are being replaced.
+1. **R1 step 1, foundation** (design section 12): Durable Objects, per-object migrations, outbox → queue, consumer, flush/rebuild tools, deploy workflow creating the queues. No visible change.
+2. Paused: the rest of T06 (collective views), replaced by R1.
 3. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
 
 ## Open decisions

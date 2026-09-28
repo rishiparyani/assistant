@@ -36,6 +36,21 @@ A Durable Object handles one request at a time. That sounds slow, but it's a fea
 
 **Fix:** in the same transaction as the change, save "tell these people" rows in an _outbox_ table. A timer then delivers them and removes them once acknowledged. Either both the change and the outbox rows are saved, or neither.
 
+## The dual-write problem
+
+Saving a change in the gig's database and sending a message to a queue are two different systems, so they can't happen in one atomic step. If we save and then crash before sending, the message is lost; if we send and then fail to save, others hear about a change that never happened. The outbox fixes this: write the note **together with the change**, then send it afterwards, and delete it only once the queue has accepted it.
+
+## Queues
+
+A queue is a waiting line between a **producer** (our gig, handing over "this gig changed") and a **consumer** (the worker that updates people's Homes). The producer doesn't wait for the slow part: that's **decoupling**. What Cloudflare Queues guarantees, and what we do about it:
+
+- **At-least-once delivery:** a message can arrive twice → consumers must be idempotent (sequence numbers).
+- **No ordering guarantee:** an older message can arrive after a newer one → receivers ignore anything older than what they have.
+- **Batches:** the consumer gets up to 100 messages at once → it combines messages about the same gig or person.
+- **Retries and a dead letter queue:** a message that keeps failing goes to a separate queue instead of vanishing → alert and fix.
+- **Autoscaling:** when the backlog grows, Cloudflare runs more consumers at once (up to 250) → that's reacting to **backpressure**.
+- **Message design drives cost:** each message costs 3 operations (write, read, delete). One message per gig change is cheap; one per recipient would multiply the cost by the number of people.
+
 ## Fan-out on write vs on read
 
 - **On write:** when a gig changes, push updates to everyone who needs them (their person objects). Reads are then cheap: Home reads one object.

@@ -1,6 +1,6 @@
 # Design: gig-centric, scale-ready
 
-_Status: **draft for the owner's review** (2026-09-28). Nothing here is built yet. Once approved, the decisions go into `docs/decisions.md`, the architecture rules in `AGENTS.md` are updated, and the work plan (section 12) replaces the current backlog items it covers._
+_Status: **approved by the owner** (2026-09-28; the owner trusts the design and it can change as we learn). Being built in the steps of section 12. Decisions: `docs/decisions.md` (2026-09-28). Architecture rules in `AGENTS.md` follow section 13._
 
 Plain-language explanations of the scaling ideas used here (partitioning, hot spots, idempotency, outbox, fan-out, eventual consistency): [`docs/learn/scale.md`](../learn/scale.md).
 
@@ -69,6 +69,13 @@ Worker (one app: /api, /auth, /mcp, web app)
 │     the gig, its events, people and roles, lineup, money,
 │     settings, audit history, idempotency records, outbox
 │
+├── Queue "summaries"        (Cloudflare Queues)
+│     carries "this gig changed" notes from gigs to the consumer,
+│     which updates person and index objects; dead letter queue
+│
+├── Pending object         pending:<shard>            a few
+│     which gigs have notes waiting (only while delivery fails)
+│
 ├── Person objects         person:<user id>           one per user
 │     summary rows of my gigs and events, address book,
 │     pending invites by email, my tag usage
@@ -102,7 +109,7 @@ All tables use ULIDs, integer paise, UTC ISO times, as today. Each object runs i
 - `payouts`: person_id, optional event_id, amount (append-only, reversals).
 - `audit`: every write: actor, source, action, entity, before/after.
 - `idempotency`: key → result, 24 h.
-- `outbox`: pending summary updates to deliver (section 6).
+- `outbox`: at most **one** waiting note per gig: "changed up to sequence N, recipients …" (section 6). Usually empty.
 - Later: `comments`, `setlist_items`, `checklist_items`, `schedule_items`.
 
 Derived, never stored: balance, payment status, owed per person, net.
@@ -112,11 +119,15 @@ Derived, never stored: balance, payment status, owed per person, net.
 - `my_events`: one row per event I'm on: gig id, event id, title, start_at, venue name, client name, tag id, my role, my part, my share, paid to me, owed to me; for gigs I manage also fee, received, balance, shares total, expenses, net. Updated by the booking's outbox.
 - `address_book`: clients, venues, musicians (my own; used to fill in gigs).
 - `tags_seen`: tags on gigs I'm on (for suggestions and autofill).
-- `applied`: which booking updates have been applied (booking id → last sequence number), so deliveries can be repeated safely.
+- `applied`: which booking updates have been applied (booking id → last sequence number), so deliveries can be repeated or arrive out of order safely.
 
 ### Index object (`index:<YYYY-MM>`)
 
 - `cards`: event id, gig id, start_at, venue key, client key, tag id, manager user ids, status. One per event.
+
+### Pending object (`pending:<shard>`)
+
+- `waiting`: gig ids whose outbox note couldn't be handed to the queue yet, with the time of the last attempt. A gig adds itself on a failed send and removes itself once its outbox is empty. Written only while delivery is failing, so it is quiet in normal operation; "Flush outboxes" walks this list. Sharded by gig id (a few shards) so an outage doesn't funnel every gig into one object.
 
 ### D1
 
@@ -126,7 +137,7 @@ Derived, never stored: balance, payment status, owed per person, net.
 
 Workspace tables (`organization`, `member`, `invitation`, `workspace_modules`) and the gigs module's D1 tables are retired.
 
-## 6. How a write flows
+## 6. How a write flows (outbox → queue)
 
 Example: a manager records a ₹20,000 advance.
 
@@ -134,19 +145,32 @@ Example: a manager records a ₹20,000 advance.
 2. The booking object, one request at a time:
    1. checks the idempotency record (a retry returns the stored result and stops);
    2. checks the caller is a manager on this gig;
-   3. in **one SQLite transaction**: inserts the payment, the audit row, the idempotency record, and **outbox rows** ("update the summaries of these people and the index card");
-   4. replies immediately with the new money view.
-3. The booking object's **alarm** (a timer Durable Objects provide) wakes shortly after and delivers the outbox: it calls each affected `person:<id>` and the `index:<month>` object with the new summary. Each delivery carries a sequence number; receivers ignore anything older than what they've applied, so repeats and out-of-order deliveries are harmless. Delivered rows are removed; failures are retried with backoff.
+   3. in **one SQLite transaction**: inserts the payment, the audit row and the idempotency record, bumps the gig's **sequence number**, and **writes or updates its single outbox note** ("changed up to sequence N; recipients: these people, these month indexes");
+   4. sets its alarm for "now" and replies immediately with the new money view.
+3. The **alarm** runs: it sends the note to the Cloudflare Queue `summaries` (one message per gig change, not per recipient).
+   - **Queue accepts →** the note is deleted from the outbox (only if its sequence number is still the one that was sent; a newer change keeps its note).
+   - **Queue rejects** (daily limit, outage) **→** the note stays; the alarm is rescheduled with growing waits (2 s, 4 s … up to 1 hour) and **never gives up**. The gig adds itself to the `pending` list, and removes itself once its outbox is empty.
+4. The **queue consumer** receives batches (up to 100 messages, waiting at most ~1 s), **combines** messages per gig (keeps the highest sequence), asks each gig once for the current summaries, and delivers them to the affected `person:<id>` and `index:<month>` objects. Each message is acknowledged individually; failures are retried; after the retries run out a message goes to the **dead letter queue** `summaries-dlq` (which alerts).
+5. Receivers apply a summary only if its sequence number is newer than what they have (`applied` table), so duplicates and out-of-order deliveries are harmless.
 
-This is the **transactional outbox**: the change and "tell the others" are saved together, so a crash can never leave one without the other. Home and reports catch up within a second or two; the gig's own page is always exact.
+**Why the note is written first:** writing to the gig and to the queue can't be one atomic step (the _dual-write problem_). If we sent to the queue after saving and crashed in between, the update would be lost. Saving the note together with the change and sending it afterwards means nothing is ever forgotten.
 
-**Many updates at once** (e.g. ten edits in a second, or a gig with many people) are combined: the outbox keeps only the latest summary per recipient. Cloudflare Queues can take over delivery later if needed; it isn't required now.
+**Why the outbox stays tiny:** notes are deleted as soon as the queue accepts them (usually within a second or two), and each gig holds at most one note: later changes merge into it (the note says "refresh from sequence N"; the consumer reads the gig's current state). During a queue outage there is one small note per changed gig, each in its own gig's database.
+
+**Queue budget:** one message per gig change costs 3 queue operations (write, read, delete). The free plan's 10,000 operations/day cover about 3,300 gig changes a day; beyond that, notes wait and go through after the daily reset (05:30 IST), or we move to the paid plan ($0.40 per million operations beyond 1 million/month).
+
+**Safety-net tools** (admin page buttons, also runnable as scripts; safe to run any time thanks to sequence numbers):
+
+- **Flush outboxes:** asks every gig on the `pending` list to send its note now.
+- **Rebuild summaries:** recomputes person summaries and month indexes straight from the gigs (for one person, one month or everyone). Fixes anything, even a lost message, because the gigs hold the source of truth.
+
+This is the **transactional outbox**. Home and reports catch up within seconds; the gig's own page is always exact.
 
 ## 7. How reads flow
 
 - **Gig page:** one call to `booking:<id>`, which returns only what the caller may see (section 3).
 - **Home and reports:** one call to `person:<me>`; SQL over my summary rows (by month, tag, client, status).
-- **Duplicate warning on create:** one call to `index:<month of the date>` for cards on that date matching venue or client, filtered to managers I've been on gigs with (or all managers, showing only name and date: to decide in review).
+- **Duplicate warning on create:** one call to `index:<month of the date>` for cards on that date matching venue or client, **only for gigs of people I've been on gigs with** (showing their name).
 - **Group report for a tag, e.g. "Monsoon this year":** built from my summary rows (only my money), so no cross-person query is needed.
 
 ## 8. Hot spots and how they're handled
@@ -155,8 +179,9 @@ This is the **transactional outbox**: the change and "tell the others" are saved
 | ------------------ | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | D1                 | every request checks the session | short-lived session cache (signed cookie cache + edge cache); D1 read replicas if needed; nothing written per action                         |
 | Month index        | wedding season bunches events    | split a busy month by day (`index:2026-12-12`), then by day + shard number                                                                   |
-| Busy person object | someone on thousands of gigs     | outbox combines updates; very long histories split by year (`person:<id>:2026`)                                                              |
-| Big gig            | one change updates many people   | outbox delivers in the background, combined and retried                                                                                      |
+| Busy person object | someone on thousands of gigs     | the queue consumer combines updates per batch; very long histories split by year (`person:<id>:2026`)                                        |
+| Big gig            | one change updates many people   | one queue message per change; the consumer fans out in the background with autoscaling, retries and a dead letter queue                      |
+| Queue budget       | free plan: 10,000 operations/day | one message per gig change (not per recipient); notes wait in the outbox if the limit is hit; alert at 70% and 90%                           |
 | One booking object | heavy traffic on one gig         | a normal gig is nowhere near the limit (hundreds of requests a second per object); a public page would be cached, not served from the object |
 
 We watch object latency and storage per object; the load test is deferred (owner's call).
@@ -167,14 +192,34 @@ We watch object latency and storage per object; the load test is deferred (owner
 - **Version check on edits:** editing gig or event details sends the version you loaded; if someone changed it since, you get "Changed by Ananya — reload" instead of overwriting.
 - **Money is append-only:** two payments at the same moment are two rows; nothing is overwritten.
 - **Idempotency:** every write carries a key; retries return the first result (stored in the booking object, so check and write happen together).
-- **Outbox with sequence numbers:** summaries are eventually exact; the **rebuild tool** recomputes any person's summaries or any index month from the bookings.
+- **Outbox with sequence numbers:** summaries are eventually exact; queue delivery is at-least-once and unordered, which sequence numbers make harmless; the **rebuild tool** recomputes any person's summaries or any index month from the bookings.
 
 ## 10. Environments, backups, limits, cost
 
 - **Environments:** local tests (in-memory, including Durable Objects), dev (`assistant-dev`), prod (`assistant`); each deployment has its own D1 and objects. A staging deployment can be added the same way.
 - **Backups:** D1 has point-in-time recovery (7 days free, 30 paid). Durable Object storage: I'll confirm the recovery options against Cloudflare's docs during step 1; in addition, a nightly job copies each changed booking to private R2 as JSON.
-- **Limits checked (2026-09-28, Cloudflare docs source on GitHub):** Durable Objects free plan: 100,000 requests/day, 5 million rows read/day, 100,000 rows written/day, 5 GB stored in total, 1 GB per object, unlimited objects. Paid ($5/month): 10 GB per object, 1 million requests/month included then $0.15/million, 50 million rows written/month included. D1 free: 500 MB per database, 10 databases, 5 GB total. Queues: available on free with 24 h retention (not needed now).
+- **Limits checked (2026-09-28, Cloudflare docs source on GitHub):** Durable Objects free plan: 100,000 requests/day, 5 million rows read/day, 100,000 rows written/day, 5 GB stored in total, 1 GB per object, unlimited objects. Paid ($5/month): 10 GB per object, 1 million requests/month included then $0.15/million, 50 million rows written/month included. D1 free: 500 MB per database, 10 databases, 5 GB total. Queues free: 10,000 operations/day, 24 h message retention, up to 5,000 messages/second per queue; paid: 1 million operations/month then $0.40/million, 14 days retention. Durable Object alarms: at-least-once, 6 automatic retries (we reschedule ourselves so it never gives up).
 - **Cost:** free plan to start. The first limit likely to matter is 100,000 object requests per day; I'll tell the owner before anything needs the paid plan.
+
+## 10a. Monitoring and alerts
+
+**Measured:** requests, error rate and speed (typical and slowest 5%) per operation; sign-in failures; **outbox backlog and age of the oldest note** (the best early warning); queue backlog, retries, consumer errors; dead letter queue count; summary lag (gig change → Home updated); a nightly sample comparing summaries with gigs (differences are fixed by the rebuild tool); daily usage against every free limit; storage per object; nightly backup result; deploy smoke test.
+
+**Where:** Cloudflare's dashboards (requests, errors, logs, queue backlog, usage), custom metrics in Workers Analytics Engine (outbox age, summary lag, per-operation timings), and an **admin page** in the app (backlogs, dead letter queue with retry, flush and rebuild buttons).
+
+**Alerts by email** to a dedicated address (not the owner's main one; stored as a secret, never in the repo; verified once through Cloudflare Email Routing):
+
+| Alert             | When                                    |
+| ----------------- | --------------------------------------- |
+| Free-plan usage   | 70% and 90% of any daily limit          |
+| Dead letter queue | any message lands in it                 |
+| Delivery stuck    | oldest outbox note older than 5 minutes |
+| Errors            | error rate above 2% for 10 minutes      |
+| Slow              | slowest 5% above 1.5 s for 10 minutes   |
+| Backup failed     | any night                               |
+| App down          | external health check fails             |
+
+A scheduled job checks the custom metrics every few minutes and sends the emails; Cloudflare's own notifications cover usage where available. Every alert has a runbook note (what to do). **No personal data in logs or metrics:** ids and counts only.
 
 ## 11. Collaboration (designed now, built later)
 
@@ -189,14 +234,15 @@ We watch object latency and storage per object; the load test is deferred (owner
 
 **Work plan** (each step shipped to dev, verified, then prod):
 
-1. **Foundation:** Durable Object bindings, booking/person/index objects with per-object migrations, idempotency and audit inside the booking, outbox with alarms, rebuild tool, test setup. Architecture rules and docs updated.
+1. **Foundation:** Durable Object bindings, booking/person/index/pending objects with per-object migrations, idempotency and audit inside the booking, outbox → queue with alarms and retries, queue consumer with sequence numbers and a dead letter queue, flush and rebuild tools, deploy workflow creating the queues, test setup. No visible change; the current app keeps working.
 2. **Gigs:** create gig with events, people and roles, client/venue snapshot from the address book, status, edit with version check, delete/cancel; permissions per section 3; API and MCP operations reworked (routes under `/api/gigs/:gig_id/...`).
 3. **Money:** payments, expenses, lineup with shares per event, payouts, derived views; per-gig visibility settings.
 4. **Home and reports** from person objects; Gigs list and search.
 5. **Tags and autofill; people without accounts** (attach on sign-up); **duplicate warnings** via the month index.
 6. **Screens** reworked throughout (Home, Gigs, gig page with events, address book, reports, settings), checked at 390 / 820 / 1280 px, light and dark.
 7. **Retire workspaces** (code, tables, collective page) and drop old data on prod (with the owner's OK).
-8. Later: collaboration (section 11), load test when the owner decides.
+8. **Monitoring and alerts** (section 10a) grow with each step; the admin page lands with step 1's tools.
+9. Later: collaboration (section 11), load test when the owner decides.
 
 ## 13. Architecture rules that change
 
@@ -212,8 +258,9 @@ We watch object latency and storage per object; the load test is deferred (owner
 
 Rules 4–7, 9, 10, 13, 14 stay as they are.
 
-## 14. Open points for review
+## 14. Resolved points
 
-1. **Duplicate warning scope:** warn about gigs of anyone who has a matching date and venue/client (showing only "someone has a gig here that day"), or only gigs of people you've played with (showing their name)? Suggested: the second.
-2. **Booking vs gig naming:** people see "Gig" everywhere, with "events" inside (e.g. "Sangeet", "Reception"). Suggested wording for events: **"Events"**.
-3. Anything missing from section 2's rules.
+1. **Duplicate warnings** cover only gigs of people you've been on gigs with, showing their name.
+2. **Wording:** people see "Gig", with "Events" inside (e.g. "Sangeet", "Reception").
+3. **Delivery:** one path, outbox → Cloudflare Queue (no hybrid); the outbox guarantees nothing is lost, the queue delivers.
+4. **Alerts:** email to a dedicated address.
