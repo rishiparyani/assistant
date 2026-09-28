@@ -3,6 +3,8 @@ import type {
   AutofillView,
   BookingRole,
   BookingView,
+  ContactKind,
+  ContactView,
   DuplicateWarning,
   GigSettings,
   HomeView,
@@ -57,6 +59,14 @@ export interface MoneyEntry {
   note?: string;
 }
 
+export interface ContactFields {
+  name?: string;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+  notes?: string | null;
+}
+
 export interface LineupFields {
   person_id: string;
   part?: string | null;
@@ -92,6 +102,16 @@ export const bookingsApi = {
   autofill: (collective: string) => request<AutofillView>("GET", `/api/me/autofill${q({ collective })}`),
   duplicates: (p: { start_at: string; venue_name?: string; client_name?: string }) =>
     request<DuplicateWarning[]>("GET", `/api/me/duplicates${q(p)}`),
+
+  // Address book
+  contacts: (p: { kind?: ContactKind; q?: string; limit?: number } = {}) =>
+    request<ContactView[]>("GET", `/api/me/contacts${q(p)}`),
+  saveContact: (c: ContactFields & { kind: ContactKind; name: string }) =>
+    request<ContactView>("POST", "/api/me/contacts", c),
+  updateContact: (id: string, c: ContactFields) =>
+    request<ContactView>("PATCH", `/api/me/contacts/${encodeURIComponent(id)}`, c),
+  removeContact: (id: string) =>
+    request<{ removed: true }>("DELETE", `/api/me/contacts/${encodeURIComponent(id)}`),
 
   // Gig
   create: (

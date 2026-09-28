@@ -3,6 +3,10 @@
 // gig's object.
 import {
   AddEventInput,
+  ContactRef,
+  FindContactsInput,
+  SaveContactInput,
+  UpdateContactInput,
   AddPersonInput,
   BookingRef,
   BookingStatusInput,
@@ -30,6 +34,7 @@ import { z } from "zod";
 import * as b from "./services/bookings.ts";
 import * as h from "./services/home.ts";
 import * as t from "./services/tags.ts";
+import * as c from "./services/contacts.ts";
 
 export const bookingOperations = [
   defineOperation({
@@ -283,5 +288,45 @@ export const bookingOperations = [
     http: { method: "GET", path: "/me/duplicates" },
     input: DuplicateCheckInput,
     handler: (ctx, input) => t.checkDuplicates(ctx, input),
+  }),
+  // Address book
+  defineOperation({
+    id: "gigs.find_contacts",
+    tool: "find_contacts",
+    description:
+      "My address book: clients, venues and people, most recently used first. Filled in from gigs I manage and by me. Use it to fill in a new gig's client, venue and people.",
+    kind: "read",
+    http: { method: "GET", path: "/me/contacts" },
+    input: FindContactsInput,
+    handler: (ctx, input) => c.findContacts(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.save_contact",
+    tool: "save_contact",
+    description:
+      "Add a client, venue or person to my address book. Gigs keep their own copy of the details, so the address book never changes past gigs.",
+    kind: "write",
+    http: { method: "POST", path: "/me/contacts", status: 201 },
+    input: SaveContactInput,
+    handler: (ctx, input) => c.saveContact(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.update_contact",
+    tool: "update_contact",
+    description: "Change a contact's name, phone, email, city or notes (null clears a field).",
+    kind: "write",
+    http: { method: "PATCH", path: "/me/contacts/:contact_id" },
+    input: UpdateContactInput,
+    handler: (ctx, input) => c.updateContact(ctx, input),
+  }),
+  defineOperation({
+    id: "gigs.remove_contact",
+    tool: "remove_contact",
+    description: "Remove a contact from my address book. Gigs that used it are not changed.",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/me/contacts/:contact_id" },
+    input: ContactRef,
+    handler: (ctx, input) => c.removeContact(ctx, input.contact_id),
   }),
 ];

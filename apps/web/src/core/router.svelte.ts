@@ -14,6 +14,7 @@ const PATTERNS: [string, RegExp][] = [
   ["my_gigs", /^\/gigs$/],
   ["booking", /^\/gigs\/(?<gigId>[^/]+)$/],
   ["reports", /^\/reports$/],
+  ["contacts", /^\/contacts$/],
 ];
 
 function match(location: Location): Route {

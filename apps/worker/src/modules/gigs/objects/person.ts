@@ -4,8 +4,18 @@
 // sequence number isn't older than what's already applied.
 import { DurableObject } from "cloudflare:workers";
 import { ulid } from "@assistant/shared";
-import { migrate, type Migrations } from "../../../core/objects/storage.ts";
-import type { PersonEventSummary, PersonGigSummary } from "./types.ts";
+import type { ContactKind, ContactView } from "@assistant/shared";
+import { ObjectError } from "../../../core/objects/errors.ts";
+import {
+  audit,
+  hashOf,
+  idempotent,
+  migrate,
+  nowIso,
+  type Actor,
+  type Migrations,
+} from "../../../core/objects/storage.ts";
+import type { LearnedContact, PersonEventSummary, PersonGigSummary } from "./types.ts";
 
 const MIGRATIONS: Migrations = [
   `
@@ -74,7 +84,63 @@ const MIGRATIONS: Migrations = [
   create table my_gig_people (gig_id text not null, user_id text not null, primary key (gig_id, user_id));
   create index my_gig_people_user_idx on my_gig_people (user_id);
   `,
+  // Step 6: the address book (my clients, venues and people; learned from gigs I manage
+  // and edited by me), with idempotency and audit for my own edits.
+  `
+  create table if not exists _audit (
+    id integer primary key autoincrement,
+    at text not null,
+    actor_user_id text,
+    source text not null,
+    action text not null,
+    entity_type text not null,
+    entity_id text not null,
+    before_json text,
+    after_json text
+  );
+  create table if not exists _idempotency (
+    key text primary key,
+    request_hash text not null,
+    response_json text not null,
+    created_at text not null
+  );
+  create index if not exists _idempotency_created_idx on _idempotency (created_at);
+  create table contacts (
+    id text primary key,
+    kind text not null check (kind in ('client', 'venue', 'person')),
+    name text not null,
+    name_key text not null,
+    phone text,
+    email text,
+    city text,
+    notes text,
+    user_id text,
+    last_used_at text,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create index contacts_kind_name_idx on contacts (kind, name_key);
+  create index contacts_email_idx on contacts (email);
+  create index contacts_user_idx on contacts (user_id);
+  create index contacts_used_idx on contacts (last_used_at);
+  create table contact_gigs (contact_id text not null, gig_id text not null, primary key (contact_id, gig_id));
+  create index contact_gigs_gig_idx on contact_gigs (gig_id);
+  `,
 ];
+
+/** "  Blue  Frog " → "blue frog": one contact however the name is typed. */
+const nameKey = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
+
+/** ContactView as a SQL row type (a mapped type, so it has the index signature rows need). */
+type ContactOut = { [K in keyof ContactView]: ContactView[K] };
+type ContactRow = { [K in keyof Omit<ContactView, "gigs">]: ContactView[K] } & {
+  name_key: string;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+const CONTACT_COLUMNS = `c.id, c.kind, c.name, c.phone, c.email, c.city, c.notes, c.user_id, c.last_used_at`;
 
 const MAX_SOCKETS = 8;
 
@@ -171,6 +237,7 @@ export class PersonObject extends DurableObject<Env> {
       this.sql.exec(`delete from my_gigs where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gig_tags where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gig_people where gig_id = ?`, gigId);
+      this.learn(gigId, gig?.first_start_at ?? null, gig?.contacts ?? []);
       for (const t of gig?.tags ?? [])
         this.sql.exec(
           `insert or ignore into my_gig_tags (gig_id, tag_id, name) values (?, ?, ?)`,
@@ -432,5 +499,274 @@ export class PersonObject extends DurableObject<Env> {
         .map((r) => r.gig_id),
     );
     return gigIds.filter((g) => mine.has(g));
+  }
+
+  // --- Address book ------------------------------------------------------------------
+
+  /**
+   * Links this gig's client, venues and people to my contacts, adding the ones I don't
+   * have (inside `apply`'s transaction). Blanks are filled in; what I typed is never
+   * overwritten, and contacts I deleted stay deleted.
+   */
+  private learn(gigId: string, usedAt: string | null, learned: LearnedContact[]) {
+    this.sql.exec(`delete from contact_gigs where gig_id = ?`, gigId);
+    for (const c of learned) {
+      const name = c.name.trim().replace(/\s+/g, " ");
+      if (!name) continue;
+      const existing = this.matchContact(c.kind, name, c.email ?? null, c.user_id ?? null);
+      if (existing?.deleted_at) continue;
+      const now = nowIso();
+      let id = existing?.id;
+      if (!id) {
+        id = ulid();
+        this.sql.exec(
+          `insert into contacts (id, kind, name, name_key, phone, email, city, user_id, last_used_at, created_at, updated_at)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          c.kind,
+          name,
+          nameKey(name),
+          c.phone ?? null,
+          c.email ?? null,
+          c.city ?? null,
+          c.user_id ?? null,
+          usedAt,
+          now,
+          now,
+        );
+      } else {
+        this.sql.exec(
+          `update contacts set phone = coalesce(phone, ?), email = coalesce(email, ?), city = coalesce(city, ?),
+             user_id = coalesce(user_id, ?),
+             last_used_at = case when last_used_at is null or last_used_at < ? then ? else last_used_at end
+           where id = ?`,
+          c.phone ?? null,
+          c.email ?? null,
+          c.city ?? null,
+          c.user_id ?? null,
+          usedAt,
+          usedAt,
+          id,
+        );
+      }
+      this.sql.exec(`insert or ignore into contact_gigs (contact_id, gig_id) values (?, ?)`, id, gigId);
+    }
+  }
+
+  /** The contact this is (people by account, then email, then name; others by name). */
+  private matchContact(kind: ContactKind, name: string, email: string | null, userId: string | null) {
+    const find = (where: string, value: string) =>
+      this.sql
+        .exec<ContactRow>(`select * from contacts where kind = ? and ${where} = ? limit 1`, kind, value)
+        .toArray()[0];
+    if (kind === "person") {
+      const byUser = userId ? find("user_id", userId) : undefined;
+      if (byUser) return byUser;
+      const byEmail = email ? find("email", email.toLowerCase()) : undefined;
+      if (byEmail) return byEmail;
+    }
+    return find("name_key", nameKey(name));
+  }
+
+  /** My contacts, most recently used first, optionally of one kind or matching a search. */
+  async contacts(q: { kind?: ContactKind; search?: string; limit?: number } = {}): Promise<ContactView[]> {
+    const like = q.search ? `%${q.search.toLowerCase()}%` : null;
+    return this.sql
+      .exec<ContactOut>(
+        `select ${CONTACT_COLUMNS}, (select count(*) from contact_gigs g where g.contact_id = c.id) as gigs
+         from contacts c
+         where c.deleted_at is null and (? is null or c.kind = ?)
+           and (? is null or c.name_key like ? or lower(coalesce(c.email, '')) like ?
+                or coalesce(c.phone, '') like ? or lower(coalesce(c.city, '')) like ?)
+         order by c.last_used_at is null, c.last_used_at desc, c.name_key
+         limit ?`,
+        q.kind ?? null,
+        q.kind ?? null,
+        like,
+        like,
+        like,
+        like,
+        like,
+        q.limit ?? 50,
+      )
+      .toArray();
+  }
+
+  /** Adds a contact, or brings back one I deleted with the same name (same kind). */
+  async saveContact(
+    actor: Actor,
+    key: string | null,
+    input: {
+      kind: ContactKind;
+      name: string;
+      phone?: string | null;
+      email?: string | null;
+      city?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<ContactView> {
+    const hash = await hashOf(["save_contact", input]);
+    return idempotent(this.ctx.storage, key, hash, () => {
+      const name = input.name.trim().replace(/\s+/g, " ");
+      const existing = this.matchContact(input.kind, name, input.email ?? null, null);
+      if (existing && !existing.deleted_at)
+        throw new ObjectError("conflict", `“${existing.name}” is already in your address book`, {
+          reason: "duplicate_contact",
+          contact_id: existing.id,
+        });
+      const now = nowIso();
+      const id = existing?.id ?? ulid();
+      if (existing) {
+        this.sql.exec(
+          `update contacts set name = ?, name_key = ?, phone = ?, email = ?, city = ?, notes = ?, deleted_at = null,
+             updated_at = ? where id = ?`,
+          name,
+          nameKey(name),
+          input.phone ?? null,
+          input.email ?? null,
+          input.city ?? null,
+          input.notes ?? null,
+          now,
+          id,
+        );
+      } else {
+        this.sql.exec(
+          `insert into contacts (id, kind, name, name_key, phone, email, city, notes, created_at, updated_at)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          input.kind,
+          name,
+          nameKey(name),
+          input.phone ?? null,
+          input.email ?? null,
+          input.city ?? null,
+          input.notes ?? null,
+          now,
+          now,
+        );
+      }
+      const after = this.contact(id);
+      audit(this.sql, actor, { action: "save_contact", entityType: "contact", entityId: id, after });
+      return after;
+    });
+  }
+
+  /** Changes a contact's details (only the fields given; null clears one). */
+  async updateContact(
+    actor: Actor,
+    key: string | null,
+    input: {
+      contact_id: string;
+      name?: string;
+      phone?: string | null;
+      email?: string | null;
+      city?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<ContactView> {
+    const hash = await hashOf(["update_contact", input]);
+    return idempotent(this.ctx.storage, key, hash, () => {
+      const before = this.contact(input.contact_id);
+      const name = input.name?.trim().replace(/\s+/g, " ");
+      if (name && nameKey(name) !== nameKey(before.name)) {
+        const clash = this.matchContact(before.kind, name, null, null);
+        if (clash && !clash.deleted_at && clash.id !== before.id)
+          throw new ObjectError("conflict", `“${clash.name}” is already in your address book`, {
+            reason: "duplicate_contact",
+            contact_id: clash.id,
+          });
+      }
+      const pick = <K extends "phone" | "email" | "city" | "notes">(k: K) =>
+        input[k] === undefined ? before[k] : input[k];
+      this.sql.exec(
+        `update contacts set name = ?, name_key = ?, phone = ?, email = ?, city = ?, notes = ?, updated_at = ?
+         where id = ?`,
+        name ?? before.name,
+        nameKey(name ?? before.name),
+        pick("phone"),
+        pick("email"),
+        pick("city"),
+        pick("notes"),
+        nowIso(),
+        before.id,
+      );
+      const after = this.contact(before.id);
+      audit(this.sql, actor, {
+        action: "update_contact",
+        entityType: "contact",
+        entityId: before.id,
+        before,
+        after,
+      });
+      return after;
+    });
+  }
+
+  /** Removes a contact from the address book (soft delete; gigs keep their own copy). */
+  async removeContact(actor: Actor, key: string | null, contactId: string): Promise<{ removed: true }> {
+    const hash = await hashOf(["remove_contact", contactId]);
+    return idempotent(this.ctx.storage, key, hash, () => {
+      const before = this.contact(contactId);
+      this.sql.exec(
+        `update contacts set deleted_at = ?, updated_at = ? where id = ?`,
+        nowIso(),
+        nowIso(),
+        contactId,
+      );
+      audit(this.sql, actor, {
+        action: "remove_contact",
+        entityType: "contact",
+        entityId: contactId,
+        before,
+      });
+      return { removed: true as const };
+    });
+  }
+
+  private contact(id: string): ContactView {
+    const row = this.sql
+      .exec<ContactOut>(
+        `select ${CONTACT_COLUMNS}, (select count(*) from contact_gigs g where g.contact_id = c.id) as gigs
+         from contacts c where c.id = ? and c.deleted_at is null`,
+        id,
+      )
+      .toArray()[0];
+    if (!row) throw new ObjectError("not_found", "Contact not found");
+    return row;
+  }
+
+  /** My address book for backups (links to gigs are rebuilt from the gigs themselves). */
+  async exportContacts(): Promise<Record<string, SqlStorageValue>[]> {
+    return this.sql.exec(`select * from contacts`).toArray();
+  }
+
+  /** Restores contacts from a backup; ones that exist are left alone. Returns how many were added. */
+  async importContacts(rows: Record<string, SqlStorageValue>[]): Promise<number> {
+    const columns = [
+      "id",
+      "kind",
+      "name",
+      "name_key",
+      "phone",
+      "email",
+      "city",
+      "notes",
+      "user_id",
+      "last_used_at",
+      "created_at",
+      "updated_at",
+      "deleted_at",
+    ];
+    let added = 0;
+    this.ctx.storage.transactionSync(() => {
+      for (const row of rows) {
+        const cursor = this.sql.exec(
+          `insert or ignore into contacts (${columns.join(", ")}) values (${columns.map(() => "?").join(", ")})`,
+          ...columns.map((c) => row[c] ?? null),
+        );
+        added += cursor.rowsWritten > 0 ? 1 : 0;
+      }
+    });
+    return added;
   }
 }

@@ -10,6 +10,7 @@
   import MyGigs from "../modules/gigs/booking/MyGigs.svelte";
   import GigPage from "../modules/gigs/booking/GigPage.svelte";
   import Reports from "../modules/gigs/booking/Reports.svelte";
+  import Contacts from "../modules/gigs/booking/Contacts.svelte";
   import Settings from "./pages/Settings.svelte";
   import Admin from "./pages/Admin.svelte";
   import NotFound from "./pages/NotFound.svelte";
@@ -58,6 +59,8 @@
         {/key}
       {:else if route.name === "reports"}
         <Reports />
+      {:else if route.name === "contacts"}
+        <Contacts />
       {:else}
         <NotFound />
       {/if}
