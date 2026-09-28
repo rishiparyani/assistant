@@ -132,7 +132,9 @@ const MIGRATIONS: Migrations = [
 /** "  Blue  Frog " → "blue frog": one contact however the name is typed. */
 const nameKey = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
 
-type ContactRow = Omit<ContactView, "gigs"> & {
+/** ContactView as a SQL row type (a mapped type, so it has the index signature rows need). */
+type ContactOut = { [K in keyof ContactView]: ContactView[K] };
+type ContactRow = { [K in keyof Omit<ContactView, "gigs">]: ContactView[K] } & {
   name_key: string;
   created_at: string;
   updated_at: string;
@@ -570,7 +572,7 @@ export class PersonObject extends DurableObject<Env> {
   async contacts(q: { kind?: ContactKind; search?: string; limit?: number } = {}): Promise<ContactView[]> {
     const like = q.search ? `%${q.search.toLowerCase()}%` : null;
     return this.sql
-      .exec<ContactView>(
+      .exec<ContactOut>(
         `select ${CONTACT_COLUMNS}, (select count(*) from contact_gigs g where g.contact_id = c.id) as gigs
          from contacts c
          where c.deleted_at is null and (? is null or c.kind = ?)
@@ -723,7 +725,7 @@ export class PersonObject extends DurableObject<Env> {
 
   private contact(id: string): ContactView {
     const row = this.sql
-      .exec<ContactView>(
+      .exec<ContactOut>(
         `select ${CONTACT_COLUMNS}, (select count(*) from contact_gigs g where g.contact_id = c.id) as gigs
          from contacts c where c.id = ? and c.deleted_at is null`,
         id,
