@@ -44,6 +44,18 @@ export type PersonGigSummary = {
   lineup_visible?: boolean;
   /** Other people with accounts on the gig that this person may see (for duplicate warnings). */
   co_user_ids?: string[];
+  /** Managers only: the client, venues and people on the gig, for their address book. */
+  contacts?: LearnedContact[];
+};
+
+/** A client, venue or person a manager used on a gig (their address book learns it). */
+export type LearnedContact = {
+  kind: "client" | "venue" | "person";
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  city?: string | null;
+  user_id?: string | null;
 };
 
 /** What one person receives about one gig (empty when they're no longer on it). */

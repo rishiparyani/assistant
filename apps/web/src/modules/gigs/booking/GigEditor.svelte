@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { AutofillView, BookingRole, BookingView, DuplicateWarning } from "@assistant/shared";
+  import type {
+    AutofillView,
+    BookingRole,
+    BookingView,
+    ContactKind,
+    ContactView,
+    DuplicateWarning,
+  } from "@assistant/shared";
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -9,6 +16,7 @@
     Segmented,
     SelectField,
     Sheet,
+    SuggestField,
     TextArea,
     TextField,
     toast,
@@ -30,7 +38,7 @@
   }: { open?: boolean; gig?: BookingView | null; onsaved?: (g: BookingView) => void } = $props();
 
   type EventRow = { title: string; date: string; start: string; end: string; venue: string; city: string };
-  type PersonRow = { who: string; role: BookingRole; user_id?: string };
+  type PersonRow = { who: string; role: BookingRole; user_id?: string; email?: string };
 
   const uid = $props.id();
   const formId = `gig-form-${uid}`;
@@ -132,6 +140,16 @@
     }, 500);
   });
 
+  // Suggestions from my address book while typing a client, venue or person.
+  const fromBook = (kind: ContactKind) => (text: string) =>
+    bookingsApi.contacts({ kind, q: text || undefined, limit: 6 }).catch(() => [] as ContactView[]);
+  const detailOf = (c: ContactView) => [c.phone, c.email, c.city].filter(Boolean).join(" · ") || null;
+  function pickPerson(p: PersonRow, c: ContactView) {
+    p.who = c.name;
+    p.user_id = c.user_id ?? undefined;
+    p.email = c.email ?? undefined;
+  }
+
   function eventFields(e: EventRow): EventFields {
     const endDate = e.end && e.end < e.start ? nextDay(e.date) : e.date;
     return {
@@ -145,6 +163,7 @@
   function personFields(p: PersonRow): PersonFields {
     const who = p.who.trim();
     if (p.user_id) return { user_id: p.user_id, role: p.role };
+    if (p.email) return { email: p.email, name: who, role: p.role };
     return who.includes("@") ? { email: who, role: p.role } : { name: who, role: p.role };
   }
 
@@ -246,12 +265,17 @@
     <TagInput label="Tags" bind:value={tags} suggestions={tagSuggestions} />
 
     <div class="two">
-      <TextField
+      <SuggestField
         label="Client"
         id="{uid}-client"
         bind:value={clientName}
         placeholder="Name (optional)"
         maxlength={120}
+        load={fromBook("client")}
+        detail={detailOf}
+        onpick={(c) => {
+          if (c.phone) clientPhone = c.phone;
+        }}
       />
       <TextField label="Client phone" id="{uid}-phone" type="tel" bind:value={clientPhone} maxlength={40} />
     </div>
@@ -284,7 +308,17 @@
               <TextField label="Ends" id="{uid}-ev{i}-end" type="time" bind:value={ev.end} hint="Optional" />
             </div>
             <div class="two">
-              <TextField label="Venue" id="{uid}-ev{i}-venue" bind:value={ev.venue} maxlength={120} />
+              <SuggestField
+                label="Venue"
+                id="{uid}-ev{i}-venue"
+                bind:value={ev.venue}
+                maxlength={120}
+                load={fromBook("venue")}
+                detail={(c) => c.city}
+                onpick={(c) => {
+                  if (c.city) ev.city = c.city;
+                }}
+              />
               <TextField label="City" id="{uid}-ev{i}-city" bind:value={ev.city} maxlength={80} />
             </div>
           </div>
@@ -317,13 +351,17 @@
         </p>
         {#each people as p, i (i)}
           <div class="person">
-            <TextField
+            <SuggestField
               label="Person {i + 1}"
               id="{uid}-p{i}"
               bind:value={p.who}
               placeholder="Email or name"
               maxlength={200}
-              disabled={!!p.user_id}
+              disabled={!!p.user_id || !!p.email}
+              hint={p.email && !p.user_id ? p.email : undefined}
+              load={fromBook("person")}
+              detail={detailOf}
+              onpick={(c) => pickPerson(p, c)}
             />
             <SelectField
               label="Role"

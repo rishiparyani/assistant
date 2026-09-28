@@ -42,7 +42,7 @@ import {
 } from "../../../core/objects/storage.ts";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import { createdMonthOf, monthName, monthOf, pendingName, pendingShard } from "./names.ts";
-import type { GigSummaries, IndexCard, PersonGigSummary, SummaryMessage } from "./types.ts";
+import type { GigSummaries, IndexCard, LearnedContact, PersonGigSummary, SummaryMessage } from "./types.ts";
 
 /** What a backup holds for each gig. */
 const BACKUP_TABLES = [
@@ -925,6 +925,7 @@ export class BookingObject extends DurableObject<Env> {
           )
             .filter((x) => x.user_id && x.user_id !== p.user_id)
             .map((x) => x.user_id!),
+          ...(manager ? { contacts: this.learnedContacts(gig, events, people, p.user_id) } : {}),
         };
         const rows = events.map((e) => ({
           gig_id: gig.id,
@@ -978,6 +979,23 @@ export class BookingObject extends DurableObject<Env> {
       people: peopleOut,
       months: monthsOut,
     };
+  }
+
+  /** The client, venues and other people on this gig, for a manager's address book. */
+  private learnedContacts(
+    gig: GigRow,
+    events: EventRow[],
+    people: PersonRow[],
+    self: string,
+  ): LearnedContact[] {
+    const out: LearnedContact[] = [];
+    if (gig.client_name) out.push({ kind: "client", name: gig.client_name, phone: gig.client_phone });
+    for (const e of events)
+      if (e.venue_name) out.push({ kind: "venue", name: e.venue_name, city: e.venue_city });
+    for (const p of people)
+      if (p.user_id !== self)
+        out.push({ kind: "person", name: p.name, email: p.email, phone: p.phone, user_id: p.user_id });
+    return out;
   }
 
   // --- Backups ----------------------------------------------------------------------
