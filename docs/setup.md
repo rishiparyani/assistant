@@ -69,6 +69,19 @@ Spike deploy (T00): `.github/workflows/spike-t00.yml` runs on pushes touching `s
 
 Not secret, fine to commit: D1 database names and IDs, Worker names, the public app URL. They can't be used without the API token.
 
+## iPhone app (Apple)
+
+The Apple Developer Program (owner, 2026-09-29). The iOS workflow (`.github/workflows/ios.yml`) signs and uploads to TestFlight with an App Store Connect API key; these secrets are GitHub Actions secrets (never in chat or the repo).
+
+| Secret          | What                                                                                                  |
+| --------------- | ----------------------------------------------------------------------------------------------------- |
+| `ASC_KEY_ID`    | App Store Connect → Users and Access → Integrations → App Store Connect API → Team Keys: the key's ID |
+| `ASC_ISSUER_ID` | Same page: Issuer ID (above the list)                                                                 |
+| `ASC_KEY_P8`    | The downloaded `.p8` file's full contents (downloadable once; access **Admin** for automatic signing) |
+| `APPLE_TEAM_ID` | developer.apple.com → Account → Membership details. Also sent to the Worker for passkeys in the app   |
+
+Once, by hand: register the App ID `in.gigspree.assistant` with **Associated Domains** (developer.apple.com → Identifiers), create the app in App Store Connect (Apps → + → New App, that bundle ID, SKU `assistant`), install TestFlight on the phone and turn on Automatic Updates for the app after the first build.
+
 ## What the owner does by hand (agents can't)
 
 Done by the repo owner in the browser; agents should give step-by-step instructions when these are needed.

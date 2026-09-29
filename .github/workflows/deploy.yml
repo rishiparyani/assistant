@@ -110,6 +110,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # Alerts to the owner's Telegram bot; optional.
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # The iPhone app's passkeys (apple-app-site-association); optional.
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
@@ -124,6 +126,9 @@ jobs:
           fi
           if [ -n "$TELEGRAM_BOT_TOKEN" ]; then
             printf '%s' "$TELEGRAM_BOT_TOKEN" | pnpm exec wrangler secret put TELEGRAM_BOT_TOKEN --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$APPLE_TEAM_ID" ]; then
+            printf '%s' "$APPLE_TEAM_ID" | pnpm exec wrangler secret put APPLE_TEAM_ID --name "$WORKER_NAME" > /dev/null
           fi
           # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
           if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then

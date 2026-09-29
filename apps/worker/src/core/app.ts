@@ -16,6 +16,9 @@ import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
 import { calendarFeed } from "./calendar/service.ts";
 
+/** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
+const IOS_BUNDLE_ID = "in.gigspree.assistant";
+
 export interface AppOptions {
   modules: readonly ModuleDefinition[];
 }
@@ -177,6 +180,14 @@ export function createApp({ modules }: AppOptions) {
       }),
     );
   }
+
+  // Passkeys inside the iPhone app (docs/design/ios-app.md): Apple checks that this site
+  // lists the app. Only once the Team ID is set.
+  app.get("/.well-known/apple-app-site-association", (c) => {
+    const team = c.env.APPLE_TEAM_ID?.trim();
+    if (!team || !/^[A-Z0-9]{10}$/.test(team)) return c.notFound();
+    return c.json({ webcredentials: { apps: [`${team}.${IOS_BUNDLE_ID}`] } });
+  });
 
   app.route("/", authRoutes);
   app.route("/", adminRoutes(modules));

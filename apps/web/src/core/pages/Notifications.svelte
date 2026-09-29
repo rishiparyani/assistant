@@ -2,6 +2,7 @@
   import Bell from "@lucide/svelte/icons/bell";
   import { Button, Card, Spinner, toast } from "../ui/index.ts";
   import { disablePush, enablePush, needsHomeScreen, pushStatus, pushSupported, testPush } from "../push.ts";
+  import { inApp } from "../native.ts";
 
   // Notifications on this device: gig added, confirmed, changed, cancelled, and payments.
   type Status = Awaited<ReturnType<typeof pushStatus>>;
@@ -40,7 +41,9 @@
   </div>
   {#if !supported}
     <p class="help">
-      {#if homeScreenFirst || needsHomeScreen()}
+      {#if inApp()}
+        Notifications in the iPhone app are coming soon. Until then, the Home Screen web app can get them.
+      {:else if homeScreenFirst || needsHomeScreen()}
         On iPhone, notifications work in the app on your Home Screen: tap Share → Add to Home Screen, open it
         from there, then turn them on here.
       {:else}
