@@ -218,6 +218,10 @@ Owner: "How do we make sure that you remember to keep the handoff updated withou
 
 The owner bought `gigspree.in`. Prod is `https://gigspree.in` (`www.gigspree.in` moves to it), dev is `https://dev.gigspree.in`; `BASE_URL` follows, so sign-in, passkeys, OAuth for assistants, calendar and Drive links all use the domain. Worker **custom domains** (`routes` with `custom_domain` in `wrangler.jsonc`) create the DNS records and certificates on deploy, so the owner only adds the domain to Cloudflare (free plan, nameservers at the registrar) and adds the new Google redirect URIs. The old `*.workers.dev` addresses stay on (`workers_dev: true`) so existing calendar subscriptions and shortcuts keep working; pages there, and `www`, are sent to the domain by the web app (`apps/web/src/core/domain.ts`), since page requests are served as static files without the Worker. Everyone signs in again once and re-adds passkeys (they're bound to a domain). The deploy smoke test waits up to ~6 minutes for a new certificate. The app keeps its name "Assistant" until the owner decides otherwise.
 
+## 2026-09-29: Calendar view for gigs
+
+Owner: a calendar view as a UI perk, with the list staying the default. The Gigs page has a List / Calendar switch; the choice is kept in the browser (`localStorage`, per device), because it's a display preference, not data. The calendar is a month grid in India time with weeks starting on Monday (weekend gigs stay together at the end of the row). It uses the existing `GET /api/me/gigs` with `from`/`to` for the month (pages of 100 until done), so no backend change. Narrow screens show coloured dots per gig (status colours), wide ones show gig titles. Tap a day to list its gigs and add a gig on that day (future days only); swipe sideways to change month. The month on screen is kept while moving around the app, not across a reload.
+
 ## Open
 
 None.
