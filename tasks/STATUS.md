@@ -1,6 +1,6 @@
 # Status
 
-_Updated: 2026-09-28_
+_Updated: 2026-09-29_
 
 ## Last done
 
@@ -67,10 +67,20 @@ _Updated: 2026-09-28_
 
 ## Next
 
-1. Owner: review and OK the PR with T09 + T10 + T11 (security changes: tokens, MCP, push). Then: owner feedback. PR waits for the owner's OK (security changes). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
+1. All planned tasks (T08–T12, address book) are live on prod (T09 + T10 + T11 merged in [rishiparyani/assistant#27](https://github.com/rishiparyani/assistant/pull/27) with the owner's OK, 2026-09-29; prod migrations 8). Next: owner feedback. Owner to try: notifications "Send a test" on the iPhone Home Screen app (never tested on a real device), connect Claude to `/mcp`. Owner steps still open: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; publish the Google app; optional `ANALYTICS_TOKEN`.
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
+
+## Gotchas (for any agent)
+
+- `pnpm -s typecheck | grep error` can hide a failure: check the **exit code** (`pnpm typecheck; echo $?`) before pushing. CI caught one this way.
+- Tests must not assert on short numbers that can appear inside ULIDs (e.g. `not.toContain("50")`); assert on the real strings.
+- Changing a Durable Object's migrations bumps its schema version: update the version check in `apps/worker/test/objects.test.ts`; a new D1 migration bumps `migrations` in `test/health.test.ts`.
+- A new Durable Object class needs a binding and a new `migrations` tag in **both** envs of `wrangler.jsonc`, an export in `src/index.ts`, then `pnpm --filter @assistant/worker types`.
+- Local dev: `pkill -f vite` also kills your own shell; stop old servers by PID. Email/password sign-up works only on localhost (tests, local browser checks), not on dev.
+- Headless Chromium always reports notifications as blocked, so real push subscribe can't be tested in a browser script.
+- Anything that adds a way to reach data from outside the app (tokens, OAuth, push) is a security change: open the PR and wait for the owner's explicit OK before merging.
 
 ## Open decisions
 
