@@ -2,6 +2,8 @@ import { defineModule } from "../../core/module.ts";
 import * as schema from "./schema.ts";
 import { bookingOperations } from "./operations-bookings.ts";
 import { collabOperations } from "./operations-collab.ts";
+import { guestOperations } from "./operations-guests.ts";
+import { GUEST_LINK_PREFIX, sharedGuestAction, sharedGuestList } from "./services/guests.ts";
 import { consumeSummaries, recordDeadLetters } from "./objects/delivery.ts";
 import { gigsAdmin } from "./admin.ts";
 import { attachPendingPeople } from "./services/tags.ts";
@@ -13,7 +15,8 @@ export const gigsModule = defineModule({
   id: "gigs",
   name: "Gigs",
   schema,
-  operations: [...bookingOperations, ...collabOperations],
+  operations: [...bookingOperations, ...collabOperations, ...guestOperations],
+  sharedLinks: { prefix: GUEST_LINK_PREFIX, read: sharedGuestList, act: sharedGuestAction },
   hooks: {
     userCreated: (deps, user) => attachPendingPeople(deps.d1, deps.objects, user).then(() => undefined),
   },

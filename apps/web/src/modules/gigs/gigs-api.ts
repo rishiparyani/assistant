@@ -1,5 +1,7 @@
 // Typed calls to the gig-centric operations (docs/api.md, "Gig-centric gigs"). No logic here.
 import type {
+  GuestLinkView,
+  SharedGuestListView,
   AutofillView,
   BookingRole,
   BookingView,
@@ -203,4 +205,39 @@ export const bookingsApi = {
   updateNote: (id: string, noteId: string, body: string) =>
     request<BookingView>("PATCH", `${base(id)}/notes/${noteId}`, { body }),
   removeNote: (id: string, noteId: string) => request<BookingView>("DELETE", `${base(id)}/notes/${noteId}`),
+
+  // Guest list
+  addGuests: (
+    id: string,
+    guests: { name: string; plus_ones?: number; note?: string }[],
+    hostPersonId?: string,
+  ) =>
+    request<BookingView>("POST", `${base(id)}/guests`, {
+      guests,
+      ...(hostPersonId ? { host_person_id: hostPersonId } : {}),
+    }),
+  updateGuest: (
+    id: string,
+    guestId: string,
+    g: { name?: string; plus_ones?: number; note?: string | null; arrived?: boolean },
+  ) => request<BookingView>("PATCH", `${base(id)}/guests/${guestId}`, g),
+  removeGuest: (id: string, guestId: string) =>
+    request<BookingView>("DELETE", `${base(id)}/guests/${guestId}`),
+  setGuestList: (
+    id: string,
+    s: { total_limit?: number | null; per_person_limit?: number | null; closes_at?: string | null },
+  ) => request<BookingView>("PATCH", `${base(id)}/guest-list`, s),
+  guestLink: (id: string) => request<GuestLinkView>("GET", `${base(id)}/guest-link`),
+  enableGuestLink: (id: string, o: { check_in?: boolean; reset?: boolean } = {}) =>
+    request<GuestLinkView>("POST", `${base(id)}/guest-link`, o),
+  disableGuestLink: (id: string) => request<GuestLinkView>("DELETE", `${base(id)}/guest-link`),
+
+  // The venue's side (no sign-in)
+  sharedGuests: (token: string) =>
+    request<SharedGuestListView>("GET", `/api/shared/${encodeURIComponent(token)}`),
+  sharedArrive: (token: string, guestId: string, arrived: boolean) =>
+    request<SharedGuestListView>("POST", `/api/shared/${encodeURIComponent(token)}/arrive`, {
+      guest_id: guestId,
+      arrived,
+    }),
 };

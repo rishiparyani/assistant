@@ -5,6 +5,7 @@ import { PageInput } from "../../core/pagination.ts";
 import { dateTime, id, moneyFields, optionalText } from "./common.ts";
 import type { GigMoney, LineupView } from "./booking-money.ts";
 import type { GigListView, GigNoteView } from "./collab.ts";
+import type { GuestListView } from "./guests.ts";
 
 export const GIG_STATUSES = ["enquiry", "confirmed", "completed", "cancelled"] as const;
 export type GigStatus = (typeof GIG_STATUSES)[number];
@@ -205,6 +206,7 @@ export interface BookingView {
   shared_notes: GigNoteView[];
   /** Whether I may add notes and change lists (managers always; players per settings). */
   can_edit_lists: boolean;
+  guest_list: GuestListView;
   created_at: string;
   updated_at: string;
 }

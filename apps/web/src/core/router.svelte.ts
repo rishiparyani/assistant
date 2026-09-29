@@ -15,6 +15,8 @@ const PATTERNS: [string, RegExp][] = [
   ["booking", /^\/gigs\/(?<gigId>[^/]+)$/],
   ["reports", /^\/reports$/],
   ["contacts", /^\/contacts$/],
+  // A gig's guest list shared with its venue (no sign-in; the link is the key).
+  ["guest_link", /^\/guests\/(?<token>[A-Za-z0-9_-]+)$/],
 ];
 
 function match(location: Location): Route {

@@ -29,7 +29,7 @@
   button {
     flex: 1;
     min-height: 32px;
-    padding: 0 var(--space-3);
+    padding: 0 var(--space-2);
     border: 0;
     border-radius: 8px;
     background: transparent;
