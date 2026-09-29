@@ -92,7 +92,10 @@ export interface AdminLogEntry {
   actor: string | null;
 }
 
-/** The owner-only admin panel. Admin writes are naturally repeatable, so no Idempotency-Key. */
+/**
+ * The owner-only admin panel. Admin writes are naturally repeatable, so no Idempotency-Key.
+ * Online-only: admin tools act on live server data.
+ */
 export const adminApi = {
   me: () => request<{ is_admin: boolean }>("GET", "/api/admin/me"),
   overview: () => request<AdminOverview>("GET", "/api/admin/overview"),
@@ -161,14 +164,14 @@ export const api = {
 /** A readable message for any thrown value. */
 export const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** My private calendar feed link (core, T08). */
+/** My private calendar feed link (core, T08). Online-only: the server makes the link secret. */
 export const calendarApi = {
   get: () => request<CalendarFeedView>("GET", "/api/me/calendar"),
   enable: (reset = false) => request<CalendarFeedView>("POST", "/api/me/calendar", reset ? { reset } : {}),
   disable: () => request<CalendarFeedView>("DELETE", "/api/me/calendar"),
 };
 
-/** API tokens for Siri Shortcuts (core, T09). */
+/** API tokens for Siri Shortcuts (core, T09). Online-only: the server makes and revokes tokens. */
 export const tokensApi = {
   list: () => request<ApiTokenView[]>("GET", "/api/me/tokens"),
   create: (name: string, write: boolean) =>
@@ -176,7 +179,7 @@ export const tokensApi = {
   revoke: (id: string) => request<{ revoked: true }>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
 };
 
-/** My notifications (core, T11). */
+/** My notifications (core, T11). Online-only: marking read is retried next time. */
 export const notificationsApi = {
   list: () => request<NotificationsView>("GET", "/api/me/notifications?limit=20"),
   markAllRead: () => request<{ unread: 0 }>("POST", "/api/me/notifications/read", {}),

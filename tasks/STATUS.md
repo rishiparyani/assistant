@@ -4,6 +4,8 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **Offline rule for every agent** (decision 2026-09-29): `AGENTS.md` rule 17 plus a "Adding a new write" guide in `docs/design/offline.md`; every web write not sent through the outbox is marked `// online-only: <reason>`; `apps/web/test/offline-rule.test.ts` (5 checks, runs in `pnpm test`) fails on unmarked writes, `fetch()` in module code, unmarked `fetch()` in core, or an outbox kind with no applier. Checked that it catches both mistakes. `docs/architecture.md` updated.
+
 - **Offline first, stage 2** (decision 2026-09-29, `docs/design/offline.md`): changes made offline.
   - What works offline: notes, lists and items, guests and arrivals, payments, payouts and expenses.
   - How: they go through the outbox (`core/outbox.svelte.ts`), are shown at once (appliers in `modules/gigs/offline-changes.ts`) and sync in order when online. A refused change is listed under "Couldn't sync" with the reason. Sign-out warns about unsynced changes.

@@ -13,12 +13,14 @@
   $effect(() => {
     const id = query.get("client_id");
     if (!id) return;
+    // online-only: the connector's name comes from the server.
     fetch(`/auth/oauth2/public-client?client_id=${encodeURIComponent(id)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((c) => c?.client_name && (clientName = c.client_name))
       .catch(() => {});
   });
 
+  // online-only: approving an AI connector happens on the server.
   async function decide(accept: boolean) {
     busy = accept ? "allow" : "deny";
     error = "";

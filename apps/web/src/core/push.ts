@@ -54,6 +54,7 @@ function deviceLabel() {
 }
 
 /** Asks permission and turns notifications on for this device. */
+// online-only: registers this device with the push service.
 export async function enablePush(): Promise<PushStatusView> {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error("Notifications are blocked for this app in your settings");
@@ -70,6 +71,7 @@ export async function enablePush(): Promise<PushStatusView> {
   });
 }
 
+// online-only: unregisters this device on the server.
 export async function disablePush(): Promise<PushStatusView> {
   const sub = await currentSubscription();
   const endpoint = sub?.endpoint;
@@ -77,4 +79,5 @@ export async function disablePush(): Promise<PushStatusView> {
   return request<PushStatusView>("POST", "/api/me/push/remove", endpoint ? { endpoint } : {});
 }
 
+// online-only: asks the server to send a test notification now.
 export const testPush = () => request<{ sent: number }>("POST", "/api/me/push/test", {});

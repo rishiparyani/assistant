@@ -111,48 +111,63 @@ export const bookingsApi = {
 
   // My gig types (Settings)
   gigTypes: () => request<GigTypesView>("GET", "/api/me/gig-types"),
+  // online-only: Settings, rarely changed.
   setGigTypes: (types: string[]) => request<GigTypesView>("PUT", "/api/me/gig-types", { types }),
 
   // Address book
   contacts: (p: { kind?: ContactKind; q?: string; limit?: number } = {}) =>
     request<ContactView[]>("GET", `/api/me/contacts${q(p)}`),
+  // online-only: address book, rarely changed at a gig.
   saveContact: (c: ContactFields & { kind: ContactKind; name: string }) =>
     request<ContactView>("POST", "/api/me/contacts", c),
+  // online-only: address book, rarely changed at a gig.
   updateContact: (id: string, c: ContactFields) =>
     request<ContactView>("PATCH", `/api/me/contacts/${encodeURIComponent(id)}`, c),
+  // online-only: address book, rarely changed at a gig.
   removeContact: (id: string) =>
     request<{ removed: true }>("DELETE", `/api/me/contacts/${encodeURIComponent(id)}`),
 
   // Gig
+  // online-only: the server picks the gig id and sets up its object.
   create: (
     body: GigFields & { status?: "enquiry" | "confirmed"; events: EventFields[]; people: PersonFields[] },
   ) => request<BookingView>("POST", "/api/gigs", body),
   get: (id: string) => request<BookingView>("GET", base(id)),
+  // online-only: checked against the gig version the sheet opened (conflicts).
   update: (id: string, version: number, body: GigFields) =>
     request<BookingView>("PATCH", base(id), { version, ...body }),
+  // online-only: confirm/complete/cancel depend on rules only the server knows.
   setStatus: (
     id: string,
     action: "confirm" | "complete" | "cancel",
     extra: { reason?: string; refund?: string; refund_method?: PaymentMethod } = {},
   ) => request<BookingView>("POST", `${base(id)}/status`, { action, ...extra }),
 
+  // online-only: deletes need the server to confirm.
   remove: (id: string) => request<{ deleted: true }>("DELETE", base(id)),
 
+  // online-only: events move gig dates and lineups; server rules.
   addEvent: (id: string, e: EventFields) => request<BookingView>("POST", `${base(id)}/events`, e),
+  // online-only: checked against the gig version the sheet opened (conflicts).
   updateEvent: (id: string, eventId: string, version: number, e: Partial<EventFields>) =>
     request<BookingView>("PATCH", `${base(id)}/events/${eventId}`, { version, ...e }),
+  // online-only: events move gig dates and lineups; server rules.
   removeEvent: (id: string, eventId: string) =>
     request<BookingView>("DELETE", `${base(id)}/events/${eventId}`),
 
+  // online-only: people and roles are permission changes.
   addPerson: (id: string, p: PersonFields) => request<BookingView>("POST", `${base(id)}/people`, p),
+  // online-only: people and roles are permission changes.
   updatePerson: (
     id: string,
     personId: string,
     p: { role?: BookingRole; name?: string; phone?: string | null },
   ) => request<BookingView>("PATCH", `${base(id)}/people/${personId}`, p),
+  // online-only: people and roles are permission changes.
   removePerson: (id: string, personId: string) =>
     request<BookingView | { removed: true }>("DELETE", `${base(id)}/people/${personId}`),
 
+  // online-only: checked against the gig version the sheet opened; shares need the server.
   setLineup: (
     id: string,
     eventId: string,
@@ -177,10 +192,12 @@ export const bookingsApi = {
       p,
       `Payment ${rupees(p.amount)}`,
     ),
+  // online-only: a correction of a synced entry; needs the server copy.
   reversePayment: (id: string, paymentId: string) =>
     request<BookingView>("POST", `${base(id)}/payments/${paymentId}/reverse`, {}),
   recordPayout: (id: string, p: MoneyEntry & { person_id: string; event_id?: string }) =>
     gigChange(id, "gigs.record_gig_payout", "POST", `${base(id)}/payouts`, p, `Payout ${rupees(p.amount)}`),
+  // online-only: a correction of a synced entry; needs the server copy.
   reversePayout: (id: string, payoutId: string) =>
     request<BookingView>("POST", `${base(id)}/payouts/${payoutId}/reverse`, {}),
   recordExpense: (
@@ -195,6 +212,7 @@ export const bookingsApi = {
       p,
       `Expense ${rupees(p.amount)} (${p.category})`,
     ),
+  // online-only: a correction of a synced entry; needs the server copy.
   removeExpense: (id: string, expenseId: string) =>
     request<BookingView>("DELETE", `${base(id)}/expenses/${expenseId}`),
 
@@ -346,18 +364,22 @@ export const bookingsApi = {
         guest_id: guestId,
       },
     ),
+  // online-only: limits change what others may add; server rules.
   setGuestList: (
     id: string,
     s: { total_limit?: number | null; per_person_limit?: number | null; closes_at?: string | null },
   ) => request<BookingView>("PATCH", `${base(id)}/guest-list`, s),
   guestLink: (id: string) => request<GuestLinkView>("GET", `${base(id)}/guest-link`),
+  // online-only: the server makes the link secret.
   enableGuestLink: (id: string, o: { check_in?: boolean; reset?: boolean } = {}) =>
     request<GuestLinkView>("POST", `${base(id)}/guest-link`, o),
+  // online-only: the server revokes the link.
   disableGuestLink: (id: string) => request<GuestLinkView>("DELETE", `${base(id)}/guest-link`),
 
   // The venue's side (no sign-in)
   sharedGuests: (token: string) =>
     request<SharedGuestListView>("GET", `/api/shared/${encodeURIComponent(token)}`),
+  // online-only: the venue page has no sign-in, so no outbox.
   sharedArrive: (token: string, guestId: string, arrived: boolean) =>
     request<SharedGuestListView>("POST", `/api/shared/${encodeURIComponent(token)}/arrive`, {
       guest_id: guestId,

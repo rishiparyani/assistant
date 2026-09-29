@@ -5,6 +5,7 @@
 const current = () =>
   document.querySelector<HTMLScriptElement>('script[type="module"][src*="/assets/"]')?.src;
 
+// online-only: asks the server for a newer build; skipped when offline.
 async function checkForUpdate() {
   const mine = current();
   if (!mine) return; // dev server: no hashed bundle
