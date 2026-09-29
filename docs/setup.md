@@ -39,16 +39,31 @@ Never in the repo, never in chat, never in logs.
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | GitHub Actions secrets → Worker secrets                                                                                                                                                                                                                                                                                                                        | Google sign-in. One OAuth client covers all environments (several redirect URIs).                                                                                                                                                                                                                            | T00         |
 | Local values                               | `apps/worker/.dev.vars` (git-ignored); template in `.dev.vars.example` with placeholders only                                                                                                                                                                                                                                                                  | `wrangler dev`                                                                                                                                                                                                                                                                                               | T01         |
 
-Worker names and URLs (on the owner's `rishiparyani.workers.dev` subdomain until a domain is added):
+Worker names and URLs (the owner's domain `gigspree.in`, decision 2026-09-29):
 
 | Worker                  | URL                                                | Google redirect URI      |
 | ----------------------- | -------------------------------------------------- | ------------------------ |
 | `assistant-spike` (T00) | `https://assistant-spike.rishiparyani.workers.dev` | `…/auth/callback/google` |
-| `assistant-dev`         | `https://assistant-dev.rishiparyani.workers.dev`   | `…/auth/callback/google` |
-| `assistant` (prod)      | `https://assistant.rishiparyani.workers.dev`       | `…/auth/callback/google` |
+| `assistant-dev`         | `https://dev.gigspree.in`                          | `…/auth/callback/google` |
+| `assistant` (prod)      | `https://gigspree.in` (`www.` moves to it)         | `…/auth/callback/google` |
 | local `wrangler dev`    | `http://localhost:8787`                            | `…/auth/callback/google` |
 
-Better Auth's `basePath` is `/auth`, so the callback is `/auth/callback/google`. When a domain is added, add its origin and redirect URI to the Google client.
+Better Auth's `basePath` is `/auth`, so the callback is `/auth/callback/google`. The old `assistant(-dev).rishiparyani.workers.dev` addresses stay on: they still answer `/api` (old calendar links and shortcuts keep working), and the web app sends browsers from them to the domain.
+
+## Domain gigspree.in (owner, once)
+
+The Worker routes (`routes` with `custom_domain` in `apps/worker/wrangler.jsonc`) make the DNS records and certificates on deploy; the owner only moves the domain to Cloudflare.
+
+1. Cloudflare dashboard → **Add a domain** → `gigspree.in` → **Free** plan. Cloudflare shows two nameservers.
+2. At the registrar where the domain was bought → the domain's **Nameservers** → **Custom** → paste Cloudflare's two → save. Wait for Cloudflare's email or the domain showing **Active** (minutes to a few hours).
+3. Cloudflare → gigspree.in → **DNS** → delete any records for `gigspree.in`, `www` or `dev` that were imported from the registrar (parking pages); the deploy creates its own.
+4. Google Cloud → Google Auth Platform → **Clients** → the web client:
+   - **Authorized JavaScript origins**: add `https://gigspree.in` and `https://dev.gigspree.in`.
+   - **Authorized redirect URIs**: add `https://gigspree.in/auth/callback/google`, `https://dev.gigspree.in/auth/callback/google`, `https://gigspree.in/api/admin/drive/callback`, `https://dev.gigspree.in/api/admin/drive/callback`.
+   - Keep the old workers.dev entries until the move is done.
+5. If a deploy says the API token can't edit the domain: Cloudflare → My Profile → API Tokens → edit the deploy token → add **Zone → Workers Routes → Edit** and **Zone → DNS → Edit** for `gigspree.in`.
+
+After the move, people sign in again on gigspree.in, passkeys are added again (they belong to a domain), and the Home Screen app is re-added from gigspree.in (then turn notifications on again).
 
 Spike deploy (T00): `.github/workflows/spike-t00.yml` runs on pushes touching `spikes/t00/**` from any branch. It creates the `assistant-spike` D1 database if missing, fills its id into `wrangler.jsonc` at build time, applies migrations, deploys, sets secrets, and smoke-tests.
 
@@ -82,7 +97,7 @@ Check current numbers in Cloudflare's and GitHub's docs before relying on them; 
 ## Google Drive backups (owner, once)
 
 1. Google Cloud console → the project used for Google sign-in → search **Google Drive API** → **Enable**.
-2. **Google Auth Platform** (or APIs & Services) → **Clients** → the web client → **Authorized redirect URIs** → add `https://assistant.rishiparyani.workers.dev/api/admin/drive/callback` and `https://assistant-dev.rishiparyani.workers.dev/api/admin/drive/callback` → **Save**.
+2. **Google Auth Platform** (or APIs & Services) → **Clients** → the web client → **Authorized redirect URIs** → add `https://gigspree.in/api/admin/drive/callback` and `https://dev.gigspree.in/api/admin/drive/callback` → **Save**.
 3. In the app: Settings → **Admin panel** → **Backups** → **Connect Google Drive** → choose the account → allow. Backups then run every night; "Back up now" runs one immediately.
 
 Restore: Admin panel → Backups → **Restore from a file** (owners only). It only adds what's missing.

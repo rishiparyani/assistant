@@ -214,6 +214,10 @@ From Codex's reviews of #25–#27:
 
 Owner: "How do we make sure that you remember to keep the handoff updated without me reminding you?" Agents keep no memory between sessions, and the written rule alone slipped once (STATUS still said #27 was waiting after it merged). A separate workflow, `handoff.yml` (pull_request only, no secrets, read-only, pinned checkout; the PR description is passed as an env value, never inlined), fails a PR that changes `apps/`, `packages/`, `scripts/` or `shortcuts/` without changing `tasks/STATUS.md`. A line containing only `[skip-status]` in the description passes with a visible warning; mentions inside text, including the PR template's explanation, don't count (Codex review). It runs on description edits too, and it's a separate workflow so edits don't re-run the full test suite. A PR template holds the handoff checklist. It works for any agent (Claude, Codex, others) because it lives in GitHub, not in an agent. Limit: it proves STATUS changed, not that it's right.
 
+## 2026-09-29: The app moves to gigspree.in
+
+The owner bought `gigspree.in`. Prod is `https://gigspree.in` (`www.gigspree.in` moves to it), dev is `https://dev.gigspree.in`; `BASE_URL` follows, so sign-in, passkeys, OAuth for assistants, calendar and Drive links all use the domain. Worker **custom domains** (`routes` with `custom_domain` in `wrangler.jsonc`) create the DNS records and certificates on deploy, so the owner only adds the domain to Cloudflare (free plan, nameservers at the registrar) and adds the new Google redirect URIs. The old `*.workers.dev` addresses stay on (`workers_dev: true`) so existing calendar subscriptions and shortcuts keep working; pages there, and `www`, are sent to the domain by the web app (`apps/web/src/core/domain.ts`), since page requests are served as static files without the Worker. Everyone signs in again once and re-adds passkeys (they're bound to a domain). The deploy smoke test waits up to ~6 minutes for a new certificate. The app keeps its name "Assistant" until the owner decides otherwise.
+
 ## Open
 
 None.

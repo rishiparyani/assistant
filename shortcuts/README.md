@@ -8,7 +8,7 @@ Ask Siri about your gigs, and record payments and gigs by voice. It takes about 
 
 App → **Settings → Siri and Shortcuts → Make a token for Siri**. Keep "Read and change" (needed to record payments), tap **Make token**, then **Copy token**. It's shown only once. If you lose it, revoke it and make another.
 
-The address below is the live app: `https://assistant.rishiparyani.workers.dev`.
+The address below is the live app: `https://gigspree.in`.
 
 ## 2. Questions (read only)
 
@@ -18,7 +18,7 @@ Build one, then duplicate it for the others.
 
 1. Shortcuts app → **+** → name it **Next gig**.
 2. Add **Get Contents of URL**:
-   - URL: `https://assistant.rishiparyani.workers.dev/api/me/brief?what=next`
+   - URL: `https://gigspree.in/api/me/brief?what=next`
    - Tap the arrow → Method **GET** → **Headers** → add `Authorization` with the value `Bearer ` followed by your token (one space after Bearer).
 3. Add **Get Dictionary Value** → Get **Value** for key `text` in _Contents of URL_.
 4. Add **Speak Text** (or **Show Result**) with _Dictionary Value_.
@@ -38,7 +38,7 @@ Say "Hey Siri, next gig".
 
 1. New shortcut **Record payment**.
 2. **Ask for Input**: Text, prompt "Which gig?".
-3. **Get Contents of URL**: `https://assistant.rishiparyani.workers.dev/api/me/pick?q=` then insert _Provided Input_ at the end. GET, with the same `Authorization` header.
+3. **Get Contents of URL**: `https://gigspree.in/api/me/pick?q=` then insert _Provided Input_ at the end. GET, with the same `Authorization` header.
 4. **Get Dictionary Value**: Value for key `choices` in _Contents of URL_. Rename the result (tap it → Rename) to **Gigs**.
 5. **Choose from List**: _Gigs_, prompt "Which one?".
 6. **Get Dictionary Value**: Value for key _Chosen Item_ in _Gigs_. Rename to **Gig ID**.
@@ -46,7 +46,7 @@ Say "Hey Siri, next gig".
 8. **Choose from Menu** with prompt "How was it paid?" and options `upi`, `cash`, `bank`, `cheque`. In each option add a **Text** action with that same word. After the menu, rename _Menu Result_ to **Method**.
 9. **Show Alert**: "Record ₹*Amount* for _Chosen Item_?" with **Show Cancel Button** on. This is the confirm step: Cancel stops here.
 10. **Get Contents of URL**:
-    - URL `https://assistant.rishiparyani.workers.dev/api/gigs/` + _Gig ID_ + `/payments`
+    - URL `https://gigspree.in/api/gigs/` + _Gig ID_ + `/payments`
     - Method **POST**
     - Headers:
       - `Authorization`: `Bearer <token>`
@@ -74,7 +74,7 @@ Same as **Record payment**, with these changes:
 5. **Ask for Input**: Number "Fee in rupees? (0 if not known)" → rename **Fee**.
 6. **Show Alert**: "Add _Title_ on _When_?" with Cancel.
 7. **Get Contents of URL**:
-   - URL `https://assistant.rishiparyani.workers.dev/api/gigs`, Method **POST**
+   - URL `https://gigspree.in/api/gigs`, Method **POST**
    - Headers: `Authorization` and `Idempotency-Key` as above
    - Request Body **JSON**:
      - `title` (Text): _Title_

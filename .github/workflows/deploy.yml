@@ -39,7 +39,7 @@ jobs:
       QUEUE_NAME: ${{ github.ref_name == 'main' && 'summaries' || 'summaries-dev' }}
       # Placeholder database_id in apps/worker/wrangler.jsonc for this environment.
       DB_PLACEHOLDER: ${{ github.ref_name == 'main' && '00000000-0000-0000-0000-000000000001' || '00000000-0000-0000-0000-000000000000' }}
-      APP_URL: ${{ github.ref_name == 'main' && 'https://assistant.rishiparyani.workers.dev' || 'https://assistant-dev.rishiparyani.workers.dev' }}
+      APP_URL: ${{ github.ref_name == 'main' && 'https://gigspree.in' || 'https://dev.gigspree.in' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -135,7 +135,8 @@ jobs:
       - name: Smoke test
         run: |
           # Right after a deploy, some requests still reach the previous version for a few
-          # seconds, so retry the whole set of checks (up to ~2 min) and name any failure.
+          # seconds, and a new custom domain needs a few minutes for its certificate, so
+          # retry the whole set of checks (up to ~6 min) and name any failure.
           migrations="$(ls apps/worker/migrations/*.sql | wc -l)"
           check() {
             curl -fsS "$APP_URL/api/health" | jq -e --argjson m "$migrations" \
@@ -146,7 +147,7 @@ jobs:
               || { echo "OAuth discovery"; return 1; }
             [ "$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401" ] || { echo "/api/me not protected"; return 1; }
           }
-          for i in $(seq 1 24); do
+          for i in $(seq 1 72); do
             if failed="$(check 2>&1)"; then
               curl -fsS "$APP_URL/api/health"; echo
               echo "App, API and auth are up at $APP_URL"
