@@ -210,6 +210,10 @@ From Codex's reviews of #25–#27:
   - it counts gigs, not events;
   - pick lists distinct gigs from my gig rows.
 
+## 2026-09-29: Handoff enforced by CI
+
+Owner: "How do we make sure that you remember to keep the handoff updated without me reminding you?" Agents keep no memory between sessions, and the written rule alone slipped once (STATUS still said #27 was waiting after it merged). A separate workflow, `handoff.yml` (pull_request only, no secrets, read-only, pinned checkout; the PR description is passed as an env value, never inlined), fails a PR that changes `apps/`, `packages/`, `scripts/` or `shortcuts/` without changing `tasks/STATUS.md`. `[skip-status]` in the description passes with a visible warning. It runs on description edits too, and it's a separate workflow so edits don't re-run the full test suite. A PR template holds the handoff checklist. It works for any agent (Claude, Codex, others) because it lives in GitHub, not in an agent. Limit: it proves STATUS changed, not that it's right.
+
 ## Open
 
 None.
