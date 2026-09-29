@@ -80,7 +80,15 @@ jobs:
           PY
           grep -E '^(PHONE|SMALL)=' "$GITHUB_ENV"
 
+      # Swift packages (Capacitor) and compiled parts from earlier runs: ~1 min builds.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/dd
+          key: ios-dd-${{ hashFiles('apps/ios/ios/App/CapApp-SPM/Package.swift', 'apps/ios/ios/App/App.xcodeproj/project.pbxproj') }}
+          restore-keys: ios-dd-
+
       - name: Build for the simulator
+        timeout-minutes: 15
         run: |
           cd apps/ios
           APP_ENV=local pnpm exec cap sync ios
@@ -91,6 +99,7 @@ jobs:
           tail -3 "$RUNNER_TEMP/build.log"
 
       - name: Screenshots (light and dark)
+        timeout-minutes: 15
         run: |
           set -e
           APP="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/App.app"
@@ -104,7 +113,7 @@ jobs:
             else
               xcrun simctl launch "$1" in.gigspree.assistant -testCookie "$COOKIE" -testPath "$3" > /dev/null
             fi
-            sleep 9
+            sleep 5
             xcrun simctl io "$1" screenshot "$OUT/$2-$4.png" > /dev/null
           }
           for dev in "$PHONE" "$SMALL"; do
@@ -116,7 +125,8 @@ jobs:
             xcrun simctl install "$dev" "$APP"
             for mode in light dark; do
               xcrun simctl ui "$dev" appearance "$mode"
-              shoot "$dev" "$label-$mode" "/login" "0-login" out
+              # Signed out first (the session cookie stays in the app after the next launch).
+              [ "$mode" = light ] && shoot "$dev" "$label-$mode" "/login" "0-login" out
               shoot "$dev" "$label-$mode" "/" "1-home"
               shoot "$dev" "$label-$mode" "/gigs" "2-gigs"
               shoot "$dev" "$label-$mode" "/gigs/$GIG" "3-gig"
