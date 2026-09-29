@@ -26,6 +26,7 @@
     PageHeader,
     Pill,
     Segmented,
+    NotSaved,
     Skeleton,
     Stat,
     confirm,
@@ -34,6 +35,7 @@
   import { navigate } from "../../../core/router.svelte.ts";
   import NotFound from "../../../core/pages/NotFound.svelte";
   import { ApiError } from "../../../core/api.ts";
+  import { isOfflineError } from "../../../core/offline.svelte.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import { createQuery, dropCache } from "../../../core/query.svelte.ts";
   import PaymentSheet from "../PaymentSheet.svelte";
@@ -194,7 +196,7 @@
   <NotFound title="Gig not found" text="It may have been deleted, or you're not on it." />
 {:else if !gig || !money}
   <PageHeader title="Gig" back="/gigs" backLabel="Gigs" />
-  <Skeleton rows={6} />
+  {#if q.error && isOfflineError(q.error)}<NotSaved />{:else}<Skeleton rows={6} />{/if}
 {:else}
   <PageHeader title={gig.title} back="/gigs" backLabel="Gigs">
     {#snippet actions()}

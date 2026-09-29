@@ -2,6 +2,8 @@
   import { navigate, router } from "./router.svelte.ts";
   import { refreshSession, session } from "./session.svelte.ts";
   import { setLive } from "./live.ts";
+  import { saveAheadWith, startOffline } from "./offline.svelte.ts";
+  import { saveGigsAhead } from "../modules/gigs/offline.ts";
   import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
@@ -24,6 +26,11 @@
 
   // Live updates while signed in.
   $effect(() => setLive(!!session.me));
+
+  // Offline first (docs/design/offline.md): save upcoming gigs and lists ahead.
+  saveAheadWith(saveGigsAhead);
+  const signedIn = startOffline(() => !!session.me);
+  $effect(() => signedIn(!!session.me));
   const route = $derived(router.route);
 
   // Signed-out users go to sign-in (and come back afterwards).

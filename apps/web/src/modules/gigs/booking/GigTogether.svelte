@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BookingView } from "@assistant/shared";
-  import { PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
+  import { NotSaved, PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
+  import { isOfflineError } from "../../../core/offline.svelte.ts";
   import { navigate } from "../../../core/router.svelte.ts";
   import NotFound from "../../../core/pages/NotFound.svelte";
   import { ApiError } from "../../../core/api.ts";
@@ -69,7 +70,7 @@
       ]}
     />
     {#if !gig}
-      <Skeleton rows={5} />
+      {#if q.error && isOfflineError(q.error)}<NotSaved />{:else}<Skeleton rows={5} />{/if}
     {:else if section === "guests"}
       <GigGuests {gig} onsaved={set} />
     {:else if section === "lists"}

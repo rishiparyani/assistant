@@ -12,7 +12,7 @@ let ping: ReturnType<typeof setInterval> | undefined;
 let bunch: ReturnType<typeof setTimeout> | undefined;
 
 function connect() {
-  if (!wanted || ws || document.visibilityState !== "visible") return;
+  if (!wanted || ws || document.visibilityState !== "visible" || !navigator.onLine) return;
   const socket = new WebSocket(
     `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live`,
   );
@@ -45,6 +45,9 @@ function disconnect() {
   ws = null;
   socket?.close(1000);
 }
+
+// Offline: don't keep retrying; reconnect as soon as the connection is back.
+addEventListener("online", () => connect());
 
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") connect();

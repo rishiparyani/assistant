@@ -11,11 +11,13 @@
     ListGroup,
     PageHeader,
     Segmented,
+    NotSaved,
     Skeleton,
     toast,
   } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import { createQuery } from "../../../core/query.svelte.ts";
+  import { isOfflineError } from "../../../core/offline.svelte.ts";
   import GigEditor from "./GigEditor.svelte";
   import GigCalendar from "./GigCalendar.svelte";
   import GigEventRow from "./GigEventRow.svelte";
@@ -161,7 +163,7 @@
   </div>
 
   {#if items === null}
-    <Skeleton rows={5} />
+    {#if first.error && isOfflineError(first.error)}<NotSaved />{:else}<Skeleton rows={5} />{/if}
   {:else if items.length === 0}
     <EmptyState
       title={query ? "No gigs match" : tab === "upcoming" ? "No upcoming gigs" : "No gigs yet"}

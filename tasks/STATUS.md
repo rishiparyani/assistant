@@ -4,6 +4,14 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **Offline first, stage 1** (decision 2026-09-29, `docs/design/offline.md`): the app opens and reads offline.
+  - The service worker keeps the app's files: `apps/web/src/sw.js` is the template; the `service-worker` plugin in `apps/web/vite.config.ts` writes `/sw.js` with the build's file list.
+  - Upcoming gigs and lists are saved ahead (`modules/gigs/offline.ts`, `core/offline.svelte.ts`).
+  - There's an Offline bar, and screens with nothing saved say so ("Not saved on this device yet").
+  - Browser-tested against a real build (`pnpm build` + `pnpm --filter @assistant/web preview`): 5 offline checks, plus the earlier suites (54 checks).
+  - Gotcha: `vite preview` must be restarted after a rebuild.
+  - Next: stage 2 (changes made offline: outbox, instant local changes, "Couldn't sync").
+
 - **Guest shorthand** (2026-09-29, owner: guests are often written "Name +2"): the guest box reads a trailing +N (also "+ 1", "(+3)", "Name, +2") as plus-ones, and pasting several lines (e.g. a numbered WhatsApp list; bullets and numbers are dropped) adds them all at once (`guest-parse.ts`, up to 50). The stepper still works; a +N typed in the name wins.
 
 - **Together page + gig types** (decision 2026-09-29): guest list, lists and notes moved off the gig's tabs to `/gigs/:id/guests|lists|notes`, reached from a "Together" card on the gig page (tabs back to Details · Money · People). Gig types are per person, Public and Private by default, edited in Settings (person object migration 9; `get_gig_types`/`set_gig_types`). Browser checks re-run: lists/notes 21, guests 19, gig types 4, multi-user 19; worker tests 84.

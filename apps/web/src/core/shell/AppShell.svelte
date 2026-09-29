@@ -6,6 +6,7 @@
   import { MAIN_NAV } from "./nav.ts";
   import NavIcon from "./NavIcon.svelte";
   import PullToRefresh from "./PullToRefresh.svelte";
+  import OfflineBar from "./OfflineBar.svelte";
 
   let { children }: { children: Snippet } = $props();
   const nav = MAIN_NAV;
@@ -51,7 +52,7 @@
   </header>
 
   <main class="content">
-    <div class="page">{@render children()}</div>
+    <div class="page"><OfflineBar />{@render children()}</div>
   </main>
 
   <!-- Phone: tab bar -->
