@@ -16,7 +16,7 @@ Priorities: near-zero recurring cost; one source of truth; assistants are client
 
 1. Read this file → [tasks/STATUS.md](tasks/STATUS.md) → the current task in [tasks/backlog.md](tasks/backlog.md).
 2. Work one task at a time. Small commits, conventional commit messages (`feat(gigs): …`, `fix(core): …`, `docs: …`).
-3. Before finishing: run checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`), update `tasks/STATUS.md` (done, next, half-finished, gotchas), and record any new decision in [docs/decisions.md](docs/decisions.md). The **Handoff** CI check fails any PR that changes app code without updating `tasks/STATUS.md` (`[skip-status]` in the PR description only when status truly didn't change).
+3. Before finishing: run checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`), update `tasks/STATUS.md` (done, next, half-finished, gotchas), and record any new decision in [docs/decisions.md](docs/decisions.md). The **Handoff** CI check fails any PR that changes app code without updating `tasks/STATUS.md` (a line with only `[skip-status]` in the PR description, only when status truly didn't change).
 4. Don't add dependencies, add a module, or change the rules below without recording a decision.
 
 Switching agents mid-task: see [docs/handoff.md](docs/handoff.md).

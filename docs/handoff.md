@@ -24,7 +24,7 @@ Claude Code, Codex and others should be interchangeable at any task boundary, an
 
 ## Enforced, not remembered
 
-Agents don't remember between sessions, so the repo enforces the handoff: the **Handoff** check (`.github/workflows/handoff.yml`) fails a PR that changes app code (`apps/`, `packages/`, `scripts/`, `shortcuts/`) without changing `tasks/STATUS.md`. `[skip-status]` in the PR description lets a change through with a warning, for when status truly didn't change. The PR template (`.github/pull_request_template.md`) carries the rest of the checklist. The check proves STATUS was touched, not that it's accurate: keep it true.
+Agents don't remember between sessions, so the repo enforces the handoff: the **Handoff** check (`.github/workflows/handoff.yml`) fails a PR that changes app code (`apps/`, `packages/`, `scripts/`, `shortcuts/`) without changing `tasks/STATUS.md`. A line containing only `[skip-status]` in the PR description lets a change through with a warning (a mention inside a sentence doesn't count), for when status truly didn't change. The PR template (`.github/pull_request_template.md`) carries the rest of the checklist. The check proves STATUS was touched, not that it's accurate: keep it true.
 
 ## Symlinks on Windows
 

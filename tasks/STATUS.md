@@ -4,7 +4,7 @@ _Updated: 2026-09-29_
 
 ## Last done
 
-- **Handoff enforced by CI** (decision 2026-09-29): new `Handoff` check fails PRs that change app code without updating this file (`[skip-status]` in the PR description to skip, with a warning); PR template with the handoff checklist; `AGENTS.md` and `docs/handoff.md` mention both. Owner could make `Handoff` a required check in branch protection (optional; merges are by agents that already wait for green).
+- **Handoff enforced by CI** (decision 2026-09-29): new `Handoff` check fails PRs that change app code without updating this file (a line with only `[skip-status]` in the PR description skips it, with a warning); PR template with the handoff checklist; `AGENTS.md` and `docs/handoff.md` mention both. Owner could make `Handoff` a required check in branch protection (optional; merges are by agents that already wait for green).
 
 - **Notifications (T11)** (decision 2026-09-28): Settings → Notifications (turn on for this device, test, turn off; iPhone hint to use the Home Screen app), "New for you" on Home with mark all read, push-only service worker `/sw.js`. Core `InboxObject` per person (wrangler DO migration v2) and `notify()`; gigs notifies on added / confirmed / changed / cancelled / paid, not for your own changes. Web Push with VAPID and encrypted payloads, keys made by the Worker (no owner step). Tests: 3 new in `notifications.test.ts` (decrypting like a browser, devices, all triggers). Headless Chromium can't subscribe (always "blocked"), so the first real push is the owner's "Send a test".
 

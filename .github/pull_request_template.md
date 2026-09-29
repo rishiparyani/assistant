@@ -9,7 +9,7 @@
 
 ## Handoff (any agent must be able to continue from the repo)
 
-- [ ] `tasks/STATUS.md` updated: Last done, Next, Gotchas (the Handoff check enforces this; `[skip-status]` only if status really didn't change)
+- [ ] `tasks/STATUS.md` updated: Last done, Next, Gotchas (the Handoff check enforces this; only if status really didn't change, add a line containing just the words skip-status in square brackets)
 - [ ] New decisions recorded in `docs/decisions.md`
 - [ ] Steps the owner must do (accounts, secrets, settings) are listed in STATUS
 - [ ] No secrets or real personal data in the diff (public repo)

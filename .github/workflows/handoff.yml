@@ -39,11 +39,13 @@ jobs:
             echo "tasks/STATUS.md is updated. Good handoff."
             exit 0
           fi
-          if printf '%s' "$PR_BODY" | grep -qF '[skip-status]'; then
-            echo "::warning::App code changed without a STATUS update ([skip-status] in the PR description)."
+          # Only a line that is exactly [skip-status] counts (mentions in a sentence or the
+          # template don't), so skipping is always deliberate.
+          if printf '%s\n' "$PR_BODY" | tr -d '\r' | grep -qx '[[:space:]]*\[skip-status\][[:space:]]*'; then
+            echo "::warning::App code changed without a STATUS update (the PR description has a [skip-status] line)."
             exit 0
           fi
           echo "::error::This PR changes app code but not tasks/STATUS.md."
           echo "Update tasks/STATUS.md (Last done / Next / Gotchas) so another agent can take over,"
-          echo "or, for a change that truly doesn't affect status, put [skip-status] in the PR description."
+          echo "or, for a change that truly doesn't affect status, add a line with only [skip-status] to the PR description."
           exit 1
