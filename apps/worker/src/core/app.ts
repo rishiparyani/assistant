@@ -96,6 +96,49 @@ export function createApp({ modules }: AppOptions) {
     });
   });
 
+  // Shared links (e.g. a gig's guest list for its venue): no sign-in, the secret link is
+  // the key; handed to the module that owns the token's prefix. 404 for anything invalid.
+  const sharedHeaders = {
+    "cache-control": "no-store",
+    "x-robots-tag": "noindex",
+    "referrer-policy": "no-referrer",
+  };
+  const sharedFor = (token: string) =>
+    /^[a-z]{1,8}_[A-Za-z0-9_-]{20,200}$/.test(token)
+      ? modules.find((m) => m.sharedLinks?.prefix === token.slice(0, token.indexOf("_")))?.sharedLinks
+      : undefined;
+  app.get("/api/shared/:token", async (c) => {
+    const token = c.req.param("token");
+    const data = await sharedFor(token)?.read(c.env, token);
+    if (!data)
+      return c.json(
+        { error: { code: "not_found", message: "This link doesn't work (any more)" } },
+        404,
+        sharedHeaders,
+      );
+    return c.json(data, 200, sharedHeaders);
+  });
+  app.post("/api/shared/:token/:action", async (c) => {
+    const token = c.req.param("token");
+    const key = c.req.header("idempotency-key") ?? null;
+    if (!key || key.length > 200)
+      throw new AppError(
+        "validation_failed",
+        "Writes need an Idempotency-Key header (a unique value per action)",
+      );
+    const links = sharedFor(token);
+    const data = links?.act
+      ? await links.act(c.env, token, c.req.param("action"), await c.req.json(), key)
+      : null;
+    if (!data)
+      return c.json(
+        { error: { code: "not_found", message: "This link doesn't work (any more)" } },
+        404,
+        sharedHeaders,
+      );
+    return c.json(data, 200, sharedHeaders);
+  });
+
   // MCP (T10): AI assistants connect with OAuth (consent in the app) and call the
   // operations as tools. Stateless: POST only.
   const mcpUnauthorized = (baseUrl: string, description: string) =>

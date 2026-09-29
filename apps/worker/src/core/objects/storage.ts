@@ -64,10 +64,10 @@ export function setMeta(sql: SqlStorage, key: string, value: string) {
   );
 }
 
-/** Who is acting and from where (web, siri, mcp, system). */
+/** Who is acting and from where (web, siri, mcp, system, or a shared link such as a venue's). */
 export interface Actor {
   userId: string | null;
-  source: "web" | "siri" | "mcp" | "system";
+  source: "web" | "siri" | "mcp" | "system" | "link";
 }
 
 export interface AuditEntry {

@@ -5,6 +5,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   GIG_SETTINGS_DEFAULTS,
+  GUEST_LIMITS,
   LIST_LIMITS,
   formatDateIST,
   formatDateTimeIST,
@@ -17,6 +18,8 @@ import {
   type GigListView,
   type GigMoney,
   type GigNoteView,
+  type GuestListView,
+  type SharedGuestListView,
   type GigPaymentView,
   type GigSettings,
   type PayeeView,
@@ -60,6 +63,7 @@ const BACKUP_TABLES = [
   "lists",
   "list_items",
   "notes",
+  "guests",
   "_audit",
   "_targets",
   "_meta",
@@ -217,6 +221,25 @@ const MIGRATIONS: Migrations = [
   );
   create index notes_created_idx on notes (created_at) where deleted_at is null;
   `,
+  // Guest list: each guest belongs to someone on the gig (their host) and counts as
+  // 1 + plus_ones heads. Limits, closing time and the venue link live on the gig.
+  `
+  alter table gig add column guest_settings_json text not null default '{}';
+  create table guests (
+    id text primary key,
+    name text not null,
+    plus_ones integer not null default 0 check (plus_ones >= 0),
+    note text,
+    host_person_id text not null,
+    added_by text,
+    created_at text not null,
+    updated_at text not null,
+    arrived_at text,
+    deleted_at text
+  );
+  create index guests_host_idx on guests (host_person_id) where deleted_at is null;
+  create index guests_created_idx on guests (created_at) where deleted_at is null;
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -280,6 +303,27 @@ export interface UpdateListInput {
   event_id?: string | null;
   checkable?: boolean;
 }
+export interface GuestInput {
+  name: string;
+  plus_ones: number;
+  note: string | null;
+}
+export interface UpdateGuestInput {
+  name?: string;
+  plus_ones?: number;
+  note?: string | null;
+  arrived?: boolean;
+}
+export interface GuestSettingsInput {
+  total_limit?: number | null;
+  per_person_limit?: number | null;
+  closes_at?: string | null;
+}
+/** The venue link as the Worker made it: the token's hash to check, and the token sealed. */
+export interface GuestLinkInput {
+  hash: string;
+  sealed: string;
+}
 export interface UpdateItemInput {
   text?: string;
   detail?: string | null;
@@ -339,6 +383,7 @@ type GigRow = {
   notes: string | null;
   fee_paise: number;
   settings_json: string;
+  guest_settings_json: string;
   collective_tag_id: string | null;
   collective_name: string | null;
   version: number;
@@ -1170,6 +1215,215 @@ export class BookingObject extends DurableObject<Env> {
     });
   }
 
+  // --- Guest list ----------------------------------------------------------------------
+  // Everyone on the gig adds their own guests until the list closes; managers add for
+  // anyone, change anything, set limits and share a link with the venue.
+
+  async addGuests(
+    guests: GuestInput[],
+    hostPersonId: string | null,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["add_guests", guests, hostPersonId], actor, key, "player", (gig) => {
+      const me = this.requireMe(actor);
+      const host = hostPersonId ? this.requirePerson(hostPersonId) : me;
+      if (host.id !== me.id && me.role !== "manager")
+        throw new ObjectError("forbidden", "Only managers can add guests for someone else");
+      this.requireListOpen(gig, me);
+      const count = this.sql
+        .exec<{ n: number }>(`select count(*) as n from guests where deleted_at is null`)
+        .one().n;
+      if (count + guests.length > GUEST_LIMITS.guests)
+        throw new ObjectError(
+          "validation_failed",
+          `A guest list can have up to ${GUEST_LIMITS.guests} guests`,
+        );
+      const heads = guests.reduce((n, g) => n + 1 + g.plus_ones, 0);
+      this.checkGuestLimits(gig, host, heads);
+      const ts = nowIso();
+      const ids = guests.map((g) => {
+        const id = ulid();
+        this.sql.exec(
+          `insert into guests (id, name, plus_ones, note, host_person_id, added_by, created_at, updated_at)
+           values (?, ?, ?, ?, ?, ?, ?, ?)`,
+          id,
+          g.name,
+          g.plus_ones,
+          g.note,
+          host.id,
+          actor.userId,
+          ts,
+          ts,
+        );
+        return id;
+      });
+      this.stamp(gig.id);
+      return {
+        action: "add_guests",
+        entityType: "guest",
+        entityId: ids[0]!,
+        after: { ids, host: host.id, guests },
+      };
+    });
+  }
+
+  async updateGuest(guestId: string, input: UpdateGuestInput, actor: Actor, key: string | null) {
+    return this.write(["update_guest", guestId, input], actor, key, "player", (gig) => {
+      const me = this.requireMe(actor);
+      const before = this.requireGuest(guestId);
+      const changesDetails =
+        input.name !== undefined || input.plus_ones !== undefined || input.note !== undefined;
+      if (me.role !== "manager") {
+        if (input.arrived !== undefined)
+          throw new ObjectError("forbidden", "Only managers (or the venue's door link) mark arrivals");
+        if (before.host_person_id !== me.id) throw new ObjectError("not_found", "Guest not found");
+        if (changesDetails) this.requireListOpen(gig, me);
+      }
+      const plusOnes = input.plus_ones ?? before.plus_ones;
+      if (plusOnes > before.plus_ones)
+        this.checkGuestLimits(gig, this.requirePerson(before.host_person_id), plusOnes - before.plus_ones);
+      const after = {
+        name: input.name ?? before.name,
+        plus_ones: plusOnes,
+        note: input.note === undefined ? before.note : input.note,
+        arrived_at:
+          input.arrived === undefined
+            ? before.arrived_at
+            : input.arrived
+              ? (before.arrived_at ?? nowIso())
+              : null,
+      };
+      this.sql.exec(
+        `update guests set name = ?, plus_ones = ?, note = ?, arrived_at = ?, updated_at = ? where id = ?`,
+        after.name,
+        after.plus_ones,
+        after.note,
+        after.arrived_at,
+        nowIso(),
+        guestId,
+      );
+      this.stamp(gig.id);
+      return { action: "update_guest", entityType: "guest", entityId: guestId, before, after };
+    });
+  }
+
+  async removeGuest(guestId: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["remove_guest", guestId], actor, key, "player", (gig) => {
+      const me = this.requireMe(actor);
+      const before = this.requireGuest(guestId);
+      if (me.role !== "manager") {
+        if (before.host_person_id !== me.id) throw new ObjectError("not_found", "Guest not found");
+        this.requireListOpen(gig, me);
+      }
+      this.sql.exec(`update guests set deleted_at = ? where id = ?`, nowIso(), guestId);
+      this.stamp(gig.id);
+      return { action: "remove_guest", entityType: "guest", entityId: guestId, before };
+    });
+  }
+
+  /** Limits and closing time (managers). Only the fields given change. */
+  async setGuestList(input: GuestSettingsInput, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["set_guest_list", input], actor, key, "manager", (gig) => {
+      const before = guestSettingsOf(gig);
+      const after: GuestSettings = {
+        ...before,
+        ...(input.total_limit !== undefined ? { total_limit: input.total_limit } : {}),
+        ...(input.per_person_limit !== undefined ? { per_person_limit: input.per_person_limit } : {}),
+        ...(input.closes_at !== undefined ? { closes_at: input.closes_at } : {}),
+      };
+      this.saveGuestSettings(gig.id, after);
+      this.stamp(gig.id);
+      const { link_hash: _h, link_sealed: _s, ...shown } = after;
+      const { link_hash: _bh, link_sealed: _bs, ...was } = before;
+      return { action: "set_guest_list", entityType: "gig", entityId: gig.id, before: was, after: shown };
+    });
+  }
+
+  /**
+   * Turns the venue link on (a new token, or keeps the current one), off (null), or
+   * changes whether door staff may tick arrivals (managers).
+   */
+  async setGuestLink(
+    link: GuestLinkInput | null | undefined,
+    checkIn: boolean | undefined,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    // The request is "new link / no link / same link", not the token: a retry makes a new
+    // random token, and must still count as the same request.
+    const kind = link === null ? "off" : link ? "new" : "same";
+    return this.write(["set_guest_link", kind, checkIn], actor, key, "manager", (gig) => {
+      const before = guestSettingsOf(gig);
+      const after: GuestSettings = { ...before };
+      if (link === null) {
+        after.link_hash = null;
+        after.link_sealed = null;
+      } else if (link) {
+        after.link_hash = link.hash;
+        after.link_sealed = link.sealed;
+      }
+      if (checkIn !== undefined) after.link_check_in = checkIn;
+      this.saveGuestSettings(gig.id, after);
+      this.stamp(gig.id);
+      return {
+        action: link === null ? "disable_guest_link" : link ? "enable_guest_link" : "set_guest_link",
+        entityType: "gig",
+        entityId: gig.id,
+        before: { enabled: !!before.link_hash, check_in: before.link_check_in },
+        after: { enabled: !!after.link_hash, check_in: after.link_check_in },
+      };
+    });
+  }
+
+  /** The venue link's sealed token, for managers to see it again. */
+  async guestLink(actor: Actor): Promise<{ sealed: string | null; check_in: boolean }> {
+    const gig = this.requireGig();
+    this.requireRole(actor, "manager");
+    const g = guestSettingsOf(gig);
+    return { sealed: g.link_hash ? g.link_sealed : null, check_in: g.link_check_in };
+  }
+
+  /** What the venue sees; null unless `tokenHash` is this gig's current link. */
+  async sharedGuests(tokenHash: string): Promise<SharedGuestListView | null> {
+    const gig = this.gigRow();
+    if (!gig || gig.deleted_at || !this.linkMatches(gig, tokenHash)) return null;
+    return this.sharedView(gig);
+  }
+
+  /** Door check-in from the venue link (when allowed). */
+  async sharedArrive(
+    tokenHash: string,
+    guestId: string,
+    arrived: boolean,
+    key: string | null,
+  ): Promise<SharedGuestListView | null> {
+    const gig = this.gigRow();
+    if (!gig || gig.deleted_at || !this.linkMatches(gig, tokenHash)) return null;
+    if (!guestSettingsOf(gig).link_check_in)
+      throw new ObjectError("forbidden", "This link can't mark arrivals");
+    const actor: Actor = { userId: null, source: "link" };
+    const result = idempotent(this.ctx.storage, key, await hashOf(["arrive", guestId, arrived]), () => {
+      const g = this.requireGuest(guestId);
+      const at = arrived ? (g.arrived_at ?? nowIso()) : null;
+      if (at !== g.arrived_at) {
+        this.sql.exec(`update guests set arrived_at = ?, updated_at = ? where id = ?`, at, nowIso(), guestId);
+        this.stamp(gig.id);
+        audit(this.sql, actor, {
+          action: "guest_arrived",
+          entityType: "guest",
+          entityId: guestId,
+          before: { arrived_at: g.arrived_at },
+          after: { arrived_at: at },
+        });
+        bumpAndNote(this.sql);
+      }
+      return this.sharedView(this.requireGig());
+    });
+    await this.scheduleDelivery();
+    return result;
+  }
+
   // --- Reads -------------------------------------------------------------------------
 
   async view(actor: Actor): Promise<BookingView> {
@@ -1649,6 +1903,125 @@ export class BookingObject extends DurableObject<Env> {
     return id;
   }
 
+  private requireMe(actor: Actor): PersonRow {
+    const me = actor.userId ? this.personRows().find((p) => p.user_id === actor.userId) : undefined;
+    if (!me) throw new ObjectError("not_found", "Gig not found");
+    return me;
+  }
+
+  private requireGuest(id: string): GuestRow {
+    const g = this.sql
+      .exec<GuestRow>(
+        `select id, name, plus_ones, note, host_person_id, created_at, arrived_at from guests
+         where id = ? and deleted_at is null`,
+        id,
+      )
+      .toArray()[0];
+    if (!g) throw new ObjectError("not_found", "Guest not found");
+    return g;
+  }
+
+  private guestRows(): GuestRow[] {
+    return this.sql
+      .exec<GuestRow>(
+        `select id, name, plus_ones, note, host_person_id, created_at, arrived_at from guests
+         where deleted_at is null order by created_at, rowid`,
+      )
+      .toArray();
+  }
+
+  /** Players can't change the list once it closes or the gig is over; managers always can. */
+  private requireListOpen(gig: GigRow, me: PersonRow) {
+    if (me.role === "manager") return;
+    if (!guestListOpen(gig))
+      throw new ObjectError("conflict", "The guest list is closed; ask a manager", {
+        reason: "guest_list_closed",
+      });
+  }
+
+  private checkGuestLimits(gig: GigRow, host: PersonRow, adding: number) {
+    const s = guestSettingsOf(gig);
+    const rows = this.guestRows();
+    const heads = sum(rows.map((g) => 1 + g.plus_ones));
+    if (s.total_limit !== null && heads + adding > s.total_limit)
+      throw new ObjectError("conflict", `The guest list is full: ${heads} of ${s.total_limit} places taken`, {
+        reason: "guest_list_full",
+        heads,
+        limit: s.total_limit,
+      });
+    const mine = sum(rows.filter((g) => g.host_person_id === host.id).map((g) => 1 + g.plus_ones));
+    if (s.per_person_limit !== null && mine + adding > s.per_person_limit)
+      throw new ObjectError(
+        "conflict",
+        `${host.name} can bring up to ${s.per_person_limit} (${mine} already on the list)`,
+        { reason: "guest_limit_reached", heads: mine, limit: s.per_person_limit },
+      );
+  }
+
+  private saveGuestSettings(gigId: string, s: GuestSettings) {
+    this.sql.exec(`update gig set guest_settings_json = ? where id = ?`, JSON.stringify(s), gigId);
+  }
+
+  private linkMatches(gig: GigRow, tokenHash: string): boolean {
+    const h = guestSettingsOf(gig).link_hash;
+    return !!h && h === tokenHash;
+  }
+
+  private sharedView(gig: GigRow): SharedGuestListView {
+    const names = new Map(this.personRows().map((p) => [p.id, p.name]));
+    const rows = this.guestRows();
+    const first = this.eventRows()[0];
+    return {
+      gig_title: gig.title,
+      starts_at: first?.start_at ?? null,
+      starts_display: first ? formatDateTimeIST(first.start_at) : null,
+      venue: first ? [first.venue_name, first.venue_city].filter(Boolean).join(", ") || null : null,
+      heads: sum(rows.map((g) => 1 + g.plus_ones)),
+      arrived_heads: sum(rows.filter((g) => g.arrived_at).map((g) => 1 + g.plus_ones)),
+      check_in: guestSettingsOf(gig).link_check_in,
+      guests: rows
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          plus_ones: g.plus_ones,
+          note: g.note,
+          guest_of: names.get(g.host_person_id) ?? "",
+          arrived: !!g.arrived_at,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" })),
+    };
+  }
+
+  private guestListFor(gig: GigRow, me: PersonRow | undefined): GuestListView {
+    const s = guestSettingsOf(gig);
+    const manager = me?.role === "manager";
+    const names = new Map(this.personRows().map((p) => [p.id, p.name]));
+    const rows = this.guestRows();
+    const heads = (xs: GuestRow[]) => sum(xs.map((g) => 1 + g.plus_ones));
+    const mine = rows.filter((g) => g.host_person_id === me?.id);
+    return {
+      total_limit: s.total_limit,
+      per_person_limit: s.per_person_limit,
+      closes_at: s.closes_at,
+      open: manager || guestListOpen(gig),
+      heads: heads(rows),
+      my_heads: heads(mine),
+      arrived_heads: heads(rows.filter((g) => g.arrived_at)),
+      guests: (manager ? rows : mine).map((g) => ({
+        id: g.id,
+        name: g.name,
+        plus_ones: g.plus_ones,
+        note: g.note,
+        host_person_id: g.host_person_id,
+        host_name: names.get(g.host_person_id) ?? "",
+        is_mine: g.host_person_id === me?.id,
+        arrived: !!g.arrived_at,
+        created_at: g.created_at,
+      })),
+      link: manager ? { enabled: !!s.link_hash, check_in: s.link_check_in } : null,
+    };
+  }
+
   /** Me on this gig, if I may change its lists and notes. */
   private requireEditor(actor: Actor, gig: GigRow): PersonRow {
     const me = actor.userId ? this.personRows().find((p) => p.user_id === actor.userId) : undefined;
@@ -1662,7 +2035,7 @@ export class BookingObject extends DurableObject<Env> {
     return this.sql
       .exec<ListRow>(
         `select id, title, event_id, checkable, created_by_name, updated_at from lists
-         where deleted_at is null order by created_at, id`,
+         where deleted_at is null order by created_at, rowid`,
       )
       .toArray();
   }
@@ -1881,6 +2254,7 @@ export class BookingObject extends DurableObject<Env> {
       settings,
       money: this.moneyFor(gig, me?.id ?? null, see, manager, allPeople, lineup),
       ...this.collabFor(userId, manager || settings.players_edit_lists),
+      guest_list: this.guestListFor(gig, me),
       created_at: gig.created_at,
       updated_at: gig.updated_at,
     };
@@ -1908,7 +2282,7 @@ export class BookingObject extends DurableObject<Env> {
     const notes: GigNoteView[] = this.sql
       .exec<NoteRow>(
         `select id, body, created_by, author_name, created_at, edited_at from notes
-         where deleted_at is null order by created_at desc, id desc`,
+         where deleted_at is null order by created_at desc, rowid desc`,
       )
       .toArray()
       .map((n) => ({
@@ -2096,3 +2470,47 @@ type NoteRow = {
   created_at: string;
   edited_at: string | null;
 };
+
+type GuestRow = {
+  id: string;
+  name: string;
+  plus_ones: number;
+  note: string | null;
+  host_person_id: string;
+  created_at: string;
+  arrived_at: string | null;
+};
+
+type GuestSettings = {
+  total_limit: number | null;
+  per_person_limit: number | null;
+  closes_at: string | null;
+  link_hash: string | null;
+  link_sealed: string | null;
+  link_check_in: boolean;
+};
+
+function guestSettingsOf(gig: GigRow): GuestSettings {
+  let stored: Partial<GuestSettings> = {};
+  try {
+    stored = JSON.parse(gig.guest_settings_json) as Partial<GuestSettings>;
+  } catch {
+    // fall back to the defaults
+  }
+  return {
+    total_limit: null,
+    per_person_limit: null,
+    closes_at: null,
+    link_hash: null,
+    link_sealed: null,
+    link_check_in: true,
+    ...stored,
+  };
+}
+
+/** Players may change their guests until the closing time, while the gig is still on. */
+function guestListOpen(gig: GigRow): boolean {
+  if (gig.status === "cancelled" || gig.status === "completed") return false;
+  const closes = guestSettingsOf(gig).closes_at;
+  return !closes || Date.now() < Date.parse(closes);
+}

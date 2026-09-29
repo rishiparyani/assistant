@@ -95,6 +95,22 @@ export interface ModuleDefinition {
    * authenticated and origin-checked by core) and returns the 101 response. One module.
    */
   live?: (env: Env, userId: string, request: Request) => Promise<Response>;
+  /**
+   * Secret links opened without signing in (e.g. a gig's guest list for its venue), for
+   * tokens starting with `<prefix>_`. `read` and `act` return null for a link that isn't
+   * valid (or no longer is); core answers 404 without saying why.
+   */
+  sharedLinks?: {
+    prefix: string;
+    read: (env: Env, token: string) => Promise<unknown | null>;
+    act?: (
+      env: Env,
+      token: string,
+      action: string,
+      body: unknown,
+      key: string | null,
+    ) => Promise<unknown | null>;
+  };
   /** Events for this person's private calendar feed (T08), e.g. their gigs. */
   calendar?: (ctx: CalendarCtx, userId: string) => Promise<CalendarEvent[]>;
 }

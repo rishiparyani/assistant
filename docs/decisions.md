@@ -236,6 +236,19 @@ Owner: "add collaborative features like we discussed before. Like live notes and
 - **Assistants:** the ten operations are MCP tools like everything else; removals need confirmation. Only session-only operations stay off MCP (tokens, calendar link, push devices), plus the admin panel.
 - Not yet: offline on stage (the PWA keeping lists of upcoming gigs), linking items to a future song library.
 
+## 2026-09-29: Guest lists, shared with the venue
+
+Owner: "for each gig we can have a guest list and every person can add their guests. We can assign a total limit or a per person limit … create a shareable link … and share it with the venue. If you think other features would be good to have please feel free to add."
+
+- **Who:** everyone on the gig adds their own guests (name, plus-ones, note); players see only their own guests and the totals; managers see everyone's (grouped by whose guest), add for anyone, and set limits. Heads = guest + plus-ones.
+- **Limits:** total and per person, in heads; checked in the gig's object, so they hold when two people add at once. Managers are bound by them too (they can raise them).
+- **Closing:** an optional closing time (one tap: "when the gig starts"); after it, and once the gig is played or cancelled, only managers can change the list.
+- **Venue link:** a secret link opened without signing in (`/guests/gl_<gig id>_<secret>`). The token carries the gig id, so the gig's own object checks it (hash only, plus the token sealed so managers can copy it again); no D1 lookup. The venue sees names, plus-ones, notes and whose guest; no money, phones or other gig details; `noindex`, no referrer. Door check-in (tick arrivals) is on by default and can be switched off; a new link makes the old one stop working. The page searches, filters "not arrived yet", refreshes itself every 20 s, and prints cleanly (tick boxes on paper).
+- **Extras added:** copy the list as text (WhatsApp/email), arrived counts for managers, print view.
+- **Assistants:** can add, change and remove guests and set limits (removal needs confirmation); making, resetting or turning off the venue link is app-only, like other secret links (calendar, tokens).
+- **Core:** a new generic "shared link" hook for modules (`sharedLinks` with a token prefix; core routes `GET /api/shared/:token`, `POST /api/shared/:token/:action` with an Idempotency-Key). Audit source `link` for changes made through one.
+- Also: gig screens fill in newer parts (lists, notes, guest list) when showing a copy saved before an update, so an old cached gig can't crash a tab.
+
 ## Open
 
 None.

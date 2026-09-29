@@ -14,8 +14,9 @@
   import Settings from "./pages/Settings.svelte";
   import Admin from "./pages/Admin.svelte";
   import NotFound from "./pages/NotFound.svelte";
+  import SharedGuests from "../modules/gigs/booking/SharedGuests.svelte";
 
-  const PUBLIC = new Set(["login", "consent"]);
+  const PUBLIC = new Set(["login", "consent", "guest_link"]);
   // Opens at once with the user saved on this device; the server check runs alongside.
   void refreshSession();
 
@@ -43,6 +44,8 @@
     <Login query={route.query} />
   {:else if route.name === "consent"}
     <Consent query={route.query} />
+  {:else if route.name === "guest_link"}
+    <SharedGuests token={route.params.token!} />
   {:else if session.me}
     <AppShell>
       {#if route.name === "settings"}

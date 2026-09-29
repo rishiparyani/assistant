@@ -48,6 +48,7 @@
   import CancelSheet from "./CancelSheet.svelte";
   import GigLists from "./GigLists.svelte";
   import GigNotes from "./GigNotes.svelte";
+  import GigGuests from "./GigGuests.svelte";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
   let { gigId }: { gigId: string } = $props();
@@ -57,7 +58,29 @@
     () => `gig:${gigId}`,
     () => bookingsApi.get(gigId),
   );
-  const gig = $derived(q.data ?? null);
+  // A copy saved on this device before an app update may lack newer parts; fill them in
+  // until the fresh copy arrives.
+  const gig = $derived(q.data ? withDefaults(q.data) : null);
+  function withDefaults(g: BookingView): BookingView {
+    if (g.lists && g.shared_notes && g.guest_list) return g;
+    return {
+      ...g,
+      lists: g.lists ?? [],
+      shared_notes: g.shared_notes ?? [],
+      can_edit_lists: g.can_edit_lists ?? false,
+      guest_list: g.guest_list ?? {
+        total_limit: null,
+        per_person_limit: null,
+        closes_at: null,
+        open: false,
+        heads: 0,
+        my_heads: 0,
+        arrived_heads: 0,
+        guests: [],
+        link: null,
+      },
+    };
+  }
   const missing = $derived(q.error instanceof ApiError && q.error.status === 404);
   $effect(() => {
     if (missing) dropCache(`gig:${gigId}`);
@@ -79,7 +102,7 @@
 
   // Tabs keep the page short: what and when, lists and notes to work on together, the
   // money, and who's on it.
-  type Tab = "details" | "lists" | "notes" | "money" | "people";
+  type Tab = "details" | "guests" | "lists" | "notes" | "money" | "people";
   let tab = $state<Tab>("details");
 
   const set = (g: BookingView) => q.set(g);
@@ -262,6 +285,7 @@
       bind:value={tab}
       options={[
         { value: "details", label: gig.events.length > 1 ? "Events" : "Details" },
+        { value: "guests", label: "Guests" },
         { value: "lists", label: "Lists" },
         { value: "notes", label: "Notes" },
         { value: "money", label: "Money" },
@@ -269,7 +293,9 @@
       ]}
     />
 
-    {#if tab === "lists"}
+    {#if tab === "guests"}
+      <GigGuests {gig} onsaved={set} />
+    {:else if tab === "lists"}
       <GigLists {gig} onsaved={set} />
     {:else if tab === "notes"}
       <GigNotes {gig} onsaved={set} />
