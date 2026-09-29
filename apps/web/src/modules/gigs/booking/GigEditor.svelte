@@ -80,9 +80,13 @@
   });
 
   // Filled once per opening: a live refresh of the gig mustn't wipe what's being typed.
+  // The version this sheet was opened on: saving checks it, so a change someone else made
+  // meanwhile is reported instead of silently overwritten (live refreshes update `gig`).
+  let openedVersion = 0;
   $effect(() => {
     if (!open) return;
     untrack(() => {
+      openedVersion = gig?.version ?? 0;
       const g = gig;
       title = g?.title ?? "";
       eventType = g?.event_type ?? "";
@@ -194,7 +198,7 @@
         tags,
       };
       if (gig) {
-        const saved = await bookingsApi.update(gig.id, gig.version, details);
+        const saved = await bookingsApi.update(gig.id, openedVersion, details);
         toast.success("Gig updated");
         open = false;
         onsaved?.(saved);
