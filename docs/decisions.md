@@ -281,3 +281,7 @@ Owner: "Let's do what we already can. Like the offline sync … to make it like 
 ## Open
 
 None.
+
+## 2026-09-29: Offline first is a standing rule, checked by a test
+
+Owner: "Close the gap" (another agent must know the app is offline first). Added rule 17 to `AGENTS.md`: at-gig changes go through the outbox with an applier; every other write is marked `online-only` with a reason. `apps/web/test/offline-rule.test.ts` checks it, so the web app gets `vitest` (already in the catalog, no new package) and a `test` script. A guide for adding writes is in `docs/design/offline.md`.

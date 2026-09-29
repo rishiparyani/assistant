@@ -162,6 +162,9 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.1(@types/node@22.20.4)(esbuild@0.28.1)(tsx@4.23.15)
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@22.20.4)(vite@8.3.1(@types/node@22.20.4)(esbuild@0.28.1)(tsx@4.23.15))
       wrangler:
         specifier: 'catalog:'
         version: 4.141.0(@cloudflare/workers-types@5.20260926.1)(@types/node@22.20.4)

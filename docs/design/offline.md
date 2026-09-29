@@ -20,6 +20,16 @@ Goal: the app always opens and shows my data at once, with or without a connecti
 - **Money** stays exact: payments are only ever added (never overwritten), so an offline payment can't clash; a double tap can't record twice (same key).
 - **Live updates** keep working: after reconnecting, the outbox is sent first, then screens refresh.
 
+## Adding a new write (for agents)
+
+Rule 17 in `AGENTS.md`. For every new thing the web app can change:
+
+1. **Would someone do this at a gig with bad signal?** (Adding, ticking, noting, recording.) Then send it through the outbox: call `gigChange(gigId, kind, method, path, body, label, args)` in `gigs-api.ts`, make ids for new things with `newId()` (the server must accept a client `id`, see `clientId` in shared), and add an applier with `on(kind, …)` in `offline-changes.ts` that returns a new gig view with the change and `pending: true`. Test it offline in a real build (`pnpm build` + `pnpm --filter @assistant/web preview`).
+2. **Otherwise** (depends on the gig's version, permissions, secrets, or rules only the server knows), call `request()` and put `// online-only: <reason>` above it. The screen shows the normal error when offline.
+3. **New screens that read** data needed at a gig: add them to the save-ahead (`modules/gigs/offline.ts`).
+
+`apps/web/test/offline-rule.test.ts` (runs in `pnpm test`) fails when a write is neither sent through the outbox nor marked, when module code calls `fetch()` directly, or when an outbox kind has no applier (money entries excepted: the Money tab lists them as waiting).
+
 ## Out of scope for now
 
 On-device AI and transcription (owner: later). Background sync while the app is closed (iPhones don't allow it for web apps). Making gigs offline (the server picks the gig's id; later).

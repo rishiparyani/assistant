@@ -62,6 +62,7 @@ Gig-centric and scale-ready ([docs/design/gig-centric.md](docs/design/gig-centri
 14. **Never edit an applied migration**; add a new one.
 15. **Modules depend on core, never on each other's internals.** Modules own their object classes. Cross-module access goes through the other module's exported service functions. Core never imports a module.
 16. **Changes reach other objects through the outbox → queue**, never by writing to them directly in the request; receivers apply by sequence number (repeats and reordering are harmless).
+17. **Offline first in the web app** ([docs/design/offline.md](docs/design/offline.md)). The app opens and reads offline; changes people make at a gig (notes, lists, guests, money entries) go through the outbox (`gigChange` in `modules/gigs/offline-changes.ts`), show at once through an applier, and sync later. New things get their ULID on the device. Any other write is marked `// online-only: <reason>` and tells the user it needs a connection. A new screen that reads data saves it ahead if it is needed at a gig. `apps/web/test/offline-rule.test.ts` enforces the marking.
 
 ## Layout
 
