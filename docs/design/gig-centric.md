@@ -52,7 +52,7 @@ There are no workspaces, no memberships and no collective settings pages. Each p
 | Edit gig and events, record client payments, expenses | ✓       | ✗            |                                         |
 | Set lineup and shares, record and reverse payouts     | ✓       | ✗            | could become a setting later            |
 | Add or remove people, change roles                    | ✓       | ✗            | a gig always keeps at least one manager |
-| Comment, edit setlist (later)                         | ✓       | ✓            | setting to restrict                     |
+| Add notes, change lists                               | ✓       | ✓ by default | setting: `players_edit_lists`           |
 
 Authorization happens **inside the gig's own database** (section 5) on every request: it knows its people and roles, so there is no separate membership lookup.
 
@@ -235,7 +235,9 @@ A page only the app owner can open (access checked on the server against an owne
 
 Metrics are recorded as counters (Workers Analytics Engine; free allowance to be confirmed when built) and daily roll-ups, never as copies of user data.
 
-## 11. Collaboration (designed now, built later)
+## 11. Collaboration
+
+Built 2026-09-29 (decision "Lists and notes on gigs"): **lists** (generic: setlists, packing, run of show; per gig or per event; optional tick boxes; reorder by drag) and **notes** (posts everyone on the gig sees). Still to build from this section: offline on stage, comments, schedule items.
 
 - Tables in the booking object: `comments`, `setlist_items` (per event, fractional position keys so a move touches one row), `checklist_items`, `schedule_items`.
 - **Live updates:** the booking object keeps WebSocket connections to people viewing the gig (hibernating when idle) and broadcasts changes.

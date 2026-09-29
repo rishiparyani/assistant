@@ -1,6 +1,7 @@
 import { defineModule } from "../../core/module.ts";
 import * as schema from "./schema.ts";
 import { bookingOperations } from "./operations-bookings.ts";
+import { collabOperations } from "./operations-collab.ts";
 import { consumeSummaries, recordDeadLetters } from "./objects/delivery.ts";
 import { gigsAdmin } from "./admin.ts";
 import { attachPendingPeople } from "./services/tags.ts";
@@ -12,7 +13,7 @@ export const gigsModule = defineModule({
   id: "gigs",
   name: "Gigs",
   schema,
-  operations: bookingOperations,
+  operations: [...bookingOperations, ...collabOperations],
   hooks: {
     userCreated: (deps, user) => attachPendingPeople(deps.d1, deps.objects, user).then(() => undefined),
   },

@@ -4,3 +4,4 @@ export * from "./booking.ts";
 export * from "./booking-money.ts";
 export * from "./reports.ts";
 export * from "./contacts.ts";
+export * from "./collab.ts";

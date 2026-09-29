@@ -104,6 +104,59 @@ describe("MCP", () => {
     expect((await worker().fetch(MCP)).status).toBe(405);
   });
 
+  it("works with gig lists and notes, and asks before removing", async () => {
+    const me = await signUp("Test Me");
+    const token = await connect(me);
+    const names = (
+      (await (await rpc(token, "tools/list")).json()) as { result: { tools: { name: string }[] } }
+    ).result.tools.map((t) => t.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "create_gig_list",
+        "add_list_items",
+        "move_list_item",
+        "update_list_item",
+        "remove_list_item",
+        "add_gig_note",
+        "remove_gig_note",
+      ]),
+    );
+    const gig = await tool(token, "create_gig", {
+      title: "Test MCP Lists",
+      events: [{ start_at: "2026-12-12T19:00" }],
+    });
+    const gigId = gig.structuredContent.id as string;
+    const made = await tool(token, "create_gig_list", {
+      gig_id: gigId,
+      title: "Test Set",
+      items: [{ text: "Song A" }, { text: "Song B" }],
+    });
+    expect(made.isError).toBeUndefined();
+    const list = made.structuredContent.lists[0];
+    const [a, b] = list.items.map((i: { id: string }) => i.id);
+    const moved = await tool(token, "move_list_item", {
+      gig_id: gigId,
+      list_id: list.id,
+      item_id: b,
+      after_item_id: null,
+    });
+    expect(moved.structuredContent.lists[0].items.map((i: { text: string }) => i.text)).toEqual([
+      "Song B",
+      "Song A",
+    ]);
+    const noted = await tool(token, "add_gig_note", { gig_id: gigId, body: "Test: load in at 4" });
+    expect(noted.structuredContent.shared_notes[0].body).toBe("Test: load in at 4");
+
+    const args = { gig_id: gigId, list_id: list.id, item_id: a };
+    const preview = await tool(token, "remove_list_item", args);
+    expect(preview.structuredContent.needs_confirmation).toBe(true);
+    const done = await tool(token, "remove_list_item", {
+      ...args,
+      confirm_token: preview.structuredContent.confirm_token,
+    });
+    expect(done.structuredContent.lists[0].items.map((i: { text: string }) => i.text)).toEqual(["Song B"]);
+  });
+
   it("lists tools from the operations (not session-only ones) and runs them as the user", async () => {
     const me = await signUp("Test Me");
     const token = await connect(me);

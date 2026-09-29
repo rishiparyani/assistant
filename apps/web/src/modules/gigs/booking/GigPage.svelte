@@ -46,6 +46,8 @@
   import LineupSheet from "./LineupSheet.svelte";
   import PersonSheet from "./PersonSheet.svelte";
   import CancelSheet from "./CancelSheet.svelte";
+  import GigLists from "./GigLists.svelte";
+  import GigNotes from "./GigNotes.svelte";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
   let { gigId }: { gigId: string } = $props();
@@ -75,8 +77,9 @@
   let payoutFor = $state<PayeeView | null>(null);
   let cancelOpen = $state(false);
 
-  // Three tabs keep the page short: what and when, the money, and who's on it.
-  type Tab = "details" | "money" | "people";
+  // Tabs keep the page short: what and when, lists and notes to work on together, the
+  // money, and who's on it.
+  type Tab = "details" | "lists" | "notes" | "money" | "people";
   let tab = $state<Tab>("details");
 
   const set = (g: BookingView) => q.set(g);
@@ -177,6 +180,11 @@
     },
     { key: "players_see_fee", label: "Players see the fee and client payments", hint: "" },
     { key: "players_see_shares", label: "Players see everyone's shares and payouts", hint: "" },
+    {
+      key: "players_edit_lists",
+      label: "Players can add notes and change lists",
+      hint: "Otherwise only managers can; players still see them.",
+    },
   ];
 </script>
 
@@ -253,13 +261,19 @@
       label="Sections"
       bind:value={tab}
       options={[
-        { value: "details", label: gig.events.length > 1 ? `Events (${gig.events.length})` : "Details" },
+        { value: "details", label: gig.events.length > 1 ? "Events" : "Details" },
+        { value: "lists", label: "Lists" },
+        { value: "notes", label: "Notes" },
         { value: "money", label: "Money" },
-        { value: "people", label: `People (${gig.people.length})` },
+        { value: "people", label: "People" },
       ]}
     />
 
-    {#if tab === "details"}
+    {#if tab === "lists"}
+      <GigLists {gig} onsaved={set} />
+    {:else if tab === "notes"}
+      <GigNotes {gig} onsaved={set} />
+    {:else if tab === "details"}
       {#each gig.events as e, i (e.id)}
         <ListGroup title={e.title ?? (gig.events.length > 1 ? `Event ${i + 1}` : "When and where")}>
           {#snippet action()}
@@ -513,7 +527,7 @@
 
       {#if manager}
         <ListGroup
-          title="What players see"
+          title="What players see and do"
           footer="Managers always see everything. Players always see their own share."
         >
           {#each SETTINGS as s (s.key)}

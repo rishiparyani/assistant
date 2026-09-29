@@ -5,6 +5,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   GIG_SETTINGS_DEFAULTS,
+  LIST_LIMITS,
   formatDateIST,
   formatDateTimeIST,
   isoDateIST,
@@ -13,7 +14,9 @@ import {
   ulid,
   type BookingRole,
   type BookingView,
+  type GigListView,
   type GigMoney,
+  type GigNoteView,
   type GigPaymentView,
   type GigSettings,
   type PayeeView,
@@ -54,6 +57,9 @@ const BACKUP_TABLES = [
   "payments",
   "payouts",
   "expenses",
+  "lists",
+  "list_items",
+  "notes",
   "_audit",
   "_targets",
   "_meta",
@@ -171,6 +177,46 @@ const MIGRATIONS: Migrations = [
   `
   alter table payments add column kind text not null default 'payment';
   `,
+  // Working together (§11): lists (setlist, packing, run of show) and notes. Positions are
+  // numbers with room between them, so moving an item changes only that item's row.
+  `
+  create table lists (
+    id text primary key,
+    title text not null,
+    event_id text,
+    checkable integer not null default 0,
+    created_by text not null,
+    created_by_name text not null,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create index lists_created_idx on lists (created_at) where deleted_at is null;
+  create table list_items (
+    id text primary key,
+    list_id text not null,
+    text text not null,
+    detail text,
+    position real not null,
+    done_at text,
+    done_by_name text,
+    created_by text not null,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create index list_items_list_idx on list_items (list_id, position) where deleted_at is null;
+  create table notes (
+    id text primary key,
+    body text not null,
+    created_by text not null,
+    author_name text not null,
+    created_at text not null,
+    edited_at text,
+    deleted_at text
+  );
+  create index notes_created_idx on notes (created_at) where deleted_at is null;
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -219,6 +265,26 @@ export interface ExpenseInput {
   note: string | null;
 }
 export type SettingsInput = Partial<GigSettings>;
+export interface ListItemInput {
+  text: string;
+  detail: string | null;
+}
+export interface CreateListInput {
+  title: string;
+  event_id: string | null;
+  checkable: boolean;
+  items: ListItemInput[];
+}
+export interface UpdateListInput {
+  title?: string;
+  event_id?: string | null;
+  checkable?: boolean;
+}
+export interface UpdateItemInput {
+  text?: string;
+  detail?: string | null;
+  done?: boolean;
+}
 /** A tag from the D1 registry (the Worker resolves names to ids). */
 export interface TagRef {
   id: string;
@@ -859,6 +925,251 @@ export class BookingObject extends DurableObject<Env> {
     });
   }
 
+  // --- Lists and notes (§11) ---------------------------------------------------------
+  // Everyone on the gig may change them unless a manager turned that off for players.
+  // They don't bump the gig's version, so editing a list never blocks an edit of the gig.
+
+  async createList(input: CreateListInput, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["create_list", input], actor, key, "player", (gig) => {
+      const me = this.requireEditor(actor, gig);
+      const count = this.sql
+        .exec<{ n: number }>(`select count(*) as n from lists where deleted_at is null`)
+        .one().n;
+      if (count >= LIST_LIMITS.lists)
+        throw new ObjectError("validation_failed", `A gig can have up to ${LIST_LIMITS.lists} lists`);
+      if (input.event_id) this.requireEvent(input.event_id);
+      const id = ulid();
+      const ts = nowIso();
+      this.sql.exec(
+        `insert into lists (id, title, event_id, checkable, created_by, created_by_name, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        input.title,
+        input.event_id,
+        input.checkable ? 1 : 0,
+        actor.userId,
+        me.name,
+        ts,
+        ts,
+      );
+      this.insertItems(id, input.items, undefined, actor, ts);
+      this.stamp(gig.id);
+      return { action: "create_list", entityType: "list", entityId: id, after: input };
+    });
+  }
+
+  async updateList(listId: string, input: UpdateListInput, actor: Actor, key: string | null) {
+    return this.write(["update_list", listId, input], actor, key, "player", (gig) => {
+      this.requireEditor(actor, gig);
+      const before = this.requireList(listId);
+      if (input.event_id) this.requireEvent(input.event_id);
+      const after = {
+        title: input.title ?? before.title,
+        event_id: input.event_id === undefined ? before.event_id : input.event_id,
+        checkable: input.checkable === undefined ? before.checkable : input.checkable ? 1 : 0,
+      };
+      this.sql.exec(
+        `update lists set title = ?, event_id = ?, checkable = ?, updated_at = ? where id = ?`,
+        after.title,
+        after.event_id,
+        after.checkable,
+        nowIso(),
+        listId,
+      );
+      this.stamp(gig.id);
+      return { action: "update_list", entityType: "list", entityId: listId, before, after };
+    });
+  }
+
+  async removeList(listId: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["remove_list", listId], actor, key, "player", (gig) => {
+      this.requireEditor(actor, gig);
+      const before = this.requireList(listId);
+      const ts = nowIso();
+      this.sql.exec(`update lists set deleted_at = ? where id = ?`, ts, listId);
+      this.sql.exec(
+        `update list_items set deleted_at = ? where list_id = ? and deleted_at is null`,
+        ts,
+        listId,
+      );
+      this.stamp(gig.id);
+      return { action: "remove_list", entityType: "list", entityId: listId, before };
+    });
+  }
+
+  /** Adds items at the end, at the top (`after` null) or after an item. */
+  async addItems(
+    listId: string,
+    items: ListItemInput[],
+    after: string | null | undefined,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["add_items", listId, items, after], actor, key, "player", (gig) => {
+      this.requireEditor(actor, gig);
+      this.requireList(listId);
+      const count = this.itemRows(listId).length;
+      if (count + items.length > LIST_LIMITS.items)
+        throw new ObjectError("validation_failed", `A list can have up to ${LIST_LIMITS.items} items`);
+      const ids = this.insertItems(listId, items, after, actor, nowIso());
+      this.touchList(listId);
+      this.stamp(gig.id);
+      return { action: "add_list_items", entityType: "list", entityId: listId, after: { ids, items } };
+    });
+  }
+
+  async updateItem(
+    listId: string,
+    itemId: string,
+    input: UpdateItemInput,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["update_item", listId, itemId, input], actor, key, "player", (gig) => {
+      const me = this.requireEditor(actor, gig);
+      const list = this.requireList(listId);
+      const before = this.requireItem(listId, itemId);
+      if (input.done !== undefined && !list.checkable)
+        throw new ObjectError("validation_failed", "This list doesn't have tick boxes");
+      const done =
+        input.done === undefined
+          ? { at: before.done_at, by: before.done_by_name }
+          : input.done
+            ? { at: before.done_at ?? nowIso(), by: before.done_at ? before.done_by_name : me.name }
+            : { at: null, by: null };
+      const after = {
+        text: input.text ?? before.text,
+        detail: input.detail === undefined ? before.detail : input.detail,
+        done_at: done.at,
+      };
+      this.sql.exec(
+        `update list_items set text = ?, detail = ?, done_at = ?, done_by_name = ?, updated_at = ? where id = ?`,
+        after.text,
+        after.detail,
+        done.at,
+        done.by,
+        nowIso(),
+        itemId,
+      );
+      this.touchList(listId);
+      this.stamp(gig.id);
+      return {
+        action: "update_list_item",
+        entityType: "list_item",
+        entityId: itemId,
+        before: { text: before.text, detail: before.detail, done_at: before.done_at },
+        after,
+      };
+    });
+  }
+
+  /** Moves an item to just after another one (null: to the top). One row changes. */
+  async moveItem(
+    listId: string,
+    itemId: string,
+    after: string | null,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["move_item", listId, itemId, after], actor, key, "player", (gig) => {
+      this.requireEditor(actor, gig);
+      this.requireList(listId);
+      const item = this.requireItem(listId, itemId);
+      if (after === itemId) return null;
+      if (after) this.requireItem(listId, after);
+      const others = this.itemRows(listId).filter((x) => x.id !== itemId);
+      const [position] = this.positionsAfter(listId, others, after, 1);
+      this.sql.exec(
+        `update list_items set position = ?, updated_at = ? where id = ?`,
+        position,
+        nowIso(),
+        itemId,
+      );
+      this.touchList(listId);
+      this.stamp(gig.id);
+      return {
+        action: "move_list_item",
+        entityType: "list_item",
+        entityId: itemId,
+        before: { position: item.position },
+        after: { after_item_id: after },
+      };
+    });
+  }
+
+  async removeItem(listId: string, itemId: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["remove_item", listId, itemId], actor, key, "player", (gig) => {
+      this.requireEditor(actor, gig);
+      this.requireList(listId);
+      const before = this.requireItem(listId, itemId);
+      this.sql.exec(`update list_items set deleted_at = ? where id = ?`, nowIso(), itemId);
+      this.touchList(listId);
+      this.stamp(gig.id);
+      return {
+        action: "remove_list_item",
+        entityType: "list_item",
+        entityId: itemId,
+        before: { text: before.text, detail: before.detail },
+      };
+    });
+  }
+
+  async addNote(body: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["add_note", body], actor, key, "player", (gig) => {
+      const me = this.requireEditor(actor, gig);
+      const count = this.sql
+        .exec<{ n: number }>(`select count(*) as n from notes where deleted_at is null`)
+        .one().n;
+      if (count >= LIST_LIMITS.notes)
+        throw new ObjectError("validation_failed", `A gig can have up to ${LIST_LIMITS.notes} notes`);
+      const id = ulid();
+      this.sql.exec(
+        `insert into notes (id, body, created_by, author_name, created_at) values (?, ?, ?, ?, ?)`,
+        id,
+        body,
+        actor.userId,
+        me.name,
+        nowIso(),
+      );
+      this.stamp(gig.id);
+      return { action: "add_note", entityType: "note", entityId: id, after: { body } };
+    });
+  }
+
+  /** Only the note's author can change it. */
+  async updateNote(noteId: string, body: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["update_note", noteId, body], actor, key, "player", (gig) => {
+      this.requireEditor(actor, gig);
+      const before = this.requireNote(noteId);
+      if (before.created_by !== actor.userId)
+        throw new ObjectError("forbidden", "Only the person who wrote a note can change it");
+      if (before.body === body) return null;
+      this.sql.exec(`update notes set body = ?, edited_at = ? where id = ?`, body, nowIso(), noteId);
+      this.stamp(gig.id);
+      return {
+        action: "update_note",
+        entityType: "note",
+        entityId: noteId,
+        before: { body: before.body },
+        after: { body },
+      };
+    });
+  }
+
+  /** The author or a manager can remove a note. */
+  async removeNote(noteId: string, actor: Actor, key: string | null): Promise<BookingView> {
+    return this.write(["remove_note", noteId], actor, key, "player", (gig) => {
+      const role = this.requireRole(actor);
+      const before = this.requireNote(noteId);
+      if (before.created_by !== actor.userId && role !== "manager")
+        throw new ObjectError("forbidden", "Only the note's author or a manager can remove it");
+      if (before.created_by === actor.userId) this.requireEditor(actor, gig);
+      this.sql.exec(`update notes set deleted_at = ? where id = ?`, nowIso(), noteId);
+      this.stamp(gig.id);
+      return { action: "remove_note", entityType: "note", entityId: noteId, before: { body: before.body } };
+    });
+  }
+
   // --- Reads -------------------------------------------------------------------------
 
   async view(actor: Actor): Promise<BookingView> {
@@ -1338,6 +1649,126 @@ export class BookingObject extends DurableObject<Env> {
     return id;
   }
 
+  /** Me on this gig, if I may change its lists and notes. */
+  private requireEditor(actor: Actor, gig: GigRow): PersonRow {
+    const me = actor.userId ? this.personRows().find((p) => p.user_id === actor.userId) : undefined;
+    if (!me) throw new ObjectError("not_found", "Gig not found");
+    if (me.role !== "manager" && !settingsOf(gig).players_edit_lists)
+      throw new ObjectError("forbidden", "Only the gig's managers can change its lists and notes");
+    return me;
+  }
+
+  private listRows(): ListRow[] {
+    return this.sql
+      .exec<ListRow>(
+        `select id, title, event_id, checkable, created_by_name, updated_at from lists
+         where deleted_at is null order by created_at, id`,
+      )
+      .toArray();
+  }
+
+  private requireList(id: string): ListRow {
+    const l = this.listRows().find((x) => x.id === id);
+    if (!l) throw new ObjectError("not_found", "List not found");
+    return l;
+  }
+
+  private itemRows(listId?: string): ItemRow[] {
+    return (
+      listId
+        ? this.sql.exec<ItemRow>(
+            `select id, list_id, text, detail, position, done_at, done_by_name from list_items
+             where list_id = ? and deleted_at is null order by position, id`,
+            listId,
+          )
+        : this.sql.exec<ItemRow>(
+            `select id, list_id, text, detail, position, done_at, done_by_name from list_items
+             where deleted_at is null order by list_id, position, id`,
+          )
+    ).toArray();
+  }
+
+  private requireItem(listId: string, id: string): ItemRow {
+    const item = this.sql
+      .exec<ItemRow>(
+        `select id, list_id, text, detail, position, done_at, done_by_name from list_items
+         where id = ? and list_id = ? and deleted_at is null`,
+        id,
+        listId,
+      )
+      .toArray()[0];
+    if (!item) throw new ObjectError("not_found", "Item not found");
+    return item;
+  }
+
+  private requireNote(id: string): NoteRow {
+    const n = this.sql
+      .exec<NoteRow>(
+        `select id, body, created_by, author_name, created_at, edited_at from notes
+         where id = ? and deleted_at is null`,
+        id,
+      )
+      .toArray()[0];
+    if (!n) throw new ObjectError("not_found", "Note not found");
+    return n;
+  }
+
+  private touchList(listId: string) {
+    this.sql.exec(`update lists set updated_at = ? where id = ?`, nowIso(), listId);
+  }
+
+  /**
+   * `count` positions in order, just after `after` (null: at the top; undefined: at the
+   * end) among `rows` (the list in order). Renumbers the list first if the gap is too small.
+   */
+  private positionsAfter(
+    listId: string,
+    rows: ItemRow[],
+    after: string | null | undefined,
+    count: number,
+  ): number[] {
+    const at =
+      after === undefined ? rows.length : after === null ? 0 : rows.findIndex((r) => r.id === after) + 1;
+    const lo = at > 0 ? rows[at - 1]!.position : (rows[0]?.position ?? 1) - 1;
+    const hi = at < rows.length ? rows[at]!.position : lo + count + 1;
+    const step = (hi - lo) / (count + 1);
+    if (step < 1e-6) {
+      rows.forEach((r, i) => {
+        r.position = i + 1;
+        this.sql.exec(`update list_items set position = ? where id = ?`, i + 1, r.id);
+      });
+      return this.positionsAfter(listId, rows, after, count);
+    }
+    return Array.from({ length: count }, (_, i) => lo + step * (i + 1));
+  }
+
+  private insertItems(
+    listId: string,
+    items: ListItemInput[],
+    after: string | null | undefined,
+    actor: Actor,
+    ts: string,
+  ): string[] {
+    if (after) this.requireItem(listId, after);
+    const positions = this.positionsAfter(listId, this.itemRows(listId), after, items.length);
+    return items.map((item, i) => {
+      const id = ulid();
+      this.sql.exec(
+        `insert into list_items (id, list_id, text, detail, position, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        listId,
+        item.text,
+        item.detail,
+        positions[i]!,
+        actor.userId,
+        ts,
+        ts,
+      );
+      return id;
+    });
+  }
+
   /** Any change to events or people counts as a change to the gig (version, updated_at). */
   private touch(gigId: string) {
     this.sql.exec(`update gig set version = version + 1, updated_at = ? where id = ?`, nowIso(), gigId);
@@ -1449,9 +1880,46 @@ export class BookingObject extends DurableObject<Env> {
       my_role: me?.role ?? "player",
       settings,
       money: this.moneyFor(gig, me?.id ?? null, see, manager, allPeople, lineup),
+      ...this.collabFor(userId, manager || settings.players_edit_lists),
       created_at: gig.created_at,
       updated_at: gig.updated_at,
     };
+  }
+
+  private collabFor(userId: string, canEdit: boolean) {
+    const items = this.itemRows();
+    const lists: GigListView[] = this.listRows().map((l) => ({
+      id: l.id,
+      title: l.title,
+      event_id: l.event_id,
+      checkable: !!l.checkable,
+      items: items
+        .filter((x) => x.list_id === l.id)
+        .map((x) => ({
+          id: x.id,
+          text: x.text,
+          detail: x.detail,
+          done: !!x.done_at,
+          done_by: x.done_at ? x.done_by_name : null,
+        })),
+      created_by: l.created_by_name,
+      updated_at: l.updated_at,
+    }));
+    const notes: GigNoteView[] = this.sql
+      .exec<NoteRow>(
+        `select id, body, created_by, author_name, created_at, edited_at from notes
+         where deleted_at is null order by created_at desc, id desc`,
+      )
+      .toArray()
+      .map((n) => ({
+        id: n.id,
+        body: n.body,
+        author: n.author_name,
+        is_mine: n.created_by === userId,
+        created_at: n.created_at,
+        edited_at: n.edited_at,
+      }));
+    return { lists, shared_notes: notes, can_edit_lists: canEdit };
   }
 
   private moneyFor(
@@ -1600,3 +2068,31 @@ function dedupePeople(people: PersonInput[]): PersonInput[] {
 function pickKeys<T extends object>(row: T, next: object): Partial<T> {
   return Object.fromEntries(Object.keys(next).map((k) => [k, row[k as keyof T]])) as Partial<T>;
 }
+
+type ListRow = {
+  id: string;
+  title: string;
+  event_id: string | null;
+  checkable: number;
+  created_by_name: string;
+  updated_at: string;
+};
+
+type ItemRow = {
+  id: string;
+  list_id: string;
+  text: string;
+  detail: string | null;
+  position: number;
+  done_at: string | null;
+  done_by_name: string | null;
+};
+
+type NoteRow = {
+  id: string;
+  body: string;
+  created_by: string;
+  author_name: string;
+  created_at: string;
+  edited_at: string | null;
+};

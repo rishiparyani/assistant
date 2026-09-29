@@ -106,6 +106,7 @@ describe("client payments", () => {
       players_see_lineup: true,
       players_see_fee: true,
       players_see_shares: false,
+      players_edit_lists: true,
     });
     expect(now.money.received!.amount_display).toBe("₹40,000");
   });
