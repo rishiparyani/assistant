@@ -4,6 +4,8 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **Handoff enforced by CI** (decision 2026-09-29): new `Handoff` check fails PRs that change app code without updating this file (a line with only `[skip-status]` in the PR description skips it, with a warning); PR template with the handoff checklist; `AGENTS.md` and `docs/handoff.md` mention both. Owner could make `Handoff` a required check in branch protection (optional; merges are by agents that already wait for green).
+
 - **Notifications (T11)** (decision 2026-09-28): Settings → Notifications (turn on for this device, test, turn off; iPhone hint to use the Home Screen app), "New for you" on Home with mark all read, push-only service worker `/sw.js`. Core `InboxObject` per person (wrangler DO migration v2) and `notify()`; gigs notifies on added / confirmed / changed / cancelled / paid, not for your own changes. Web Push with VAPID and encrypted payloads, keys made by the Worker (no owner step). Tests: 3 new in `notifications.test.ts` (decrypting like a browser, devices, all triggers). Headless Chromium can't subscribe (always "blocked"), so the first real push is the owner's "Send a test".
 
 - **MCP server (T10)** (decision 2026-09-28): `/mcp` with tools from the operation registry, OAuth connect via the consent page, two-step confirm for money/cancel/delete, data fenced as data, `mcp` audit source. Settings → "AI assistants" card (address, Claude and ChatGPT steps). Tests: 3 new in `mcp.test.ts` (full OAuth flow, tools, confirm, retries, access); browser check of consent → code → token → tool call. Owner step: add the connector in Claude (and ChatGPT) with `https://assistant.rishiparyani.workers.dev/mcp`; the old spike connector can be removed.

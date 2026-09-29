@@ -22,6 +22,10 @@ Claude Code, Codex and others should be interchangeable at any task boundary, an
 4. Record new decisions in `docs/decisions.md`.
 5. If acceptance criteria changed, update `tasks/backlog.md`.
 
+## Enforced, not remembered
+
+Agents don't remember between sessions, so the repo enforces the handoff: the **Handoff** check (`.github/workflows/handoff.yml`) fails a PR that changes app code (`apps/`, `packages/`, `scripts/`, `shortcuts/`) without changing `tasks/STATUS.md`. A line containing only `[skip-status]` in the PR description lets a change through with a warning (a mention inside a sentence doesn't count), for when status truly didn't change. The PR template (`.github/pull_request_template.md`) carries the rest of the checklist. The check proves STATUS was touched, not that it's accurate: keep it true.
+
 ## Symlinks on Windows
 
 `CLAUDE.md` is a symlink to `AGENTS.md`. On Windows clones without symlink support, replace it locally with a file containing just `@AGENTS.md`.

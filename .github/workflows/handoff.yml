@@ -1,0 +1,51 @@
+# Handoff check (docs/decisions.md, 2026-09-29): a PR that changes app code must also
+# update tasks/STATUS.md, so any agent (Claude, Codex, others) can pick up from the repo.
+# No secrets; reads only the PR's own files and description.
+name: Handoff
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: handoff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  status-updated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - name: Code changes come with a STATUS update
+        env:
+          # Passed as data, never pasted into the script (PR text is untrusted).
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # The checkout is the PR merged into its base: HEAD^1 is the base.
+          changed=$(git diff --name-only HEAD^1 HEAD)
+          code=$(printf '%s\n' "$changed" | grep -E '^(apps|packages|scripts|shortcuts)/' || true)
+          if [ -z "$code" ]; then
+            echo "No app code changed; nothing to check."
+            exit 0
+          fi
+          if printf '%s\n' "$changed" | grep -qx 'tasks/STATUS.md'; then
+            echo "tasks/STATUS.md is updated. Good handoff."
+            exit 0
+          fi
+          # Only a line that is exactly [skip-status] counts (mentions in a sentence or the
+          # template don't), so skipping is always deliberate.
+          if printf '%s\n' "$PR_BODY" | tr -d '\r' | grep -qx '[[:space:]]*\[skip-status\][[:space:]]*'; then
+            echo "::warning::App code changed without a STATUS update (the PR description has a [skip-status] line)."
+            exit 0
+          fi
+          echo "::error::This PR changes app code but not tasks/STATUS.md."
+          echo "Update tasks/STATUS.md (Last done / Next / Gotchas) so another agent can take over,"
+          echo "or, for a change that truly doesn't affect status, add a line with only [skip-status] to the PR description."
+          exit 1
