@@ -4,6 +4,12 @@ _Updated: 2026-09-28_
 
 ## Last done
 
+- **Notifications (T11)** (decision 2026-09-28): Settings → Notifications (turn on for this device, test, turn off; iPhone hint to use the Home Screen app), "New for you" on Home with mark all read, push-only service worker `/sw.js`. Core `InboxObject` per person (wrangler DO migration v2) and `notify()`; gigs notifies on added / confirmed / changed / cancelled / paid, not for your own changes. Web Push with VAPID and encrypted payloads, keys made by the Worker (no owner step). Tests: 3 new in `notifications.test.ts` (decrypting like a browser, devices, all triggers). Headless Chromium can't subscribe (always "blocked"), so the first real push is the owner's "Send a test".
+
+- **MCP server (T10)** (decision 2026-09-28): `/mcp` with tools from the operation registry, OAuth connect via the consent page, two-step confirm for money/cancel/delete, data fenced as data, `mcp` audit source. Settings → "AI assistants" card (address, Claude and ChatGPT steps). Tests: 3 new in `mcp.test.ts` (full OAuth flow, tools, confirm, retries, access); browser check of consent → code → token → tool call. Owner step: add the connector in Claude (and ChatGPT) with `https://assistant.rishiparyani.workers.dev/mcp`; the old spike connector can be removed.
+
+- **API tokens and Siri Shortcuts (T09)** (decision 2026-09-28): Settings → Siri and Shortcuts (make a token, read or read+change, shown once; list with last used; revoke). Bearer tokens on operation routes only (`requireCaller`, `sessionOnly` ops), audited as `siri`. `get_brief` (spoken answers) and `pick` (choices for Shortcuts). Guide: `shortcuts/README.md` (Next gig, Gigs this week, Who owes me, Who do I owe, Clients who owe, Record payment, Record payout, Add gig). Tests: 4 new in `api-tokens.test.ts`. Calendar feed live on prod ([rishiparyani/assistant#26](https://github.com/rishiparyani/assistant/pull/26)).
+
 - **Calendar feed (T08)** (decision 2026-09-28): Settings → Calendar: turn on, "Add to Apple Calendar" (webcal), copy link (Google steps shown), new link, turn off. `/api/calendar/<token>.ics` with my gigs' events (no money; cancelled/tentative marked). D1 migration `0006_access_tokens` (`access_tokens`, `user_audit`); core hook `calendar` in module definitions; `ctx.sealer`. Tests: 63 worker (4 new in `calendar.test.ts`); browser check at 390/820/1280 light and dark. Address book live on prod ([rishiparyani/assistant#25](https://github.com/rishiparyani/assistant/pull/25)).
 
 - **Address book** (decision 2026-09-28): my clients, venues and people in my person object (schema v7), filled in from gigs I manage (via the summaries, managers only) and by hand; `find_contacts`, `save_contact`, `update_contact`, `remove_contact` (`/api/me/contacts`); in nightly backups. Web: "Contacts" tab (search, kinds, add/edit/remove sheet) and suggestions while typing client, venue or person in the new-gig form (`core/ui/SuggestField`; picking fills phone, city, email/account). Tests: 57 worker (3 new in `contacts.test.ts`); browser walkthrough at 390/820/1280 light and dark.
@@ -61,7 +67,7 @@ _Updated: 2026-09-28_
 
 ## Next
 
-1. Siri with API tokens (T09), MCP (T10), notifications (T11). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
+1. Owner: review and OK the PR with T09 + T10 + T11 (security changes: tokens, MCP, push). Then: owner feedback. PR waits for the owner's OK (security changes). Owner steps: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; optional `ANALYTICS_TOKEN`.
 2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
 3. Paused: the rest of T06 (collective views), replaced by R1.
 4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).

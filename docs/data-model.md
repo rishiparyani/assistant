@@ -9,6 +9,8 @@ Gig-centric (docs/design/gig-centric.md §5, decided 2026-09-28). Workspaces wer
 - **Month index** (`index:<YYYY-MM>`): one card per event (date, venue, client, managers, status) for duplicate warnings; `created` registry used by the rebuild tool.
 - **Pending** (`pending:<shard>`): gigs whose outbox couldn't be handed to the queue yet.
 
+- **Inbox** (`inbox:<user id>`, core): `notifications` (latest 100; read or not) and `devices` (push subscriptions, up to 10).
+
 Each object migrates its own schema when it wakes (`_schema` table).
 
 ## D1 (shared, written rarely)
@@ -17,7 +19,7 @@ Each object migrates its own schema when it wakes (`_schema` table).
 - `tags`: the tag registry (one per kind and normalised name).
 - `pending_people`: email → gig and person, for people added before they had an account.
 - `admins`, `admin_audit`: the admin panel.
-- `access_tokens`: calendar feed links now, API tokens from T09 (SHA-256 hash for lookup; calendar links also sealed with a key derived from `BETTER_AUTH_SECRET` so settings can show them again; revoked, never deleted). Not in backups: links are made again after a restore.
+- `access_tokens`: calendar feed links and API tokens (scopes `read` / `read write`) (SHA-256 hash for lookup; calendar links also sealed with a key derived from `BETTER_AUTH_SECRET` so settings can show them again; revoked, never deleted). Not in backups: links are made again after a restore.
 - `user_audit`: what people did to their own links and tokens.
 
 ## Conventions

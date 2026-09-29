@@ -12,6 +12,8 @@ export async function call(
     cookie?: string;
     raw?: string;
     idempotencyKey?: string | null;
+    /** An API token (Authorization: Bearer …) instead of a cookie. */
+    bearer?: string;
   } = {},
 ): Promise<Response> {
   const headers = new Headers({ origin: BASE });
@@ -21,6 +23,7 @@ export async function call(
     headers.set("idempotency-key", init.idempotencyKey ?? crypto.randomUUID());
   }
   if (init.cookie) headers.set("cookie", init.cookie);
+  if (init.bearer) headers.set("authorization", `Bearer ${init.bearer}`);
   let body: string | undefined;
   if (init.raw !== undefined) body = init.raw;
   else if (init.body !== undefined) body = JSON.stringify(init.body);

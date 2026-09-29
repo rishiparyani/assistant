@@ -3,7 +3,7 @@
 // may repeat or arrive out of order: a delivery replaces the gig's rows only if its
 // sequence number isn't older than what's already applied.
 import { DurableObject } from "cloudflare:workers";
-import { ulid } from "@assistant/shared";
+import { formatDateTimeIST, formatINR, ulid } from "@assistant/shared";
 import type { ContactKind, ContactView } from "@assistant/shared";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import {
@@ -16,6 +16,8 @@ import {
   type Migrations,
 } from "../../../core/objects/storage.ts";
 import type { LearnedContact, PersonEventSummary, PersonGigSummary } from "./types.ts";
+import { notify } from "../../../core/push/notify.ts";
+import type { NewNotification } from "../../../core/push/inbox.ts";
 
 const MIGRATIONS: Migrations = [
   `
@@ -127,7 +129,46 @@ const MIGRATIONS: Migrations = [
   create table contact_gigs (contact_id text not null, gig_id text not null, primary key (contact_id, gig_id));
   create index contact_gigs_gig_idx on contact_gigs (gig_id);
   `,
+  // Step 7: contact search by indexed words (no scans), and old names of renamed
+  // contacts so gigs that still use an old name find the same contact.
+  `
+  create table contact_words (word text not null, contact_id text not null, primary key (word, contact_id));
+  create index contact_words_contact_idx on contact_words (contact_id);
+  create table contact_aliases (
+    kind text not null,
+    name_key text not null,
+    contact_id text not null,
+    primary key (kind, name_key)
+  );
+  create index contacts_list_idx on contacts (deleted_at, kind, last_used_at);
+  `,
 ];
+
+/** Search words for a contact: name, city and email words, and phone digits. */
+function contactWords(c: { name: string; email: string | null; phone: string | null; city: string | null }) {
+  const words = new Set<string>();
+  for (const text of [c.name, c.city ?? "", c.email ?? ""])
+    for (const w of text.toLowerCase().split(/[^\p{L}\p{N}]+/u)) if (w) words.add(w);
+  if (c.email) words.add(c.email.toLowerCase());
+  const digits = (c.phone ?? "").replace(/\D/g, "");
+  if (digits) {
+    words.add(digits);
+    if (digits.length > 10) words.add(digits.slice(-10));
+  }
+  return [...words].map((w) => w.slice(0, 80));
+}
+
+/** Search terms: words as typed; a number (e.g. "+91 900") is matched on its digits. */
+function searchTerms(q: string): string[] {
+  return q
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) =>
+      /\p{L}/u.test(t) ? t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}@.]+$/gu, "") : t.replace(/\D/g, ""),
+    )
+    .filter(Boolean)
+    .slice(0, 5);
+}
 
 /** "  Blue  Frog " → "blue frog": one contact however the name is typed. */
 const nameKey = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
@@ -171,7 +212,14 @@ export class PersonObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+    ctx.blockConcurrencyWhile(async () => {
+      migrate(this.sql, MIGRATIONS);
+      // Contacts from before search words existed get them once.
+      const hasWords = this.sql.exec(`select 1 from contact_words limit 1`).toArray().length > 0;
+      if (!hasWords)
+        for (const { id } of this.sql.exec<{ id: string }>(`select id from contacts`).toArray())
+          this.reindex(id);
+    });
     // Keep-alive pings are answered without waking the object (hibernation).
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
@@ -221,6 +269,88 @@ export class PersonObject extends DurableObject<Env> {
     }
   }
 
+  /** Whose object this is (from its name, `person:<user id>`). */
+  private get userId(): string | null {
+    const name = this.ctx.id.name;
+    return name?.startsWith("person:") ? name.slice("person:".length) : null;
+  }
+
+  /**
+   * What to tell me about this delivery, compared with what I had (run before replacing
+   * the rows). Nothing for changes I made myself, or for gigs that are over.
+   */
+  private noticesFor(
+    gigId: string,
+    rows: PersonEventSummary[],
+    gig: PersonGigSummary | null,
+  ): NewNotification[] {
+    const me = this.userId;
+    if (!gig || !me || gig.changed_by === me) return [];
+    const before = this.sql
+      .exec<{ status: string; paid_paise: number; gig_title: string }>(
+        `select status, paid_paise, gig_title from my_gigs where gig_id = ?`,
+        gigId,
+      )
+      .toArray()[0];
+    const url = `/gigs/${gigId}`;
+    const now = new Date().toISOString();
+    const next = rows
+      .filter((r) => r.start_at >= now)
+      .sort((a, b) => a.start_at.localeCompare(b.start_at))[0];
+    const where = (r: PersonEventSummary | undefined) =>
+      r
+        ? [formatDateTimeIST(r.start_at).replace(/ IST$/, ""), r.venue_name].filter(Boolean).join(" · ")
+        : null;
+    const out: NewNotification[] = [];
+    if (!before) {
+      if (gig.status !== "cancelled" && next)
+        out.push({
+          kind: "gig_added",
+          title: `You're on “${gig.gig_title}”`,
+          body: [where(next), gig.role === "manager" ? "as a manager" : null].filter(Boolean).join(" · "),
+          url,
+        });
+      return out;
+    }
+    if (before.status !== "cancelled" && gig.status === "cancelled") {
+      out.push({ kind: "gig_cancelled", title: `“${gig.gig_title}” was cancelled`, body: where(next), url });
+      return out;
+    }
+    if (before.status === "enquiry" && gig.status === "confirmed")
+      out.push({ kind: "gig_confirmed", title: `“${gig.gig_title}” is confirmed`, body: where(next), url });
+    if (gig.paid_paise > before.paid_paise)
+      out.push({
+        kind: "paid",
+        title: `You were paid ${formatINR(gig.paid_paise - before.paid_paise)}`,
+        body: `For “${gig.gig_title}”`,
+        url,
+      });
+    // A time or venue change on an event that's still ahead.
+    const old = new Map(
+      this.sql
+        .exec<{ event_id: string; start_at: string; venue_name: string | null }>(
+          `select event_id, start_at, venue_name from my_events where gig_id = ?`,
+          gigId,
+        )
+        .toArray()
+        .map((e) => [e.event_id, e]),
+    );
+    const moved = rows.find((r) => {
+      const o = old.get(r.event_id);
+      return (
+        o && r.start_at >= now && (o.start_at !== r.start_at || (o.venue_name ?? "") !== (r.venue_name ?? ""))
+      );
+    });
+    if (moved && gig.status !== "cancelled")
+      out.push({
+        kind: "gig_changed",
+        title: `“${gig.gig_title}” changed`,
+        body: `Now ${where(moved)}`,
+        url,
+      });
+    return out;
+  }
+
   /** Replaces this gig's rows if `seq` is at least what was applied. Returns whether applied. */
   async apply(
     gigId: string,
@@ -228,11 +358,13 @@ export class PersonObject extends DurableObject<Env> {
     rows: PersonEventSummary[],
     gig: PersonGigSummary | null = null,
   ): Promise<boolean> {
+    let notices: NewNotification[] = [];
     const applied = this.ctx.storage.transactionSync(() => {
       const current = this.sql
         .exec<{ seq: number }>(`select seq from applied where gig_id = ?`, gigId)
         .toArray()[0]?.seq;
       if (current !== undefined && seq < current) return false;
+      notices = this.noticesFor(gigId, rows, gig);
       this.sql.exec(`delete from my_events where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gigs where gig_id = ?`, gigId);
       this.sql.exec(`delete from my_gig_tags where gig_id = ?`, gigId);
@@ -302,6 +434,8 @@ export class PersonObject extends DurableObject<Env> {
       return true;
     });
     if (applied) this.notify(gigId);
+    // Tell me what changed, unless I changed it (best effort; never blocks the update).
+    if (applied && this.userId) for (const n of notices) await notify(this.env, this.userId, n);
     return applied;
   }
 
@@ -516,6 +650,7 @@ export class PersonObject extends DurableObject<Env> {
       const existing = this.matchContact(c.kind, name, c.email ?? null, c.user_id ?? null);
       if (existing?.deleted_at) continue;
       const now = nowIso();
+      const system: Actor = { userId: null, source: "system" };
       let id = existing?.id;
       if (!id) {
         id = ulid();
@@ -534,6 +669,13 @@ export class PersonObject extends DurableObject<Env> {
           now,
           now,
         );
+        this.reindex(id);
+        audit(this.sql, system, {
+          action: "learn_contact",
+          entityType: "contact",
+          entityId: id,
+          after: { ...c, gig_id: gigId },
+        });
       } else {
         this.sql.exec(
           `update contacts set phone = coalesce(phone, ?), email = coalesce(email, ?), city = coalesce(city, ?),
@@ -548,6 +690,19 @@ export class PersonObject extends DurableObject<Env> {
           usedAt,
           id,
         );
+        // Only blanks were filled: record it when something actually changed.
+        const after = this.sql.exec<ContactRow>(`select * from contacts where id = ?`, id).one();
+        const fields = ["phone", "email", "city", "user_id"] as const;
+        if (fields.some((f) => after[f] !== existing![f])) {
+          this.reindex(id);
+          audit(this.sql, system, {
+            action: "learn_contact_details",
+            entityType: "contact",
+            entityId: id,
+            before: Object.fromEntries(fields.map((f) => [f, existing![f]])),
+            after: Object.fromEntries(fields.map((f) => [f, after[f]])),
+          });
+        }
       }
       this.sql.exec(`insert or ignore into contact_gigs (contact_id, gig_id) values (?, ?)`, id, gigId);
     }
@@ -565,29 +720,73 @@ export class PersonObject extends DurableObject<Env> {
       const byEmail = email ? find("email", email.toLowerCase()) : undefined;
       if (byEmail) return byEmail;
     }
-    return find("name_key", nameKey(name));
+    const byName = find("name_key", nameKey(name));
+    if (byName) return byName;
+    // A contact I renamed is still found by its old name (gigs keep the old one).
+    const alias = this.sql
+      .exec<{ contact_id: string }>(
+        `select contact_id from contact_aliases where kind = ? and name_key = ?`,
+        kind,
+        nameKey(name),
+      )
+      .toArray()[0];
+    return alias
+      ? this.sql.exec<ContactRow>(`select * from contacts where id = ?`, alias.contact_id).toArray()[0]
+      : undefined;
   }
 
-  /** My contacts, most recently used first, optionally of one kind or matching a search. */
+  /** Refreshes a contact's search words. */
+  private reindex(id: string) {
+    this.sql.exec(`delete from contact_words where contact_id = ?`, id);
+    const c = this.sql.exec<ContactRow>(`select * from contacts where id = ?`, id).toArray()[0];
+    if (!c) return;
+    for (const w of contactWords(c))
+      this.sql.exec(`insert or ignore into contact_words (word, contact_id) values (?, ?)`, w, id);
+  }
+
+  /**
+   * My contacts, most recently used first, optionally of one kind or matching a search.
+   * Every search word must be the start of one of the contact's words (indexed lookups).
+   */
   async contacts(q: { kind?: ContactKind; search?: string; limit?: number } = {}): Promise<ContactView[]> {
-    const like = q.search ? `%${q.search.toLowerCase()}%` : null;
+    const limit = q.limit ?? 50;
+    const select = `select ${CONTACT_COLUMNS}, (select count(*) from contact_gigs g where g.contact_id = c.id) as gigs
+       from contacts c`;
+    const order = `order by c.last_used_at is null, c.last_used_at desc, c.name_key`;
+    const terms = q.search ? searchTerms(q.search) : [];
+    if (!terms.length) {
+      return this.sql
+        .exec<ContactOut>(
+          `${select} where c.deleted_at is null and ${q.kind ? "c.kind = ?" : "c.kind in ('client', 'venue', 'person')"}
+           ${order} limit ?`,
+          ...(q.kind ? [q.kind] : []),
+          limit,
+        )
+        .toArray();
+    }
+    let ids = null as Set<string> | null;
+    for (const t of terms) {
+      const found = new Set(
+        this.sql
+          .exec<{ contact_id: string }>(
+            `select contact_id from contact_words where word >= ? and word < ?`,
+            t,
+            `${t}\uffff`,
+          )
+          .toArray()
+          .map((r) => r.contact_id),
+      );
+      ids = ids ? new Set([...ids].filter((id: string) => found.has(id))) : found;
+      if (!ids.size) return [];
+    }
+    const list = [...ids!].slice(0, 500);
     return this.sql
       .exec<ContactOut>(
-        `select ${CONTACT_COLUMNS}, (select count(*) from contact_gigs g where g.contact_id = c.id) as gigs
-         from contacts c
-         where c.deleted_at is null and (? is null or c.kind = ?)
-           and (? is null or c.name_key like ? or lower(coalesce(c.email, '')) like ?
-                or coalesce(c.phone, '') like ? or lower(coalesce(c.city, '')) like ?)
-         order by c.last_used_at is null, c.last_used_at desc, c.name_key
-         limit ?`,
-        q.kind ?? null,
-        q.kind ?? null,
-        like,
-        like,
-        like,
-        like,
-        like,
-        q.limit ?? 50,
+        `${select} where c.id in (${list.map(() => "?").join(", ")}) and c.deleted_at is null
+         ${q.kind ? "and c.kind = ?" : ""} ${order} limit ?`,
+        ...list,
+        ...(q.kind ? [q.kind] : []),
+        limit,
       )
       .toArray();
   }
@@ -645,6 +844,8 @@ export class PersonObject extends DurableObject<Env> {
           now,
         );
       }
+      this.sql.exec(`delete from contact_aliases where kind = ? and name_key = ?`, input.kind, nameKey(name));
+      this.reindex(id);
       const after = this.contact(id);
       audit(this.sql, actor, { action: "save_contact", entityType: "contact", entityId: id, after });
       return after;
@@ -690,6 +891,22 @@ export class PersonObject extends DurableObject<Env> {
         nowIso(),
         before.id,
       );
+      if (name && nameKey(name) !== nameKey(before.name)) {
+        // Gigs that used the old name keep finding this contact.
+        this.sql.exec(
+          `insert into contact_aliases (kind, name_key, contact_id) values (?, ?, ?)
+           on conflict (kind, name_key) do update set contact_id = excluded.contact_id`,
+          before.kind,
+          nameKey(before.name),
+          before.id,
+        );
+        this.sql.exec(
+          `delete from contact_aliases where kind = ? and name_key = ?`,
+          before.kind,
+          nameKey(name),
+        );
+      }
+      this.reindex(before.id);
       const after = this.contact(before.id);
       audit(this.sql, actor, {
         action: "update_contact",
@@ -764,10 +981,29 @@ export class PersonObject extends DurableObject<Env> {
           `insert or ignore into contacts (${columns.join(", ")}) values (${columns.map(() => "?").join(", ")})`,
           ...columns.map((c) => row[c] ?? null),
         );
-        added += cursor.rowsWritten > 0 ? 1 : 0;
+        if (cursor.rowsWritten > 0) {
+          added++;
+          this.reindex(String(row.id));
+        }
       }
     });
     return added;
+  }
+
+  /** My gigs to choose from in a Shortcut: not cancelled, latest first, matching `q`. */
+  async pickGigs(q: string | null, limit = 10) {
+    const like = q ? `%${q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
+    return this.sql
+      .exec<{ gig_id: string; gig_title: string; first_start_at: string }>(
+        `select gig_id, gig_title, first_start_at from my_gigs
+         where status <> 'cancelled'
+           and (? is null or lower(gig_title || ' ' || coalesce(client_name, '')) like ? escape '\\')
+         order by first_start_at desc limit ?`,
+        like,
+        like,
+        limit,
+      )
+      .toArray();
   }
 
   // --- Calendar feed -------------------------------------------------------------------

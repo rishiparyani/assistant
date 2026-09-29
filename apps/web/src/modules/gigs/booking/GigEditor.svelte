@@ -38,7 +38,7 @@
   }: { open?: boolean; gig?: BookingView | null; onsaved?: (g: BookingView) => void } = $props();
 
   type EventRow = { title: string; date: string; start: string; end: string; venue: string; city: string };
-  type PersonRow = { who: string; role: BookingRole; user_id?: string; email?: string };
+  type PersonRow = { who: string; role: BookingRole; user_id?: string; email?: string; phone?: string };
 
   const uid = $props.id();
   const formId = `gig-form-${uid}`;
@@ -148,6 +148,7 @@
     p.who = c.name;
     p.user_id = c.user_id ?? undefined;
     p.email = c.email ?? undefined;
+    p.phone = c.phone ?? undefined;
   }
 
   function eventFields(e: EventRow): EventFields {
@@ -163,8 +164,9 @@
   function personFields(p: PersonRow): PersonFields {
     const who = p.who.trim();
     if (p.user_id) return { user_id: p.user_id, role: p.role };
-    if (p.email) return { email: p.email, name: who, role: p.role };
-    return who.includes("@") ? { email: who, role: p.role } : { name: who, role: p.role };
+    const phone = p.phone ? { phone: p.phone } : {};
+    if (p.email) return { email: p.email, name: who, role: p.role, ...phone };
+    return who.includes("@") ? { email: who, role: p.role } : { name: who, role: p.role, ...phone };
   }
 
   async function submit(e: SubmitEvent) {
@@ -357,8 +359,8 @@
               bind:value={p.who}
               placeholder="Email or name"
               maxlength={200}
-              disabled={!!p.user_id || !!p.email}
-              hint={p.email && !p.user_id ? p.email : undefined}
+              disabled={!!p.user_id || !!p.email || !!p.phone}
+              hint={!p.user_id ? (p.email ?? p.phone) : undefined}
               load={fromBook("person")}
               detail={detailOf}
               onpick={(c) => pickPerson(p, c)}

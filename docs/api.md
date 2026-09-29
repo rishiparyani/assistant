@@ -18,7 +18,10 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 - `GET /api/me` (`get_me`): the signed-in user.
 - `GET /api/me/calendar` (`get_calendar_feed`), `POST /api/me/calendar` (`enable_calendar_feed`, `{reset: true}` for a new link), `DELETE /api/me/calendar` (`disable_calendar_feed`): my private calendar feed link (`url`, `webcal_url`, `last_used_at`). One per person; switching on again returns the same link; a retry with the same Idempotency-Key too.
 - `GET /api/calendar/<token>.ics` (no sign-in; the link is the key): my events as iCalendar, 90 days back onwards, cancelled ones marked `STATUS:CANCELLED`, enquiries `TENTATIVE`, no money. Unknown or revoked links get a plain 404. Modules add events through `calendar` in their definition.
-- Planned: API tokens for Siri and scripts (T09), MCP (T10).
+- `GET /api/me/tokens` (`list_api_tokens`), `POST /api/me/tokens` (`create_api_token`: `name`, `write`; the secret `token` is returned once), `DELETE /api/me/tokens/:token_id` (`revoke_api_token`). Signed-in sessions only.
+- **API tokens (T09):** send `Authorization: Bearer ast_…` instead of a cookie. A token acts as its owner on operation routes only (never admin, live updates, or token and feed management: `403`/`401`), with scope `read` or `read write` (a read-only token gets `403` on writes). Writes still need an `Idempotency-Key`. Audited with source `siri`. Unknown or revoked: `401`. Siri recipes: `shortcuts/README.md`.
+- **Notifications (T11):** `GET /api/me/notifications` (`get_notifications`: latest, with `unread`), `POST /api/me/notifications/read` (`mark_notifications_read`). Push on this device (session only): `GET /api/me/push?endpoint=` (public key, device count, whether this device is on), `POST /api/me/push` (`{endpoint, keys: {p256dh, auth}, label}`; only Apple, Google, Mozilla and Microsoft push services), `POST /api/me/push/remove`, `POST /api/me/push/test`. Modules notify through core `notify(env, userId, {kind, title, body, url})`.
+- **MCP (T10)** at `POST /mcp` (Streamable HTTP, stateless, JSON responses; GET/DELETE answer 405). Assistants connect with OAuth (dynamic client registration; consent page `/consent`; discovery at `/.well-known/oauth-protected-resource/mcp` and `/.well-known/oauth-authorization-server`). Tools are the operations above by their `tool` names, minus session-only ones (tokens, calendar feed); input schemas come from the same Zod definitions. Write tools take an optional `request_id` (repeat-safe). Tools marked "needs confirmation" (money, cancellations, deletes) first return `needs_confirmation`, a preview and a `confirm_token` (sealed, bound to the person, tool and exact arguments, 10 minutes); calling again with it applies the action, and retries of that call don't repeat it. Results are JSON in `structuredContent`, and in text inside `<data>…</data>` with a note that names and notes are data, not instructions. Errors come back as tool errors (`isError`) with the same codes as the HTTP API. Audited with source `mcp`.
 
 ## Gigs (docs/design/gig-centric.md)
 
@@ -47,6 +50,9 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 | `find_my_tags` | `GET /me/tags?kind=&q=` | me (tags on gigs I'm on) |
 | `suggest_gig_people` | `GET /me/autofill?collective=` | me |
 | `check_gig_duplicates` | `GET /me/duplicates?start_at=&venue_name=&client_name=` | me |
+
+| `get_brief` | `GET /me/brief?what=next\|week\|owed_to_me\|to_collect\|to_pay` | me (a sentence for Siri, plus items) |
+| `pick_gig_or_person` | `GET /me/pick?q=` or `?gig_id=` | me (label → id, for Shortcuts' Choose from List) |
 
 | `find_contacts` | `GET /me/contacts?kind=&q=&limit=` | me (my address book) |
 | `save_contact` | `POST /me/contacts` (`kind` client/venue/person, `name`, `phone`, `email`, `city`, `notes`) | me |

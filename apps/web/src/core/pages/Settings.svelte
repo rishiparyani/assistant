@@ -10,6 +10,9 @@
   import { refreshSession, session } from "../session.svelte.ts";
   import { adminApi } from "../api.ts";
   import CalendarFeed from "./CalendarFeed.svelte";
+  import Notifications from "./Notifications.svelte";
+  import ApiTokens from "./ApiTokens.svelte";
+  import AiAssistants from "./AiAssistants.svelte";
 
   // Only admins see the admin panel link.
   let isAdmin = $state(false);
@@ -93,7 +96,13 @@
     </Card>
   {/if}
 
+  <Notifications />
+
   <CalendarFeed />
+
+  <ApiTokens />
+
+  <AiAssistants />
 
   <ListGroup
     title="Passkeys"

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { GigAmount, HomeView } from "@assistant/shared";
+  import type { GigAmount, HomeView, NotificationsView } from "@assistant/shared";
+  import Bell from "@lucide/svelte/icons/bell";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
   import Plus from "@lucide/svelte/icons/plus";
   import {
@@ -15,7 +16,7 @@
   } from "../../../core/ui/index.ts";
   import { session } from "../../../core/session.svelte.ts";
   import { createQuery } from "../../../core/query.svelte.ts";
-  import { errorText } from "../../../core/api.ts";
+  import { errorText, notificationsApi } from "../../../core/api.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import GigDate from "../GigDate.svelte";
   import GigEditor from "./GigEditor.svelte";
@@ -30,6 +31,26 @@
     () => bookingsApi.home(),
   );
   const data = $derived(home.data);
+  // What's new since I last looked (added to a gig, changes, payments).
+  const news = createQuery<NotificationsView>(
+    () => "notifications",
+    () => notificationsApi.list(),
+  );
+  const unread = $derived((news.data?.items ?? []).filter((n) => !n.read_at).slice(0, 5));
+  async function markRead() {
+    try {
+      await notificationsApi.markAllRead();
+      news.refresh();
+    } catch {
+      // Harmless: they stay unread.
+    }
+  }
+  const ago = (iso: string) => {
+    const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+    if (mins < 60) return mins <= 1 ? "just now" : `${mins} min ago`;
+    const hours = Math.round(mins / 60);
+    return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
+  };
   const error = $derived(!home.data && home.error ? errorText(home.error) : "");
   let creating = $state(false);
 
@@ -61,6 +82,22 @@
 {:else}
   <div class="layout">
     <div class="col">
+      {#if unread.length}
+        <div class="news">
+          <ListGroup title="New for you">
+            {#each unread as n (n.id)}
+              <ListRow
+                title={n.title}
+                subtitle={[n.body, ago(n.at)].filter(Boolean).join(" · ")}
+                href={n.url ?? undefined}
+              >
+                {#snippet leading()}<span class="bell"><Bell size={16} /></span>{/snippet}
+              </ListRow>
+            {/each}
+          </ListGroup>
+          <Button size="sm" variant="ghost" onclick={markRead}>Mark all read</Button>
+        </div>
+      {/if}
       <Card>
         <div class="month">
           <span class="eyebrow">{data.this_month.label}</span>
@@ -147,6 +184,24 @@
 <GigEditor bind:open={creating} />
 
 <style>
+  .news {
+    display: grid;
+    gap: var(--space-1);
+    justify-items: start;
+  }
+  .news > :global(*:first-child) {
+    justify-self: stretch;
+  }
+  .bell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr);

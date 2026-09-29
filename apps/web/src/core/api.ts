@@ -4,9 +4,12 @@ import { activity } from "./activity.svelte.ts";
 import {
   isHealthResponse,
   type ApiErrorBody,
+  type ApiTokenView,
   type CalendarFeedView,
+  type CreatedApiTokenView,
   type HealthResponse,
   type MeResponse,
+  type NotificationsView,
 } from "@assistant/shared";
 
 export class ApiError extends Error {
@@ -148,4 +151,18 @@ export const calendarApi = {
   get: () => request<CalendarFeedView>("GET", "/api/me/calendar"),
   enable: (reset = false) => request<CalendarFeedView>("POST", "/api/me/calendar", reset ? { reset } : {}),
   disable: () => request<CalendarFeedView>("DELETE", "/api/me/calendar"),
+};
+
+/** API tokens for Siri Shortcuts (core, T09). */
+export const tokensApi = {
+  list: () => request<ApiTokenView[]>("GET", "/api/me/tokens"),
+  create: (name: string, write: boolean) =>
+    request<CreatedApiTokenView>("POST", "/api/me/tokens", { name, write }),
+  revoke: (id: string) => request<{ revoked: true }>("DELETE", `/api/me/tokens/${encodeURIComponent(id)}`),
+};
+
+/** My notifications (core, T11). */
+export const notificationsApi = {
+  list: () => request<NotificationsView>("GET", "/api/me/notifications?limit=20"),
+  markAllRead: () => request<{ unread: 0 }>("POST", "/api/me/notifications/read", {}),
 };

@@ -85,7 +85,8 @@ describe("calendar feed", () => {
     expect(ics).toContain("Client: Test Client\\, Pune");
     expect(ics).toContain(`UID:${gig.events[0]!.id}@assistant`);
     expect(ics).toContain("STATUS:CONFIRMED");
-    expect(ics).not.toContain("50"); // no money in the feed
+    // No money in the feed (fee was ₹50,000).
+    for (const money of ["₹", "50,000", "50000", "5000000"]) expect(ics).not.toContain(money);
     const r = await call(pathOf(on.url!));
     expect(r.headers.get("content-type")).toContain("text/calendar");
 
@@ -112,9 +113,14 @@ describe("calendar feed", () => {
     expect((await call(pathOf(reset.url!))).status).toBe(200);
 
     // Off: link stops working.
-    expect((await as(me)("/me/calendar", { method: "DELETE" })).status).toBe(200);
+    const offKey = crypto.randomUUID();
+    expect((await as(me)("/me/calendar", { method: "DELETE", idempotencyKey: offKey })).status).toBe(200);
     expect((await call(pathOf(reset.url!))).status).toBe(404);
     expect((await json<CalendarFeedView>(await as(me)("/me/calendar"))).enabled).toBe(false);
+    // A late repeat of that "off" doesn't switch off a link made since.
+    const again = await json<CalendarFeedView>(await as(me)("/me/calendar", { body: {} }));
+    await as(me)("/me/calendar", { method: "DELETE", idempotencyKey: offKey });
+    expect((await call(pathOf(again.url!))).status).toBe(200);
   });
 
   it("marks enquiries tentative", async () => {

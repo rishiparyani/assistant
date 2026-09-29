@@ -5,7 +5,7 @@
 // (docs/design/gig-centric.md §6), so no write touches a shared place per action.
 import type { Context, Handler, Hono } from "hono";
 import type { z } from "zod";
-import { requireUser, type AppEnv, type UserCtx } from "./context.ts";
+import { requireCaller, type AppEnv, type UserCtx } from "./context.ts";
 import { AppError } from "./errors.ts";
 import { parse } from "./validation.ts";
 import { toAppError } from "./objects/errors.ts";
@@ -39,6 +39,8 @@ export interface OperationDef<S extends z.ZodType = z.ZodType, O = unknown> {
   /** Shown to AI assistants and in API docs. */
   description: string;
   kind: "read" | "write";
+  /** Only for a signed-in session, never API tokens (e.g. managing tokens and feed links). */
+  sessionOnly?: boolean;
   /** Path relative to `/api`. Params are snake_case input fields. */
   http: { method: HttpMethod; path: string; status?: 200 | 201 };
   /** Two-step from MCP (money, cancellations, deletes); used in T10. */
@@ -109,6 +111,11 @@ export function registerOperations(app: Hono<AppEnv>, ops: readonly AnyOperation
   validateRegistry(ops);
   for (const op of ops) {
     const run = async (c: Context<AppEnv>): Promise<Response> => {
+      const { scopes } = c.get("userCtx");
+      if (scopes && op.sessionOnly)
+        throw new AppError("forbidden", "Sign in to the app to do this (API tokens can't)");
+      if (scopes && !scopes.includes(op.kind === "write" ? "write" : "read"))
+        throw new AppError("forbidden", `This token can't ${op.kind === "write" ? "make changes" : "read"}`);
       const input = parse(op.input, await readInput(c, op));
       const status = op.http.status ?? 200;
       let key: string | null = null;
@@ -140,6 +147,6 @@ export function registerOperations(app: Hono<AppEnv>, ops: readonly AnyOperation
       }
     };
 
-    app.on([op.http.method], [fullPath(op)], requireUser, handler);
+    app.on([op.http.method], [fullPath(op)], requireCaller, handler);
   }
 }

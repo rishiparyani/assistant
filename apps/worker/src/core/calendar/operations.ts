@@ -10,6 +10,7 @@ export const calendarOperations = [
     tool: "get_calendar_feed",
     description: "My private calendar feed link (for Apple or Google Calendar), if switched on.",
     kind: "read",
+    sessionOnly: true,
     http: { method: "GET", path: "/me/calendar" },
     input: z.object({}),
     handler: (ctx) => getCalendarFeed(ctx),
@@ -20,6 +21,7 @@ export const calendarOperations = [
     description:
       "Switch on my private calendar feed and get its link; reset=true makes a new link and stops the old one.",
     kind: "write",
+    sessionOnly: true,
     http: { method: "POST", path: "/me/calendar" },
     input: EnableCalendarFeedInput,
     handler: (ctx, input) => enableCalendarFeed(ctx, input.reset ?? false),
@@ -29,6 +31,7 @@ export const calendarOperations = [
     tool: "disable_calendar_feed",
     description: "Switch off my calendar feed; the link stops working.",
     kind: "write",
+    sessionOnly: true,
     confirm: true,
     http: { method: "DELETE", path: "/me/calendar" },
     input: z.object({}),

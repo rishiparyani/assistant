@@ -44,6 +44,8 @@ export type PersonGigSummary = {
   lineup_visible?: boolean;
   /** Other people with accounts on the gig that this person may see (for duplicate warnings). */
   co_user_ids?: string[];
+  /** Who made the latest change (notifications skip changes people made themselves). */
+  changed_by?: string | null;
   /** Managers only: the client, venues and people on the gig, for their address book. */
   contacts?: LearnedContact[];
 };

@@ -155,3 +155,29 @@ export interface MyReportView {
   by_month: ReportMonth[];
   gigs: ReportGigRow[];
 }
+
+export const BRIEF_TOPICS = ["next", "week", "owed_to_me", "to_collect", "to_pay"] as const;
+
+export const BriefInput = z.object({
+  what: z
+    .enum(BRIEF_TOPICS)
+    .describe(
+      "next: my next gig; week: my gigs in the next 7 days; owed_to_me: who owes me; to_collect: clients who owe gigs I manage; to_pay: what I still have to pay the people playing",
+    ),
+});
+
+/** A short answer for Siri Shortcuts: a sentence to speak, and the items behind it. */
+export interface BriefView {
+  text: string;
+  items: { gig_id: string; title: string; when: string; amount?: Money; venue?: string | null }[];
+}
+
+export const PickInput = z.object({
+  q: z.string().trim().min(1).max(100).optional().describe("Part of a gig's title, client or venue"),
+  gig_id: z.string().trim().min(1).max(40).optional().describe("List this gig's people instead of gigs"),
+});
+
+/** For Siri Shortcuts' "Choose from List": label → id (gigs, or a gig's people). */
+export interface PickView {
+  choices: Record<string, string>;
+}

@@ -179,6 +179,37 @@ Design §2 lists an address book (clients, venues, people) used to fill in gigs.
 
 One secret link per person (`/api/calendar/cal_<random>.ics`) that Apple and Google Calendar poll; Apple opens it with a webcal:// button. The link is looked up by SHA-256 hash in D1 `access_tokens` (the same table will hold the T09 API tokens) and also kept sealed, so the settings page can show it again (the owner wants few steps; a link that can't be shown again would mean re-adding it everywhere). Reset makes a new link and revokes the old; turning off revokes. Modules contribute events through a core hook (`calendar`); gigs reads the person's own object (events 90 days back onwards, cancelled ones kept and marked so calendars drop them, enquiries tentative). No money in the feed, since calendar services copy it. "Last used" is written at most once a day per link. Services get `ctx.sealer` (seal/unseal) instead of the secret itself. Reports (the rest of T08) already exist from R1 step 4.
 
+## 2026-09-28: API tokens and Siri Shortcuts (T09)
+
+Tokens (`ast_…`) live in D1 `access_tokens` next to calendar links: SHA-256 hash only (shown once; a retried create answers 409 rather than a second secret), up to 10 per person, scope read or read+write, revoked (never deleted), "last used" at most once a day. `requireCaller` accepts a session or a token, and only operation routes use it; operations marked `sessionOnly` (token and calendar management) and every non-operation route (admin, live updates) stay session-only, so a leaked token can't mint more tokens or reach admin. Token calls are audited as source `siri`. For Shortcuts, two thin reads: `get_brief` returns a sentence to speak (next gig, week, owed to me, to collect, to pay), built from Home and my gigs, and `pick` returns label → id dictionaries for "Choose from List". Every write shortcut shows an alert (Cancel) before calling. Recipes in `shortcuts/README.md`; nothing to install beyond the Shortcuts app.
+
+## 2026-09-28: MCP server on the operation registry (T10)
+
+`/mcp` replaces the T00 spike: stateless JSON-RPC over POST, tools generated from every operation that isn't `sessionOnly`, with JSON Schemas from the same Zod inputs (`z.toJSONSchema`, input side). OAuth is Better Auth's provider (as in the spike): JWT access tokens for the `/mcp` audience verified in-process. Two-step writes (rule 9) without server state: the preview's `confirm_token` is sealed (AES-GCM, key from BETTER_AUTH_SECRET) over {person, tool, hash of the exact arguments, expiry 10 min}; the confirming call must match, and its idempotency key is derived from the token so retries are harmless. Other writes use an optional `request_id` as the idempotency key. Data in results is fenced (`<data>` plus a note) and the server instructions say text from data is never instructions. Settings has an "AI assistants" card with the address and steps for Claude and ChatGPT. Connecting is the owner's step (their accounts).
+
+## 2026-09-28: Notifications by Web Push, no email (T11)
+
+The owner doesn't want email, so notifications are in-app ("New for you" on Home) and Web Push to devices the person turns on (Settings → Notifications; on iPhone, from the Home Screen app, iOS 16.4+). Core owns a per-person `InboxObject` (a new Durable Object class, wrangler migration v2) and `notify()`, which modules call; nothing in core knows about gigs. Gigs notifies from the person object when it applies a summary, by comparing old and new rows: added to a gig, confirmed, event time or venue changed (future events), cancelled, paid more. It skips changes the person made themselves (summaries now carry `changed_by`, the last audit actor). This runs in the queue consumer, never in the request, and is best effort. Push uses VAPID and encrypted payloads (RFC 8291) with WebCrypto only, no new dependency; the Worker makes its VAPID key pair on first use and keeps it sealed in `app_settings`, so the owner has nothing to set up. Endpoints are limited to known push services (the Worker sends requests there). The service worker (`/sw.js`) only shows notifications and opens the linked page; it caches nothing. Magic-link email sign-in (was in T11) is dropped with email.
+
+## 2026-09-28: Review fixes (address book, calendar, Siri)
+
+From Codex's reviews of #25–#27:
+
+- **Address book:**
+  - search uses an indexed word table (`contact_words`; every search word must be the start of a contact's word, phone numbers by digits) instead of `LIKE` scans (rule 12);
+  - a renamed contact keeps its old name as an alias (`contact_aliases`), so gigs still using the old name link to it rather than recreating it;
+  - contacts learned from gigs are audited with source `system`;
+  - a picked person's phone goes into the gig.
+- **Calendar:**
+  - "turn off" stores its Idempotency-Key in `user_audit.request_key` (migration `0007`), so a late repeat can't revoke a newer link;
+  - audits record the previous and new link ids;
+  - the settings copy now says calendar apps keep old gigs and the old subscription should be removed (a revoked link returns 404; calendar apps don't delete what they have).
+  - Kept: calendar links and tokens stay in D1 `access_tokens`, not the person object. Looking up a link needs a global index by hash, and the writes are rare (on/off/reset, and "last used" at most daily), so this isn't a per-action shared write.
+- **Siri:**
+  - the brief leaves out cancelled gigs in the query, so they don't use up the limit;
+  - it counts gigs, not events;
+  - pick lists distinct gigs from my gig rows.
+
 ## Open
 
 None.

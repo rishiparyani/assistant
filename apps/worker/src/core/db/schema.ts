@@ -99,7 +99,12 @@ export const userAudit = sqliteTable(
     action: text("action").notNull(),
     entityId: text("entity_id").notNull(),
     detailJson: text("detail_json"),
+    /** The Idempotency-Key of the request (a repeat of it doesn't act again). */
+    requestKey: text("request_key"),
     createdAt: timestamp("created_at"),
   },
-  (t) => [index("user_audit_user_idx").on(t.userId, t.createdAt)],
+  (t) => [
+    index("user_audit_user_idx").on(t.userId, t.createdAt),
+    index("user_audit_request_idx").on(t.userId, t.requestKey),
+  ],
 );

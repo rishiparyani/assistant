@@ -2,7 +2,7 @@
   import type { CalendarFeedView } from "@assistant/shared";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
   import Copy from "@lucide/svelte/icons/copy";
-  import { Button, Card, Skeleton, confirm, toast } from "../ui/index.ts";
+  import { Button, Card, Spinner, confirm, toast } from "../ui/index.ts";
   import { calendarApi } from "../api.ts";
 
   // My private calendar feed: my gigs in Apple or Google Calendar, kept up to date.
@@ -42,7 +42,8 @@
   async function reset() {
     const ok = await confirm({
       title: "Make a new link?",
-      message: "The old link stops working. Calendars using it need the new one.",
+      message:
+        "The old link stops working. In your calendar app, remove the old subscription and add the new link.",
       confirmLabel: "New link",
     });
     if (ok) await run(() => calendarApi.enable(true), "New link made");
@@ -51,7 +52,8 @@
   async function off() {
     const ok = await confirm({
       title: "Turn off the calendar feed?",
-      message: "The link stops working and your gigs leave calendars that use it.",
+      message:
+        "The link stops working. Calendar apps keep the gigs they already have, so remove the subscription in your calendar app too.",
       confirmLabel: "Turn off",
       destructive: true,
     });
@@ -72,7 +74,7 @@
   </div>
 
   {#if feed === null}
-    <Skeleton rows={1} label="Loading" />
+    <Spinner size={18} label="Loading…" />
   {:else if !feed.enabled}
     <Button
       variant="primary"
