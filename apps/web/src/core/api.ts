@@ -23,12 +23,24 @@ export class ApiError extends Error {
   }
 }
 
-export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export interface RequestOptions {
+  /** Background work (e.g. saving for offline): no progress bar. */
+  quiet?: boolean;
+  /** The write's Idempotency-Key, when the caller made it (e.g. a queued change). */
+  key?: string;
+}
+
+export async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
   const headers: Record<string, string> = body === undefined ? {} : { "content-type": "application/json" };
   // Every write carries a fresh key so a retried request can't happen twice.
-  if (method !== "GET") headers["idempotency-key"] = crypto.randomUUID();
+  if (method !== "GET") headers["idempotency-key"] = opts.key ?? crypto.randomUUID();
   // untrack: requests often start inside an $effect, which must not depend on this counter.
-  untrack(() => activity.pending++);
+  if (!opts.quiet) untrack(() => activity.pending++);
   let res: Response;
   try {
     res = await fetch(path, {
@@ -37,7 +49,7 @@ export async function request<T>(method: string, path: string, body?: unknown): 
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } finally {
-    untrack(() => activity.pending--);
+    if (!opts.quiet) untrack(() => activity.pending--);
   }
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => null)) as T | ApiErrorBody | null;

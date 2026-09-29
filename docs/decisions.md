@@ -258,6 +258,17 @@ Owner: "the ui is a little chaotic. Can we separate the collaborative features f
 - **Gig types:** read as "the default types are Public and Private; each person edits their own list". Stored in the person's own object (migration 9: `gig_types`, and a `_meta` marker so an emptied list stays empty). Settings → Gig types: add, rename, move up, remove, reset to Public and Private; each change saves at once. The gig editor offers my types, plus the gig's own type if it's no longer on my list. Gigs keep the type's name, so editing the list never changes gigs. Operations `get_gig_types`, `set_gig_types` (REST and AI tools). The old fixed list (Wedding, Sangeet, …) is gone; gigs that have those keep them.
 - Settings takes module sections through a snippet from `App.svelte`, so core Settings still imports no module code.
 
+## 2026-09-29: Offline first, like Firebase (docs/design/offline.md)
+
+Owner: "Let's do what we already can. Like the offline sync … to make it like firebase." (On-device AI and transcription: later.) PWA, no new dependencies, server stays the source of truth. Two stages, shipped separately.
+
+- **Stage 1 (reading offline):** the service worker now also keeps the app's own files on the device. It's built by a small Vite plugin that lists the build's files and names the cache by their hash. Pages come from the network if it answers within 3.5 s, else from the saved copy; hashed files come from the saved copy; API calls are never touched. The read cache (localStorage, per user) grows to 200 entries and halves itself if the device says it's full. Saved ahead in the background when online (sign-in, opening the app, reconnecting; at most every 10 minutes):
+  - Home, the upcoming list, this and next month's calendar, the address book, my gig types;
+  - every gig from 2 days ago to 60 days ahead (up to 40), with their guests, lists and notes.
+    Screens with nothing saved say "Not saved on this device yet" instead of loading forever; an "Offline" bar shows while disconnected; live updates stop retrying offline and reconnect when back.
+- localStorage over IndexedDB for now: it's synchronous, so screens still open instantly with no extra loading step, and ~40 gigs fit easily. Revisit if the data outgrows it.
+- **Stage 2 (changing offline):** outbox, instant local changes and "Couldn't sync" (next).
+
 ## Open
 
 None.

@@ -15,10 +15,11 @@ export const needsHomeScreen = () =>
   !(navigator as { standalone?: boolean }).standalone &&
   !window.matchMedia("(display-mode: standalone)").matches;
 
+/** The service worker: keeps the app on the device for offline use, and shows pushes. */
 export function registerServiceWorker() {
-  if (!pushSupported()) return;
+  if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("/sw.js").catch(() => {
-    // No notifications on this device; the app works the same.
+    // Not available (e.g. private mode): the app works online as before.
   });
 }
 

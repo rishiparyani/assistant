@@ -11,11 +11,13 @@
     ListRow,
     PageHeader,
     Pill,
+    NotSaved,
     Skeleton,
     Stat,
   } from "../../../core/ui/index.ts";
   import { session } from "../../../core/session.svelte.ts";
   import { createQuery } from "../../../core/query.svelte.ts";
+  import { isOfflineError } from "../../../core/offline.svelte.ts";
   import { errorText, notificationsApi } from "../../../core/api.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import GigDate from "../GigDate.svelte";
@@ -75,7 +77,9 @@
   {/snippet}
 </PageHeader>
 
-{#if error}
+{#if error && isOfflineError(home.error)}
+  <NotSaved />
+{:else if error}
   <ListGroup><ListRow title="Couldn't load your home" subtitle={error} /></ListGroup>
 {:else if !data}
   <Skeleton rows={5} />

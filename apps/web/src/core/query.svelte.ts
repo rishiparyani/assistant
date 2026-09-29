@@ -6,7 +6,8 @@ import { untrack } from "svelte";
 
 type Entry = { data: unknown; at: number };
 
-const MAX_ENTRIES = 60;
+// Enough for Home, lists and ~40 gigs saved ahead for offline use (docs/design/offline.md).
+const MAX_ENTRIES = 200;
 const prefix = "assistant:cache:";
 let owner: string | null = null;
 let entries: Record<string, Entry> = {};
@@ -41,15 +42,19 @@ function save() {
   saveTimer = setTimeout(() => {
     if (!owner) return;
     // Keep the most recent entries only, so storage stays small.
-    const keep = Object.entries(entries)
+    let keep = Object.entries(entries)
       .sort((a, b) => b[1].at - a[1].at)
       .slice(0, MAX_ENTRIES);
-    entries = Object.fromEntries(keep);
-    try {
-      localStorage.setItem(prefix + owner, JSON.stringify(entries));
-    } catch {
-      // Full or blocked: the in-memory cache still works for this visit.
+    // If the device says it's full, keep the newer half and try again (a few times).
+    for (let tries = 0; tries < 4 && keep.length; tries++) {
+      try {
+        localStorage.setItem(prefix + owner, JSON.stringify(Object.fromEntries(keep)));
+        break;
+      } catch {
+        keep = keep.slice(0, Math.floor(keep.length / 2));
+      }
     }
+    entries = Object.fromEntries(keep);
   }, 300);
 }
 
