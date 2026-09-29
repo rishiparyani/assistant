@@ -267,7 +267,16 @@ Owner: "Let's do what we already can. Like the offline sync … to make it like 
   - every gig from 2 days ago to 60 days ahead (up to 40), with their guests, lists and notes.
     Screens with nothing saved say "Not saved on this device yet" instead of loading forever; an "Offline" bar shows while disconnected; live updates stop retrying offline and reconnect when back.
 - localStorage over IndexedDB for now: it's synchronous, so screens still open instantly with no extra loading step, and ~40 gigs fit easily. Revisit if the data outgrows it.
-- **Stage 2 (changing offline):** outbox, instant local changes and "Couldn't sync" (next).
+- **Stage 2 (changing offline):** notes, lists and items (tick, move, add, remove), guests and arrivals, and recording payments, payouts and expenses work offline.
+  - **Outbox:** each goes through a per-user outbox kept on the device (`core/outbox.svelte.ts`), sent in order with its own Idempotency-Key, so a resend can't apply twice.
+  - **Shown at once, Firebase style:** screens show the server's copy with the waiting changes laid over it (appliers in `modules/gigs/offline-changes.ts`). The server's answer replaces the copy; a refused change drops off the screen.
+  - **Ids made on the phone:** new notes, lists, items and guests get their ULID on the device. The server accepts an optional `id`, and a taken id returns 409. So something added offline can be changed again before it syncs.
+  - **Money** isn't laid over the totals: the Money tab lists "Waiting to sync" entries, and totals change only when the server confirms.
+  - **Online:** a change waits up to 10 s for the server. A refusal then shows as a toast, as before; a refusal after reconnecting goes to "Couldn't sync" with the reason and a Dismiss.
+  - **Markers:** "waiting to sync" marks and the Syncing bar appear only offline or after 1.5 s (no flicker).
+  - **Sign-out:** asks first if changes haven't synced.
+  - **Save ahead again** 5 s after a live update or a sync, so new gigs are saved too.
+  - **Still online-only** (they depend on the gig's version or server rules): gig details, events, lineup, people, status, reversals, removing expenses, guest limits and the venue link, making gigs.
 
 ## Open
 

@@ -48,6 +48,9 @@ export async function request<T>(
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+  } catch {
+    // No connection (or it dropped): a clear message, and a status 0 others can check.
+    throw new ApiError(0, "offline", "You're offline. This needs a connection.");
   } finally {
     if (!opts.quiet) untrack(() => activity.pending--);
   }

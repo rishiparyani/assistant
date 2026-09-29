@@ -3,7 +3,7 @@
 // door staff tick arrivals). Each guest counts as 1 + their plus-ones ("heads").
 import { z } from "zod";
 import { BookingRef } from "./booking.ts";
-import { dateTime, id, optionalText } from "./common.ts";
+import { clientId, dateTime, id, optionalText } from "./common.ts";
 
 export const GUEST_LIMITS = { guests: 500, plus_ones: 20 } as const;
 
@@ -12,6 +12,7 @@ const plusOnes = z.number().int().min(0).max(GUEST_LIMITS.plus_ones);
 const headLimit = z.number().int().min(1).max(5000);
 
 export const GuestInput = z.object({
+  id: clientId,
   name: guestName.describe("The guest's name as the venue should see it"),
   plus_ones: plusOnes.default(0).describe("People coming with them (0 for just the guest)"),
   note: optionalText(120).describe('Optional, e.g. "press", "arrives late"'),
@@ -53,6 +54,8 @@ export interface GigGuestView {
   is_mine: boolean;
   arrived: boolean;
   created_at: string;
+  /** Set on the device for a change still waiting to sync (never sent by the server). */
+  pending?: boolean;
 }
 
 export interface GuestListView {

@@ -49,6 +49,7 @@
   import PersonSheet from "./PersonSheet.svelte";
   import CancelSheet from "./CancelSheet.svelte";
   import { withDefaults } from "./gig-defaults.ts";
+  import { waitingMoney } from "../offline-changes.ts";
   import GigTogether from "./GigTogetherCard.svelte";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
@@ -331,6 +332,14 @@
         <ListGroup title="Notes"><p class="notes">{gig.notes}</p></ListGroup>
       {/if}
     {:else if tab === "money"}
+      {@const waiting = waitingMoney(gig.id)}
+      {#if waiting.length}
+        <ListGroup title="Waiting to sync" footer="Saved on this device. Totals update once they sync.">
+          {#each waiting as w (w.id)}
+            <ListRow title={w.label.replace(/ · .*$/, "")} subtitle="Recorded offline" />
+          {/each}
+        </ListGroup>
+      {/if}
       {#if money.fee && money.received && money.balance && money.payment_status}
         {@const cancelled = gig.status === "cancelled"}
         <ListGroup title="Client payments">

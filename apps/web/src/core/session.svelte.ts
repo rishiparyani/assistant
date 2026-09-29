@@ -4,6 +4,7 @@
 import type { MeResponse } from "@assistant/shared";
 import { api, ApiError } from "./api.ts";
 import { clearCache, useCacheFor } from "./query.svelte.ts";
+import { clearOutbox, useOutboxFor } from "./outbox.svelte.ts";
 
 const KEY = "assistant:me";
 
@@ -17,6 +18,7 @@ function saved(): MeResponse | null {
 
 const initial = saved();
 useCacheFor(initial?.user.id ?? null);
+useOutboxFor(initial?.user.id ?? null);
 
 export const session = $state<{ me: MeResponse | null; loaded: boolean; error: string }>({
   me: initial,
@@ -37,6 +39,7 @@ export async function refreshSession() {
   try {
     const me = await api.me();
     useCacheFor(me.user.id);
+    useOutboxFor(me.user.id);
     session.me = me;
     remember(me);
     session.error = "";
@@ -57,4 +60,5 @@ export function forgetSession() {
   session.me = null;
   remember(null);
   clearCache();
+  clearOutbox();
 }

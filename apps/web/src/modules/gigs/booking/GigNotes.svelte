@@ -3,6 +3,7 @@
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import { Avatar, Button, EmptyState, confirm, toast } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import { outbox } from "../../../core/outbox.svelte.ts";
 
   // Notes everyone on the gig can post (soundcheck times, what to bring, changes). They
   // appear for the others live. Authors edit their own; authors and managers remove.
@@ -34,10 +35,11 @@
     const body = draft.trim();
     if (!body || posting) return;
     posting = true;
+    draft = ""; // cleared at once; given back if the server says no
     try {
       onsaved(await bookingsApi.addNote(gig.id, body));
-      draft = "";
     } catch (err) {
+      draft ||= body;
       toast.error(err);
     } finally {
       posting = false;
@@ -117,6 +119,7 @@
           <span class="when"
             ><time datetime={n.created_at}>{ago(n.created_at)}</time>{#if n.edited_at}<span class="edited"
                 >· edited</span
+              >{/if}{#if n.pending && outbox.showWaiting}<span class="edited pending">· waiting to sync</span
               >{/if}</span
           >
         </div>
@@ -231,6 +234,9 @@
   }
   .edited {
     margin-left: 0.3em;
+  }
+  .pending {
+    color: var(--amber);
   }
   .actions {
     display: flex;

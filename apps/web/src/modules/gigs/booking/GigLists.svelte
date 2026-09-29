@@ -6,6 +6,7 @@
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
   import { Button, EmptyState, toast } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import { outbox } from "../../../core/outbox.svelte.ts";
   import ListSheet from "./ListSheet.svelte";
   import ItemSheet from "./ItemSheet.svelte";
 
@@ -20,7 +21,6 @@
   let itemOpen = $state(false);
   let itemFor = $state<{ list: GigListView; item: GigListItemView } | null>(null);
   let drafts = $state<Record<string, string>>({});
-  let adding = $state("");
 
   // While a move is on its way, show the new order at once.
   let pending = $state<Record<string, string[]>>({});
@@ -51,9 +51,9 @@
     e.preventDefault();
     const text = (drafts[l.id] ?? "").trim();
     if (!text) return;
-    adding = l.id;
-    if (await run(() => bookingsApi.addItems(gig.id, l.id, [{ text }]))) drafts[l.id] = "";
-    adding = "";
+    // Cleared at once so the next one can be typed; given back if the server says no.
+    drafts[l.id] = "";
+    if (!(await run(() => bookingsApi.addItems(gig.id, l.id, [{ text }])))) drafts[l.id] ||= text;
   }
 
   const toggle = (l: GigListView, i: GigListItemView) =>
@@ -229,9 +229,13 @@
                 aria-label={canEdit ? `Edit ${item.text}` : undefined}
               >
                 <span class="text" class:done={item.done}>{item.text}</span>
-                {#if item.detail || (item.done && item.done_by)}
+                {#if item.detail || (item.done && item.done_by) || (item.pending && outbox.showWaiting)}
                   <span class="detail"
-                    >{[item.detail, item.done && item.done_by ? `ticked by ${item.done_by}` : null]
+                    >{[
+                      item.detail,
+                      item.done && item.done_by ? `ticked by ${item.done_by}` : null,
+                      item.pending && outbox.showWaiting ? "waiting to sync" : null,
+                    ]
                       .filter(Boolean)
                       .join(" · ")}</span
                   >
@@ -249,10 +253,9 @@
               aria-label="Add an item to {l.title}"
               maxlength={200}
               bind:value={drafts[l.id]}
-              disabled={adding === l.id}
             />
             {#if (drafts[l.id] ?? "").trim()}
-              <button class="link" type="submit" disabled={adding === l.id}>Add</button>
+              <button class="link" type="submit">Add</button>
             {/if}
           </form>
         {/if}

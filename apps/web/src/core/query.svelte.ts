@@ -73,6 +73,27 @@ export function dropCache(start: string) {
   save();
 }
 
+// --- Offline changes (core/outbox.svelte.ts) --------------------------------------------
+// Screens show the saved data with waiting changes laid over it. The outbox registers how
+// (it imports this file, so it hands its functions over instead of this file importing it).
+type Overlay = <T>(key: string, data: T | undefined) => T | undefined;
+let overlayFn: Overlay = (_k, d) => d;
+let isOverlaidFn: (data: unknown) => boolean = () => false;
+export function setOverlay(fn: Overlay, isOverlaid: (data: unknown) => boolean) {
+  overlayFn = fn;
+  isOverlaidFn = isOverlaid;
+}
+
+// Open screens by key, so fresh data (e.g. a synced change's answer) reaches them at once.
+// eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping, not rendered
+const open = new Map<string, Set<(data: unknown) => void>>();
+
+/** New server data for a key: saved, and shown on any open screen using it. */
+export function publish(key: string, data: unknown) {
+  writeCache(key, data);
+  for (const fn of open.get(key) ?? []) fn(data);
+}
+
 // --- Refresh signals (pull to refresh, coming back to the app, live updates) -----------
 
 // Not reactive on purpose: nothing renders from this set.
@@ -103,7 +124,7 @@ export function createQuery<T>(key: () => string, fetcher: () => Promise<T>): Qu
     loading: false,
   });
   let seq = 0;
-  let currentKey = "";
+  let currentKey = $state("");
 
   async function run() {
     const k = currentKey;
@@ -135,9 +156,18 @@ export function createQuery<T>(key: () => string, fetcher: () => Promise<T>): Qu
     return () => listeners.delete(run);
   });
 
+  $effect(() => {
+    const k = currentKey;
+    const show = (data: unknown) => (state.data = data as T);
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping, not rendered
+    if (!open.has(k)) open.set(k, new Set());
+    open.get(k)!.add(show);
+    return () => open.get(k)?.delete(show);
+  });
+
   return {
     get data() {
-      return state.data;
+      return overlayFn(currentKey, state.data);
     },
     get error() {
       return state.error;
@@ -147,6 +177,9 @@ export function createQuery<T>(key: () => string, fetcher: () => Promise<T>): Qu
     },
     refresh: run,
     set(data: T) {
+      // Saved data with waiting changes laid over it is already on screen; keep the
+      // server's copy as it is.
+      if (isOverlaidFn(data)) return;
       state.data = data;
       writeCache(currentKey, data);
     },

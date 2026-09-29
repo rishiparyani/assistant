@@ -26,7 +26,7 @@ export const guestLinkUrl = (baseUrl: string, token: string) => `${baseUrl}/gues
 
 export const addGuests = (ctx: OpUserCtx, i: z.output<typeof AddGigGuestsInput>) =>
   gig(ctx, i.gig_id).addGuests(
-    i.guests.map((g) => ({ name: g.name, plus_ones: g.plus_ones, note: g.note ?? null })),
+    i.guests.map((g) => ({ id: g.id ?? null, name: g.name, plus_ones: g.plus_ones, note: g.note ?? null })),
     i.host_person_id ?? null,
     actorOf(ctx),
     ctx.idempotencyKey,

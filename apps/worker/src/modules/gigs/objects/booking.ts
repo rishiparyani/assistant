@@ -289,10 +289,13 @@ export interface ExpenseInput {
 }
 export type SettingsInput = Partial<GigSettings>;
 export interface ListItemInput {
+  /** Made on the device for changes made offline (docs/design/offline.md). */
+  id?: string | null;
   text: string;
   detail: string | null;
 }
 export interface CreateListInput {
+  id?: string | null;
   title: string;
   event_id: string | null;
   checkable: boolean;
@@ -304,6 +307,7 @@ export interface UpdateListInput {
   checkable?: boolean;
 }
 export interface GuestInput {
+  id?: string | null;
   name: string;
   plus_ones: number;
   note: string | null;
@@ -983,7 +987,7 @@ export class BookingObject extends DurableObject<Env> {
       if (count >= LIST_LIMITS.lists)
         throw new ObjectError("validation_failed", `A gig can have up to ${LIST_LIMITS.lists} lists`);
       if (input.event_id) this.requireEvent(input.event_id);
-      const id = ulid();
+      const id = this.newId("lists", input.id);
       const ts = nowIso();
       this.sql.exec(
         `insert into lists (id, title, event_id, checkable, created_by, created_by_name, created_at, updated_at)
@@ -1159,15 +1163,20 @@ export class BookingObject extends DurableObject<Env> {
     });
   }
 
-  async addNote(body: string, actor: Actor, key: string | null): Promise<BookingView> {
-    return this.write(["add_note", body], actor, key, "player", (gig) => {
+  async addNote(
+    body: string,
+    actor: Actor,
+    key: string | null,
+    noteId?: string | null,
+  ): Promise<BookingView> {
+    return this.write(["add_note", body, noteId ?? null], actor, key, "player", (gig) => {
       const me = this.requireEditor(actor, gig);
       const count = this.sql
         .exec<{ n: number }>(`select count(*) as n from notes where deleted_at is null`)
         .one().n;
       if (count >= LIST_LIMITS.notes)
         throw new ObjectError("validation_failed", `A gig can have up to ${LIST_LIMITS.notes} notes`);
-      const id = ulid();
+      const id = this.newId("notes", noteId);
       this.sql.exec(
         `insert into notes (id, body, created_by, author_name, created_at) values (?, ?, ?, ?, ?)`,
         id,
@@ -1243,7 +1252,7 @@ export class BookingObject extends DurableObject<Env> {
       this.checkGuestLimits(gig, host, heads);
       const ts = nowIso();
       const ids = guests.map((g) => {
-        const id = ulid();
+        const id = this.newId("guests", g.id);
         this.sql.exec(
           `insert into guests (id, name, plus_ones, note, host_person_id, added_by, created_at, updated_at)
            values (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -2022,6 +2031,16 @@ export class BookingObject extends DurableObject<Env> {
     };
   }
 
+  /** A new row's id: the one made on the device (offline changes), or a fresh ULID. */
+  private newId(table: "lists" | "list_items" | "notes" | "guests", given?: string | null): string {
+    if (!given) return ulid();
+    const taken = this.sql
+      .exec<{ n: number }>(`select count(*) as n from ${table} where id = ?`, given)
+      .one().n;
+    if (taken) throw new ObjectError("conflict", "That id is already used", { reason: "id_taken" });
+    return given;
+  }
+
   /** Me on this gig, if I may change its lists and notes. */
   private requireEditor(actor: Actor, gig: GigRow): PersonRow {
     const me = actor.userId ? this.personRows().find((p) => p.user_id === actor.userId) : undefined;
@@ -2125,7 +2144,7 @@ export class BookingObject extends DurableObject<Env> {
     if (after) this.requireItem(listId, after);
     const positions = this.positionsAfter(listId, this.itemRows(listId), after, items.length);
     return items.map((item, i) => {
-      const id = ulid();
+      const id = this.newId("list_items", item.id);
       this.sql.exec(
         `insert into list_items (id, list_id, text, detail, position, created_by, created_at, updated_at)
          values (?, ?, ?, ?, ?, ?, ?, ?)`,

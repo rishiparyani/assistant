@@ -16,12 +16,18 @@ import { bookingName } from "../objects/names.ts";
 
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 const gig = (ctx: OpUserCtx, gigId: string) => ctx.objects.BOOKINGS.getByName(bookingName(gigId));
-const items = (xs: { text: string; detail?: string | null }[]) =>
-  xs.map((x) => ({ text: x.text, detail: x.detail ?? null }));
+const items = (xs: { id?: string; text: string; detail?: string | null }[]) =>
+  xs.map((x) => ({ id: x.id ?? null, text: x.text, detail: x.detail ?? null }));
 
 export const createList = (ctx: OpUserCtx, i: z.output<typeof CreateGigListInput>) =>
   gig(ctx, i.gig_id).createList(
-    { title: i.title, event_id: i.event_id ?? null, checkable: i.checkable, items: items(i.items) },
+    {
+      id: i.id ?? null,
+      title: i.title,
+      event_id: i.event_id ?? null,
+      checkable: i.checkable,
+      items: items(i.items),
+    },
     actorOf(ctx),
     ctx.idempotencyKey,
   );
@@ -56,7 +62,7 @@ export const removeItem = (ctx: OpUserCtx, gigId: string, listId: string, itemId
   gig(ctx, gigId).removeItem(listId, itemId, actorOf(ctx), ctx.idempotencyKey);
 
 export const addNote = (ctx: OpUserCtx, i: z.output<typeof AddGigNoteInput>) =>
-  gig(ctx, i.gig_id).addNote(i.body, actorOf(ctx), ctx.idempotencyKey);
+  gig(ctx, i.gig_id).addNote(i.body, actorOf(ctx), ctx.idempotencyKey, i.id ?? null);
 
 export const updateNote = (ctx: OpUserCtx, i: z.output<typeof UpdateGigNoteInput>) =>
   gig(ctx, i.gig_id).updateNote(i.note_id, i.body, actorOf(ctx), ctx.idempotencyKey);

@@ -3,6 +3,7 @@
 // then refresh. Closed while the app is in the background (saves battery), reopened with
 // back-off when it drops, and every change also still works without it (pull to refresh).
 import { refreshAll } from "./query.svelte.ts";
+import { saveSoon } from "./offline.svelte.ts";
 
 let ws: WebSocket | null = null;
 let wanted = false;
@@ -28,6 +29,8 @@ function connect() {
     // Several changes often arrive together (one per recipient row); refresh once.
     clearTimeout(bunch);
     bunch = setTimeout(refreshAll, 300);
+    // A gig changed (maybe a new one): keep the offline copy up to date.
+    saveSoon();
   };
   socket.onclose = () => {
     clearInterval(ping);

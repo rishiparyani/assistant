@@ -1,6 +1,7 @@
 // Offline first (docs/design/offline.md). Knows whether we're online, and saves data ahead
 // so screens open without a connection: modules register what to save (e.g. upcoming
 // gigs); core runs it when online, at most every few minutes. Core imports no module.
+import { ApiError } from "./api.ts";
 import { refreshAll } from "./query.svelte.ts";
 
 export const connection = $state({ online: typeof navigator === "undefined" ? true : navigator.onLine });
@@ -34,6 +35,13 @@ export function saveForOffline(force = false): Promise<void> {
   return saving;
 }
 
+let soonTimer: ReturnType<typeof setTimeout> | undefined;
+/** Something changed (a gig added or edited, changes synced): save ahead again shortly. */
+export function saveSoon() {
+  clearTimeout(soonTimer);
+  soonTimer = setTimeout(() => void saveForOffline(true), 5_000);
+}
+
 /** Tracks the connection and saves ahead while signed in. Call once at start. */
 export function startOffline(isSignedIn: () => boolean) {
   const update = () => {
@@ -60,4 +68,5 @@ export function startOffline(isSignedIn: () => boolean) {
 }
 
 /** A request failed because there's no connection (not because the server said no). */
-export const isOfflineError = (e: unknown) => e instanceof TypeError || !connection.online;
+export const isOfflineError = (e: unknown) =>
+  (e instanceof ApiError && e.status === 0) || e instanceof TypeError || !connection.online;
