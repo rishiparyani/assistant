@@ -16,3 +16,7 @@ CLOUDFLARE_ACCOUNT_ID=
 
 # Optional: alerts to the owner's Telegram bot (token from @BotFather). Never commit it.
 TELEGRAM_BOT_TOKEN=
+
+# Optional: the Apple developer Team ID, so passkeys work in the iPhone app
+# (/.well-known/apple-app-site-association). Not secret, but set like the others.
+APPLE_TEAM_ID=

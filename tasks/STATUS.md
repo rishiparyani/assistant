@@ -4,6 +4,11 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **iPhone app, stage 1** (decision 2026-09-29, `docs/design/ios-app.md`): Capacitor project in `apps/ios` (bundle `in.gigspree.assistant`) showing the live web app; passkey sign-in in the app (`/.well-known/apple-app-site-association`, needs `APPLE_TEAM_ID`); app mode in the web (`core/native.ts`: login without Google, notifications text). `.github/workflows/ios.yml`: simulator screenshots on PRs (local Worker + `apps/ios/test/seed.mjs` fake data), TestFlight upload on main once the Apple secrets exist.
+  - Owner steps pending: App ID with Associated Domains, the App Store Connect app, API key + 4 GitHub secrets, TestFlight (docs/setup.md → "iPhone app (Apple)").
+  - Next: first TestFlight build → owner checks sign-in with a passkey; then stage 2 (native push, shared on-device database, Siri actions, widget).
+  - Gotcha: after `cap sync` the generated `ios/App/App/capacitor.config.json` and `public/` are git-ignored; the workflow syncs with `APP_ENV=local|production`.
+
 - **Offline rule for every agent** (decision 2026-09-29): `AGENTS.md` rule 17 plus a "Adding a new write" guide in `docs/design/offline.md`; every web write not sent through the outbox is marked `// online-only: <reason>`; `apps/web/test/offline-rule.test.ts` (5 checks, runs in `pnpm test`) fails on unmarked writes, `fetch()` in module code, unmarked `fetch()` in core, or an outbox kind with no applier. Checked that it catches both mistakes. `docs/architecture.md` updated.
 
 - **Offline first, stage 2** (decision 2026-09-29, `docs/design/offline.md`): changes made offline.

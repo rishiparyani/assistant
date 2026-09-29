@@ -10,6 +10,9 @@ onlyBuiltDependencies:
 
 # One version of each shared tool across the repo. Packages use "catalog:".
 catalog:
+  "@capacitor/cli": 8.5.2
+  "@capacitor/core": 8.5.2
+  "@capacitor/ios": 8.5.2
   "@cloudflare/vite-plugin": 1.60.2
   "@cloudflare/vitest-pool-workers": 0.22.0
   "@cloudflare/workers-types": ^5.20260926.1

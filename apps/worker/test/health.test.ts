@@ -36,3 +36,21 @@ describe("module registry", () => {
     expect(() => createApp({ modules: [m, m] })).toThrow(/Duplicate module ids/);
   });
 });
+
+describe("GET /.well-known/apple-app-site-association", () => {
+  const app = createApp({ modules: [] });
+  const get = (team: string) =>
+    app.request("/.well-known/apple-app-site-association", {}, { ...env, APPLE_TEAM_ID: team });
+
+  it("lists the iPhone app for passkeys once the Team ID is set", async () => {
+    const res = await get("ABCDE12345");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual({ webcredentials: { apps: ["ABCDE12345.in.gigspree.assistant"] } });
+  });
+
+  it("is not found without a valid Team ID", async () => {
+    expect((await get("")).status).toBe(404);
+    expect((await get("not a team id")).status).toBe(404);
+  });
+});

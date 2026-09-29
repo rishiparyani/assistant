@@ -40,7 +40,7 @@ Agents never deploy from their session and never hold the Cloudflare token. GitH
 
 ## Stack
 
-Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = web app) · Cloudflare D1 · Drizzle ORM + migrations · Hono · Zod · Better Auth (Google, passkeys, magic links; OAuth provider for MCP) · Vite + Svelte SPA · Google Drive (nightly backups, `drive.file` scope; large media later) · TypeScript, pnpm workspaces, Vitest (Workers pool) · GitHub Actions. Details: [docs/architecture.md](docs/architecture.md).
+Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = web app) · Cloudflare D1 · Drizzle ORM + migrations · Hono · Zod · Better Auth (Google, passkeys, magic links; OAuth provider for MCP) · Vite + Svelte SPA · Capacitor iPhone app (TestFlight from GitHub's Mac runners) · Google Drive (nightly backups, `drive.file` scope; large media later) · TypeScript, pnpm workspaces, Vitest (Workers pool) · GitHub Actions. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Architecture rules (non-negotiable)
 
@@ -72,6 +72,7 @@ docs/            setup, architecture, modules, phase-1, data-model, api, convent
 tasks/           STATUS.md, backlog.md
 apps/worker/     Hono API, auth, MCP; src/core/ + src/modules/<name>/; migrations
 apps/web/        Vite + Svelte app; src/core/ + src/modules/<name>/
+apps/ios/        iPhone app: Capacitor shell around the web app + native Swift (docs/design/ios-app.md)
 packages/shared/ Zod schemas, types, money/date helpers; src/core/ + src/modules/<name>/
 shortcuts/       Siri Shortcuts docs (never commit tokens)
 scripts/         backup, seed

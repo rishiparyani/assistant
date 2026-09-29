@@ -285,3 +285,12 @@ None.
 ## 2026-09-29: Offline first is a standing rule, checked by a test
 
 Owner: "Close the gap" (another agent must know the app is offline first). Added rule 17 to `AGENTS.md`: at-gig changes go through the outbox with an applier; every other write is marked `online-only` with a reason. `apps/web/test/offline-rule.test.ts` checks it, so the web app gets `vitest` (already in the catalog, no new package) and a `test` script. A guide for adding writes is in `docs/design/offline.md`.
+
+## 2026-09-29: iPhone app with Capacitor, delivered through TestFlight
+
+Owner bought the Apple Developer Program ("You start") after comparing Capacitor, React Native + Expo and SwiftUI in chat. Chosen: **Capacitor** (the web app in a native shell, native Swift for Siri, widgets, push, speech and on-device AI), because it reuses every screen, keeps one UI to maintain, and nothing Apple offers is out of reach. Details: `docs/design/ios-app.md`.
+
+- New dependencies: `@capacitor/core`, `@capacitor/ios`, `@capacitor/cli` (8.5.2, in the catalog), and `@types/node`/`typescript` for type-checking the new `apps/ios` package. No new server dependencies.
+- The app **shows the live site** (`server.url`) rather than bundled files: same origin, so cookies, passkeys, WebSockets and the service worker (with `WKAppBoundDomains`) work unchanged, and screen changes need no new build.
+- **Sign-in in the app is by passkey** (Google blocks its sign-in in app web views). The Worker serves `/.well-known/apple-app-site-association` when `APPLE_TEAM_ID` is set. Google inside the app waits for the owner's OK (security change).
+- **Delivery:** GitHub's Mac runners (free, public repo). PRs get simulator screenshots with fake data; `main` archives, signs with the App Store Connect API key and uploads to TestFlight, internal testing only.

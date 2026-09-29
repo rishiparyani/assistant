@@ -2,6 +2,7 @@
 // subscription the server sends to. iPhone: only in the app added to the Home Screen.
 import type { PushStatusView } from "@assistant/shared";
 import { request } from "./api.ts";
+import { inApp } from "./native.ts";
 
 export const pushSupported = () =>
   typeof window !== "undefined" &&
@@ -11,6 +12,7 @@ export const pushSupported = () =>
 
 /** iPhone/iPad Safari outside the Home Screen app can't get pushes. */
 export const needsHomeScreen = () =>
+  !inApp() &&
   /iPhone|iPad|iPod/.test(navigator.userAgent) &&
   !(navigator as { standalone?: boolean }).standalone &&
   !window.matchMedia("(display-mode: standalone)").matches;

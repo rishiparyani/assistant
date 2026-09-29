@@ -5,6 +5,7 @@
   import { authClient, oauthQuery, signInWithGoogle } from "../auth.ts";
   import { navigate } from "../router.svelte.ts";
   import { refreshSession, session } from "../session.svelte.ts";
+  import { inApp } from "../native.ts";
 
   let { query }: { query: URLSearchParams } = $props();
 
@@ -14,6 +15,8 @@
     return n && n.startsWith("/") && !n.startsWith("//") ? n : "/";
   });
   const isLocal = window.location.hostname === "localhost";
+  // Google doesn't allow its sign-in inside apps' web views, so the iPhone app uses passkeys.
+  const app = inApp();
 
   let busy = $state<"" | "google" | "passkey" | "email">("");
   let email = $state("");
@@ -78,23 +81,44 @@
             : "Your gigs, clients and payments, in one place."}
         </p>
       </div>
-      <Button variant="primary" size="lg" full onclick={google} loading={busy === "google"} disabled={!!busy}>
-        {#snippet icon()}
-          <svg viewBox="0 0 24 24" aria-hidden="true"
-            ><path
-              fill="#fff"
-              d="M21.35 11.1H12v3.2h5.35c-.23 1.4-1.65 4.1-5.35 4.1-3.22 0-5.85-2.67-5.85-5.95S8.78 6.5 12 6.5c1.83 0 3.06.78 3.76 1.45l2.57-2.47C16.68 3.94 14.55 3 12 3 7.03 3 3 7.03 3 12s4.03 9 9 9c5.2 0 8.64-3.65 8.64-8.8 0-.6-.07-1.05-.29-1.1Z"
-            /></svg
-          >
-        {/snippet}
-        Continue with Google
-      </Button>
-      <Button size="lg" full onclick={withPasskey} loading={busy === "passkey"} disabled={!!busy}>
+      {#if !app}
+        <Button
+          variant="primary"
+          size="lg"
+          full
+          onclick={google}
+          loading={busy === "google"}
+          disabled={!!busy}
+        >
+          {#snippet icon()}
+            <svg viewBox="0 0 24 24" aria-hidden="true"
+              ><path
+                fill="#fff"
+                d="M21.35 11.1H12v3.2h5.35c-.23 1.4-1.65 4.1-5.35 4.1-3.22 0-5.85-2.67-5.85-5.95S8.78 6.5 12 6.5c1.83 0 3.06.78 3.76 1.45l2.57-2.47C16.68 3.94 14.55 3 12 3 7.03 3 3 7.03 3 12s4.03 9 9 9c5.2 0 8.64-3.65 8.64-8.8 0-.6-.07-1.05-.29-1.1Z"
+              /></svg
+            >
+          {/snippet}
+          Continue with Google
+        </Button>
+      {/if}
+      <Button
+        variant={app ? "primary" : "secondary"}
+        size="lg"
+        full
+        onclick={withPasskey}
+        loading={busy === "passkey"}
+        disabled={!!busy}
+      >
         {#snippet icon()}<KeyRound />{/snippet}
         Sign in with a passkey
       </Button>
       <p class="fine">
-        Passkeys use Face ID, Touch ID or your device PIN. Add one in Settings after signing in.
+        {#if app}
+          No passkey yet? Sign in on the website with Google, then add one in Settings → Passkeys. It works
+          here straight away.
+        {:else}
+          Passkeys use Face ID, Touch ID or your device PIN. Add one in Settings after signing in.
+        {/if}
       </p>
     </div>
   </Card>
