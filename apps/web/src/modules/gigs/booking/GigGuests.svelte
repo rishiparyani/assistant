@@ -6,6 +6,7 @@
   import { Button, EmptyState, Pill, toast } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import PlusOnes from "./PlusOnes.svelte";
+  import { parseGuest, parseGuests } from "./guest-parse.ts";
   import GuestSheet from "./GuestSheet.svelte";
   import GuestLimitsSheet from "./GuestLimitsSheet.svelte";
   import GuestShareSheet from "./GuestShareSheet.svelte";
@@ -46,26 +47,42 @@
   const closes = $derived(list.closes_at ? formatDateTimeIST(list.closes_at).replace(/ IST$/, "") : null);
   const closed = $derived(!!list.closes_at && Date.parse(list.closes_at) <= Date.now());
 
-  async function add(e: SubmitEvent) {
-    e.preventDefault();
-    const n = name.trim();
-    if (!n) return;
+  async function save(guests: { name: string; plus_ones: number }[]) {
     adding = true;
     try {
       onsaved(
         await bookingsApi.addGuests(
           gig.id,
-          [{ name: n, plus_ones: plusOnes }],
+          guests,
           manager && hostId && hostId !== me?.id ? hostId : undefined,
         ),
       );
       name = "";
       plusOnes = 0;
+      if (guests.length > 1) toast.success(`Added ${guests.length} guests`);
     } catch (err) {
       toast.error(err);
     } finally {
       adding = false;
     }
+  }
+
+  // "Rahul +2" typed in the box sets the plus-ones too (the stepper is used otherwise).
+  function add(e: SubmitEvent) {
+    e.preventDefault();
+    const g = parseGuest(name);
+    if (!g) return;
+    void save([{ name: g.name, plus_ones: g.plus_ones || plusOnes }]);
+  }
+
+  // Pasting several lines (e.g. a list from WhatsApp) adds them all at once.
+  function paste(e: ClipboardEvent) {
+    const text = e.clipboardData?.getData("text") ?? "";
+    if (!text.includes("\n")) return;
+    const guests = parseGuests(text);
+    if (guests.length < 2) return;
+    e.preventDefault();
+    void save(guests);
   }
 
   async function arrive(g: GigGuestView) {
@@ -140,8 +157,9 @@
         id="{uid}-name"
         class="name"
         type="text"
-        placeholder="Add a guest"
-        maxlength={80}
+        placeholder="Add a guest, e.g. Rahul +2"
+        maxlength={90}
+        onpaste={paste}
         autocomplete="off"
         bind:value={name}
         disabled={adding}
