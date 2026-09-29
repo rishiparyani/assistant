@@ -4,6 +4,7 @@ import { z } from "zod";
 import { PageInput } from "../../core/pagination.ts";
 import { dateTime, id, moneyFields, optionalText } from "./common.ts";
 import type { GigMoney, LineupView } from "./booking-money.ts";
+import type { GigListView, GigNoteView } from "./collab.ts";
 
 export const GIG_STATUSES = ["enquiry", "confirmed", "completed", "cancelled"] as const;
 export type GigStatus = (typeof GIG_STATUSES)[number];
@@ -16,6 +17,7 @@ export const GIG_SETTINGS_DEFAULTS = {
   players_see_lineup: true,
   players_see_fee: false,
   players_see_shares: false,
+  players_edit_lists: true,
 } as const;
 export type GigSettings = { [K in keyof typeof GIG_SETTINGS_DEFAULTS]: boolean };
 
@@ -27,6 +29,10 @@ export const GigSettingsInput = z
       .boolean()
       .optional()
       .describe("Players see everyone's shares and payouts (default no)"),
+    players_edit_lists: z
+      .boolean()
+      .optional()
+      .describe("Players can add notes and change lists (default yes)"),
   })
   .describe("Change only the settings you give");
 
@@ -193,6 +199,12 @@ export interface BookingView {
   /** Managers see and change these; players see them too. */
   settings: GigSettings;
   money: GigMoney;
+  /** Lists (setlists, packing, run of show), in the order they were made. */
+  lists: GigListView[];
+  /** Notes everyone on the gig can post (not the gig's own `notes` field), newest first. */
+  shared_notes: GigNoteView[];
+  /** Whether I may add notes and change lists (managers always; players per settings). */
+  can_edit_lists: boolean;
   created_at: string;
   updated_at: string;
 }

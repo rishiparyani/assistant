@@ -170,4 +170,37 @@ export const bookingsApi = {
   ) => request<BookingView>("POST", `${base(id)}/expenses`, p),
   removeExpense: (id: string, expenseId: string) =>
     request<BookingView>("DELETE", `${base(id)}/expenses/${expenseId}`),
+
+  // Lists and notes
+  createList: (
+    id: string,
+    l: { title: string; event_id?: string; checkable?: boolean; items?: { text: string; detail?: string }[] },
+  ) => request<BookingView>("POST", `${base(id)}/lists`, l),
+  updateList: (
+    id: string,
+    listId: string,
+    l: { title?: string; event_id?: string | null; checkable?: boolean },
+  ) => request<BookingView>("PATCH", `${base(id)}/lists/${listId}`, l),
+  removeList: (id: string, listId: string) => request<BookingView>("DELETE", `${base(id)}/lists/${listId}`),
+  addItems: (id: string, listId: string, items: { text: string; detail?: string }[], after?: string | null) =>
+    request<BookingView>("POST", `${base(id)}/lists/${listId}/items`, {
+      items,
+      ...(after !== undefined ? { after_item_id: after } : {}),
+    }),
+  updateItem: (
+    id: string,
+    listId: string,
+    itemId: string,
+    i: { text?: string; detail?: string | null; done?: boolean },
+  ) => request<BookingView>("PATCH", `${base(id)}/lists/${listId}/items/${itemId}`, i),
+  moveItem: (id: string, listId: string, itemId: string, after: string | null) =>
+    request<BookingView>("POST", `${base(id)}/lists/${listId}/items/${itemId}/move`, {
+      after_item_id: after,
+    }),
+  removeItem: (id: string, listId: string, itemId: string) =>
+    request<BookingView>("DELETE", `${base(id)}/lists/${listId}/items/${itemId}`),
+  addNote: (id: string, body: string) => request<BookingView>("POST", `${base(id)}/notes`, { body }),
+  updateNote: (id: string, noteId: string, body: string) =>
+    request<BookingView>("PATCH", `${base(id)}/notes/${noteId}`, { body }),
+  removeNote: (id: string, noteId: string) => request<BookingView>("DELETE", `${base(id)}/notes/${noteId}`),
 };

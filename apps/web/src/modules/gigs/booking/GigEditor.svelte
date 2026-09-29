@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type {
     AutofillView,
     BookingRole,
@@ -78,29 +79,32 @@
     city: "",
   });
 
+  // Filled once per opening: a live refresh of the gig mustn't wipe what's being typed.
   $effect(() => {
     if (!open) return;
-    const g = gig;
-    title = g?.title ?? "";
-    eventType = g?.event_type ?? "";
-    status = "confirmed";
-    clientName = g?.client?.name ?? "";
-    clientPhone = g?.client?.phone ?? "";
-    fee = g?.money.fee ? String(g.money.fee.amount_paise / 100) : "";
-    collective = g?.collective?.name ?? "";
-    tags = g?.tags.map((t) => t.name) ?? [];
-    notes = g?.notes ?? "";
-    events = g ? [] : [{ ...blankEvent(), date: date ?? todayIST() }];
-    people = [];
-    autofill = null;
-    warnings = [];
-    bookingsApi.tags().then(
-      (all) => {
-        collectiveSuggestions = all.filter((t) => t.kind === "collective").map((t) => t.name);
-        tagSuggestions = all.filter((t) => t.kind === "custom").map((t) => t.name);
-      },
-      () => {},
-    );
+    untrack(() => {
+      const g = gig;
+      title = g?.title ?? "";
+      eventType = g?.event_type ?? "";
+      status = "confirmed";
+      clientName = g?.client?.name ?? "";
+      clientPhone = g?.client?.phone ?? "";
+      fee = g?.money.fee ? String(g.money.fee.amount_paise / 100) : "";
+      collective = g?.collective?.name ?? "";
+      tags = g?.tags.map((t) => t.name) ?? [];
+      notes = g?.notes ?? "";
+      events = g ? [] : [{ ...blankEvent(), date: date ?? todayIST() }];
+      people = [];
+      autofill = null;
+      warnings = [];
+      bookingsApi.tags().then(
+        (all) => {
+          collectiveSuggestions = all.filter((t) => t.kind === "collective").map((t) => t.name);
+          tagSuggestions = all.filter((t) => t.kind === "custom").map((t) => t.name);
+        },
+        () => {},
+      );
+    });
   });
 
   // "Use the people from the last Monsoon Project gig?" (new gigs only).

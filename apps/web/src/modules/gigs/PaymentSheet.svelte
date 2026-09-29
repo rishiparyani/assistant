@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { PaymentMethod } from "@assistant/shared";
   import { Button, Sheet, TextField, toast } from "../../core/ui/index.ts";
   import Chips from "./Chips.svelte";
@@ -29,12 +30,15 @@
   let note = $state("");
   let busy = $state(false);
 
+  // Filled once per opening: a live refresh of the gig mustn't wipe what's being typed.
   $effect(() => {
     if (!open) return;
-    amount = suggested && suggested > 0 ? String(suggested / 100) : "";
-    paidOn = todayIST();
-    method = "upi";
-    note = "";
+    untrack(() => {
+      amount = suggested && suggested > 0 ? String(suggested / 100) : "";
+      paidOn = todayIST();
+      method = "upi";
+      note = "";
+    });
   });
 
   async function submit(e: SubmitEvent) {

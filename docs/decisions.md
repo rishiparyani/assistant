@@ -224,6 +224,18 @@ On hold (same day): the owner asked to keep shipping to the workers.dev addresse
 
 Owner: a calendar view as a UI perk, with the list staying the default. The Gigs page has a List / Calendar switch; the choice is kept in the browser (`localStorage`, per device), because it's a display preference, not data. The calendar is a month grid in India time with weeks starting on Sunday (owner: "make it like iPhone calendar"). It uses the existing `GET /api/me/gigs` with `from`/`to` for the month (pages of 100 until done), so no backend change. As on the iPhone: red month name and today, a day is always picked (today, or the 1st of another month) with its gigs listed below, a grey dot on days with gigs; wide screens look like the iPad month view (gig titles with status-coloured dots). "Add a gig on <day>" for future days; swipe sideways to change month. The picked day is kept while moving around the app, not across a reload.
 
+## 2026-09-29: Lists and notes on gigs
+
+Owner: "add collaborative features like we discussed before. Like live notes and reorderable setlist. Maybe don't call it a setlist and call it a list so it's more generic." Built from the design doc §11, in each gig's own object (migration 6: `lists`, `list_items`, `notes`; soft delete; indexed by list and position, and by time).
+
+- **Lists**, not setlists: any ordered list, for the whole gig or one event, optionally with tick boxes (who ticked is shown). Reorder by dragging the handle (pointer events, so touch and mouse), arrow keys on the handle, or Up/Down in the item sheet. Positions are numbers with room between them, so a move writes one row; a list is renumbered only when a gap runs out. A new list can start from pasted lines ("Song - G - 4 min" splits into text and detail).
+- **Notes** are posts, not one shared document: each has an author, so two people typing at once never overwrite each other (a shared document would need merge logic). Authors edit their own; authors and managers remove.
+- **Who:** everyone on the gig sees both. Players may change them unless a manager turns off the new setting `players_edit_lists` (default on, as the design table said). Author names show on notes and ticks even to players who can't see the lineup: they're working together on the gig.
+- **Live:** no new machinery. Each write goes through the gig's outbox like any change, so everyone's open screen refreshes within seconds. Because refreshes are now frequent, sheets fill their fields once per opening (`untrack`), so a refresh never wipes what someone is typing (this fixed the gig editor, event and payment sheets too).
+- **API field** `shared_notes` (the gig already had a `notes` text field). The writes don't bump the gig's `version`, so list edits never block gig edits.
+- **Assistants:** the ten operations are MCP tools like everything else; removals need confirmation. Only session-only operations stay off MCP (tokens, calendar link, push devices), plus the admin panel.
+- Not yet: offline on stage (the PWA keeping lists of upcoming gigs), linking items to a future song library.
+
 ## Open
 
 None.
