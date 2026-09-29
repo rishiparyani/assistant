@@ -7,7 +7,8 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import LogOut from "@lucide/svelte/icons/log-out";
   import Gauge from "@lucide/svelte/icons/gauge";
-  import { Avatar, Card, ListGroup, ListRow, PageHeader, toast } from "../ui/index.ts";
+  import { Avatar, Card, ListGroup, ListRow, PageHeader, confirm, toast } from "../ui/index.ts";
+  import { outbox } from "../outbox.svelte.ts";
   import { authClient, passkeys, type PasskeyInfo } from "../auth.ts";
   import { navigate } from "../router.svelte.ts";
   import { refreshSession, session } from "../session.svelte.ts";
@@ -67,7 +68,13 @@
   }
 
   async function remove(p: PasskeyInfo) {
-    if (!confirm(`Remove the passkey "${p.name ?? "Passkey"}"?`)) return;
+    const ok = await confirm({
+      title: `Remove the passkey “${p.name ?? "Passkey"}”?`,
+      message: "You won't be able to sign in with it on that device any more.",
+      confirmLabel: "Remove",
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await passkeys.remove(p.id);
       toast.success("Passkey removed");
@@ -78,6 +85,17 @@
   }
 
   async function signOut() {
+    const waiting = outbox.waiting.length;
+    if (
+      waiting &&
+      !(await confirm({
+        title: "Sign out anyway?",
+        message: `${waiting} ${waiting === 1 ? "change hasn't" : "changes haven't"} synced yet. Signing out removes ${waiting === 1 ? "it" : "them"} from this device.`,
+        confirmLabel: "Sign out",
+        destructive: true,
+      }))
+    )
+      return;
     await authClient.signOut();
     await refreshSession();
     navigate("/login", { replace: true });

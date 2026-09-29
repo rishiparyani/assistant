@@ -5,6 +5,7 @@
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import { Button, EmptyState, Pill, toast } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import { outbox } from "../../../core/outbox.svelte.ts";
   import PlusOnes from "./PlusOnes.svelte";
   import { parseGuest, parseGuests } from "./guest-parse.ts";
   import GuestSheet from "./GuestSheet.svelte";
@@ -48,6 +49,10 @@
   const closed = $derived(!!list.closes_at && Date.parse(list.closes_at) <= Date.now());
 
   async function save(guests: { name: string; plus_ones: number }[]) {
+    // Cleared at once so the next guest can be typed; given back if the server says no.
+    const typed = { name, plusOnes };
+    name = "";
+    plusOnes = 0;
     adding = true;
     try {
       onsaved(
@@ -57,10 +62,9 @@
           manager && hostId && hostId !== me?.id ? hostId : undefined,
         ),
       );
-      name = "";
-      plusOnes = 0;
       if (guests.length > 1) toast.success(`Added ${guests.length} guests`);
     } catch (err) {
+      if (!name) ({ name, plusOnes } = typed);
       toast.error(err);
     } finally {
       adding = false;
@@ -162,7 +166,6 @@
         onpaste={paste}
         autocomplete="off"
         bind:value={name}
-        disabled={adding}
       />
       <div class="add-row">
         <PlusOnes bind:value={plusOnes} label="Plus-ones" />
@@ -219,8 +222,14 @@
                 <span class="gname"
                   >{g.name}{#if g.plus_ones}<span class="plus num">+{g.plus_ones}</span>{/if}</span
                 >
-                {#if g.note || g.arrived}<span class="note"
-                    >{[g.arrived ? "arrived" : null, g.note].filter(Boolean).join(" · ")}</span
+                {#if g.note || g.arrived || (g.pending && outbox.showWaiting)}<span class="note"
+                    >{[
+                      g.arrived ? "arrived" : null,
+                      g.note,
+                      g.pending && outbox.showWaiting ? "waiting to sync" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}</span
                   >{/if}
               </button>
             </li>

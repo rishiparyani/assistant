@@ -4,6 +4,13 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **Offline first, stage 2** (decision 2026-09-29, `docs/design/offline.md`): changes made offline.
+  - What works offline: notes, lists and items, guests and arrivals, payments, payouts and expenses.
+  - How: they go through the outbox (`core/outbox.svelte.ts`), are shown at once (appliers in `modules/gigs/offline-changes.ts`) and sync in order when online. A refused change is listed under "Couldn't sync" with the reason. Sign-out warns about unsynced changes.
+  - The server accepts ids made on the device (`clientId` in shared; booking object `newId`).
+  - Tests: 1 new worker test, 9 offline-change browser checks, and every earlier suite re-run on a real build (offline 5, walkthrough 10, lists/notes 21, guests 19, plus-ones 2, types 4, multi-user 19, calendar 18).
+  - Gotcha: the outbox's `flush` must set its busy flag before the run can finish (fixed; see the comment).
+
 - **Offline first, stage 1** (decision 2026-09-29, `docs/design/offline.md`): the app opens and reads offline.
   - The service worker keeps the app's files: `apps/web/src/sw.js` is the template; the `service-worker` plugin in `apps/web/vite.config.ts` writes `/sw.js` with the build's file list.
   - Upcoming gigs and lists are saved ahead (`modules/gigs/offline.ts`, `core/offline.svelte.ts`).

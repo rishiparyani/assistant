@@ -3,6 +3,7 @@
   import { refreshSession, session } from "./session.svelte.ts";
   import { setLive } from "./live.ts";
   import { saveAheadWith, startOffline } from "./offline.svelte.ts";
+  import { startSync } from "./outbox.svelte.ts";
   import { saveGigsAhead } from "../modules/gigs/offline.ts";
   import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
@@ -31,6 +32,8 @@
   saveAheadWith(saveGigsAhead);
   const signedIn = startOffline(() => !!session.me);
   $effect(() => signedIn(!!session.me));
+  // Send changes made offline whenever there's a chance.
+  startSync();
   const route = $derived(router.route);
 
   // Signed-out users go to sign-in (and come back afterwards).

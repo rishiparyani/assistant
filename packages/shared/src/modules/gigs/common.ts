@@ -45,3 +45,13 @@ export function resolveMoney(input: Record<string, unknown>, name: string): numb
   if (typeof rupees === "string") return parseINR(rupees);
   return undefined;
 }
+
+/**
+ * An id made on the device (a ULID) for something new, so changes made offline can refer
+ * to it before the server has seen it (docs/design/offline.md). Optional everywhere.
+ */
+export const clientId = z
+  .string()
+  .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "A ULID")
+  .optional()
+  .describe("Optional id for the new item, made on the device (ULID); leave out normally");

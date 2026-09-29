@@ -212,3 +212,44 @@ describe("gig notes", () => {
     );
   });
 });
+
+describe("ids made on the device (offline changes)", () => {
+  it("uses a given id for new notes, lists, items and guests; refuses one that's taken", async () => {
+    const { manager, gig } = await band();
+    const id = () => {
+      // A valid ULID-shaped id (Crockford base32, 26 characters).
+      const abc = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+      return Array.from(crypto.getRandomValues(new Uint8Array(26)), (b) => abc[b % 32]).join("");
+    };
+    const [noteId, listId, itemId, guestId] = [id(), id(), id(), id()];
+    let g = await json<BookingView>(
+      await as(manager)(`/gigs/${gig.id}/notes`, { body: { id: noteId, body: "Test offline note" } }),
+    );
+    expect(g.shared_notes[0]!.id).toBe(noteId);
+    g = await json<BookingView>(
+      await as(manager)(`/gigs/${gig.id}/lists`, {
+        body: { id: listId, title: "Test Set", items: [{ id: itemId, text: "Song A" }] },
+      }),
+    );
+    expect(g.lists[0]!.id).toBe(listId);
+    expect(g.lists[0]!.items[0]!.id).toBe(itemId);
+    g = await json<BookingView>(
+      await as(manager)(`/gigs/${gig.id}/guests`, {
+        body: { guests: [{ id: guestId, name: "Test Guest" }] },
+      }),
+    );
+    expect(g.guest_list.guests[0]!.id).toBe(guestId);
+    // Then change it by that id, as a queued offline change would.
+    const res = await as(manager)(`/gigs/${gig.id}/lists/${listId}/items/${itemId}`, {
+      method: "PATCH",
+      body: { text: "Song A (edited offline)" },
+    });
+    expect(res.status).toBe(200);
+
+    const again = await as(manager)(`/gigs/${gig.id}/notes`, { body: { id: noteId, body: "Test other" } });
+    expect(again.status).toBe(409);
+    expect(
+      (await as(manager)(`/gigs/${gig.id}/notes`, { body: { id: "not-a-ulid", body: "x" } })).status,
+    ).toBe(400);
+  });
+});

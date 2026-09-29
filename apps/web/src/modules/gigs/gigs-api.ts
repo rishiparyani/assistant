@@ -18,6 +18,9 @@ import type {
   PaymentMethod,
 } from "@assistant/shared";
 import { request } from "../../core/api.ts";
+import { gigChange, newId } from "./offline-changes.ts";
+
+const rupees = (v: string) => `₹${Number(v).toLocaleString("en-IN")}`;
 
 const q = (params: Record<string, string | number | undefined | null>) => {
   const s = new URLSearchParams();
@@ -164,17 +167,34 @@ export const bookingsApi = {
       ...(split?.total ? { split_total: split.total } : {}),
     }),
 
-  recordPayment: (id: string, p: MoneyEntry) => request<BookingView>("POST", `${base(id)}/payments`, p),
+  // --- Changes that also work offline: they go through the outbox (offline-changes.ts) ---
+  recordPayment: (id: string, p: MoneyEntry) =>
+    gigChange(
+      id,
+      "gigs.record_gig_payment",
+      "POST",
+      `${base(id)}/payments`,
+      p,
+      `Payment ${rupees(p.amount)}`,
+    ),
   reversePayment: (id: string, paymentId: string) =>
     request<BookingView>("POST", `${base(id)}/payments/${paymentId}/reverse`, {}),
   recordPayout: (id: string, p: MoneyEntry & { person_id: string; event_id?: string }) =>
-    request<BookingView>("POST", `${base(id)}/payouts`, p),
+    gigChange(id, "gigs.record_gig_payout", "POST", `${base(id)}/payouts`, p, `Payout ${rupees(p.amount)}`),
   reversePayout: (id: string, payoutId: string) =>
     request<BookingView>("POST", `${base(id)}/payouts/${payoutId}/reverse`, {}),
   recordExpense: (
     id: string,
     p: { category: string; amount: string; spent_on: string; note?: string; event_id?: string },
-  ) => request<BookingView>("POST", `${base(id)}/expenses`, p),
+  ) =>
+    gigChange(
+      id,
+      "gigs.record_gig_expense",
+      "POST",
+      `${base(id)}/expenses`,
+      p,
+      `Expense ${rupees(p.amount)} (${p.category})`,
+    ),
   removeExpense: (id: string, expenseId: string) =>
     request<BookingView>("DELETE", `${base(id)}/expenses/${expenseId}`),
 
@@ -182,34 +202,104 @@ export const bookingsApi = {
   createList: (
     id: string,
     l: { title: string; event_id?: string; checkable?: boolean; items?: { text: string; detail?: string }[] },
-  ) => request<BookingView>("POST", `${base(id)}/lists`, l),
+  ) =>
+    gigChange(
+      id,
+      "gigs.create_gig_list",
+      "POST",
+      `${base(id)}/lists`,
+      { ...l, id: newId(), items: (l.items ?? []).map((x) => ({ ...x, id: newId() })) },
+      `New list “${l.title}”`,
+    ),
   updateList: (
     id: string,
     listId: string,
     l: { title?: string; event_id?: string | null; checkable?: boolean },
-  ) => request<BookingView>("PATCH", `${base(id)}/lists/${listId}`, l),
-  removeList: (id: string, listId: string) => request<BookingView>("DELETE", `${base(id)}/lists/${listId}`),
-  addItems: (id: string, listId: string, items: { text: string; detail?: string }[], after?: string | null) =>
-    request<BookingView>("POST", `${base(id)}/lists/${listId}/items`, {
-      items,
-      ...(after !== undefined ? { after_item_id: after } : {}),
+  ) =>
+    gigChange(id, "gigs.update_gig_list", "PATCH", `${base(id)}/lists/${listId}`, l, "List changed", {
+      list_id: listId,
     }),
+  removeList: (id: string, listId: string) =>
+    gigChange(
+      id,
+      "gigs.remove_gig_list",
+      "DELETE",
+      `${base(id)}/lists/${listId}`,
+      undefined,
+      "List removed",
+      {
+        list_id: listId,
+      },
+    ),
+  addItems: (id: string, listId: string, items: { text: string; detail?: string }[], after?: string | null) =>
+    gigChange(
+      id,
+      "gigs.add_list_items",
+      "POST",
+      `${base(id)}/lists/${listId}/items`,
+      {
+        items: items.map((x) => ({ ...x, id: newId() })),
+        ...(after !== undefined ? { after_item_id: after } : {}),
+      },
+      items.length === 1 ? `Added “${items[0]!.text}”` : `Added ${items.length} items`,
+      { list_id: listId },
+    ),
   updateItem: (
     id: string,
     listId: string,
     itemId: string,
     i: { text?: string; detail?: string | null; done?: boolean },
-  ) => request<BookingView>("PATCH", `${base(id)}/lists/${listId}/items/${itemId}`, i),
+  ) =>
+    gigChange(
+      id,
+      "gigs.update_list_item",
+      "PATCH",
+      `${base(id)}/lists/${listId}/items/${itemId}`,
+      i,
+      i.done === undefined ? "Item changed" : i.done ? "Item ticked" : "Item unticked",
+      { list_id: listId, item_id: itemId },
+    ),
   moveItem: (id: string, listId: string, itemId: string, after: string | null) =>
-    request<BookingView>("POST", `${base(id)}/lists/${listId}/items/${itemId}/move`, {
-      after_item_id: after,
-    }),
+    gigChange(
+      id,
+      "gigs.move_list_item",
+      "POST",
+      `${base(id)}/lists/${listId}/items/${itemId}/move`,
+      { after_item_id: after },
+      "Item moved",
+      { list_id: listId, item_id: itemId },
+    ),
   removeItem: (id: string, listId: string, itemId: string) =>
-    request<BookingView>("DELETE", `${base(id)}/lists/${listId}/items/${itemId}`),
-  addNote: (id: string, body: string) => request<BookingView>("POST", `${base(id)}/notes`, { body }),
+    gigChange(
+      id,
+      "gigs.remove_list_item",
+      "DELETE",
+      `${base(id)}/lists/${listId}/items/${itemId}`,
+      undefined,
+      "Item removed",
+      {
+        list_id: listId,
+        item_id: itemId,
+      },
+    ),
+  addNote: (id: string, body: string) =>
+    gigChange(id, "gigs.add_note", "POST", `${base(id)}/notes`, { id: newId(), body }, "Note posted"),
   updateNote: (id: string, noteId: string, body: string) =>
-    request<BookingView>("PATCH", `${base(id)}/notes/${noteId}`, { body }),
-  removeNote: (id: string, noteId: string) => request<BookingView>("DELETE", `${base(id)}/notes/${noteId}`),
+    gigChange(id, "gigs.update_gig_note", "PATCH", `${base(id)}/notes/${noteId}`, { body }, "Note changed", {
+      note_id: noteId,
+    }),
+  removeNote: (id: string, noteId: string) =>
+    gigChange(
+      id,
+      "gigs.remove_gig_note",
+      "DELETE",
+      `${base(id)}/notes/${noteId}`,
+      undefined,
+      "Note removed",
+      {
+        note_id: noteId,
+      },
+    ),
 
   // Guest list
   addGuests: (
@@ -217,17 +307,45 @@ export const bookingsApi = {
     guests: { name: string; plus_ones?: number; note?: string }[],
     hostPersonId?: string,
   ) =>
-    request<BookingView>("POST", `${base(id)}/guests`, {
-      guests,
-      ...(hostPersonId ? { host_person_id: hostPersonId } : {}),
-    }),
+    gigChange(
+      id,
+      "gigs.add_gig_guests",
+      "POST",
+      `${base(id)}/guests`,
+      {
+        guests: guests.map((g) => ({ ...g, id: newId() })),
+        ...(hostPersonId ? { host_person_id: hostPersonId } : {}),
+      },
+      guests.length === 1
+        ? `Guest ${guests[0]!.name}${guests[0]!.plus_ones ? ` +${guests[0]!.plus_ones}` : ""}`
+        : `${guests.length} guests`,
+    ),
   updateGuest: (
     id: string,
     guestId: string,
     g: { name?: string; plus_ones?: number; note?: string | null; arrived?: boolean },
-  ) => request<BookingView>("PATCH", `${base(id)}/guests/${guestId}`, g),
+  ) =>
+    gigChange(
+      id,
+      "gigs.update_gig_guest",
+      "PATCH",
+      `${base(id)}/guests/${guestId}`,
+      g,
+      g.arrived === undefined ? "Guest changed" : g.arrived ? "Guest arrived" : "Guest not arrived",
+      { guest_id: guestId },
+    ),
   removeGuest: (id: string, guestId: string) =>
-    request<BookingView>("DELETE", `${base(id)}/guests/${guestId}`),
+    gigChange(
+      id,
+      "gigs.remove_gig_guest",
+      "DELETE",
+      `${base(id)}/guests/${guestId}`,
+      undefined,
+      "Guest removed",
+      {
+        guest_id: guestId,
+      },
+    ),
   setGuestList: (
     id: string,
     s: { total_limit?: number | null; per_person_limit?: number | null; closes_at?: string | null },

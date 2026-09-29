@@ -3,7 +3,7 @@
 // may change them unless a manager turns that off (setting players_edit_lists).
 import { z } from "zod";
 import { BookingRef } from "./booking.ts";
-import { id, optionalText } from "./common.ts";
+import { clientId, id, optionalText } from "./common.ts";
 
 export const LIST_LIMITS = { lists: 30, items: 300, notes: 500 } as const;
 
@@ -12,11 +12,13 @@ const itemText = z.string().trim().min(1).max(200);
 const noteBody = z.string().trim().min(1).max(2000);
 
 export const ListItemInput = z.object({
+  id: clientId,
   text: itemText.describe("e.g. a song title"),
   detail: optionalText(200).describe('Optional, e.g. "key of G · 4 min"'),
 });
 
 export const CreateGigListInput = BookingRef.extend({
+  id: clientId,
   title: listTitle.describe('e.g. "Set 1", "Packing", "Run of show"'),
   event_id: id("Event").optional().describe("Leave out for a list for the whole gig"),
   checkable: z.boolean().default(false).describe("Items can be ticked off (e.g. a packing list)"),
@@ -45,7 +47,7 @@ export const MoveListItemInput = ListItemRef.extend({
   after_item_id: id("Item").nullable().describe("The item it should come after; null moves it to the top"),
 });
 
-export const AddGigNoteInput = BookingRef.extend({ body: noteBody });
+export const AddGigNoteInput = BookingRef.extend({ id: clientId, body: noteBody });
 export const GigNoteRef = BookingRef.extend({ note_id: id("Note") });
 export const UpdateGigNoteInput = GigNoteRef.extend({ body: noteBody });
 
@@ -56,6 +58,8 @@ export interface GigListItemView {
   done: boolean;
   /** Who ticked it, when done. */
   done_by: string | null;
+  /** Set on the device for a change still waiting to sync (never sent by the server). */
+  pending?: boolean;
 }
 
 export interface GigListView {
@@ -67,6 +71,8 @@ export interface GigListView {
   items: GigListItemView[];
   created_by: string;
   updated_at: string;
+  /** Set on the device for a change still waiting to sync (never sent by the server). */
+  pending?: boolean;
 }
 
 export interface GigNoteView {
@@ -77,4 +83,6 @@ export interface GigNoteView {
   created_at: string;
   /** Set when the note was changed after it was posted. */
   edited_at: string | null;
+  /** Set on the device for a change still waiting to sync (never sent by the server). */
+  pending?: boolean;
 }
