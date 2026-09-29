@@ -28,7 +28,7 @@ Rule 17 in `AGENTS.md`. For every new thing the web app can change:
 2. **Otherwise** (depends on the gig's version, permissions, secrets, or rules only the server knows), call `request()` and put `// online-only: <reason>` above it. The screen shows the normal error when offline.
 3. **New screens that read** data needed at a gig: add them to the save-ahead (`modules/gigs/offline.ts`).
 
-`apps/web/test/offline-rule.test.ts` (runs in `pnpm test`) fails when a write is neither sent through the outbox nor marked, when module code calls `fetch()` directly, or when an outbox kind has no applier (money entries excepted: the Money tab lists them as waiting).
+`apps/web/test/offline-rule.test.ts` (runs in `pnpm test`) fails when a write is neither sent through the outbox nor marked, when module code calls `fetch()` directly or core calls it without an `online-only` mark, or when an outbox kind has no applier (money entries excepted: the Money tab lists them as waiting).
 
 ## Out of scope for now
 

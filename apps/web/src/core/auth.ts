@@ -14,6 +14,7 @@ export interface PasskeyInfo {
   createdAt: string | null;
 }
 
+// online-only: sign-in and passkeys are handled by the server.
 async function authFetch<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/auth${path}`, {
     method: body === undefined ? "GET" : "POST",
