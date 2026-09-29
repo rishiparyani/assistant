@@ -30,11 +30,15 @@
   let busy = $state(false);
 
   // Set up once per opening (the gig changes while open when someone is added).
+  // The version this sheet was opened on: saving checks it, so a change someone else made
+  // meanwhile is reported instead of silently overwritten (live refreshes update `gig`).
+  let openedVersion = 0;
   $effect(() => {
     if (!open) return;
     untrack(setUp);
   });
   function setUp() {
+    openedVersion = gig?.version ?? 0;
     chosen = Object.fromEntries(
       event.lineup.map((l) => [
         l.person_id,
@@ -103,6 +107,8 @@
         gig.id,
         who.includes("@") ? { email: who, role: "player" } : { name: who, role: "player" },
       );
+      // My own addition moved the version on by one; anyone else's change still counts.
+      if (updated.version === openedVersion + 1) openedVersion = updated.version;
       onsaved(updated);
       const added = updated.people.find((p) => !before.has(p.id));
       if (added && !chosen[added.id]) {
@@ -127,7 +133,7 @@
         if (mode === "amount") return { ...base, share: e.share || "0" };
         return base;
       });
-      const saved = await bookingsApi.setLineup(gig.id, event.id, gig.version, lineup, {
+      const saved = await bookingsApi.setLineup(gig.id, event.id, openedVersion, lineup, {
         equal: mode === "equal",
         total: mode === "amount" ? undefined : total || "0",
       });
