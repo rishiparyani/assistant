@@ -9,12 +9,14 @@
   import Home from "../modules/gigs/booking/Home.svelte";
   import MyGigs from "../modules/gigs/booking/MyGigs.svelte";
   import GigPage from "../modules/gigs/booking/GigPage.svelte";
+  import GigTogether from "../modules/gigs/booking/GigTogether.svelte";
   import Reports from "../modules/gigs/booking/Reports.svelte";
   import Contacts from "../modules/gigs/booking/Contacts.svelte";
   import Settings from "./pages/Settings.svelte";
   import Admin from "./pages/Admin.svelte";
   import NotFound from "./pages/NotFound.svelte";
   import SharedGuests from "../modules/gigs/booking/SharedGuests.svelte";
+  import GigTypesSettings from "../modules/gigs/booking/GigTypesSettings.svelte";
 
   const PUBLIC = new Set(["login", "consent", "guest_link"]);
   // Opens at once with the user saved on this device; the server check runs alongside.
@@ -49,7 +51,9 @@
   {:else if session.me}
     <AppShell>
       {#if route.name === "settings"}
-        <Settings />
+        <Settings>
+          {#snippet modules()}<GigTypesSettings />{/snippet}
+        </Settings>
       {:else if route.name === "admin"}
         <Admin />
       {:else if route.name === "root"}
@@ -59,6 +63,13 @@
       {:else if route.name === "booking"}
         {#key route.params.gigId}
           <GigPage gigId={route.params.gigId!} />
+        {/key}
+      {:else if route.name === "gig_together"}
+        {#key route.params.gigId}
+          <GigTogether
+            gigId={route.params.gigId!}
+            section={route.params.section as "guests" | "lists" | "notes"}
+          />
         {/key}
       {:else if route.name === "reports"}
         <Reports />

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
+  // Modules add their own settings (e.g. gig types) through this snippet; core stays module-free.
+  let { modules }: { modules?: Snippet } = $props();
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash from "@lucide/svelte/icons/trash-2";
@@ -97,6 +100,8 @@
   {/if}
 
   <Notifications />
+
+  {#if modules}{@render modules()}{/if}
 
   <CalendarFeed />
 

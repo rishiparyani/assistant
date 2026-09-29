@@ -166,3 +166,32 @@ describe("address book", () => {
     expect((await contacts(other)).map((c) => c.name)).toEqual(["Test Backup Client"]);
   });
 });
+
+describe("gig types", () => {
+  it("start as Public and Private; I can replace them; each person has their own", async () => {
+    const me = await signUp("Test Me");
+    const other = await signUp("Test Other");
+    const types = async (u: User) => {
+      const r = await as(u)("/me/gig-types");
+      const body = await json<{ types: string[] }>(r);
+      if (!body.types) throw new Error(`${r.status} ${JSON.stringify(body)}`);
+      return body.types;
+    };
+    expect(await types(me)).toEqual(["Public", "Private"]);
+
+    const res = await as(me)("/me/gig-types", {
+      method: "PUT",
+      body: { types: ["Private", "Public", "  Wedding  season "] },
+    });
+    expect(res.status).toBe(200);
+    expect(await types(me)).toEqual(["Private", "Public", "Wedding season"]);
+    expect(await types(other)).toEqual(["Public", "Private"]);
+
+    // Duplicates (any case) are refused; an empty list is allowed and stays empty.
+    expect((await as(me)("/me/gig-types", { method: "PUT", body: { types: ["Club", "club"] } })).status).toBe(
+      400,
+    );
+    await as(me)("/me/gig-types", { method: "PUT", body: { types: [] } });
+    expect(await types(me)).toEqual([]);
+  });
+});

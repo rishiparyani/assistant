@@ -249,6 +249,14 @@ Owner: "for each gig we can have a guest list and every person can add their gue
 - **Core:** a new generic "shared link" hook for modules (`sharedLinks` with a token prefix; core routes `GET /api/shared/:token`, `POST /api/shared/:token/:action` with an Idempotency-Key). Audit source `link` for changes made through one.
 - Also: gig screens fill in newer parts (lists, notes, guest list) when showing a copy saved before an update, so an old cached gig can't crash a tab.
 
+## 2026-09-29: Together page, and gig types in Settings
+
+Owner: "the ui is a little chaotic. Can we separate the collaborative features from the gig details?" and "The gig type just make them public or private. The user can add/edit gig types in their settings."
+
+- **Together page:** the gig page is back to Details/Events · Money · People. A "Together" card above the tabs has one row each for Guest list, Lists and Notes, with where things stand ("4 of 6 · venue link on", list names, "3 notes · latest from Anita, 2 h ago"). Each opens `/gigs/:id/guests|lists|notes`, a page of its own with a switch between the three and a back link to the gig. Same gig data and cache as the gig page.
+- **Gig types:** read as "the default types are Public and Private; each person edits their own list". Stored in the person's own object (migration 9: `gig_types`, and a `_meta` marker so an emptied list stays empty). Settings → Gig types: add, rename, move up, remove, reset to Public and Private; each change saves at once. The gig editor offers my types, plus the gig's own type if it's no longer on my list. Gigs keep the type's name, so editing the list never changes gigs. Operations `get_gig_types`, `set_gig_types` (REST and AI tools). The old fixed list (Wedding, Sangeet, …) is gone; gigs that have those keep them.
+- Settings takes module sections through a snippet from `App.svelte`, so core Settings still imports no module code.
+
 ## Open
 
 None.

@@ -265,7 +265,7 @@ describe("receivers", () => {
     const person = env.PEOPLE.getByName(personName("user-r2"));
     await person.events();
     await runInDurableObject(person, (_i, state) => {
-      expect(state.storage.sql.exec(`select version from _schema`).one().version).toBe(8);
+      expect(state.storage.sql.exec(`select version from _schema`).one().version).toBe(9);
     });
   });
 });

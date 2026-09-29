@@ -37,3 +37,8 @@ export const updateContact = (
 
 export const removeContact = (ctx: OpUserCtx, contactId: string) =>
   me(ctx).removeContact(actorOf(ctx), ctx.idempotencyKey, contactId);
+
+/** My gig types (Settings); the defaults (Public, Private) until I change them. */
+export const gigTypes = (ctx: OpUserCtx) => me(ctx).gigTypes();
+export const setGigTypes = (ctx: OpUserCtx, types: string[]) =>
+  me(ctx).setGigTypes(actorOf(ctx), ctx.idempotencyKey, types);

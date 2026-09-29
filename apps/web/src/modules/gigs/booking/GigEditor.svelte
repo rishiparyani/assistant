@@ -8,6 +8,7 @@
     ContactView,
     DuplicateWarning,
   } from "@assistant/shared";
+  import { DEFAULT_GIG_TYPES } from "@assistant/shared";
   import Plus from "@lucide/svelte/icons/plus";
   import X from "@lucide/svelte/icons/x";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
@@ -26,7 +27,6 @@
   import { session } from "../../../core/session.svelte.ts";
   import { bookingsApi, type EventFields, type PersonFields } from "../gigs-api.ts";
   import MoneyField from "../MoneyField.svelte";
-  import { EVENT_TYPES } from "../options.ts";
   import { nextDay, todayIST, toApiLocal } from "../time.ts";
   import TagInput from "./TagInput.svelte";
 
@@ -54,6 +54,27 @@
 
   let title = $state("");
   let eventType = $state("");
+  // My gig types (Settings), plus this gig's own type if it isn't one of them any more.
+  let myTypes = $state<string[]>([...DEFAULT_GIG_TYPES]);
+  $effect(() => {
+    if (!open) return;
+    bookingsApi.gigTypes().then(
+      (t) => (myTypes = t.types),
+      () => {},
+    );
+  });
+  const typeOptions = $derived.by(() => {
+    const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+    const names = eventType && !myTypes.some((t) => same(t, eventType)) ? [...myTypes, eventType] : myTypes;
+    // The gig's own value keeps its spelling, so the picker shows it selected.
+    return [
+      { value: "", label: "—" },
+      ...names.map((t) => ({
+        value: eventType && same(t, eventType) ? eventType : t,
+        label: t[0]!.toUpperCase() + t.slice(1),
+      })),
+    ];
+  });
   let status = $state<"enquiry" | "confirmed">("confirmed");
   let clientName = $state("");
   let clientPhone = $state("");
@@ -243,15 +264,7 @@
       />
     {/if}
     <div class="two">
-      <SelectField
-        label="Type"
-        id="{uid}-type"
-        bind:value={eventType}
-        options={[
-          { value: "", label: "—" },
-          ...EVENT_TYPES.map((t) => ({ value: t.toLowerCase(), label: t })),
-        ]}
-      />
+      <SelectField label="Type" id="{uid}-type" bind:value={eventType} options={typeOptions} />
       <MoneyField label="Fee" bind:value={fee} />
     </div>
 
