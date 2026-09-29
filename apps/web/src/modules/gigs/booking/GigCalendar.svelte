@@ -15,15 +15,17 @@
   import { todayIST } from "../time.ts";
   import GigEventRow from "./GigEventRow.svelte";
 
-  // Month grid of my gigs (India time, weeks start on Monday). Tap a day for its gigs;
-  // with no day picked, the month's gigs are listed under the grid.
+  // Month grid of my gigs in the style of the iPhone Calendar (India time, weeks start on
+  // Sunday). A day is always picked (today, or the 1st of another month); its gigs are
+  // listed under the grid.
   let { onadd }: { onadd: (date: string) => void } = $props();
 
   const today = todayIST();
-  let month = $state(remembered ?? today.slice(0, 7)); // "YYYY-MM"
-  let selected = $state<string | null>(null); // "YYYY-MM-DD"
+  const firstOf = (m: string) => (m === today.slice(0, 7) ? today : `${m}-01`);
+  let month = $state(remembered?.slice(0, 7) ?? today.slice(0, 7)); // "YYYY-MM"
+  let selected = $state(remembered ?? today); // "YYYY-MM-DD"
   $effect(() => {
-    remembered = month;
+    remembered = selected;
   });
 
   const MONTHS = [
@@ -40,7 +42,7 @@
     "November",
     "December",
   ];
-  const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
   const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   const addMonths = (m: string, n: number) => {
@@ -52,6 +54,7 @@
     const date = new Date(`${d}T00:00:00Z`);
     return `${DAY_NAMES[date.getUTCDay()]}, ${date.getUTCDate()} ${MONTHS[date.getUTCMonth()]}`;
   };
+  const weekend = (d: string) => [0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay());
 
   // All of the month's events (times without an offset are India time to the API).
   const query = createQuery(
@@ -81,29 +84,27 @@
     return days;
   });
 
-  // Blank cells before the 1st (Monday first) and after the last day, to fill whole weeks.
-  const cells = $derived.by(() => {
+  // Whole weeks, Sunday first: blank cells before the 1st and after the last day.
+  const weeks = $derived.by(() => {
     const [y, mo] = month.split("-").map(Number) as [number, number];
-    const lead = (new Date(Date.UTC(y, mo - 1, 1)).getUTCDay() + 6) % 7;
+    const lead = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay();
     const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    const out: (string | null)[] = Array.from({ length: lead }, () => null);
-    for (let d = 1; d <= days; d++) out.push(`${month}-${String(d).padStart(2, "0")}`);
-    while (out.length % 7) out.push(null);
-    return out;
+    const cells: (string | null)[] = Array.from({ length: lead }, () => null);
+    for (let d = 1; d <= days; d++) cells.push(`${month}-${String(d).padStart(2, "0")}`);
+    while (cells.length % 7) cells.push(null);
+    return Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
   });
 
-  const shown = $derived(selected ? (byDay[selected] ?? []) : (query.data ?? []));
-  const gigCount = $derived(new Set((query.data ?? []).map((e) => e.gig_id)).size);
+  const shown = $derived(byDay[selected] ?? []);
 
   function go(n: number) {
     month = addMonths(month, n);
-    selected = null;
+    selected = firstOf(month);
   }
   function goToday() {
     month = today.slice(0, 7);
     selected = today;
   }
-  const pick = (d: string) => (selected = selected === d ? null : d);
 
   const dayLabel = (d: string, list: MyEventView[]) =>
     `${dayName(d)}${d === today ? ", today" : ""}: ${
@@ -128,67 +129,68 @@
 
 <div class="calendar">
   <div class="bar">
-    <button class="nav" type="button" aria-label="Previous month" onclick={() => go(-1)}>
-      <ChevronLeft size={22} />
-    </button>
-    <h2 aria-live="polite">{monthName(month)}</h2>
-    <button class="nav" type="button" aria-label="Next month" onclick={() => go(1)}>
-      <ChevronRight size={22} />
-    </button>
+    <h2 aria-live="polite">
+      <span class="m">{MONTHS[Number(month.slice(5, 7)) - 1]}</span>
+      <span class="y">{month.slice(0, 4)}</span>
+    </h2>
     <span class="spacer">
       {#if query.loading && !query.data}<Spinner size={16} />{/if}
     </span>
-    {#if month !== today.slice(0, 7) || selected !== today}
-      <Button size="sm" variant="ghost" onclick={goToday}>Today</Button>
+    {#if selected !== today}
+      <button class="today-btn" type="button" onclick={goToday}>Today</button>
     {/if}
+    <button class="nav" type="button" aria-label="Previous month" onclick={() => go(-1)}>
+      <ChevronLeft size={22} />
+    </button>
+    <button class="nav" type="button" aria-label="Next month" onclick={() => go(1)}>
+      <ChevronRight size={22} />
+    </button>
   </div>
 
   <div
-    class="grid-wrap"
+    class="month"
     role="group"
     aria-label="Days of {monthName(month)}"
     ontouchstart={touchStart}
     ontouchend={touchEnd}
   >
-    <div class="grid weekdays" aria-hidden="true">
-      {#each WEEKDAYS as w (w)}<span>{w}</span>{/each}
+    <div class="week weekdays" aria-hidden="true">
+      {#each WEEKDAYS as w, i (i)}<span class:weekend={i === 0 || i === 6}>{w}</span>{/each}
     </div>
-    <div class="grid days">
-      {#each cells as d, i (d ?? `blank-${i}`)}
-        {#if d}
-          {@const list = byDay[d] ?? []}
-          <button
-            type="button"
-            class="day"
-            class:today={d === today}
-            class:selected={d === selected}
-            class:past={d < today}
-            aria-pressed={d === selected}
-            aria-label={dayLabel(d, list)}
-            onclick={() => pick(d)}
-          >
-            <span class="num">{Number(d.slice(8))}</span>
-            {#if list.length}
-              <span class="dots" aria-hidden="true">
-                {#each list.slice(0, 3) as e (e.event_id)}<span class="dot {statusTone(e.status)}"
-                  ></span>{/each}
-                {#if list.length > 3}<span class="more">+{list.length - 3}</span>{/if}
-              </span>
-              <span class="chips" aria-hidden="true">
-                {#each list.slice(0, 2) as e (e.event_id)}
-                  <span class="chip {statusTone(e.status)}" class:struck={e.status === "cancelled"}
-                    >{e.gig_title}</span
-                  >
-                {/each}
-                {#if list.length > 2}<span class="more">+{list.length - 2} more</span>{/if}
-              </span>
-            {/if}
-          </button>
-        {:else}
-          <span class="blank"></span>
-        {/if}
-      {/each}
-    </div>
+    {#each weeks as week, w (w)}
+      <div class="week">
+        {#each week as d, i (d ?? `blank-${w}-${i}`)}
+          {#if d}
+            {@const list = byDay[d] ?? []}
+            <button
+              type="button"
+              class="day"
+              class:today={d === today}
+              class:selected={d === selected}
+              class:weekend={weekend(d)}
+              aria-pressed={d === selected}
+              aria-label={dayLabel(d, list)}
+              onclick={() => (selected = d)}
+            >
+              <span class="num">{Number(d.slice(8))}</span>
+              <span class="dot" class:on={list.length > 0} aria-hidden="true"></span>
+              {#if list.length}
+                <span class="titles" aria-hidden="true">
+                  {#each list.slice(0, 3) as e (e.event_id)}
+                    <span class="title {statusTone(e.status)}" class:struck={e.status === "cancelled"}
+                      >{e.gig_title}</span
+                    >
+                  {/each}
+                  {#if list.length > 3}<span class="more">{list.length - 3} more</span>{/if}
+                </span>
+              {/if}
+            </button>
+          {:else}
+            <span class="blank"></span>
+          {/if}
+        {/each}
+      </div>
+    {/each}
   </div>
 
   {#if query.error && !query.data}
@@ -196,38 +198,21 @@
       <ListRow title="Couldn't load this month" subtitle="Check your connection and try again." />
     </ListGroup>
     <Button onclick={() => query.refresh()}>Try again</Button>
-  {:else if selected}
+  {:else}
     <ListGroup title={dayName(selected)}>
-      {#snippet action()}<button class="link" type="button" onclick={() => (selected = null)}
-          >Whole month</button
-        >{/snippet}
       {#each shown as e (e.event_id)}
         <GigEventRow {e} />
       {:else}
-        <ListRow title="No gigs this day" />
+        <ListRow title={query.data ? "No gigs" : "Loading…"} />
       {/each}
     </ListGroup>
     {#if selected >= today}
-      <Button onclick={() => onadd(selected!)}>
+      <Button onclick={() => onadd(selected)}>
         {#snippet icon()}<Plus />{/snippet}
         Add a gig on {Number(selected.slice(8))}
         {MONTHS[Number(selected.slice(5, 7)) - 1]!.slice(0, 3)}
       </Button>
     {/if}
-  {:else if query.data}
-    <ListGroup
-      title="{monthName(month)} · {gigCount === 0
-        ? 'no gigs'
-        : gigCount === 1
-          ? '1 gig'
-          : `${gigCount} gigs`}"
-    >
-      {#each shown as e (e.event_id)}
-        <GigEventRow {e} />
-      {:else}
-        <ListRow title="Nothing this month" subtitle="Tap a day to add a gig on it." />
-      {/each}
-    </ListGroup>
   {/if}
 </div>
 
@@ -235,8 +220,7 @@
   .calendar {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-5);
-    justify-items: stretch;
+    gap: var(--space-4);
   }
   .calendar > :global(button) {
     justify-self: start;
@@ -247,18 +231,36 @@
     gap: var(--space-1);
   }
   h2 {
-    font-size: var(--text-lg);
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
     min-width: 0;
-    text-align: center;
-    flex: 0 1 auto;
-    padding: 0 var(--space-1);
+  }
+  h2 .m {
+    font-size: var(--text-xl);
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    color: var(--red);
+  }
+  h2 .y {
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--text-3);
   }
   .spacer {
     flex: 1;
     display: flex;
     justify-content: center;
+  }
+  .today-btn {
+    min-height: 44px;
+    padding: 0 var(--space-3);
+    border: 0;
+    background: transparent;
+    color: var(--red);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
   }
   .nav {
     display: inline-grid;
@@ -268,174 +270,158 @@
     border: 0;
     border-radius: var(--radius-full);
     background: transparent;
-    color: var(--accent-text);
+    color: var(--red);
     cursor: pointer;
   }
   .nav:hover {
     background: var(--surface-hover);
   }
-  .grid-wrap {
+  .month {
     container-type: inline-size;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-2);
     touch-action: pan-y;
   }
-  .grid {
+  .week {
     display: grid;
     grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: 2px;
+    border-top: 1px solid var(--separator);
+  }
+  .weekdays {
+    border-top: 0;
   }
   .weekdays span {
     text-align: center;
     font-size: var(--text-xs);
     font-weight: 600;
+    color: var(--text);
+    padding-bottom: var(--space-2);
+  }
+  .weekdays span.weekend {
     color: var(--text-3);
-    padding: var(--space-1) 0 var(--space-2);
   }
   .day {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
-    min-height: 52px;
-    padding: 6px 2px;
+    min-height: 56px;
+    padding: 6px 2px 4px;
     border: 0;
-    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text);
     font: inherit;
     cursor: pointer;
   }
-  .day:hover {
-    background: var(--surface-hover);
-  }
-  .day.past .num {
+  .day.weekend .num {
     color: var(--text-3);
   }
   .num {
     display: inline-grid;
     place-items: center;
-    width: 28px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border-radius: var(--radius-full);
-    font-size: var(--text-sm);
-    font-weight: 600;
+    font-size: var(--text-md);
+    font-weight: 500;
     font-variant-numeric: tabular-nums;
   }
   .day.today .num {
-    background: var(--accent);
+    color: var(--red);
+    font-weight: 650;
+  }
+  .day.selected .num {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 650;
+  }
+  .day.selected.today .num {
+    background: var(--red);
     color: var(--text-on-accent);
-  }
-  .day.selected {
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1.5px var(--accent);
-  }
-  .dots {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    height: 8px;
   }
   .dot {
     width: 6px;
     height: 6px;
     border-radius: var(--radius-full);
-    background: var(--grey);
   }
-  .more {
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-3);
-    line-height: 1;
+  .dot.on {
+    background: var(--text-3);
   }
-  .chips {
+  .titles {
     display: none;
   }
-  .dot.blue {
-    background: var(--blue);
-  }
-  .dot.green {
-    background: var(--green);
-  }
-  .dot.amber {
-    background: var(--amber);
-  }
-  .dot.red {
-    background: var(--red);
-  }
-  .dot.violet {
-    background: var(--violet);
-  }
-  .chip {
-    display: block;
-    width: 100%;
-    padding: 2px 6px;
-    border-radius: 6px;
+  .title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
     font-size: var(--text-xs);
-    font-weight: 600;
-    text-align: left;
+    font-weight: 500;
+    color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    background: var(--grey-soft);
-    color: var(--grey);
   }
-  .chip.blue {
-    background: var(--blue-soft);
-    color: var(--blue);
+  .title::before {
+    content: "";
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-full);
+    background: var(--grey);
   }
-  .chip.green {
-    background: var(--green-soft);
-    color: var(--green);
+  .title.blue::before {
+    background: var(--blue);
   }
-  .chip.amber {
-    background: var(--amber-soft);
-    color: var(--amber);
+  .title.green::before {
+    background: var(--green);
   }
-  .chip.red {
-    background: var(--red-soft);
-    color: var(--red);
+  .title.amber::before {
+    background: var(--amber);
   }
-  .chip.violet {
-    background: var(--violet-soft);
-    color: var(--violet);
+  .title.red::before {
+    background: var(--red);
   }
-  .chip.struck {
+  .title.violet::before {
+    background: var(--violet);
+  }
+  .title.struck {
     text-decoration: line-through;
+    color: var(--text-3);
   }
-  /* Wide enough for names: show gig titles instead of dots. */
+  .more {
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    padding-left: 10px;
+  }
+  /* iPad-style month on wide screens: number at the top right, gig titles in the day. */
   @container (min-width: 560px) {
+    .week:not(.weekdays) {
+      min-height: 104px;
+    }
     .day {
       align-items: stretch;
-      min-height: 96px;
-      padding: 6px;
+      padding: 4px;
+      border-radius: 0;
+    }
+    .day + .day,
+    .blank + .day,
+    .day + .blank {
+      border-left: 1px solid var(--separator);
     }
     .num {
-      align-self: flex-start;
+      align-self: flex-end;
+      width: 28px;
+      height: 28px;
+      font-size: var(--text-sm);
     }
-    .dots {
+    .dot {
       display: none;
     }
-    .chips {
+    .titles {
       display: grid;
-      gap: 3px;
+      gap: 2px;
       min-width: 0;
-    }
-    .chips .more {
-      padding-left: 6px;
       text-align: left;
     }
-  }
-  .link {
-    border: 0;
-    background: transparent;
-    color: var(--accent-text);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
-    min-height: 44px;
   }
 </style>
