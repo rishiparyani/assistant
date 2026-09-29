@@ -6,3 +6,4 @@ export * from "./reports.ts";
 export * from "./contacts.ts";
 export * from "./collab.ts";
 export * from "./guests.ts";
+export * from "./gig-types.ts";

@@ -85,7 +85,7 @@ export const PersonInput = z
 
 export const CreateBookingInput = z.object({
   title,
-  event_type: optionalText(60).describe("e.g. wedding, corporate, club, concert"),
+  event_type: optionalText(60).describe("Public, Private or another of my gig types (get_gig_types)"),
   status: z.enum(["enquiry", "confirmed"]).default("enquiry"),
   client: ClientSnapshot.nullish(),
   notes: optionalText(4000),

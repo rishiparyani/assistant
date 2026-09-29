@@ -3,11 +3,13 @@
 // may repeat or arrive out of order: a delivery replaces the gig's rows only if its
 // sequence number isn't older than what's already applied.
 import { DurableObject } from "cloudflare:workers";
-import { formatDateTimeIST, formatINR, ulid } from "@assistant/shared";
-import type { ContactKind, ContactView } from "@assistant/shared";
+import { DEFAULT_GIG_TYPES, formatDateTimeIST, formatINR, ulid } from "@assistant/shared";
+import type { ContactKind, ContactView, GigTypesView } from "@assistant/shared";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import {
   audit,
+  getMeta,
+  setMeta,
   hashOf,
   idempotent,
   migrate,
@@ -141,6 +143,12 @@ const MIGRATIONS: Migrations = [
     primary key (kind, name_key)
   );
   create index contacts_list_idx on contacts (deleted_at, kind, last_used_at);
+  `,
+  // My gig types (Settings), in order. Until I change them, the defaults apply.
+  `
+  create table if not exists _meta (key text primary key, value text not null);
+  create table gig_types (name_key text primary key, name text not null, position integer not null);
+  create index gig_types_position_idx on gig_types (position);
   `,
 ];
 
@@ -792,6 +800,45 @@ export class PersonObject extends DurableObject<Env> {
   }
 
   /** Adds a contact, or brings back one I deleted with the same name (same kind). */
+  /** My gig types, in order (the defaults until I change them). */
+  async gigTypes(): Promise<GigTypesView> {
+    if (getMeta(this.sql, "gig_types_set") !== "1") return { types: [...DEFAULT_GIG_TYPES] };
+    return {
+      types: this.sql
+        .exec<{ name: string }>(`select name from gig_types order by position`)
+        .toArray()
+        .map((r) => r.name),
+    };
+  }
+
+  /** Replaces my gig types (already validated: trimmed, unique, at most 30). */
+  async setGigTypes(actor: Actor, key: string | null, types: string[]): Promise<GigTypesView> {
+    return idempotent(this.ctx.storage, key, await hashOf(["set_gig_types", types]), () => {
+      const before = this.sql
+        .exec<{ name: string }>(`select name from gig_types order by position`)
+        .toArray()
+        .map((r) => r.name);
+      this.sql.exec(`delete from gig_types`);
+      types.forEach((name, i) =>
+        this.sql.exec(
+          `insert into gig_types (name_key, name, position) values (?, ?, ?)`,
+          name.toLowerCase(),
+          name,
+          i,
+        ),
+      );
+      setMeta(this.sql, "gig_types_set", "1");
+      audit(this.sql, actor, {
+        action: "set_gig_types",
+        entityType: "gig_types",
+        entityId: this.userId ?? "",
+        before,
+        after: types,
+      });
+      return { types };
+    });
+  }
+
   async saveContact(
     actor: Actor,
     key: string | null,

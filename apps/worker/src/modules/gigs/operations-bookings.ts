@@ -30,6 +30,7 @@ import {
   UpdateBookingInput,
   UpdateEventInput,
   UpdatePersonInput,
+  SetGigTypesInput,
 } from "@assistant/shared";
 import { defineOperation } from "../../core/operations.ts";
 import { z } from "zod";
@@ -40,6 +41,25 @@ import * as c from "./services/contacts.ts";
 import { getBrief, pick } from "./services/brief.ts";
 
 export const bookingOperations = [
+  defineOperation({
+    id: "gigs.get_gig_types",
+    tool: "get_gig_types",
+    description: "My gig types (Public and Private unless I changed them), to use as a gig's event_type.",
+    kind: "read",
+    http: { method: "GET", path: "/me/gig-types" },
+    input: z.object({}),
+    handler: (ctx) => c.gigTypes(ctx),
+  }),
+  defineOperation({
+    id: "gigs.set_gig_types",
+    tool: "set_gig_types",
+    description:
+      "Replace my list of gig types (in order). Gigs keep the type they have; renaming a type doesn't change old gigs.",
+    kind: "write",
+    http: { method: "PUT", path: "/me/gig-types" },
+    input: SetGigTypesInput,
+    handler: (ctx, input) => c.setGigTypes(ctx, input.types),
+  }),
   defineOperation({
     id: "gigs.create_booking",
     tool: "create_gig",

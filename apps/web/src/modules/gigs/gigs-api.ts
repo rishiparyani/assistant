@@ -1,5 +1,6 @@
 // Typed calls to the gig-centric operations (docs/api.md, "Gig-centric gigs"). No logic here.
 import type {
+  GigTypesView,
   GuestLinkView,
   SharedGuestListView,
   AutofillView,
@@ -104,6 +105,10 @@ export const bookingsApi = {
   autofill: (collective: string) => request<AutofillView>("GET", `/api/me/autofill${q({ collective })}`),
   duplicates: (p: { start_at: string; venue_name?: string; client_name?: string }) =>
     request<DuplicateWarning[]>("GET", `/api/me/duplicates${q(p)}`),
+
+  // My gig types (Settings)
+  gigTypes: () => request<GigTypesView>("GET", "/api/me/gig-types"),
+  setGigTypes: (types: string[]) => request<GigTypesView>("PUT", "/api/me/gig-types", { types }),
 
   // Address book
   contacts: (p: { kind?: ContactKind; q?: string; limit?: number } = {}) =>

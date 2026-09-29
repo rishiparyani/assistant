@@ -54,6 +54,7 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 | `get_brief` | `GET /me/brief?what=next\|week\|owed_to_me\|to_collect\|to_pay` | me (a sentence for Siri, plus items) |
 | `pick_gig_or_person` | `GET /me/pick?q=` or `?gig_id=` | me (label → id, for Shortcuts' Choose from List) |
 
+| `get_gig_types`, `set_gig_types` | `GET`/`PUT /me/gig-types` (`types`: names in order, unique, up to 30) | me (Public and Private until changed) |
 | `find_contacts` | `GET /me/contacts?kind=&q=&limit=` | me (my address book) |
 | `save_contact` | `POST /me/contacts` (`kind` client/venue/person, `name`, `phone`, `email`, `city`, `notes`) | me |
 | `update_contact`, `remove_contact` | `PATCH`/`DELETE /me/contacts/:contact_id` | me |

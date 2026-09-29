@@ -13,6 +13,7 @@ const PATTERNS: [string, RegExp][] = [
   ["admin", /^\/admin$/],
   ["my_gigs", /^\/gigs$/],
   ["booking", /^\/gigs\/(?<gigId>[^/]+)$/],
+  ["gig_together", /^\/gigs\/(?<gigId>[^/]+)\/(?<section>guests|lists|notes)$/],
   ["reports", /^\/reports$/],
   ["contacts", /^\/contacts$/],
   // A gig's guest list shared with its venue (no sign-in; the link is the key).
