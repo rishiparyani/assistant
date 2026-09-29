@@ -3,23 +3,48 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
+  import CalendarDays from "@lucide/svelte/icons/calendar-days";
+  import List from "@lucide/svelte/icons/list";
   import {
     Button,
     EmptyState,
     ListGroup,
-    ListRow,
     PageHeader,
-    Pill,
     Segmented,
     Skeleton,
     toast,
   } from "../../../core/ui/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import { createQuery } from "../../../core/query.svelte.ts";
-  import GigDate from "../GigDate.svelte";
   import GigEditor from "./GigEditor.svelte";
-  import { statusLabel, statusTone } from "../status.ts";
-  import { monthLabel, time12 } from "../time.ts";
+  import GigCalendar from "./GigCalendar.svelte";
+  import GigEventRow from "./GigEventRow.svelte";
+  import { monthLabel } from "../time.ts";
+
+  // List (default) or calendar; remembered on this device only.
+  type View = "list" | "calendar";
+  const VIEW_KEY = "gigs-view";
+  function savedView(): View {
+    try {
+      return localStorage.getItem(VIEW_KEY) === "calendar" ? "calendar" : "list";
+    } catch {
+      return "list";
+    }
+  }
+  let view = $state<View>(savedView());
+  function setView(v: View) {
+    view = v;
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // Private mode: the choice lasts until the page closes.
+    }
+  }
+  let newDate = $state<string | null>(null); // a new gig's date, from the calendar
+  function create(date: string | null = null) {
+    newDate = date;
+    creating = true;
+  }
 
   // Every event of every gig I'm on, from my own summaries (may lag a few seconds).
   type Tab = "upcoming" | "past" | "all";
@@ -84,88 +109,88 @@
     }
     return out;
   });
-
-  const subtitle = (e: MyEventView) =>
-    [time12(e.start_at), e.venue_name, e.client_name, e.collective_name].filter(Boolean).join(" · ");
 </script>
 
 <PageHeader title="Gigs">
   {#snippet actions()}
-    <Button variant="primary" onclick={() => (creating = true)}>
+    <div class="views" role="group" aria-label="View">
+      <button
+        type="button"
+        aria-label="List"
+        title="List"
+        aria-pressed={view === "list"}
+        onclick={() => setView("list")}><List size={20} /></button
+      >
+      <button
+        type="button"
+        aria-label="Calendar"
+        title="Calendar"
+        aria-pressed={view === "calendar"}
+        onclick={() => setView("calendar")}><CalendarDays size={20} /></button
+      >
+    </div>
+    <Button variant="primary" onclick={() => create()}>
       {#snippet icon()}<Plus />{/snippet}
       New gig
     </Button>
   {/snippet}
 </PageHeader>
 
-<div class="toolbar">
-  <Segmented
-    label="Which gigs"
-    bind:value={tab}
-    options={[
-      { value: "upcoming", label: "Upcoming" },
-      { value: "past", label: "Past" },
-      { value: "all", label: "All" },
-    ]}
-  />
-  <label class="search">
-    <Search size={18} />
-    <input
-      type="search"
-      placeholder="Search title, client, venue"
-      bind:value={query}
-      aria-label="Search gigs"
-    />
-  </label>
-</div>
-
-{#if items === null}
-  <Skeleton rows={5} />
-{:else if items.length === 0}
-  <EmptyState
-    title={query ? "No gigs match" : tab === "upcoming" ? "No upcoming gigs" : "No gigs yet"}
-    text={query
-      ? "Try another word from the title, client or venue."
-      : "Gigs you create, and gigs others add you to, show up here."}
-  >
-    {#snippet icon()}<CalendarPlus size={26} />{/snippet}
-    {#snippet action()}
-      {#if !query}<Button variant="primary" onclick={() => (creating = true)}>Add a gig</Button>{/if}
-    {/snippet}
-  </EmptyState>
+{#if view === "calendar"}
+  <GigCalendar onadd={(d) => create(d)} />
 {:else}
-  <div class="groups">
-    {#each groups as group (group.month)}
-      <ListGroup title={group.month}>
-        {#each group.items as e (e.event_id)}
-          <ListRow
-            href="/gigs/{e.gig_id}"
-            title={e.event_title ? `${e.gig_title} · ${e.event_title}` : e.gig_title}
-            subtitle={subtitle(e)}
-          >
-            {#snippet leading()}<GigDate iso={e.start_at} muted={e.status === "cancelled"} />{/snippet}
-            {#snippet trailing()}
-              <span class="right">
-                {#if e.share.amount_paise > 0}
-                  <span class="fee num" class:struck={e.status === "cancelled"}>{e.share.amount_display}</span
-                  >
-                {:else if e.role === "manager"}
-                  <span class="role">Managing</span>
-                {/if}
-                <Pill tone={statusTone(e.status)}>{statusLabel(e.status)}</Pill>
-              </span>
-            {/snippet}
-          </ListRow>
-        {/each}
-      </ListGroup>
-    {/each}
-    {#if cursor}
-      <Button full onclick={more} loading={loadingMore}>Show more</Button>
-    {/if}
+  <div class="toolbar">
+    <Segmented
+      label="Which gigs"
+      bind:value={tab}
+      options={[
+        { value: "upcoming", label: "Upcoming" },
+        { value: "past", label: "Past" },
+        { value: "all", label: "All" },
+      ]}
+    />
+    <label class="search">
+      <Search size={18} />
+      <input
+        type="search"
+        placeholder="Search title, client, venue"
+        bind:value={query}
+        aria-label="Search gigs"
+      />
+    </label>
   </div>
+
+  {#if items === null}
+    <Skeleton rows={5} />
+  {:else if items.length === 0}
+    <EmptyState
+      title={query ? "No gigs match" : tab === "upcoming" ? "No upcoming gigs" : "No gigs yet"}
+      text={query
+        ? "Try another word from the title, client or venue."
+        : "Gigs you create, and gigs others add you to, show up here."}
+    >
+      {#snippet icon()}<CalendarPlus size={26} />{/snippet}
+      {#snippet action()}
+        {#if !query}<Button variant="primary" onclick={() => create()}>Add a gig</Button>{/if}
+      {/snippet}
+    </EmptyState>
+  {:else}
+    <div class="groups">
+      {#each groups as group (group.month)}
+        <ListGroup title={group.month}>
+          {#each group.items as e (e.event_id)}
+            <GigEventRow {e} />
+          {/each}
+        </ListGroup>
+      {/each}
+      {#if cursor}
+        <Button full onclick={more} loading={loadingMore}>Show more</Button>
+      {/if}
+    </div>
+  {/if}
 {/if}
 
-<GigEditor bind:open={creating} />
+<GigEditor bind:open={creating} date={newDate} />
 
 <style>
   .toolbar {
@@ -203,23 +228,27 @@
     display: grid;
     gap: var(--space-6);
   }
-  .right {
+  .views {
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
+    padding: 3px;
+    gap: 2px;
+    background: var(--grey-soft);
+    border-radius: var(--radius);
   }
-  .fee {
-    font-weight: 600;
+  .views button {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 38px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+  }
+  .views button[aria-pressed="true"] {
+    background: var(--surface);
     color: var(--text);
-  }
-  .role {
-    font-size: var(--text-xs);
-    color: var(--text-3);
-    font-weight: 600;
-  }
-  .struck {
-    text-decoration: line-through;
-    color: var(--text-3);
+    box-shadow: var(--shadow-sm);
   }
 </style>

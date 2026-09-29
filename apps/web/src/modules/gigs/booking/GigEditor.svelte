@@ -34,8 +34,15 @@
   let {
     open = $bindable(false),
     gig = null,
+    date = null,
     onsaved,
-  }: { open?: boolean; gig?: BookingView | null; onsaved?: (g: BookingView) => void } = $props();
+  }: {
+    open?: boolean;
+    gig?: BookingView | null;
+    /** A new gig's first date ("YYYY-MM-DD"), e.g. the day picked in the calendar. */
+    date?: string | null;
+    onsaved?: (g: BookingView) => void;
+  } = $props();
 
   type EventRow = { title: string; date: string; start: string; end: string; venue: string; city: string };
   type PersonRow = { who: string; role: BookingRole; user_id?: string; email?: string; phone?: string };
@@ -83,7 +90,7 @@
     collective = g?.collective?.name ?? "";
     tags = g?.tags.map((t) => t.name) ?? [];
     notes = g?.notes ?? "";
-    events = g ? [] : [blankEvent()];
+    events = g ? [] : [{ ...blankEvent(), date: date ?? todayIST() }];
     people = [];
     autofill = null;
     warnings = [];

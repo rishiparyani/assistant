@@ -210,8 +210,7 @@
         {#if gig.client}
           <p class="client">
             <User size={18} /><span
-              >{gig.client.name}{#if gig.client.phone}<span class="muted">
-                  · {gig.client.phone}</span
+              >{gig.client.name}{#if gig.client.phone}<span class="muted phone">· {gig.client.phone}</span
                 >{/if}</span
             >
           </p>
@@ -569,6 +568,9 @@
 {/if}
 
 <style>
+  .phone {
+    margin-left: 0.3em;
+  }
   .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
