@@ -42,16 +42,25 @@ class AppViewController: CAPBridgeViewController {
         guard let webView = bridge?.webView, let server = bridge?.config.serverURL,
               server.host == "localhost" else { return }
         let path = defaults.string(forKey: "testPath") ?? "/"
-        let open = { webView.load(URLRequest(url: URL(string: path, relativeTo: server)!)) }
+        let open: () -> Void = {
+            guard let url = URL(string: path, relativeTo: server) else { return }
+            _ = webView.load(URLRequest(url: url))
+        }
         guard let cookie = defaults.string(forKey: "testCookie"),
-              let eq = cookie.firstIndex(of: "=") else { return open() }
+              let eq = cookie.firstIndex(of: "=") else {
+            open()
+            return
+        }
         let props: [HTTPCookiePropertyKey: Any] = [
             .name: String(cookie[..<eq]),
             .value: String(cookie[cookie.index(after: eq)...]),
             .domain: "localhost",
             .path: "/",
         ]
-        guard let c = HTTPCookie(properties: props) else { return open() }
+        guard let c = HTTPCookie(properties: props) else {
+            open()
+            return
+        }
         webView.configuration.websiteDataStore.httpCookieStore.setCookie(c) { open() }
     }
     #endif
