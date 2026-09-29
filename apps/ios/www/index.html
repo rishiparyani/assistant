@@ -34,7 +34,14 @@
         Connect to the internet once so the app can save itself on this phone. After that it opens offline
         too.
       </p>
-      <button onclick="location.reload()">Try again</button>
+      <button onclick="retry()">Try again</button>
     </main>
+    <script>
+      // This page is the app's own copy; "Try again" goes back to the server (Capacitor sets
+      // WEBVIEW_SERVER_URL to it).
+      function retry() {
+        location.replace(window.WEBVIEW_SERVER_URL || "https://assistant.rishiparyani.workers.dev/");
+      }
+    </script>
   </body>
 </html>

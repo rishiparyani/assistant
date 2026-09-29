@@ -17,9 +17,10 @@ if (!url) throw new Error(`Unknown APP_ENV "${env}"`);
 const config: CapacitorConfig = {
   appId: "in.gigspree.assistant",
   appName: "Assistant",
-  // Shown only if the server can't be reached before the web app was ever saved.
+  // www/index.html is shown when the server can't be reached and the web app isn't saved on
+  // the phone yet (first launch offline).
   webDir: "www",
-  server: { url, cleartext: env === "local" },
+  server: { url, cleartext: env === "local", errorPath: "index.html" },
   ios: {
     // Service workers (offline use) run in the app only for "app-bound" domains
     // (WKAppBoundDomains in Info.plist).

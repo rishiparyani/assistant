@@ -25,6 +25,11 @@ on:
 permissions:
   contents: read
 
+# bash with pipefail, so `xcodebuild … | tail` fails when xcodebuild fails.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ios-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
