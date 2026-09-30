@@ -1,4 +1,6 @@
 // App-wide toasts: toast.success("Saved"), toast.error(err).
+import { untrack } from "svelte";
+
 export interface ToastItem {
   id: number;
   kind: "success" | "error" | "info";
@@ -10,7 +12,9 @@ let next = 1;
 
 function push(kind: ToastItem["kind"], text: string, ms = 3200) {
   const id = next++;
-  toasts.push({ id, kind, text });
+  // Untracked: pages call this from effects ($effect(() => q.error && toast.error(q.error)));
+  // reading the list there would re-run that effect on every toast, forever.
+  untrack(() => toasts.push({ id, kind, text }));
   setTimeout(() => {
     const i = toasts.findIndex((t) => t.id === id);
     if (i >= 0) toasts.splice(i, 1);

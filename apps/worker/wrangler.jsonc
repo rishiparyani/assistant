@@ -32,6 +32,7 @@
       { "name": "MONTHS", "class_name": "MonthIndexObject" },
       { "name": "PENDING", "class_name": "PendingObject" },
       { "name": "INBOX", "class_name": "InboxObject" },
+      { "name": "LIBRARIES", "class_name": "LibraryObject" },
     ],
   },
   "migrations": [
@@ -42,6 +43,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["InboxObject"],
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["LibraryObject"],
     },
   ],
   // Outbox notes travel here; the deploy workflow creates the queues if missing.
@@ -87,6 +92,7 @@
           { "name": "MONTHS", "class_name": "MonthIndexObject" },
           { "name": "PENDING", "class_name": "PendingObject" },
           { "name": "INBOX", "class_name": "InboxObject" },
+          { "name": "LIBRARIES", "class_name": "LibraryObject" },
         ],
       },
       "migrations": [
@@ -97,6 +103,10 @@
         {
           "tag": "v2",
           "new_sqlite_classes": ["InboxObject"],
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["LibraryObject"],
         },
       ],
       // Outbox notes travel here; the deploy workflow creates the queues if missing.

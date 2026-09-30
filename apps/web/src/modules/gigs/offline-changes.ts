@@ -59,6 +59,7 @@ const item = (x: Body, pending = true): GigListItemView => ({
   id: String(x.id),
   text: String(x.text),
   detail: (x.detail as string | null | undefined) ?? null,
+  song_id: (x.song_id as string | undefined) ?? null,
   done: false,
   done_by: null,
   pending,

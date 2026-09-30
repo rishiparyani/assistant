@@ -85,6 +85,16 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 
 People are added by `user_id`, by `email` (matched to an account case-insensitively; otherwise kept as a name) or by `name`. Edits to details and events send the gig's `version`; a changed gig returns `409` with `details.reason = "version_mismatch"` and `current_version`. Other conflict reasons: `invalid_transition`, `last_event`, `last_manager`, `already_on_gig`, `idempotency_key_reused`.
 
+## Music (docs/design/music.md)
+
+My own songs only (someone else's song is 404). Writes need an `Idempotency-Key`; a create may send an `id` made on the device (reused id: `409` `id_taken`).
+
+- `GET /api/songs?q=&limit=` (`find_songs`): my songs sorted by title (ignoring The/A/An), each word of `q` starting a word of the title or artist; no charts.
+- `GET /api/songs/:song_id` (`get_song`): one song with its ChordPro `chart`.
+- `POST /api/songs` (`create_song`: `title`, optional `artist`, `key` like `G`/`F#m`/`Bb`, `tempo_bpm`, `capo`, `notes`, `chart`), `PATCH /api/songs/:song_id` (`update_song`; empty text clears), `DELETE /api/songs/:song_id` (`remove_song`, confirmation from MCP). Up to 2000 songs (more: `400` `validation_failed`).
+- `GET /api/songs-all` (`all_songs`, session only): the whole library with charts, for the web app's offline copy.
+- Gig list items (`create_gig_list`, `add_list_items`) take an optional `song_id`, returned on each item; that is a setlist.
+
 ## Live updates
 
 `GET /api/live` (WebSocket; signed-in session; the `Origin` must be the app's own, so other sites can't open it with your cookies). The connection goes to your person object, which sends `{"type":"gig_changed","gig_id":"…"}` whenever a gig you're on changes (after its summary reaches you, usually within about a second). Send `ping` to keep it open (answered `pong` without waking the object). At most 8 open connections per person; the oldest is closed. The web app keeps one open while visible and refreshes what's on screen on each notice.

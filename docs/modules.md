@@ -67,8 +67,8 @@ The registry (`apps/worker/src/core/operations.ts`) wraps every operation with: 
 
 ## Current modules
 
-| Module  | Status                              | Holds                                          |
-| ------- | ----------------------------------- | ---------------------------------------------- |
-| `gigs`  | Phase 1                             | clients, venues, gigs, payments, expenses      |
-| `music` | Phase 2 (planned)                   | songs, chart revisions, arrangements, setlists |
-| others  | ideas, see [roadmap.md](roadmap.md) |                                                |
+| Module  | Status                              | Holds                                                                                                                           |
+| ------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `gigs`  | Phase 1                             | clients, venues, gigs, payments, expenses                                                                                       |
+| `music` | Phase 2, step 1 (songs, stage mode) | my songs with chord charts; setlists are gig lists with `song_id` ([design](design/music.md)); revisions and arrangements later |
+| others  | ideas, see [roadmap.md](roadmap.md) |                                                                                                                                 |

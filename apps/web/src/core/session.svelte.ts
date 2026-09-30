@@ -4,6 +4,7 @@
 import type { MeResponse } from "@assistant/shared";
 import { api, ApiError } from "./api.ts";
 import { clearCache, useCacheFor } from "./query.svelte.ts";
+import { clearDeviceDb } from "./device-db.ts";
 import { clearOutbox, useOutboxFor } from "./outbox.svelte.ts";
 
 const KEY = "assistant:me";
@@ -61,4 +62,5 @@ export function forgetSession() {
   remember(null);
   clearCache();
   clearOutbox();
+  void clearDeviceDb();
 }
