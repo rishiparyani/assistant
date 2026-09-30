@@ -146,6 +146,29 @@ describe("cancelling with an advance", () => {
 
     // Players can't cancel; the kept advance shows in the manager's report.
     expect((await as(mate)(`/gigs/${gig.id}/status`, { body: { action: "cancel" } })).status).toBe(403);
+
+    // A cancelled gig's events and lineup stay as they were; money can still be recorded.
+    const eventId = view.events[0]!.id;
+    const refused = [
+      await as(owner)(`/gigs/${gig.id}/events`, { body: { start_at: "2026-12-30T20:00" } }),
+      await as(owner)(`/gigs/${gig.id}/events/${eventId}`, {
+        method: "PATCH",
+        body: { version: view.version, venue_name: "Test Elsewhere" },
+      }),
+      await as(owner)(`/gigs/${gig.id}/events/${eventId}/lineup`, {
+        method: "PUT",
+        body: { version: view.version, lineup: [] },
+      }),
+    ];
+    for (const r of refused) {
+      expect(r.status).toBe(409);
+      expect(await json<{ error: { details: { reason: string } } }>(r)).toMatchObject({
+        error: { details: { reason: "cancelled" } },
+      });
+    }
+    expect(
+      (await as(owner)(`/gigs/${gig.id}/payments`, { body: { amount: "1000", method: "cash" } })).status,
+    ).toBe(201);
   });
 });
 

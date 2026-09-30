@@ -642,6 +642,7 @@ export class BookingObject extends DurableObject<Env> {
 
   async addEvent(input: EventInput, actor: Actor, key: string | null): Promise<BookingView> {
     return this.write(["add_event", input], actor, key, "manager", (gig) => {
+      this.checkNotCancelled(gig);
       const count = this.eventRows().length;
       if (count >= 20) throw new ObjectError("validation_failed", "A gig can have at most 20 events");
       const id = this.insertEvent(input, count);
@@ -657,6 +658,7 @@ export class BookingObject extends DurableObject<Env> {
     key: string | null,
   ): Promise<BookingView> {
     return this.write(["update_event", eventId, input], actor, key, "manager", (gig) => {
+      this.checkNotCancelled(gig);
       this.checkVersion(gig, input.version);
       const e = this.requireEvent(eventId);
       const next = {
@@ -691,6 +693,7 @@ export class BookingObject extends DurableObject<Env> {
 
   async removeEvent(eventId: string, actor: Actor, key: string | null): Promise<BookingView> {
     return this.write(["remove_event", eventId], actor, key, "manager", (gig) => {
+      this.checkNotCancelled(gig);
       const e = this.requireEvent(eventId);
       if (this.eventRows().length <= 1)
         throw new ObjectError("conflict", "A gig needs at least one event; delete the gig instead", {
@@ -807,9 +810,11 @@ export class BookingObject extends DurableObject<Env> {
       if (this.personRows().some((x) => x.user_id === userId)) return false; // already on the gig
       this.sql.exec(`update people set user_id = ?, email = null where id = ?`, userId, p.id);
       this.touch(gig.id);
+      // A system change (the account is in `after`): their Home then says "You're on …", which
+      // it skips for changes a person made themselves.
       audit(
         this.sql,
-        { userId, source: "system" },
+        { userId: null, source: "system" },
         { action: "attach_account", entityType: "person", entityId: p.id, after: { user_id: userId } },
       );
       bumpAndNote(this.sql);
@@ -900,6 +905,7 @@ export class BookingObject extends DurableObject<Env> {
     key: string | null,
   ): Promise<BookingView> {
     return this.write(["set_lineup", eventId, version, entries], actor, key, "manager", (gig) => {
+      this.checkNotCancelled(gig);
       this.checkVersion(gig, version);
       const e = this.requireEvent(eventId);
       const resolved = entries.map((x) => ({ ...x, person: this.pickPerson(x) }));
@@ -2164,6 +2170,14 @@ export class BookingObject extends DurableObject<Env> {
   /** Any change to events or people counts as a change to the gig (version, updated_at). */
   private touch(gigId: string) {
     this.sql.exec(`update gig set version = version + 1, updated_at = ? where id = ?`, nowIso(), gigId);
+  }
+
+  /** A cancelled gig keeps its history: events and lineup stay as they were. Money still works. */
+  private checkNotCancelled(gig: GigRow) {
+    if (gig.status === "cancelled")
+      throw new ObjectError("conflict", "This gig is cancelled; its events and lineup can't be changed", {
+        reason: "cancelled",
+      });
   }
 
   private checkVersion(gig: GigRow, version: number) {
