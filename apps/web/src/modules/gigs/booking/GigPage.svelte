@@ -278,7 +278,9 @@
       {#each gig.events as e, i (e.id)}
         <ListGroup title={e.title ?? (gig.events.length > 1 ? `Event ${i + 1}` : "When and where")}>
           {#snippet action()}
-            {#if manager}<button class="link" onclick={() => openEvent(e)}>Edit</button>{/if}
+            {#if manager && gig.status !== "cancelled"}<button class="link" onclick={() => openEvent(e)}
+                >Edit</button
+              >{/if}
           {/snippet}
           <div class="event">
             <ul class="facts">
@@ -307,10 +309,14 @@
           {:else}
             <ListRow
               title="No lineup yet"
-              subtitle={manager ? "Choose who plays and their shares." : "The managers set who plays."}
+              subtitle={gig.status === "cancelled"
+                ? "No lineup was set."
+                : manager
+                  ? "Choose who plays and their shares."
+                  : "The managers set who plays."}
             />
           {/each}
-          {#if manager}
+          {#if manager && gig.status !== "cancelled"}
             <div class="row-actions">
               <Button size="sm" variant="tinted" onclick={() => openLineup(e)}
                 >{e.lineup.length ? "Change lineup" : "Set lineup"}</Button
@@ -322,7 +328,7 @@
           {/if}
         </ListGroup>
       {/each}
-      {#if manager}
+      {#if manager && gig.status !== "cancelled"}
         <Button variant="ghost" onclick={() => openEvent(null)}>
           {#snippet icon()}<Plus />{/snippet}
           Add an event (e.g. Reception)

@@ -197,4 +197,29 @@ describe("gig notifications", () => {
     ).toBe(0);
     expect((await inbox(mate)).unread).toBe(0);
   });
+
+  it("tells someone added by email that they're on the gig once they sign up", async () => {
+    const owner = await signUp("Test Owner");
+    const email = `test-late-${Date.now()}@example.com`;
+    const later = new Date(Date.now() + 12 * 86400_000).toISOString().slice(0, 10);
+    const gig = await json<BookingView>(
+      await as(owner)("/gigs", {
+        body: {
+          title: "Test Late Gig",
+          events: [{ start_at: `${later}T20:00`, venue_name: "Test Club" }],
+          people: [{ email, name: "Test Late", role: "player" }],
+        },
+      }),
+    );
+    const late = await signUp("Test Late", email);
+    const got = await waitFor(
+      () => inbox(late),
+      (n) => n.items.length >= 1,
+    );
+    expect(got.items[0]).toMatchObject({
+      kind: "gig_added",
+      title: "You're on “Test Late Gig”",
+      url: `/gigs/${gig.id}`,
+    });
+  });
 });
