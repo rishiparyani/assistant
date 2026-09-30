@@ -138,8 +138,13 @@
   );
   // The one next step worth a button (confirm an enquiry; mark played once it's over);
   // everything else is under More.
+  // Without an end time, a gig counts as over 12 hours after it starts.
   const over = $derived(
-    gig ? gig.events.every((e) => Date.parse(e.end_at ?? e.start_at) <= Date.now()) : false,
+    gig
+      ? gig.events.every(
+          (e) => (e.end_at ? Date.parse(e.end_at) : Date.parse(e.start_at) + 12 * 3600_000) <= Date.now(),
+        )
+      : false,
   );
   const nextStep = $derived(
     !manager || !gig
@@ -160,6 +165,8 @@
     if (gig.status === "confirmed")
       out.push({ label: "Mark as played", icon: Check, onclick: () => void setStatus("complete") });
     if (live) out.push({ label: "Cancel gig", icon: Ban, onclick: () => (cancelOpen = true) });
+    if (gig.status === "cancelled")
+      out.push({ label: "Reopen gig", icon: Undo, onclick: () => void reopen() });
     out.push({ label: "Delete gig", icon: Trash, destructive: true, onclick: () => void deleteGig() });
     return out;
   });
@@ -182,6 +189,18 @@
     } finally {
       busy = "";
     }
+  }
+
+  async function reopen() {
+    const refunded = gig?.money.payments?.some((p) => p.kind === "refund");
+    const ok = await confirm({
+      title: "Reopen this gig?",
+      message:
+        "It goes back to how it was before it was cancelled, and everyone on it sees it again." +
+        (refunded ? " The refund stays recorded; if it didn't happen, record the payment again." : ""),
+      confirmLabel: "Reopen",
+    });
+    if (ok) await act("reopen", () => bookingsApi.setStatus(gigId, "reopen"), "Gig reopened");
   }
 
   async function deleteGig() {
@@ -277,12 +296,10 @@
   <PageHeader title={gig.title} back="/gigs" backLabel="Gigs">
     {#snippet actions()}
       {#if manager}
-        {#if gig.status !== "cancelled"}
-          <Button onclick={() => (editOpen = true)} aria-label="Edit gig">
-            {#snippet icon()}<Pencil />{/snippet}
-            Edit
-          </Button>
-        {/if}
+        <Button onclick={() => (editOpen = true)} aria-label="Edit gig">
+          {#snippet icon()}<Pencil />{/snippet}
+          Edit
+        </Button>
         <button class="more" type="button" aria-label="More actions" onclick={() => (moreOpen = true)}
           ><Ellipsis size={22} /></button
         >
@@ -343,6 +360,14 @@
         {#if gig.status === "cancelled" && gig.cancel_reason}<p class="muted">
             Cancelled: {gig.cancel_reason}
           </p>{/if}
+        {#if manager && gig.status === "cancelled"}
+          <div>
+            <Button variant="tinted" loading={busy === "reopen"} onclick={reopen}>
+              {#snippet icon()}<Undo />{/snippet}
+              Reopen gig
+            </Button>
+          </div>
+        {/if}
         {#if nextStep}
           <div>
             <Button variant="tinted" loading={busy === nextStep} onclick={() => setStatus(nextStep)}>

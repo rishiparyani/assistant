@@ -115,7 +115,9 @@ export const UpdateBookingInput = BookingRef.extend({
 });
 
 export const BookingStatusInput = BookingRef.extend({
-  action: z.enum(["confirm", "complete", "cancel"]),
+  action: z
+    .enum(["confirm", "complete", "cancel", "reopen"])
+    .describe("reopen undoes a cancellation: the gig goes back to enquiry or confirmed, as it was"),
   reason: optionalText(500),
   ...moneyFields("refund"),
   refund_method: z
