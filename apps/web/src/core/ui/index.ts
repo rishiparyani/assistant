@@ -24,3 +24,4 @@ export { default as Spinner } from "./Spinner.svelte";
 export { default as TopProgress } from "./TopProgress.svelte";
 export { default as SuggestField } from "./SuggestField.svelte";
 export { default as NotSaved } from "./NotSaved.svelte";
+export { default as ActionSheet } from "./ActionSheet.svelte";

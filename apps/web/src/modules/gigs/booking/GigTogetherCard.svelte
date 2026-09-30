@@ -3,68 +3,94 @@
   import Users from "@lucide/svelte/icons/users";
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import MessageSquare from "@lucide/svelte/icons/message-square";
-  import { ListGroup, ListRow } from "../../../core/ui/index.ts";
 
   // The way into the gig's shared space (guest list, lists, notes), kept apart from the
-  // gig's own details: one row each, with where things stand.
+  // gig's own details: a tile each, with where things stand.
   let { gig }: { gig: BookingView } = $props();
 
-  const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
-  const ago = (iso: string) => {
-    const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-    if (mins < 60) return mins <= 1 ? "just now" : `${mins} min ago`;
-    const hours = Math.round(mins / 60);
-    return hours < 24 ? `${hours} h ago` : `${Math.round(hours / 24)} d ago`;
-  };
-
+  // Short, so the three sit side by side on a phone.
   const guests = $derived.by(() => {
     const l = gig.guest_list;
-    if (!l.heads) return l.open ? "No guests yet" : "Closed";
-    const count = l.total_limit ? `${l.heads} of ${l.total_limit}` : people(l.heads);
-    const extra =
-      gig.my_role === "manager" ? (l.link?.enabled ? "venue link on" : null) : `yours ${l.my_heads}`;
-    return [count, extra].filter(Boolean).join(" · ");
+    if (!l.heads) return l.open ? "None yet" : "Closed";
+    return l.total_limit
+      ? `${l.heads} of ${l.total_limit}`
+      : `${l.heads} ${l.heads === 1 ? "guest" : "guests"}`;
   });
-  const lists = $derived(
-    gig.lists.length ? gig.lists.map((l) => l.title).join(", ") : "Setlists, packing, run of show",
-  );
-  const notes = $derived.by(() => {
-    const n = gig.shared_notes;
-    if (!n.length) return "Updates for everyone on the gig";
-    return `${n.length} ${n.length === 1 ? "note" : "notes"} · latest from ${n[0]!.author}, ${ago(n[0]!.created_at)}`;
-  });
+  const count = (n: number, one: string, many: string, none: string) =>
+    n ? `${n} ${n === 1 ? one : many}` : none;
+  const tiles = $derived([
+    { href: `/gigs/${gig.id}/guests`, label: "Guests", sub: guests, icon: Users, tone: "violet" },
+    {
+      href: `/gigs/${gig.id}/lists`,
+      label: "Lists",
+      sub: count(gig.lists.length, "list", "lists", "Setlists…"),
+      icon: ListChecks,
+      tone: "blue",
+    },
+    {
+      href: `/gigs/${gig.id}/notes`,
+      label: "Notes",
+      sub: count(gig.shared_notes.length, "note", "notes", "None yet"),
+      icon: MessageSquare,
+      tone: "green",
+    },
+  ]);
 </script>
 
-<ListGroup title="Together">
-  <ListRow href="/gigs/{gig.id}/guests" title="Guest list" subtitle={guests}>
-    {#snippet leading()}<span class="ico violet"><Users size={18} /></span>{/snippet}
-  </ListRow>
-  <ListRow href="/gigs/{gig.id}/lists" title="Lists" subtitle={lists}>
-    {#snippet leading()}<span class="ico blue"><ListChecks size={18} /></span>{/snippet}
-  </ListRow>
-  <ListRow href="/gigs/{gig.id}/notes" title="Notes" subtitle={notes}>
-    {#snippet leading()}<span class="ico green"><MessageSquare size={18} /></span>{/snippet}
-  </ListRow>
-</ListGroup>
+<nav class="together" aria-label="Together: guests, lists and notes">
+  {#each tiles as t (t.href)}
+    <a class="tile" href={t.href}>
+      <span class="label"><span class="ico {t.tone}"><t.icon size={16} /></span>{t.label}</span>
+      <span class="sub">{t.sub}</span>
+    </a>
+  {/each}
+</nav>
 
 <style>
+  .together {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .tile {
+    display: grid;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    min-height: 56px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    color: var(--text);
+    min-width: 0;
+  }
+  .tile:hover {
+    background: var(--surface-hover);
+  }
+  .label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+  }
+  .sub {
+    max-width: 100%;
+    font-size: var(--text-sm);
+    color: var(--text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .ico {
-    display: inline-grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
+    display: inline-flex;
   }
   .violet {
-    background: var(--violet-soft);
     color: var(--violet);
   }
   .blue {
-    background: var(--blue-soft);
     color: var(--blue);
   }
   .green {
-    background: var(--green-soft);
     color: var(--green);
   }
 </style>

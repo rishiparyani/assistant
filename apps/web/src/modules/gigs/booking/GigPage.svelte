@@ -7,7 +7,7 @@
     PayeeView,
     PaymentStatus,
   } from "@assistant/shared";
-  import { formatDateIST } from "@assistant/shared";
+  import { formatDateIST, formatINR } from "@assistant/shared";
   import CalendarClock from "@lucide/svelte/icons/calendar-clock";
   import MapPin from "@lucide/svelte/icons/map-pin";
   import User from "@lucide/svelte/icons/user";
@@ -17,7 +17,13 @@
   import Ban from "@lucide/svelte/icons/ban";
   import Undo from "@lucide/svelte/icons/undo-2";
   import Trash from "@lucide/svelte/icons/trash-2";
+  import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import Wallet from "@lucide/svelte/icons/wallet";
+  import Phone from "@lucide/svelte/icons/phone";
+  import ChevronDown from "@lucide/svelte/icons/chevron-down";
+  import Users from "@lucide/svelte/icons/users";
   import {
+    ActionSheet,
     Avatar,
     Button,
     Card,
@@ -81,6 +87,10 @@
   let payoutOpen = $state(false);
   let payoutFor = $state<PayeeView | null>(null);
   let cancelOpen = $state(false);
+  let moreOpen = $state(false);
+  // Lineups are folded to one line per event; a one-event gig shows its lineup open.
+  let unfolded = $state<Record<string, boolean>>({});
+  const lineupOpenFor = (e: BookingEventView) => unfolded[e.id] ?? gig?.events.length === 1;
 
   // Tabs keep the page short: what and when, the money, and who's on it. Guests, lists
   // and notes live on their own "Together" page (the card above the tabs).
@@ -96,6 +106,71 @@
       : 0,
   );
   const live = $derived(gig ? gig.status === "enquiry" || gig.status === "confirmed" : false);
+
+  // The summary at the top: when, where, who for and the money, a line each.
+  const when = $derived.by(() => {
+    if (!gig?.events.length) return null;
+    const first = gig.events[0]!;
+    if (gig.events.length === 1)
+      return { day: formatDateIST(first.start_at), extra: timeRange(first.start_at, first.end_at) };
+    const firstDay = formatDateIST(first.start_at);
+    const lastDay = formatDateIST(gig.events.at(-1)!.start_at);
+    return {
+      day: firstDay === lastDay ? firstDay : `${firstDay} – ${lastDay}`,
+      extra: `${gig.events.length} events`,
+    };
+  });
+  const where = $derived.by(() => {
+    const events = gig?.events ?? [];
+    const venues = [...new Set(events.map((e) => e.venue_name).filter(Boolean))];
+    const cities = [...new Set(events.map((e) => e.venue_city).filter(Boolean))];
+    if (!venues.length) return cities.join(", ") || null;
+    return [venues.join(" · "), cities.length === 1 ? cities[0] : null].filter(Boolean).join(", ");
+  });
+  const meta = $derived(
+    gig
+      ? [
+          gig.collective?.name,
+          gig.event_type ? gig.event_type[0]!.toUpperCase() + gig.event_type.slice(1) : null,
+          ...gig.tags.map((t) => t.name),
+        ].filter(Boolean)
+      : [],
+  );
+  // The one next step worth a button (confirm an enquiry; mark played once it's over);
+  // everything else is under More.
+  const over = $derived(
+    gig ? gig.events.every((e) => Date.parse(e.end_at ?? e.start_at) <= Date.now()) : false,
+  );
+  const nextStep = $derived(
+    !manager || !gig
+      ? null
+      : gig.status === "enquiry"
+        ? ("confirm" as const)
+        : gig.status === "confirmed" && over
+          ? ("complete" as const)
+          : null,
+  );
+  const setStatus = (a: "confirm" | "complete") =>
+    act(a, () => bookingsApi.setStatus(gigId, a), a === "confirm" ? "Gig confirmed" : "Marked as played");
+  const moreActions = $derived.by(() => {
+    if (!gig || !manager) return [];
+    const out: { label: string; icon?: typeof Check; destructive?: boolean; onclick: () => void }[] = [];
+    if (gig.status === "enquiry")
+      out.push({ label: "Confirm gig", icon: Check, onclick: () => void setStatus("confirm") });
+    if (gig.status === "confirmed")
+      out.push({ label: "Mark as played", icon: Check, onclick: () => void setStatus("complete") });
+    if (live) out.push({ label: "Cancel gig", icon: Ban, onclick: () => (cancelOpen = true) });
+    out.push({ label: "Delete gig", icon: Trash, destructive: true, onclick: () => void deleteGig() });
+    return out;
+  });
+  /** "₹12,000 each" when the shares are equal, else their total. */
+  function lineupMoney(e: BookingEventView) {
+    const shares = e.lineup.map((l) => l.share).filter((x) => x != null);
+    if (!shares.length || shares.length !== e.lineup.length) return null;
+    if (shares.every((x) => x.amount_paise === shares[0]!.amount_paise))
+      return `${shares[0]!.amount_display} each`;
+    return `${formatINR(shares.reduce((n, x) => n + x.amount_paise, 0))} in shares`;
+  }
 
   async function act(name: string, fn: () => Promise<BookingView>, done: string) {
     busy = name;
@@ -202,10 +277,15 @@
   <PageHeader title={gig.title} back="/gigs" backLabel="Gigs">
     {#snippet actions()}
       {#if manager}
-        <Button onclick={() => (editOpen = true)} aria-label="Edit gig">
-          {#snippet icon()}<Pencil />{/snippet}
-          Edit
-        </Button>
+        {#if gig.status !== "cancelled"}
+          <Button onclick={() => (editOpen = true)} aria-label="Edit gig">
+            {#snippet icon()}<Pencil />{/snippet}
+            Edit
+          </Button>
+        {/if}
+        <button class="more" type="button" aria-label="More actions" onclick={() => (moreOpen = true)}
+          ><Ellipsis size={22} /></button
+        >
       {/if}
     {/snippet}
   </PageHeader>
@@ -213,49 +293,61 @@
   <div class="page">
     <Card>
       <div class="hero">
-        <div class="pills">
+        <div class="status">
           <Pill tone={statusTone(gig.status)}>{statusLabel(gig.status)}</Pill>
-          {#if gig.event_type}<Pill>{gig.event_type[0]!.toUpperCase() + gig.event_type.slice(1)}</Pill>{/if}
-          {#if gig.collective}<Pill tone="violet">{gig.collective.name}</Pill>{/if}
-          {#each gig.tags as t (t.id)}<Pill tone="blue">{t.name}</Pill>{/each}
-          <Pill>{manager ? "You manage this" : "You're playing"}</Pill>
+          {#if meta.length}<span class="meta">{meta.join(" · ")}</span>{/if}
         </div>
-        {#if gig.client}
-          <p class="client">
-            <User size={18} /><span
-              >{gig.client.name}{#if gig.client.phone}<span class="muted phone">· {gig.client.phone}</span
-                >{/if}</span
-            >
-          </p>
-        {/if}
+        <ul class="facts">
+          {#if when}
+            <li>
+              <CalendarClock size={18} />
+              <span class="when"><span>{when.day}</span><span class="muted">{when.extra}</span></span>
+            </li>
+          {/if}
+          {#if where}<li><MapPin size={18} /><span>{where}</span></li>{/if}
+          {#if gig.client}
+            <li>
+              <User size={18} />
+              <span class="grow"
+                >{gig.client.name}{#if gig.client.organisation}<span class="muted"
+                    >&nbsp;· {gig.client.organisation}</span
+                  >{/if}</span
+              >
+              {#if gig.client.phone}
+                <a
+                  class="call"
+                  href="tel:{gig.client.phone.replace(/\s+/g, '')}"
+                  aria-label="Call {gig.client.name}"><Phone size={18} /></a
+                >
+              {/if}
+            </li>
+          {/if}
+          {#if money.fee && money.received && gig.status !== "cancelled"}
+            <li>
+              <Wallet size={18} />
+              <button class="fact-link" type="button" onclick={() => (tab = "money")}
+                >{money.received.amount_display} of {money.fee.amount_display} received</button
+              >
+            </li>
+          {:else if !manager && money.mine.share.amount_paise > 0}
+            <li>
+              <Wallet size={18} />
+              <button class="fact-link" type="button" onclick={() => (tab = "money")}
+                >Your share {money.mine.share.amount_display}{money.mine.owed.amount_paise > 0
+                  ? ` · ${money.mine.owed.amount_display} owed`
+                  : " · paid"}</button
+              >
+            </li>
+          {/if}
+        </ul>
         {#if gig.status === "cancelled" && gig.cancel_reason}<p class="muted">
             Cancelled: {gig.cancel_reason}
           </p>{/if}
-        {#if manager && live}
-          <div class="actions">
-            {#if gig.status === "enquiry"}
-              <Button
-                variant="tinted"
-                loading={busy === "confirm"}
-                onclick={() => act("confirm", () => bookingsApi.setStatus(gigId, "confirm"), "Gig confirmed")}
-              >
-                {#snippet icon()}<Check />{/snippet}
-                Confirm
-              </Button>
-            {:else}
-              <Button
-                variant="tinted"
-                loading={busy === "complete"}
-                onclick={() =>
-                  act("complete", () => bookingsApi.setStatus(gigId, "complete"), "Marked as played")}
-              >
-                {#snippet icon()}<Check />{/snippet}
-                Mark played
-              </Button>
-            {/if}
-            <Button variant="ghost" onclick={() => (cancelOpen = true)}>
-              {#snippet icon()}<Ban />{/snippet}
-              Cancel gig
+        {#if nextStep}
+          <div>
+            <Button variant="tinted" loading={busy === nextStep} onclick={() => setStatus(nextStep)}>
+              {#snippet icon()}<Check />{/snippet}
+              {nextStep === "confirm" ? "Confirm gig" : "Mark as played"}
             </Button>
           </div>
         {/if}
@@ -276,36 +368,60 @@
 
     {#if tab === "details"}
       {#each gig.events as e, i (e.id)}
-        <ListGroup title={e.title ?? (gig.events.length > 1 ? `Event ${i + 1}` : "When and where")}>
+        {@const single = gig.events.length === 1}
+        <!-- One event: its time and place are in the summary above, so just the lineup here. -->
+        <ListGroup title={single ? "Lineup" : (e.title ?? `Event ${i + 1}`)}>
           {#snippet action()}
             {#if manager && gig.status !== "cancelled"}<button class="link" onclick={() => openEvent(e)}
-                >Edit</button
+                >{single ? "Edit time and place" : "Edit"}</button
               >{/if}
           {/snippet}
-          <div class="event">
-            <ul class="facts">
-              <li>
-                <CalendarClock size={18} />
-                <span class="when"
-                  ><span>{formatDateIST(e.start_at)}</span><span class="muted"
-                    >{timeRange(e.start_at, e.end_at)}</span
-                  ></span
-                >
-              </li>
-              {#if e.venue_name}
+          {#if single}
+            {#if e.notes}<p class="notes-inline event">{e.notes}</p>{/if}
+          {:else}
+            <div class="event">
+              <ul class="facts">
                 <li>
-                  <MapPin size={18} /><span>{e.venue_name}{e.venue_city ? `, ${e.venue_city}` : ""}</span>
+                  <CalendarClock size={18} />
+                  <span class="when"
+                    ><span>{formatDateIST(e.start_at)}</span><span class="muted"
+                      >{timeRange(e.start_at, e.end_at)}</span
+                    ></span
+                  >
                 </li>
+                {#if e.venue_name}
+                  <li>
+                    <MapPin size={18} /><span>{e.venue_name}{e.venue_city ? `, ${e.venue_city}` : ""}</span>
+                  </li>
+                {/if}
+              </ul>
+              {#if e.notes}<p class="notes-inline">{e.notes}</p>{/if}
+            </div>
+          {/if}
+          {#if e.lineup.length}
+            {@const open = lineupOpenFor(e)}
+            {@const each = lineupMoney(e)}
+            <button class="fold" type="button" aria-expanded={open} onclick={() => (unfolded[e.id] = !open)}>
+              <span class="band" aria-hidden="true"><Users size={18} /></span>
+              <span class="grow"
+                >{e.lineup.length} playing{#if each}<span class="muted">&nbsp;· {each}</span>{/if}</span
+              >
+              <span class="chev" class:turned={open}><ChevronDown size={18} /></span>
+            </button>
+            {#if open}
+              {#each e.lineup as l (l.id)}
+                <ListRow title={l.is_me ? `${l.name} (you)` : l.name} subtitle={l.part ?? undefined}>
+                  {#snippet leading()}<Avatar name={l.name} size={32} />{/snippet}
+                  {#snippet trailing()}{#if l.share}<span class="amt num">{l.share.amount_display}</span
+                      >{/if}{/snippet}
+                </ListRow>
+              {/each}
+              {#if manager && gig.status !== "cancelled"}
+                <div class="row-actions">
+                  <Button size="sm" variant="tinted" onclick={() => openLineup(e)}>Change lineup</Button>
+                </div>
               {/if}
-            </ul>
-            {#if e.notes}<p class="notes-inline">{e.notes}</p>{/if}
-          </div>
-          {#each e.lineup as l (l.id)}
-            <ListRow title={l.is_me ? `${l.name} (you)` : l.name} subtitle={l.part ?? undefined}>
-              {#snippet leading()}<Avatar name={l.name} size={32} />{/snippet}
-              {#snippet trailing()}{#if l.share}<span class="amt num">{l.share.amount_display}</span
-                  >{/if}{/snippet}
-            </ListRow>
+            {/if}
           {:else}
             <ListRow
               title="No lineup yet"
@@ -314,17 +430,8 @@
                 : manager
                   ? "Choose who plays and their shares."
                   : "The managers set who plays."}
+              onclick={manager && gig.status !== "cancelled" ? () => openLineup(e) : undefined}
             />
-          {/each}
-          {#if manager && gig.status !== "cancelled"}
-            <div class="row-actions">
-              <Button size="sm" variant="tinted" onclick={() => openLineup(e)}
-                >{e.lineup.length ? "Change lineup" : "Set lineup"}</Button
-              >
-              {#if gig.events.length > 1}
-                <Button size="sm" variant="ghost" onclick={() => removeEvent(e)}>Remove event</Button>
-              {/if}
-            </div>
           {/if}
         </ListGroup>
       {/each}
@@ -449,15 +556,15 @@
           {#each money.payees as p (p.person_id)}
             <ListRow
               title={p.is_me ? `${p.name} (you)` : p.name}
-              subtitle="Share {p.share.amount_display} · paid {p.paid.amount_display}"
+              subtitle={p.paid.amount_paise
+                ? `Share ${p.share.amount_display} · paid ${p.paid.amount_display}`
+                : `Share ${p.share.amount_display}`}
               onclick={manager ? () => openPayout(p) : undefined}
             >
               {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
               {#snippet trailing()}
-                <span class="right">
-                  <Pill tone={paymentTone(p.status)}>{payoutLabel(p.status)}</Pill>
-                  {#if p.owed.amount_paise > 0}<span class="owed num">{p.owed.amount_display} owed</span>{/if}
-                </span>
+                {#if p.owed.amount_paise > 0}<span class="owed num">{p.owed.amount_display} owed</span
+                  >{:else}<Pill tone={paymentTone(p.status)}>{payoutLabel(p.status)}</Pill>{/if}
               {/snippet}
             </ListRow>
           {:else}
@@ -560,12 +667,6 @@
             </label>
           {/each}
         </ListGroup>
-        <div class="danger">
-          <Button variant="ghost" onclick={deleteGig}>
-            {#snippet icon()}<Trash />{/snippet}
-            Delete gig
-          </Button>
-        </div>
       {/if}
     {/if}
   </div>
@@ -591,15 +692,13 @@
     }}
   />
   <ExpenseSheet bind:open={expenseOpen} {gig} onsaved={set} />
-  <EventSheet bind:open={eventOpen} {gig} event={eventFor} onsaved={set} />
+  <EventSheet bind:open={eventOpen} {gig} event={eventFor} onsaved={set} onremove={removeEvent} />
+  <ActionSheet bind:open={moreOpen} title={gig.title} actions={moreActions} />
   {#if lineupFor}<LineupSheet bind:open={lineupOpen} {gig} event={lineupFor} onsaved={set} />{/if}
   <PersonSheet bind:open={personOpen} {gig} person={personFor} onsaved={set} />
 {/if}
 
 <style>
-  .phone {
-    margin-left: 0.3em;
-  }
   .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
@@ -608,16 +707,6 @@
   }
   .page > :global(.btn) {
     justify-self: start;
-  }
-  .client {
-    display: flex;
-    gap: var(--space-3);
-    align-items: center;
-    margin: 0;
-  }
-  .client :global(svg) {
-    color: var(--text-3);
-    flex-shrink: 0;
   }
   .summary {
     display: grid;
@@ -641,10 +730,103 @@
     display: grid;
     gap: var(--space-4);
   }
-  .pills {
+  .status {
     display: flex;
+    align-items: center;
     gap: var(--space-2);
-    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .meta {
+    min-width: 0;
+    font-size: var(--text-sm);
+    color: var(--text-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .grow {
+    flex: 1;
+    min-width: 0;
+  }
+  .facts li:has(.call),
+  .facts li:has(.fact-link) {
+    align-items: center;
+  }
+  .facts li:has(.call) :global(svg),
+  .facts li:has(.fact-link) :global(svg) {
+    margin-top: 0;
+  }
+  .call {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    margin: -10px -8px -10px 0;
+    border-radius: var(--radius-full);
+    color: var(--accent-text);
+  }
+  .facts .call :global(svg) {
+    color: inherit;
+  }
+  .fact-link {
+    padding: 0;
+    min-height: 32px;
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    text-decoration: underline;
+    text-decoration-color: var(--border);
+    text-underline-offset: 3px;
+    cursor: pointer;
+  }
+  .more {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+  }
+  .fold {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    width: 100%;
+    min-height: 52px;
+    padding: var(--space-2) var(--space-4);
+    border: 0;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .fold:hover {
+    background: var(--surface-hover);
+  }
+  .band {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+  .chev {
+    display: inline-flex;
+    color: var(--text-3);
+    transition: transform 0.2s var(--ease);
+  }
+  .chev.turned {
+    transform: rotate(180deg);
   }
   .facts {
     list-style: none;
@@ -680,7 +862,6 @@
   .small {
     font-size: var(--text-sm);
   }
-  .actions,
   .row-actions {
     display: flex;
     gap: var(--space-2);
@@ -746,12 +927,6 @@
     font-weight: 650;
     color: var(--text);
   }
-  .right {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-  }
   .owed {
     font-size: var(--text-xs);
     color: var(--text-2);
@@ -816,12 +991,5 @@
   }
   .toggle input:checked::after {
     transform: translateX(20px);
-  }
-  .danger {
-    display: flex;
-    justify-content: center;
-  }
-  .danger :global(.btn) {
-    color: var(--red);
   }
 </style>

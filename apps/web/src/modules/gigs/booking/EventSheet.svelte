@@ -12,11 +12,14 @@
     gig,
     event = null,
     onsaved,
+    onremove,
   }: {
     open?: boolean;
     gig: BookingView;
     event?: BookingEventView | null;
     onsaved: (g: BookingView) => void;
+    /** Shown when editing one of several events (a gig keeps at least one). */
+    onremove?: (e: BookingEventView) => void;
   } = $props();
 
   const uid = $props.id();
@@ -98,6 +101,16 @@
       <TextField label="City" id="{uid}-city" bind:value={city} maxlength={80} />
     </div>
     <TextArea label="Notes" id="{uid}-notes" bind:value={notes} rows={3} maxlength={2000} />
+    {#if event && onremove && gig.events.length > 1}
+      <button
+        type="button"
+        class="remove"
+        onclick={() => {
+          open = false;
+          onremove(event);
+        }}>Remove this event</button
+      >
+    {/if}
   </form>
   {#snippet footer()}
     <Button onclick={() => (open = false)}>Cancel</Button>
@@ -108,6 +121,17 @@
 </Sheet>
 
 <style>
+  .remove {
+    justify-self: start;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--red);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
   .form {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
