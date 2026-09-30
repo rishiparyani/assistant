@@ -118,6 +118,7 @@ _Updated: 2026-09-29_
 
 ## Gotchas (for any agent)
 
+- iOS simulator screenshots take ~20–45 s each on GitHub's Mac runner. Keep the set small (`.github/workflows/ios.yml`: full set on the large iPhone, three light shots on the small one); the step has a 25-minute limit.
 - `pnpm -s typecheck | grep error` can hide a failure: check the **exit code** (`pnpm typecheck; echo $?`) before pushing. CI caught one this way.
 - Tests must not assert on short numbers that can appear inside ULIDs (e.g. `not.toContain("50")`); assert on the real strings.
 - Changing a Durable Object's migrations bumps its schema version: update the version check in `apps/worker/test/objects.test.ts`; a new D1 migration bumps `migrations` in `test/health.test.ts`.
