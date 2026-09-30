@@ -33,16 +33,9 @@
         background: #f4f4f6;
       }
       .splash-mark {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 52px;
-        height: 52px;
-        border-radius: 14px;
-        background: linear-gradient(135deg, #6366f1, #4338ca);
-        color: #fff;
-        font-size: 26px;
-        font-weight: 750;
+        width: 64px;
+        height: 64px;
+        background: url("/logo-light.png") center / contain no-repeat;
       }
       .splash-spin {
         width: 22px;
@@ -62,13 +55,16 @@
           background: #0c0c10;
           color: #a1a1ab;
         }
+        .splash-mark {
+          background-image: url("/logo-dark.png");
+        }
       }
     </style>
   </head>
   <body>
     <div id="app">
       <div class="splash" role="status" aria-live="polite">
-        <span class="splash-mark" aria-hidden="true">G</span>
+        <span class="splash-mark" aria-hidden="true"></span>
         <span class="splash-spin" aria-hidden="true"></span>
         <span>Loading…</span>
       </div>

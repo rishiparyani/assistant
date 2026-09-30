@@ -82,10 +82,14 @@
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  /* The Gigspree mark (transparent; the dark version is lighter). */
+  --logo: url("/logo-light.png");
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --logo: url("/logo-dark.png");
     --bg: #0c0c10;
     --bg-elevated: #17171d;
     --surface: #17171d;

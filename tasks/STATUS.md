@@ -4,6 +4,8 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **Gigspree logo** (decision 2026-09-30): the owner's hand-drawn "gs", "leaning, tight" layout, indigo g + amber s. Transparent in the app (sign-in, header, sidebar, loading screens; `--logo` token, light/dark files) and the browser tab (`icon.svg` switches with dark mode); solid indigo for Home Screen and iPhone icons, plus an iOS dark-mode icon. Checked at 390/1280 px in light and dark. The icon files were made from the owner's PNG in a headless browser (split into g and s by colour, recoloured, placed); the script isn't in the repo, so ask for the source art if it needs remaking.
+
 - **Renamed to Gigspree** (decision 2026-09-30): every visible "Assistant" → "Gigspree" (web, iPhone app, sign-in/connect pages, passkey name, MCP title/instructions, calendar feed, alerts, notifications, venue page), new "G" icon (web icons + iPhone app icon). Code names, Workers, bundle ID and the Drive backup folder stay.
 
 - **iPhone app, stage 1** (decision 2026-09-29, `docs/design/ios-app.md`): Capacitor project in `apps/ios` (bundle `in.gigspree.assistant`) showing the live web app; passkey sign-in in the app (`/.well-known/apple-app-site-association`, needs `APPLE_TEAM_ID`); app mode in the web (`core/native.ts`: login without Google, notifications text). `.github/workflows/ios.yml`: simulator screenshots on PRs (local Worker + `apps/ios/test/seed.mjs` fake data), TestFlight upload on main once the Apple secrets exist.
