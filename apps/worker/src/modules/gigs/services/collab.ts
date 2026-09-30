@@ -16,8 +16,8 @@ import { bookingName } from "../objects/names.ts";
 
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 const gig = (ctx: OpUserCtx, gigId: string) => ctx.objects.BOOKINGS.getByName(bookingName(gigId));
-const items = (xs: { id?: string; text: string; detail?: string | null }[]) =>
-  xs.map((x) => ({ id: x.id ?? null, text: x.text, detail: x.detail ?? null }));
+const items = (xs: { id?: string; text: string; detail?: string | null; song_id?: string }[]) =>
+  xs.map((x) => ({ id: x.id ?? null, text: x.text, detail: x.detail ?? null, song_id: x.song_id ?? null }));
 
 export const createList = (ctx: OpUserCtx, i: z.output<typeof CreateGigListInput>) =>
   gig(ctx, i.gig_id).createList(

@@ -15,6 +15,7 @@ export const ListItemInput = z.object({
   id: clientId,
   text: itemText.describe("e.g. a song title"),
   detail: optionalText(200).describe('Optional, e.g. "key of G · 4 min"'),
+  song_id: id("Song").optional().describe("A song in my library (find_songs), for setlists"),
 });
 
 export const CreateGigListInput = BookingRef.extend({
@@ -55,6 +56,8 @@ export interface GigListItemView {
   id: string;
   text: string;
   detail: string | null;
+  /** A song in the list maker's library (music module), or null. */
+  song_id: string | null;
   done: boolean;
   /** Who ticked it, when done. */
   done_by: string | null;

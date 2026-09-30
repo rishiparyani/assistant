@@ -306,3 +306,13 @@ Owner's hand-drawn "gs" (script g and s), in the "leaning, tight" layout they pi
 - **Transparent** (in the app and the browser tab): `public/logo-light.png` (indigo #4f46e5 g, amber #f59e0b s) and `public/logo-dark.png` (light indigo #a5b4fc, amber #fbbf24), picked by the `--logo` theme token; `icon.svg` holds both and switches with the colour scheme.
 - **Solid** (Home Screen and iPhone app icons, which can't be transparent): the indigo gradient with a white g and amber s (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, iOS `AppIcon-512@2x.png`), plus an iOS dark-mode icon (`AppIcon-dark.png`, transparent).
   The manifest now lists only the solid PNGs. The service worker's version also hashes the public files, so new icons reach phones that saved the old ones.
+
+## 2026-09-30: Music module: my songs, chord charts, stage mode, setlists
+
+Owner: "Do these" (the music library after the two quick fixes). New module `music` (`docs/design/music.md`), no new dependencies.
+
+- **Songs are personal for now**: one `LibraryObject` per person (`library:<user id>`), so no shared write place and nothing to authorise per gig. Band songbooks come later.
+- **Charts are ChordPro text**, parsed and transposed in `packages/shared` (pure functions, tested); pasted "chords above the lyrics" converts with one tap. Transpose is a per-device view setting, not stored on the server.
+- **Setlists are gig lists**: list items get an optional `song_id` (booking object migration 8), so setlists keep the lists' ordering, live updates and offline changes. The gigs module stores only the id; it never reads the music module.
+- **Navigation**: Songs becomes a main tab; on phones Settings moves to the avatar so the tab bar keeps five places.
+- **Offline**: the whole library is saved ahead for reading; song writes are online-only for now.

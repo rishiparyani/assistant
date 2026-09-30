@@ -2,16 +2,8 @@ import { z } from "zod";
 import { parseINR } from "../../core/money.ts";
 import { toUtcIso } from "../../core/dates.ts";
 
-/** Optional free text: trimmed; empty becomes null (so updates can clear a field). */
-export const optionalText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .nullish()
-    .transform((v) => (v ? v : v === undefined ? undefined : null));
-
-export const id = (what: string) => z.string().trim().min(1).max(40).describe(`${what} id`);
+// Shared by every module (core/fields.ts); re-exported here for existing imports.
+export { optionalText, id, clientId } from "../../core/fields.ts";
 
 export const dateTime = z
   .string()
@@ -45,13 +37,3 @@ export function resolveMoney(input: Record<string, unknown>, name: string): numb
   if (typeof rupees === "string") return parseINR(rupees);
   return undefined;
 }
-
-/**
- * An id made on the device (a ULID) for something new, so changes made offline can refer
- * to it before the server has seen it (docs/design/offline.md). Optional everywhere.
- */
-export const clientId = z
-  .string()
-  .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "A ULID")
-  .optional()
-  .describe("Optional id for the new item, made on the device (ULID); leave out normally");

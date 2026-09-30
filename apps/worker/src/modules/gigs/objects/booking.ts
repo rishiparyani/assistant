@@ -240,6 +240,9 @@ const MIGRATIONS: Migrations = [
   create index guests_host_idx on guests (host_person_id) where deleted_at is null;
   create index guests_created_idx on guests (created_at) where deleted_at is null;
   `,
+  // 8: a list item can point at a song in someone's library (the music module); the item's
+  // text is the song's title at the time, so the list reads fine without the library.
+  `alter table list_items add column song_id text;`,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -293,6 +296,8 @@ export interface ListItemInput {
   id?: string | null;
   text: string;
   detail: string | null;
+  /** A song in the list maker's library (music module); the text is its title. */
+  song_id?: string | null;
 }
 export interface CreateListInput {
   id?: string | null;
@@ -2075,12 +2080,12 @@ export class BookingObject extends DurableObject<Env> {
     return (
       listId
         ? this.sql.exec<ItemRow>(
-            `select id, list_id, text, detail, position, done_at, done_by_name from list_items
+            `select id, list_id, text, detail, song_id, position, done_at, done_by_name from list_items
              where list_id = ? and deleted_at is null order by position, id`,
             listId,
           )
         : this.sql.exec<ItemRow>(
-            `select id, list_id, text, detail, position, done_at, done_by_name from list_items
+            `select id, list_id, text, detail, song_id, position, done_at, done_by_name from list_items
              where deleted_at is null order by list_id, position, id`,
           )
     ).toArray();
@@ -2089,7 +2094,7 @@ export class BookingObject extends DurableObject<Env> {
   private requireItem(listId: string, id: string): ItemRow {
     const item = this.sql
       .exec<ItemRow>(
-        `select id, list_id, text, detail, position, done_at, done_by_name from list_items
+        `select id, list_id, text, detail, song_id, position, done_at, done_by_name from list_items
          where id = ? and list_id = ? and deleted_at is null`,
         id,
         listId,
@@ -2152,12 +2157,13 @@ export class BookingObject extends DurableObject<Env> {
     return items.map((item, i) => {
       const id = this.newId("list_items", item.id);
       this.sql.exec(
-        `insert into list_items (id, list_id, text, detail, position, created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into list_items (id, list_id, text, detail, song_id, position, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         listId,
         item.text,
         item.detail,
+        item.song_id ?? null,
         positions[i]!,
         actor.userId,
         ts,
@@ -2306,6 +2312,7 @@ export class BookingObject extends DurableObject<Env> {
           id: x.id,
           text: x.text,
           detail: x.detail,
+          song_id: x.song_id,
           done: !!x.done_at,
           done_by: x.done_at ? x.done_by_name : null,
         })),
@@ -2490,6 +2497,7 @@ type ItemRow = {
   list_id: string;
   text: string;
   detail: string | null;
+  song_id: string | null;
   position: number;
   done_at: string | null;
   done_by_name: string | null;

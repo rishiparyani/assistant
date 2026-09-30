@@ -4,7 +4,19 @@
   import ListPlus from "@lucide/svelte/icons/list-plus";
   import Plus from "@lucide/svelte/icons/plus";
   import Ellipsis from "@lucide/svelte/icons/ellipsis";
+  import Music from "@lucide/svelte/icons/music";
+  import Play from "@lucide/svelte/icons/play";
+  import type { SongSummary } from "@assistant/shared";
   import { Button, EmptyState, toast } from "../../../core/ui/index.ts";
+  import { navigate } from "../../../core/router.svelte.ts";
+  import {
+    SongPicker,
+    StageView,
+    musicApi,
+    savedSong,
+    songFacts,
+    type StageSong,
+  } from "../../music/index.ts";
   import { bookingsApi } from "../gigs-api.ts";
   import { outbox } from "../../../core/outbox.svelte.ts";
   import ListSheet from "./ListSheet.svelte";
@@ -54,6 +66,34 @@
     // Cleared at once so the next one can be typed; given back if the server says no.
     drafts[l.id] = "";
     if (!(await run(() => bookingsApi.addItems(gig.id, l.id, [{ text }])))) drafts[l.id] ||= text;
+  }
+
+  // --- Songs (music module): add from my library; play the list in stage mode ---------
+  let pickFor = $state<GigListView | null>(null);
+  let picking = $state(false);
+  function pickSongs(l: GigListView) {
+    pickFor = l;
+    picking = true;
+  }
+  const addSongs = (songs: SongSummary[]) =>
+    pickFor &&
+    run(() =>
+      bookingsApi.addItems(
+        gig.id,
+        pickFor!.id,
+        songs.map((s) => ({ text: s.title, detail: songFacts(s) || undefined, song_id: s.id })),
+      ),
+    );
+
+  let stage = $state<StageSong[] | null>(null);
+  /** The list's songs with their charts (from the saved library when offline). */
+  async function play(l: GigListView) {
+    const out: StageSong[] = [];
+    for (const item of itemsOf(l).filter((i) => i.song_id)) {
+      const song = await musicApi.song(item.song_id!).catch(() => savedSong(item.song_id!));
+      out.push(song ?? { title: item.text, key: null, tempo_bpm: null, chart: null });
+    }
+    if (out.length) stage = out;
   }
 
   const toggle = (l: GigListView, i: GigListItemView) =>
@@ -175,6 +215,16 @@
                 .join(" · ")}
             </p>
           </div>
+          {#if items.some((i) => i.song_id)}
+            <button
+              class="icon-btn"
+              type="button"
+              aria-label="Play {l.title} in stage mode"
+              onclick={() => play(l)}
+            >
+              <Play size={20} />
+            </button>
+          {/if}
           {#if canEdit}
             <button
               class="icon-btn"
@@ -228,7 +278,13 @@
                 onclick={() => openItem(l, item)}
                 aria-label={canEdit ? `Edit ${item.text}` : undefined}
               >
-                <span class="text" class:done={item.done}>{item.text}</span>
+                <span class="text" class:done={item.done}
+                  >{#if item.song_id}<Music
+                      size={14}
+                      class="song-mark"
+                      aria-hidden="true"
+                    />{/if}{item.text}</span
+                >
                 {#if item.detail || (item.done && item.done_by) || (item.pending && outbox.showWaiting)}
                   <span class="detail"
                     >{[
@@ -241,6 +297,16 @@
                   >
                 {/if}
               </button>
+              {#if item.song_id}
+                <button
+                  class="icon-btn"
+                  type="button"
+                  aria-label="Open the song {item.text}"
+                  onclick={() => navigate(`/songs/${item.song_id}`)}
+                >
+                  <Music size={18} />
+                </button>
+              {/if}
             </li>
           {/each}
         </ol>
@@ -256,6 +322,8 @@
             />
             {#if (drafts[l.id] ?? "").trim()}
               <button class="link" type="submit">Add</button>
+            {:else}
+              <button class="link" type="button" onclick={() => pickSongs(l)}>Add songs</button>
             {/if}
           </form>
         {/if}
@@ -271,6 +339,10 @@
 {/if}
 
 <ListSheet bind:open={listOpen} {gig} list={listFor} {onsaved} />
+<SongPicker bind:open={picking} title="Add songs to {pickFor?.title ?? 'the list'}" onpick={addSongs} />
+{#if stage}
+  <StageView songs={stage} onclose={() => (stage = null)} />
+{/if}
 {#if itemFor}
   <ItemSheet
     bind:open={itemOpen}
@@ -410,6 +482,11 @@
   }
   .text {
     overflow-wrap: anywhere;
+  }
+  .text :global(.song-mark) {
+    margin-right: 6px;
+    vertical-align: -1px;
+    color: var(--accent-text);
   }
   .text.done {
     text-decoration: line-through;

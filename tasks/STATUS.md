@@ -1,8 +1,14 @@
 # Status
 
-_Updated: 2026-09-29_
+_Updated: 2026-09-30_
 
 ## Last done
+
+- **Music module, step 1** (decision 2026-09-30, `docs/design/music.md`): my song library (Songs tab; on phones Settings moved to the avatar), ChordPro charts with one-tap conversion of pasted "chords above lyrics", transpose (kept per device), stage mode (dark full screen, screen kept awake, auto-scroll, text size, page-turner keys go to the next song), "Add songs" on gig lists (picker in play order; items carry `song_id`, booking migration 8) and Play for the list in stage mode. `LibraryObject` per person (`library:<user id>`, wrangler migration `v3`), 5 MCP tools + `all_songs` for the offline copy, per-person backup. Reading is offline (library saved ahead); song writes are online-only.
+  - Tests: 3 worker tests (`music.test.ts`), 8 shared chord tests (`chordpro.test.ts`); browser QA 9 checks (tab, empty state, paste + convert, chart, transpose remembered, stage mode, sort/search, setlist order + stage next song, dark/desktop) plus 820 px dark.
+  - Fixed on the way: `song_id` was dropped by the gigs service mapper (`services/collab.ts`); a toast shown from an `$effect` (Songs, Contacts, Reports on a failed load) froze the page in a loop, now `untrack`ed in `toast.svelte.ts`.
+  - Next: band songbooks (shared charts on a setlist), editing songs offline, arrangements/revisions.
+  - Gotcha: after switching branches with `pnpm dev` running, restart it; the stale Worker returned 500 on `/api/songs`.
 
 - **Two fixes** (2026-09-30): someone added to a gig by email who signs up later now gets "You're on …" (the attach is audited as a system change, so it isn't skipped as their own); a cancelled gig refuses event and lineup changes (409 `cancelled`, also for MCP/Siri) and hides those buttons; money can still be recorded (e.g. a cancellation fee). Tests: 1 new in `notifications.test.ts`, cancelled checks in `booking-money.test.ts`.
 

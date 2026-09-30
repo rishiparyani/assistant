@@ -5,6 +5,9 @@
   import { saveAheadWith, startOffline } from "./offline.svelte.ts";
   import { startSync } from "./outbox.svelte.ts";
   import { saveGigsAhead } from "../modules/gigs/offline.ts";
+  import { saveSongsAhead } from "../modules/music/music-api.ts";
+  import SongsPage from "../modules/music/SongsPage.svelte";
+  import SongPage from "../modules/music/SongPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
@@ -30,6 +33,7 @@
 
   // Offline first (docs/design/offline.md): save upcoming gigs and lists ahead.
   saveAheadWith(saveGigsAhead);
+  saveAheadWith(saveSongsAhead);
   const signedIn = startOffline(() => !!session.me);
   $effect(() => signedIn(!!session.me));
   // Send changes made offline whenever there's a chance.
@@ -85,6 +89,12 @@
         <Reports />
       {:else if route.name === "contacts"}
         <Contacts />
+      {:else if route.name === "songs"}
+        <SongsPage />
+      {:else if route.name === "song"}
+        {#key route.params.songId}
+          <SongPage songId={route.params.songId!} />
+        {/key}
       {:else}
         <NotFound />
       {/if}

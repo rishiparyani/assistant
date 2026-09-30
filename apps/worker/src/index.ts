@@ -26,5 +26,8 @@ export {
   PersonObject,
 } from "./modules/gigs/objects/index.ts";
 
+// Music: one song library per person.
+export { LibraryObject } from "./modules/music/objects/library.ts";
+
 // Core: one inbox (notifications, push devices) per person.
 export { InboxObject } from "./core/push/inbox.ts";

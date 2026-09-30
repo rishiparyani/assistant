@@ -57,7 +57,7 @@
 
   <!-- Phone: tab bar -->
   <nav class="tabbar" aria-label="Main">
-    {#each nav as item (item.href)}
+    {#each nav.filter((n) => n.phone !== false) as item (item.href)}
       <a class="tab" class:active={active(item.href, item.exact)} href={item.href}>
         <NavIcon icon={item.icon} active={active(item.href, item.exact)} />
         <span>{item.label}</span>

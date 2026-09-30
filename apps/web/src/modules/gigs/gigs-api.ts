@@ -249,7 +249,12 @@ export const bookingsApi = {
         list_id: listId,
       },
     ),
-  addItems: (id: string, listId: string, items: { text: string; detail?: string }[], after?: string | null) =>
+  addItems: (
+    id: string,
+    listId: string,
+    items: { text: string; detail?: string; song_id?: string }[],
+    after?: string | null,
+  ) =>
     gigChange(
       id,
       "gigs.add_list_items",

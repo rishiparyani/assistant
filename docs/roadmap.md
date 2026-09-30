@@ -8,6 +8,8 @@ See [phase-1.md](phase-1.md). Gigs, clients, venues, fees, payments, expenses, b
 
 ## Phase 2: `music` module + offline
 
+**Step 1 done (2026-09-30):** my song library with ChordPro charts, transpose, stage mode (auto-scroll, page turner), setlists from gig lists, library saved for offline reading ([design](design/music.md)). Offline first for gigs was done in September. Still to do from the list below: arrangements, chart revisions, band songbooks, role-specific views.
+
 Song library (ChordPro charts, arrangements, immutable chart revisions), setlists (drag and drop, freeze/pin revisions, link a setlist to a gig through the gigs service), offline PWA with full repertoire in IndexedDB, stage/teleprompter mode, role-specific views, Bluetooth page-turner support.
 
 ## Phase 3: stage hub
