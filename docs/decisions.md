@@ -298,3 +298,11 @@ Owner bought the Apple Developer Program ("You start") after comparing Capacitor
 ## 2026-09-30: The app is called Gigspree
 
 Owner: "let's call it gig spree from now onwards." Everything people see says **Gigspree** (one word, like the domain `gigspree.in`): web app title and Home Screen name, the iPhone app, the sign-in and connect pages, passkey name, MCP server title and instructions, calendar feed name, alerts and notifications, the venue guest page. New "G" icon (web and iPhone). Unchanged on purpose: the repo, packages, Worker names and bundle ID (`in.gigspree.assistant`, can't change), and the Google Drive backup folder name ("Assistant backups"), so nightly backups and their clean-up stay in one folder.
+
+## 2026-09-30: The Gigspree logo
+
+Owner's hand-drawn "gs" (script g and s), in the "leaning, tight" layout they picked (g tilted 12° right, s tilted 16° left, smaller and tucked in), in the app's colours: indigo g and amber s. Where it goes:
+
+- **Transparent** (in the app and the browser tab): `public/logo-light.png` (indigo #4f46e5 g, amber #f59e0b s) and `public/logo-dark.png` (light indigo #a5b4fc, amber #fbbf24), picked by the `--logo` theme token; `icon.svg` holds both and switches with the colour scheme.
+- **Solid** (Home Screen and iPhone app icons, which can't be transparent): the indigo gradient with a white g and amber s (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, iOS `AppIcon-512@2x.png`), plus an iOS dark-mode icon (`AppIcon-dark.png`, transparent).
+  The manifest now lists only the solid PNGs. The service worker's version also hashes the public files, so new icons reach phones that saved the old ones.

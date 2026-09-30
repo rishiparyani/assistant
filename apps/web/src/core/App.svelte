@@ -46,7 +46,7 @@
 
 {#if !session.loaded}
   <div class="boot-screen">
-    <span class="mark" aria-hidden="true">G</span>
+    <span class="mark" aria-hidden="true"></span>
     <Spinner size={22} label="Loading…" />
   </div>
 {:else if session.error}
@@ -107,16 +107,9 @@
     gap: 14px;
   }
   .mark {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #6366f1, #4338ca);
-    color: #fff;
-    font-size: 26px;
-    font-weight: 750;
+    width: 64px;
+    height: 64px;
+    background: var(--logo) center / contain no-repeat;
   }
   .boot {
     max-width: 420px;

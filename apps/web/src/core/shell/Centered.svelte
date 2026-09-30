@@ -6,7 +6,7 @@
 
 <div class="centered">
   <div class="inner">
-    <div class="brand"><span class="mark">G</span> Gigspree</div>
+    <div class="brand"><span class="mark" aria-hidden="true"></span> Gigspree</div>
     {@render children()}
   </div>
 </div>
@@ -35,14 +35,9 @@
     letter-spacing: -0.02em;
   }
   .mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 11px;
-    background: linear-gradient(135deg, #6366f1, #4338ca);
-    color: #fff;
-    box-shadow: 0 6px 18px rgb(79 70 229 / 0.35);
+    flex: none;
+    width: 44px;
+    height: 44px;
+    background: var(--logo) center / contain no-repeat;
   }
 </style>

@@ -13,7 +13,18 @@ function serviceWorker(): Plugin {
   const source = () => readFileSync(new URL("./src/sw.js", import.meta.url), "utf8");
   const render = (files: string[], version: string) =>
     source().replace("/* files */ []", JSON.stringify(files)).replace("__VERSION__", version);
-  const STATIC = ["/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/apple-touch-icon.png"];
+  const STATIC = [
+    "/manifest.webmanifest",
+    "/icon.svg",
+    "/icon-192.png",
+    "/apple-touch-icon.png",
+    "/logo-light.png",
+    "/logo-dark.png",
+  ];
+  // Public files aren't hashed by the build, so their contents go into the version too
+  // (a new icon or logo then reaches devices that have the old one saved).
+  const staticHash = () =>
+    STATIC.map((f) => readFileSync(new URL(`./public${f}`, import.meta.url)).toString("base64")).join();
   return {
     name: "service-worker",
     applyToEnvironment: (env) => env.name === "client",
@@ -28,7 +39,10 @@ function serviceWorker(): Plugin {
       const files = Object.keys(bundle)
         .filter((f) => !f.endsWith(".map"))
         .map((f) => `/${f}`);
-      const version = createHash("sha256").update(files.sort().join()).digest("hex").slice(0, 12);
+      const version = createHash("sha256")
+        .update(files.sort().join() + staticHash())
+        .digest("hex")
+        .slice(0, 12);
       this.emitFile({ type: "asset", fileName: "sw.js", source: render([...files, ...STATIC], version) });
     },
   };

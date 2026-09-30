@@ -21,7 +21,7 @@
   <!-- Tablet/laptop: sidebar -->
   <aside class="sidebar">
     <div class="brand">
-      <span class="mark">G</span>
+      <span class="mark" aria-hidden="true"></span>
       <span>Gigspree</span>
     </div>
     <nav aria-label="Main">
@@ -45,7 +45,7 @@
 
   <!-- Phone: top bar -->
   <header class="topbar">
-    <a class="brand small" href="/"><span class="mark">G</span><span>Gigspree</span></a>
+    <a class="brand small" href="/"><span class="mark" aria-hidden="true"></span><span>Gigspree</span></a>
     {#if session.me}
       <a href="/settings" aria-label="Settings"><Avatar name={session.me.user.name} size={32} /></a>
     {/if}
@@ -173,15 +173,10 @@
     font-size: var(--text-md);
   }
   .mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #6366f1, #4338ca);
-    color: #fff;
-    font-size: 15px;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    background: var(--logo) center / contain no-repeat;
   }
   .me {
     display: flex;
