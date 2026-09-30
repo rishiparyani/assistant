@@ -86,13 +86,17 @@
     );
 
   let stage = $state<StageSong[] | null>(null);
-  /** The list's songs with their charts (from the saved library when offline). */
+  /** The list's songs with their charts: the library saved on this device first (stage mode
+   *  must not wait on a weak signal), the server only for songs not saved yet. */
   async function play(l: GigListView) {
-    const out: StageSong[] = [];
-    for (const item of itemsOf(l).filter((i) => i.song_id)) {
-      const song = await musicApi.song(item.song_id!).catch(() => savedSong(item.song_id!));
-      out.push(song ?? { title: item.text, key: null, tempo_bpm: null, chart: null });
-    }
+    const items = itemsOf(l).filter((i) => i.song_id);
+    const out = await Promise.all(
+      items.map(async (item): Promise<StageSong> => {
+        const song =
+          (await savedSong(item.song_id!)) ?? (await musicApi.song(item.song_id!).catch(() => undefined));
+        return song ?? { title: item.text, key: null, tempo_bpm: null, chart: null };
+      }),
+    );
     if (out.length) stage = out;
   }
 

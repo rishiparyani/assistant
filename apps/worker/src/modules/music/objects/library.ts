@@ -2,7 +2,7 @@
 // their gigs index. Only they reach it (the service picks the object from the signed-in
 // user), so no other access checks are needed here.
 import { DurableObject } from "cloudflare:workers";
-import { SONG_LIMITS, ulid, type SongSummary, type SongView } from "@assistant/shared";
+import { SONG_LIMITS, songWords, ulid, type SongSummary, type SongView } from "@assistant/shared";
 import {
   BASE_TABLES,
   audit,
@@ -32,6 +32,13 @@ const MIGRATIONS: Migrations = [
      deleted_at text
    );
    create index songs_title_idx on songs (deleted_at, title_key);`,
+  // Search by word start (indexed): each word of a song's title and artist.
+  `create table song_words (
+     word text not null,
+     song_id text not null,
+     primary key (word, song_id)
+   ) without rowid;
+   create index song_words_song_idx on song_words (song_id);`,
 ];
 
 type SongRow = {
@@ -86,20 +93,29 @@ export class LibraryObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+    ctx.blockConcurrencyWhile(async () => {
+      migrate(this.sql, MIGRATIONS);
+      // Libraries made before the word index: fill it once.
+      if (
+        !this.sql.exec(`select 1 from song_words limit 1`).toArray().length &&
+        this.sql.exec(`select 1 from songs where deleted_at is null limit 1`).toArray().length
+      )
+        for (const r of this.sql.exec<SongRow>(`select * from songs where deleted_at is null`).toArray())
+          this.indexWords(r.id, r.title, r.artist);
+    });
   }
 
-  /** My songs by title; `search` matches part of the title or artist. */
+  /** My songs by title; `search`: every word typed starts a word of the title or artist. */
   async songs(opts: { search?: string; limit?: number } = {}): Promise<SongSummary[]> {
     const limit = Math.min(opts.limit ?? SONG_LIMITS.songs, SONG_LIMITS.songs);
-    const q = opts.search?.trim().toLowerCase();
-    const rows = q
+    const words = songWords(opts.search ?? "").slice(0, 5);
+    const rows = words.length
       ? this.sql
           .exec<SongRow>(
             `select * from songs where deleted_at is null
-               and (title_key like ?1 or lower(title) like ?1 or lower(coalesce(artist, '')) like ?1)
-             order by title_key limit ?2`,
-            `%${q.replace(/[%_]/g, "")}%`,
+               ${words.map(() => `and id in (select song_id from song_words where word >= ? and word < ?)`).join(" ")}
+             order by title_key limit ?`,
+            ...words.flatMap((w) => [w, `${w}\uffff`]),
             limit,
           )
           .toArray()
@@ -147,6 +163,7 @@ export class LibraryObject extends DurableObject<Env> {
         now,
         now,
       );
+      this.indexWords(id, input.title, input.artist ?? null);
       const song = view(this.require(id));
       audit(this.sql, actor, { action: "create_song", entityType: "song", entityId: id, after: song });
       return song;
@@ -178,6 +195,7 @@ export class LibraryObject extends DurableObject<Env> {
         nowIso(),
         songId,
       );
+      this.indexWords(songId, next.title, next.artist);
       const song = view(this.require(songId));
       audit(this.sql, actor, {
         action: "update_song",
@@ -194,6 +212,7 @@ export class LibraryObject extends DurableObject<Env> {
     return idempotent(this.ctx.storage, key, await hashOf(["remove_song", songId]), () => {
       const before = this.require(songId);
       this.sql.exec(`update songs set deleted_at = ? where id = ?`, nowIso(), songId);
+      this.sql.exec(`delete from song_words where song_id = ?`, songId);
       audit(this.sql, actor, {
         action: "remove_song",
         entityType: "song",
@@ -231,8 +250,16 @@ export class LibraryObject extends DurableObject<Env> {
           r.updated_at,
           r.deleted_at,
         );
+      for (const r of rows) if (!r.deleted_at) this.indexWords(r.id, r.title, r.artist);
     });
     return rows.length;
+  }
+
+  /** Replaces a song's search words. */
+  private indexWords(songId: string, title: string, artist: string | null) {
+    this.sql.exec(`delete from song_words where song_id = ?`, songId);
+    for (const w of songWords(`${title} ${artist ?? ""}`))
+      this.sql.exec(`insert into song_words (word, song_id) values (?, ?)`, w, songId);
   }
 
   private require(id: string): SongRow {

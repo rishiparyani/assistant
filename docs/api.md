@@ -89,7 +89,7 @@ People are added by `user_id`, by `email` (matched to an account case-insensitiv
 
 My own songs only (someone else's song is 404). Writes need an `Idempotency-Key`; a create may send an `id` made on the device (reused id: `409` `id_taken`).
 
-- `GET /api/songs?q=&limit=` (`find_songs`): my songs sorted by title (ignoring The/A/An), matching title or artist; no charts.
+- `GET /api/songs?q=&limit=` (`find_songs`): my songs sorted by title (ignoring The/A/An), each word of `q` starting a word of the title or artist; no charts.
 - `GET /api/songs/:song_id` (`get_song`): one song with its ChordPro `chart`.
 - `POST /api/songs` (`create_song`: `title`, optional `artist`, `key` like `G`/`F#m`/`Bb`, `tempo_bpm`, `capo`, `notes`, `chart`), `PATCH /api/songs/:song_id` (`update_song`; empty text clears), `DELETE /api/songs/:song_id` (`remove_song`, confirmation from MCP). Up to 2000 songs (more: `400` `validation_failed`).
 - `GET /api/songs-all` (`all_songs`, session only): the whole library with charts, for the web app's offline copy.

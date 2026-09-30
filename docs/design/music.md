@@ -22,6 +22,8 @@ Decided 2026-09-30 (docs/decisions.md). The second module, after gigs. Phase 2 s
 | Screens                                                    | `apps/web/src/modules/music/` (SongsPage, SongPage, SongSheet, ChordChart, StageView, SongPicker) |
 | Setlist link                                               | `song_id` on gig list items (booking object migration 8; `ListItemInput.song_id`)                 |
 
+Search is by word start, through an indexed `song_words` table (each word of the title and artist): every word typed must start a word of the song ("tes ban" finds "Test Song" by "Test Band"). The web app filters its saved list the same way offline (`matchesSongSearch` in shared).
+
 The library object follows the architecture rules: one object per person (no shared write place), ULIDs (ids made on the device accepted), idempotency keys and audit inside the object, soft delete, index on `(deleted_at, title_key)`. Titles sort ignoring a leading "The", "A" or "An".
 
 ## Operations (REST + MCP)
@@ -30,7 +32,7 @@ The library object follows the architecture rules: one object per person (no sha
 
 ## Offline
 
-Reading works offline: the whole library with charts is saved ahead (`saveSongsAhead`, cache keys `songs:all` and `songs:list:`), so songs, transposing, stage mode and setlists open at a gig with no signal. Adding and editing songs is online-only for now (`// online-only:` in `music-api.ts`); songs are prepared at home, not at the gig.
+Reading works offline: the whole library with charts is saved ahead (`saveSongsAhead`) in IndexedDB (`core/device-db.ts`, scope `library:<user id>`; it can be megabytes, too big for the localStorage cache), and the list without charts in the ordinary cache (`songs:list:`). So songs, transposing, stage mode and setlists open at a gig with no signal; Play uses the saved charts first and asks the server only for songs not saved yet. Sign-out deletes the device database. Adding and editing songs is online-only for now (`// online-only:` in `music-api.ts`); songs are prepared at home, not at the gig.
 
 ## Navigation
 

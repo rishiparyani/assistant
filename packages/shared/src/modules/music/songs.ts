@@ -66,3 +66,21 @@ export interface SongView extends SongSummary {
 }
 
 export const SONG_LIMITS = { songs: 2000 } as const;
+
+/** Words of a title or artist for search: lower case letters and digits ("Don't Stop" → don, t, stop). */
+export const songWords = (text: string): string[] => [
+  ...new Set(
+    text
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/\p{M}/gu, "")
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean),
+  ),
+];
+
+/** Search as the server does it: every word typed starts a word of the title or artist. */
+export function matchesSongSearch(song: { title: string; artist: string | null }, search: string): boolean {
+  const have = songWords(`${song.title} ${song.artist ?? ""}`);
+  return songWords(search).every((q) => have.some((w) => w.startsWith(q)));
+}

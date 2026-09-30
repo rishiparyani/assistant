@@ -35,6 +35,12 @@ describe("song library", () => {
     expect((await json<SongSummary[]>(await as(me)("/songs?q=test%20band"))).map((s) => s.id)).toEqual([
       song.id,
     ]);
+    // Search is by word start (indexed): "tun" finds "Another Test Tune", "une" doesn't.
+    const find = async (q: string) =>
+      (await json<SongSummary[]>(await as(me)(`/songs?q=${encodeURIComponent(q)}`))).map((s) => s.title);
+    expect(await find("tun")).toEqual(["Another Test Tune"]);
+    expect(await find("une")).toEqual([]);
+    expect(await find("TEST")).toEqual(["Another Test Tune", "The Test Song"]);
 
     // Bad key refused; changes keep what wasn't given; empty text clears.
     expect((await as(me)("/songs", { body: { title: "Test", key: "H" } })).status).toBe(400);
@@ -46,6 +52,8 @@ describe("song library", () => {
     );
     expect(changed).toMatchObject({ title: "The Test Song", key: "A", notes: "Test notes", artist: null });
     expect(changed.chart).toContain("[G]Test line");
+    // The search words follow the change: the old artist is gone.
+    expect(await find("band")).toEqual([]);
 
     // Private: another person gets 404 and an empty library.
     expect((await as(other)(`/songs/${song.id}`)).status).toBe(404);
@@ -58,6 +66,7 @@ describe("song library", () => {
     // Remove.
     expect((await as(me)(`/songs/${song.id}`, { method: "DELETE" })).status).toBe(200);
     expect((await as(me)(`/songs/${song.id}`)).status).toBe(404);
+    expect(await find("song")).toEqual([]);
     expect((await json<SongSummary[]>(await as(me)("/songs"))).map((s) => s.title)).toEqual([
       "Another Test Tune",
     ]);

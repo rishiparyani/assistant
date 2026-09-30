@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SongSummary } from "@assistant/shared";
+  import { matchesSongSearch, type SongSummary } from "@assistant/shared";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Music from "@lucide/svelte/icons/music";
@@ -41,8 +41,7 @@
     if (list.data) return list.data;
     const all = readCache<SongSummary[]>("songs:list:");
     if (!all || !search) return all ?? null;
-    const q = search.toLowerCase();
-    return all.filter((s) => s.title.toLowerCase().includes(q) || (s.artist ?? "").toLowerCase().includes(q));
+    return all.filter((s) => matchesSongSearch(s, search));
   });
 
   /** Songs grouped by first letter (ignoring "The"/"A"). */

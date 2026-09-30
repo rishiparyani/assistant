@@ -20,7 +20,15 @@
     () => `song:${songId}`,
     () => musicApi.song(songId),
   );
-  const song = $derived(q.data ?? savedSong(songId));
+  // Offline, from the library saved on this device.
+  let offlineCopy = $state<SongView | undefined>();
+  $effect(() => {
+    const id = songId;
+    void savedSong(id).then((s) => {
+      if (id === songId) offlineCopy = s;
+    });
+  });
+  const song = $derived(q.data ?? offlineCopy);
   $effect(() => {
     if (q.error && !song) toast.error(q.error);
   });

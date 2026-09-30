@@ -1,7 +1,9 @@
 // Typed calls to the music module's operations (docs/design/music.md). No logic here.
 import type { SongSummary, SongView } from "@assistant/shared";
 import { request } from "../../core/api.ts";
-import { readCache, writeCache } from "../../core/query.svelte.ts";
+import { getOne, replaceAll } from "../../core/device-db.ts";
+import { writeCache } from "../../core/query.svelte.ts";
+import { session } from "../../core/session.svelte.ts";
 
 export interface SongFields {
   title: string;
@@ -27,16 +29,18 @@ export const musicApi = {
   remove: (id: string) => request<{ removed: true }>("DELETE", base(id)),
 };
 
-/** The whole library with charts, as saved on the device (null if never saved). */
-export const savedLibrary = () => readCache<SongView[]>("songs:all") ?? null;
+// The whole library with charts is kept in IndexedDB (it can be large); the list without
+// charts goes in the ordinary cache.
+const scope = () => `library:${session.me?.user.id ?? ""}`;
 
-/** A song from the saved library, for opening it offline. */
-export const savedSong = (id: string) => savedLibrary()?.find((s) => s.id === id);
+/** A song from the library saved on this device (undefined if not saved), for offline and stage use. */
+export const savedSong = (id: string) => getOne<SongView>(scope(), id);
 
 /** Saves the whole library on the device, so songs and charts open offline (stage use). */
 export async function saveSongsAhead() {
+  if (!session.me) return;
   const all = await musicApi.all();
-  writeCache("songs:all", all);
+  await replaceAll(scope(), all);
   writeCache(
     "songs:list:",
     all.map(({ id, title, artist, key, tempo_bpm, updated_at }) => ({
