@@ -139,7 +139,7 @@ export const bookingsApi = {
   // online-only: confirm/complete/cancel depend on rules only the server knows.
   setStatus: (
     id: string,
-    action: "confirm" | "complete" | "cancel",
+    action: "confirm" | "complete" | "cancel" | "reopen",
     extra: { reason?: string; refund?: string; refund_method?: PaymentMethod } = {},
   ) => request<BookingView>("POST", `${base(id)}/status`, { action, ...extra }),
 

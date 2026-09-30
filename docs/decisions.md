@@ -316,3 +316,11 @@ Owner: "Do these" (the music library after the two quick fixes). New module `mus
 - **Setlists are gig lists**: list items get an optional `song_id` (booking object migration 8), so setlists keep the lists' ordering, live updates and offline changes. The gigs module stores only the id; it never reads the music module.
 - **Navigation**: Songs becomes a main tab; on phones Settings moves to the avatar so the tab bar keeps five places.
 - **Offline**: the whole library is saved ahead for reading; song writes are online-only for now.
+
+## 2026-09-30: A calmer gig page
+
+Owner found the gig page cluttered. The page now leads with one summary card (when, where, client, money, one next step), shows Guests/Lists/Notes as tiles, folds each event's lineup to one line, and moves rare or destructive actions (cancel, delete, status changes, removing an event) into a More menu or the event editor. New shared piece: `ActionSheet` (core/ui) for "More" menus on any page.
+
+## 2026-09-30: Cancelled gigs can be reopened
+
+Owner: "we should be able to uncancel". `reopen` returns a cancelled gig to its earlier status (stored on the gig as `cancelled_from`). A refund recorded on cancelling is kept, since refunds are money that moved and can't be reversed; the manager records a new payment if needed. Audited like every status change.

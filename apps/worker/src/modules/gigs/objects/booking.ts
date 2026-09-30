@@ -243,6 +243,8 @@ const MIGRATIONS: Migrations = [
   // 8: a list item can point at a song in someone's library (the music module); the item's
   // text is the song's title at the time, so the list reads fine without the library.
   `alter table list_items add column song_id text;`,
+  // 9: what a cancelled gig was (enquiry or confirmed), so reopening puts it back.
+  `alter table gig add column cancelled_from text;`,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -564,18 +566,21 @@ export class BookingObject extends DurableObject<Env> {
   }
 
   /**
-   * Confirm, complete or cancel. Cancelling can refund part or all of what the client
-   * paid (in the same step); whatever isn't refunded is kept as the gig's income.
+   * Confirm, complete, cancel or reopen. Cancelling can refund part or all of what the
+   * client paid (in the same step); whatever isn't refunded is kept as the gig's income.
+   * Reopening undoes a cancellation: back to the status it had (from the audit log); a
+   * refund recorded then stays (it's money that moved; record a new payment if not).
    */
   async setStatus(
-    action: "confirm" | "complete" | "cancel",
+    action: "confirm" | "complete" | "cancel" | "reopen",
     reason: string | null,
     actor: Actor,
     key: string | null,
     refund: { amount_paise: number; method: PaymentMethod } | null = null,
   ): Promise<BookingView> {
     return this.write(["status", action, reason, refund], actor, key, "manager", (gig) => {
-      const t = TRANSITIONS[action];
+      const t: { to: GigStatus; from: GigStatus[] } =
+        action === "reopen" ? { to: this.statusBeforeCancel(), from: ["cancelled"] } : TRANSITIONS[action];
       if (gig.status === t.to) return null; // already there: nothing to do
       if (!t.from.includes(gig.status))
         throw new ObjectError("conflict", `A ${gig.status} gig can't be changed to ${t.to}`, {
@@ -604,9 +609,11 @@ export class BookingObject extends DurableObject<Env> {
         this.sql.exec(`update payments set kind = 'refund' where id = ?`, id);
       }
       this.sql.exec(
-        `update gig set status = ?, cancel_reason = ?, version = version + 1, updated_at = ? where id = ?`,
+        `update gig set status = ?, cancel_reason = ?, cancelled_from = ?, version = version + 1, updated_at = ?
+         where id = ?`,
         t.to,
-        action === "cancel" ? reason : gig.cancel_reason,
+        action === "cancel" ? reason : action === "reopen" ? null : gig.cancel_reason,
+        action === "cancel" ? gig.status : null,
         nowIso(),
         gig.id,
       );
@@ -622,6 +629,23 @@ export class BookingObject extends DurableObject<Env> {
         },
       };
     });
+  }
+
+  /** What a cancelled gig was before; for gigs cancelled before migration 9, from the audit log. */
+  private statusBeforeCancel(): GigStatus {
+    const kept = this.sql
+      .exec<{ cancelled_from: string | null }>(`select cancelled_from from gig`)
+      .toArray()[0];
+    if (kept?.cancelled_from === "enquiry" || kept?.cancelled_from === "confirmed")
+      return kept.cancelled_from;
+    // Once per old gig: a small log, read only when reopening.
+    const row = this.sql
+      .exec<{ before_json: string | null }>(
+        `select before_json from _audit where action = 'cancel_gig' order by id desc limit 1`,
+      )
+      .toArray()[0];
+    const was = row?.before_json ? (JSON.parse(row.before_json) as { status?: GigStatus }).status : null;
+    return was === "enquiry" ? "enquiry" : "confirmed";
   }
 
   /** Soft delete, for mistakes. Everyone's summaries drop the gig. */

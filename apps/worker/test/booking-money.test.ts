@@ -172,6 +172,33 @@ describe("cancelling with an advance", () => {
   });
 });
 
+describe("reopening a cancelled gig", () => {
+  it("puts it back as it was, keeping the refund, for managers only", async () => {
+    const { owner, mate, gig } = await setUp();
+    const status = (body: Record<string, unknown>, who = owner) =>
+      as(who)(`/gigs/${gig.id}/status`, { body });
+    // Not cancelled: nothing to reopen.
+    expect((await status({ action: "reopen" })).status).toBe(409);
+
+    // An enquiry comes back as an enquiry, without the reason; the refund stays.
+    await as(owner)(`/gigs/${gig.id}/payments`, { body: { amount: "20000", method: "upi" } });
+    await status({ action: "cancel", reason: "Test mistake", refund: "5000" });
+    expect((await status({ action: "reopen" }, mate)).status).toBe(403);
+    let view = await json<BookingView>(await status({ action: "reopen" }));
+    expect(view).toMatchObject({ status: "enquiry", cancel_reason: null });
+    expect(view.money.received).toMatchObject({ amount_display: "₹15,000" });
+    expect(view.money.payments!.some((p) => p.kind === "refund")).toBe(true);
+    // Events can be changed again.
+    expect((await as(owner)(`/gigs/${gig.id}/events`, { body: { start_at: inDays(12) } })).status).toBe(201);
+
+    // A confirmed gig comes back confirmed.
+    await status({ action: "confirm" });
+    await status({ action: "cancel" });
+    view = await json<BookingView>(await status({ action: "reopen" }));
+    expect(view.status).toBe("confirmed");
+  });
+});
+
 describe("lineup, payouts and expenses", () => {
   it("splits shares, pays people, and shows each player only their own money", async () => {
     const { owner, mate, other, gig, person } = await setUp();
