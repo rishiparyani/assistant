@@ -6,7 +6,7 @@
 
 <div class="centered">
   <div class="inner">
-    <div class="brand"><span class="mark">A</span> Assistant</div>
+    <div class="brand"><span class="mark">G</span> Gigspree</div>
     {@render children()}
   </div>
 </div>

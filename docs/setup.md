@@ -80,7 +80,7 @@ The Apple Developer Program (owner, 2026-09-29). The iOS workflow (`.github/work
 | `ASC_KEY_P8`    | The downloaded `.p8` file's full contents (downloadable once; access **Admin** for automatic signing) |
 | `APPLE_TEAM_ID` | developer.apple.com → Account → Membership details. Also sent to the Worker for passkeys in the app   |
 
-Once, by hand: register the App ID `in.gigspree.assistant` with **Associated Domains** (developer.apple.com → Identifiers), create the app in App Store Connect (Apps → + → New App, that bundle ID, SKU `assistant`), install TestFlight on the phone and turn on Automatic Updates for the app after the first build.
+Once, by hand: register the App ID `in.gigspree.assistant` with **Associated Domains** (developer.apple.com → Identifiers), create the app in App Store Connect (Apps → + → New App, name **Gigspree**, that bundle ID, SKU `assistant`), install TestFlight on the phone and turn on Automatic Updates for the app after the first build.
 
 ## What the owner does by hand (agents can't)
 

@@ -77,7 +77,7 @@
         <h1>{oauth ? "Connect your account" : "Welcome"}</h1>
         <p>
           {oauth
-            ? "An app wants to connect to your Assistant account. Sign in to continue."
+            ? "An app wants to connect to your Gigspree account. Sign in to continue."
             : "Your gigs, clients and payments, in one place."}
         </p>
       </div>

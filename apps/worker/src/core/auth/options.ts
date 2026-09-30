@@ -33,7 +33,7 @@ export function authOptions(cfg: AuthConfig) {
       ? { google: { clientId: cfg.google.clientId, clientSecret: cfg.google.clientSecret } }
       : {},
     plugins: [
-      passkey({ rpID: url.hostname, rpName: "Assistant", origin: url.origin }),
+      passkey({ rpID: url.hostname, rpName: "Gigspree", origin: url.origin }),
       jwt(),
       oauthProvider({
         loginPage: "/login",

@@ -176,7 +176,7 @@ export function createApp({ modules }: AppOptions) {
         authorization_servers: [await issuer(getAuth({ env: c.env, userCreated: c.get("userCreated") }))],
         scopes_supported: OAUTH_SCOPES,
         bearer_methods_supported: ["header"],
-        resource_name: "Assistant",
+        resource_name: "Gigspree",
       }),
     );
   }

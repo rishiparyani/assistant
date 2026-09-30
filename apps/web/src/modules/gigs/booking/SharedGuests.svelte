@@ -137,7 +137,7 @@
       {/each}
     </ul>
     <p class="foot">
-      Shared by the band with Assistant. Updates by itself{updatedAt
+      Shared by the band with Gigspree. Updates by itself{updatedAt
         ? ` · checked ${updatedAt.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}`
         : ""}.
     </p>

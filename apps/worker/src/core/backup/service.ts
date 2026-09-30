@@ -164,7 +164,7 @@ export async function restoreBackup(
   modules: readonly ModuleDefinition[],
   file: BackupFile,
 ): Promise<{ rows: number; modules: Record<string, number> }> {
-  if (file.format !== BACKUP_FORMAT) throw new Error("Not an Assistant backup file");
+  if (file.format !== BACKUP_FORMAT) throw new Error("Not a Gigspree backup file");
   let rows = 0;
   for (const table of Object.keys(D1_TABLES)) {
     for (const row of file.d1[table] ?? []) {

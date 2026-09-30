@@ -1,4 +1,6 @@
-# Assistant
+# Gigspree
+
+(The repo, packages and code still say `assistant`, the working name.)
 
 A personal and band assistant, starting with **gig management** for a working musician: gigs, clients, venues, fees, payments, expenses, schedule and reports. It's usable from a web app/PWA, Siri Shortcuts, and AI assistants over MCP.
 
