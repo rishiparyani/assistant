@@ -294,3 +294,7 @@ Owner bought the Apple Developer Program ("You start") after comparing Capacitor
 - The app **shows the live site** (`server.url`) rather than bundled files: same origin, so cookies, passkeys, WebSockets and the service worker (with `WKAppBoundDomains`) work unchanged, and screen changes need no new build.
 - **Sign-in in the app is by passkey** (Google blocks its sign-in in app web views). The Worker serves `/.well-known/apple-app-site-association` when `APPLE_TEAM_ID` is set. Google inside the app waits for the owner's OK (security change).
 - **Delivery:** GitHub's Mac runners (free, public repo). PRs get simulator screenshots with fake data; `main` archives, signs with the App Store Connect API key and uploads to TestFlight, internal testing only.
+
+## 2026-09-30: The app is called Gigspree
+
+Owner: "let's call it gig spree from now onwards." Everything people see says **Gigspree** (one word, like the domain `gigspree.in`): web app title and Home Screen name, the iPhone app, the sign-in and connect pages, passkey name, MCP server title and instructions, calendar feed name, alerts and notifications, the venue guest page. New "G" icon (web and iPhone). Unchanged on purpose: the repo, packages, Worker names and bundle ID (`in.gigspree.assistant`, can't change), and the Google Drive backup folder name ("Assistant backups"), so nightly backups and their clean-up stay in one folder.

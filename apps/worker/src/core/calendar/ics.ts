@@ -53,7 +53,7 @@ export function buildIcs(name: string, events: CalendarEvent[], now = new Date()
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Assistant//Gigs//EN",
+    "PRODID:-//Gigspree//Gigs//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(name)}`,

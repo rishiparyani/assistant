@@ -65,7 +65,7 @@ self.addEventListener("push", (event) => {
     data = {};
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || "Assistant", {
+    self.registration.showNotification(data.title || "Gigspree", {
       body: data.body || "",
       icon: "/icon-192.png",
       badge: "/icon-192.png",

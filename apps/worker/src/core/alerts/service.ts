@@ -96,7 +96,7 @@ export async function alertsEnabled(env: AlertEnv): Promise<boolean> {
 type StateRow = { id: string; firing: string; since: string | null; last_sent_at: string | null };
 
 const bad = (c: HealthCheck) =>
-  `🔴 Assistant: ${c.label}${c.detail ? `\n${c.detail}` : ""}${c.fix ? `\nWhat to do: ${c.fix}` : ""}`;
+  `🔴 Gigspree: ${c.label}${c.detail ? `\n${c.detail}` : ""}${c.fix ? `\nWhat to do: ${c.fix}` : ""}`;
 
 export async function runAlerts(
   env: AlertEnv,
@@ -125,7 +125,7 @@ export async function runAlerts(
           await env.DB.prepare(`update alert_state set last_sent_at = ? where id = ?`).bind(iso, c.id).run();
       }
     } else if (c.ok && firing) {
-      if (send && s?.last_sent_at) await sendTelegram(env, `✅ Assistant: ${c.label} is fixed.`);
+      if (send && s?.last_sent_at) await sendTelegram(env, `✅ Gigspree: ${c.label} is fixed.`);
       await upsert(env.DB, c.id, "no", null, null, null);
     }
   }

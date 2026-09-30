@@ -145,5 +145,5 @@ export async function calendarFeed(
     await Promise.all(modules.map((m) => (m.calendar ? m.calendar(ctx, row.user_id) : Promise.resolve([]))))
   ).flat();
   events.sort((a, b) => a.start.localeCompare(b.start));
-  return buildIcs("Gigs (Assistant)", events);
+  return buildIcs("Gigs (Gigspree)", events);
 }

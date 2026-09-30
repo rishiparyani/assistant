@@ -16,7 +16,7 @@ if (!url) throw new Error(`Unknown APP_ENV "${env}"`);
 
 const config: CapacitorConfig = {
   appId: "in.gigspree.assistant",
-  appName: "Assistant",
+  appName: "Gigspree",
   // www/index.html is shown when the server can't be reached and the web app isn't saved on
   // the phone yet (first launch offline).
   webDir: "www",

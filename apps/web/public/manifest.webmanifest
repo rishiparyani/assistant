@@ -1,6 +1,6 @@
 {
-  "name": "Assistant",
-  "short_name": "Assistant",
+  "name": "Gigspree",
+  "short_name": "Gigspree",
   "description": "Gigs, clients, payments and collective shares in one place.",
   "start_url": "/",
   "scope": "/",

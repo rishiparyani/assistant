@@ -43,7 +43,7 @@
   <Card>
     <div class="stack">
       <div class="icon"><ShieldCheck size={28} /></div>
-      <h1><strong>{clientName}</strong> wants access to your Assistant account</h1>
+      <h1><strong>{clientName}</strong> wants access to your Gigspree account</h1>
       <ul>
         <li>See your gigs, the people on them and their money</li>
         <li>Add and update gigs and record payments for you (money changes ask you to confirm)</li>

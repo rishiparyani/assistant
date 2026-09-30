@@ -4,6 +4,8 @@ _Updated: 2026-09-29_
 
 ## Last done
 
+- **Renamed to Gigspree** (decision 2026-09-30): every visible "Assistant" → "Gigspree" (web, iPhone app, sign-in/connect pages, passkey name, MCP title/instructions, calendar feed, alerts, notifications, venue page), new "G" icon (web icons + iPhone app icon). Code names, Workers, bundle ID and the Drive backup folder stay.
+
 - **iPhone app, stage 1** (decision 2026-09-29, `docs/design/ios-app.md`): Capacitor project in `apps/ios` (bundle `in.gigspree.assistant`) showing the live web app; passkey sign-in in the app (`/.well-known/apple-app-site-association`, needs `APPLE_TEAM_ID`); app mode in the web (`core/native.ts`: login without Google, notifications text). `.github/workflows/ios.yml`: simulator screenshots on PRs (local Worker + `apps/ios/test/seed.mjs` fake data), TestFlight upload on main once the Apple secrets exist.
   - Owner steps pending: App ID with Associated Domains, the App Store Connect app, API key + 4 GitHub secrets, TestFlight (docs/setup.md → "iPhone app (Apple)").
   - Next: first TestFlight build → owner checks sign-in with a passkey; then stage 2 (native push, shared on-device database, Siri actions, widget).

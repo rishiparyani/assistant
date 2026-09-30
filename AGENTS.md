@@ -4,7 +4,7 @@ Instructions for every coding agent (Claude Code, Codex, others) working in this
 
 ## What this is
 
-**Assistant**: a personal/band assistant for a guitarist in Pune, India who plays in several bands. One backend, many clients: web app/PWA, Siri Shortcuts, and AI assistants over MCP (Claude, ChatGPT, others).
+**Gigspree** (code name `assistant`: repo, packages, Workers): a personal/band assistant for a guitarist in Pune, India who plays in several bands. One backend, many clients: web app/PWA, Siri Shortcuts, and AI assistants over MCP (Claude, ChatGPT, others).
 
 A **collective** is a tag on gigs (e.g. a band's name), not a shared space; there are no workspaces (see docs/decisions.md, 2026-09-28).
 

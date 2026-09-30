@@ -21,8 +21,8 @@
   <!-- Tablet/laptop: sidebar -->
   <aside class="sidebar">
     <div class="brand">
-      <span class="mark">A</span>
-      <span>Assistant</span>
+      <span class="mark">G</span>
+      <span>Gigspree</span>
     </div>
     <nav aria-label="Main">
       {#each nav as item (item.href)}
@@ -45,7 +45,7 @@
 
   <!-- Phone: top bar -->
   <header class="topbar">
-    <a class="brand small" href="/"><span class="mark">A</span><span>Assistant</span></a>
+    <a class="brand small" href="/"><span class="mark">G</span><span>Gigspree</span></a>
     {#if session.me}
       <a href="/settings" aria-label="Settings"><Avatar name={session.me.user.name} size={32} /></a>
     {/if}

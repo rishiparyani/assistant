@@ -159,7 +159,7 @@ export function adminRoutes(modules: readonly ModuleDefinition[]) {
     return c.json({ enabled: body.enabled });
   });
   r.post("/api/admin/alerts/test", async (c) => {
-    const sent = await sendTelegram(c.env, "✅ Assistant: test alert. Alerts reach you here.");
+    const sent = await sendTelegram(c.env, "✅ Gigspree: test alert. Alerts reach you here.");
     if (!sent)
       throw new AppError(
         "validation_failed",
