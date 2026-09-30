@@ -46,7 +46,7 @@
 
 {#if !session.loaded}
   <div class="boot-screen">
-    <span class="mark" aria-hidden="true">A</span>
+    <span class="mark" aria-hidden="true">G</span>
     <Spinner size={22} label="Loading…" />
   </div>
 {:else if session.error}
