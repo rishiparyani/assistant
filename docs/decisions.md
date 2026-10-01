@@ -324,3 +324,7 @@ Owner found the gig page cluttered. The page now leads with one summary card (wh
 ## 2026-09-30: Cancelled gigs can be reopened
 
 Owner: "we should be able to uncancel". `reopen` returns a cancelled gig to its earlier status (stored on the gig as `cancelled_from`). A refund recorded on cancelling is kept, since refunds are money that moved and can't be reversed; the manager records a new payment if needed. Audited like every status change.
+
+## 2026-10-01: gigspree.in goes live
+
+The owner finished the domain set-up (DNS clean, deploy token can manage `gigspree.in`, Google origins and redirect URIs). The move from 2026-09-29 is restored as decided then, and the iPhone app's server is now `https://gigspree.in` (dev builds `https://dev.gigspree.in`).

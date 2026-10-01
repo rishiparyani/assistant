@@ -7,7 +7,11 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
+  // The old *.workers.dev address stays on so existing calendar links and shortcuts keep
+  // working; the web app sends browsers from it to the domain (apps/web/src/core/domain.ts).
   "workers_dev": true,
+  // Custom domain (decision 2026-09-29): Cloudflare makes the DNS record on deploy.
+  "routes": [{ "pattern": "dev.gigspree.in", "custom_domain": true }],
   "observability": { "enabled": true },
   "assets": {
     "not_found_handling": "single-page-application",
@@ -70,11 +74,15 @@
   "triggers": { "crons": ["*/15 * * * *"] },
   "vars": {
     "ENVIRONMENT": "dev",
-    "BASE_URL": "https://assistant-dev.rishiparyani.workers.dev",
+    "BASE_URL": "https://dev.gigspree.in",
   },
   "env": {
     "production": {
       "name": "assistant",
+      "routes": [
+        { "pattern": "gigspree.in", "custom_domain": true },
+        { "pattern": "www.gigspree.in", "custom_domain": true },
+      ],
       "d1_databases": [
         {
           "binding": "DB",
@@ -127,7 +135,7 @@
       "triggers": { "crons": ["*/15 * * * *"] },
       "vars": {
         "ENVIRONMENT": "production",
-        "BASE_URL": "https://assistant.rishiparyani.workers.dev",
+        "BASE_URL": "https://gigspree.in",
       },
     },
   },

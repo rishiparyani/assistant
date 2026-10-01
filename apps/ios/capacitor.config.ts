@@ -4,8 +4,8 @@
 import type { CapacitorConfig } from "@capacitor/cli";
 
 const SERVERS = {
-  production: "https://assistant.rishiparyani.workers.dev",
-  dev: "https://assistant-dev.rishiparyani.workers.dev",
+  production: "https://gigspree.in",
+  dev: "https://dev.gigspree.in",
   // The simulator tests on the Mac runner (a local Worker with fake data).
   local: "http://localhost:8787",
 } as const;
