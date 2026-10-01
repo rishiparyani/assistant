@@ -40,6 +40,7 @@
   } from "../../../core/ui/index.ts";
   import { navigate } from "../../../core/router.svelte.ts";
   import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { nextTab, revealTabs, slide, swipeTabs } from "../../../core/ui/swipe.ts";
   import { tick } from "svelte";
   import NotFound from "../../../core/pages/NotFound.svelte";
@@ -410,7 +411,11 @@
     />
 
     {#key tab}
-      <div class="panel" use:swipeTabs={swipeTo} in:fly={{ x: slide(dir), duration: 180 }}>
+      <div
+        class="panel"
+        use:swipeTabs={{ go: swipeTo, can: (d) => nextTab(TABS, tab, d) !== null }}
+        in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
+      >
         {#if tab === "details"}
           {#each gig.events as e, i (e.id)}
             {@const single = gig.events.length === 1}
@@ -757,6 +762,7 @@
 
 <style>
   .page {
+    overflow-x: clip;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
