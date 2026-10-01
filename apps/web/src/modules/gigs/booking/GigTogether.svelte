@@ -1,9 +1,12 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import { fly } from "svelte/transition";
   import type { BookingView } from "@assistant/shared";
   import { NotSaved, PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
   import { navigate } from "../../../core/router.svelte.ts";
   import NotFound from "../../../core/pages/NotFound.svelte";
+  import { nextTab, slide, swipeTabs } from "../../../core/ui/swipe.ts";
   import { ApiError } from "../../../core/api.ts";
   import { createQuery, dropCache } from "../../../core/query.svelte.ts";
   import { bookingsApi } from "../gigs-api.ts";
@@ -50,6 +53,18 @@
 
   // Follows the address; picking a section changes the address.
   let current = $derived<Section>(section);
+  // Swipe sideways between guests, lists and notes; the new one slides in from that side.
+  const ORDER: readonly Section[] = ["guests", "lists", "notes"];
+  let dir = $state<1 | -1>(1);
+  let lastSection: Section = untrack(() => section);
+  $effect.pre(() => {
+    dir = ORDER.indexOf(section) >= ORDER.indexOf(lastSection) ? 1 : -1;
+    lastSection = section;
+  });
+  const swipeTo = (d: 1 | -1) => {
+    const next = nextTab(ORDER, current, d);
+    if (next) current = next;
+  };
   $effect(() => {
     if (current !== section) navigate(`/gigs/${gigId}/${current}`, { replace: true });
   });
@@ -71,17 +86,29 @@
     />
     {#if !gig}
       {#if q.error && isOfflineError(q.error)}<NotSaved />{:else}<Skeleton rows={5} />{/if}
-    {:else if section === "guests"}
-      <GigGuests {gig} onsaved={set} />
-    {:else if section === "lists"}
-      <GigLists {gig} onsaved={set} />
     {:else}
-      <GigNotes {gig} onsaved={set} />
+      {#key section}
+        <div class="panel" use:swipeTabs={swipeTo} in:fly={{ x: slide(dir), duration: 180 }}>
+          {#if section === "guests"}
+            <GigGuests {gig} onsaved={set} />
+          {:else if section === "lists"}
+            <GigLists {gig} onsaved={set} />
+          {:else}
+            <GigNotes {gig} onsaved={set} />
+          {/if}
+        </div>
+      {/key}
     {/if}
   </div>
 {/if}
 
 <style>
+  .panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+    min-height: 50vh;
+  }
   .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
