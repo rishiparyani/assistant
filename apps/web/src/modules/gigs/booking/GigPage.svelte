@@ -39,6 +39,9 @@
     toast,
   } from "../../../core/ui/index.ts";
   import { navigate } from "../../../core/router.svelte.ts";
+  import { fly } from "svelte/transition";
+  import { nextTab, revealTabs, slide, swipeTabs } from "../../../core/ui/swipe.ts";
+  import { tick } from "svelte";
   import NotFound from "../../../core/pages/NotFound.svelte";
   import { ApiError } from "../../../core/api.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
@@ -96,6 +99,21 @@
   // and notes live on their own "Together" page (the card above the tabs).
   type Tab = "details" | "money" | "people";
   let tab = $state<Tab>("details");
+  // Swipe sideways between the tabs; the new one slides in from the side it came from.
+  const TABS: readonly Tab[] = ["details", "money", "people"];
+  let dir = $state<1 | -1>(1);
+  let lastTab: Tab = "details";
+  $effect.pre(() => {
+    dir = TABS.indexOf(tab) >= TABS.indexOf(lastTab) ? 1 : -1;
+    lastTab = tab;
+  });
+  const swipeTo = async (d: 1 | -1) => {
+    const next = nextTab(TABS, tab, d);
+    if (!next) return;
+    tab = next;
+    await tick();
+    revealTabs("Sections");
+  };
 
   const set = (g: BookingView) => q.set(g);
   const manager = $derived(gig?.my_role === "manager");
@@ -391,309 +409,323 @@
       ]}
     />
 
-    {#if tab === "details"}
-      {#each gig.events as e, i (e.id)}
-        {@const single = gig.events.length === 1}
-        <!-- One event: its time and place are in the summary above, so just the lineup here. -->
-        <ListGroup title={single ? "Lineup" : (e.title ?? `Event ${i + 1}`)}>
-          {#snippet action()}
-            {#if manager && gig.status !== "cancelled"}<button class="link" onclick={() => openEvent(e)}
-                >{single ? "Edit time and place" : "Edit"}</button
-              >{/if}
-          {/snippet}
-          {#if single}
-            {#if e.notes}<p class="notes-inline event">{e.notes}</p>{/if}
-          {:else}
-            <div class="event">
-              <ul class="facts">
-                <li>
-                  <CalendarClock size={18} />
-                  <span class="when"
-                    ><span>{formatDateIST(e.start_at)}</span><span class="muted"
-                      >{timeRange(e.start_at, e.end_at)}</span
-                    ></span
-                  >
-                </li>
-                {#if e.venue_name}
-                  <li>
-                    <MapPin size={18} /><span>{e.venue_name}{e.venue_city ? `, ${e.venue_city}` : ""}</span>
-                  </li>
-                {/if}
-              </ul>
-              {#if e.notes}<p class="notes-inline">{e.notes}</p>{/if}
-            </div>
-          {/if}
-          {#if e.lineup.length}
-            {@const open = lineupOpenFor(e)}
-            {@const each = lineupMoney(e)}
-            <button class="fold" type="button" aria-expanded={open} onclick={() => (unfolded[e.id] = !open)}>
-              <span class="band" aria-hidden="true"><Users size={18} /></span>
-              <span class="grow"
-                >{e.lineup.length} playing{#if each}<span class="muted">&nbsp;· {each}</span>{/if}</span
-              >
-              <span class="chev" class:turned={open}><ChevronDown size={18} /></span>
-            </button>
-            {#if open}
-              {#each e.lineup as l (l.id)}
-                <ListRow title={l.is_me ? `${l.name} (you)` : l.name} subtitle={l.part ?? undefined}>
-                  {#snippet leading()}<Avatar name={l.name} size={32} />{/snippet}
-                  {#snippet trailing()}{#if l.share}<span class="amt num">{l.share.amount_display}</span
-                      >{/if}{/snippet}
-                </ListRow>
-              {/each}
-              {#if manager && gig.status !== "cancelled"}
-                <div class="row-actions">
-                  <Button size="sm" variant="tinted" onclick={() => openLineup(e)}>Change lineup</Button>
+    {#key tab}
+      <div class="panel" use:swipeTabs={swipeTo} in:fly={{ x: slide(dir), duration: 180 }}>
+        {#if tab === "details"}
+          {#each gig.events as e, i (e.id)}
+            {@const single = gig.events.length === 1}
+            <!-- One event: its time and place are in the summary above, so just the lineup here. -->
+            <ListGroup title={single ? "Lineup" : (e.title ?? `Event ${i + 1}`)}>
+              {#snippet action()}
+                {#if manager && gig.status !== "cancelled"}<button class="link" onclick={() => openEvent(e)}
+                    >{single ? "Edit time and place" : "Edit"}</button
+                  >{/if}
+              {/snippet}
+              {#if single}
+                {#if e.notes}<p class="notes-inline event">{e.notes}</p>{/if}
+              {:else}
+                <div class="event">
+                  <ul class="facts">
+                    <li>
+                      <CalendarClock size={18} />
+                      <span class="when"
+                        ><span>{formatDateIST(e.start_at)}</span><span class="muted"
+                          >{timeRange(e.start_at, e.end_at)}</span
+                        ></span
+                      >
+                    </li>
+                    {#if e.venue_name}
+                      <li>
+                        <MapPin size={18} /><span
+                          >{e.venue_name}{e.venue_city ? `, ${e.venue_city}` : ""}</span
+                        >
+                      </li>
+                    {/if}
+                  </ul>
+                  {#if e.notes}<p class="notes-inline">{e.notes}</p>{/if}
                 </div>
               {/if}
-            {/if}
-          {:else}
-            <ListRow
-              title="No lineup yet"
-              subtitle={gig.status === "cancelled"
-                ? "No lineup was set."
-                : manager
-                  ? "Choose who plays and their shares."
-                  : "The managers set who plays."}
-              onclick={manager && gig.status !== "cancelled" ? () => openLineup(e) : undefined}
-            />
-          {/if}
-        </ListGroup>
-      {/each}
-      {#if manager && gig.status !== "cancelled"}
-        <Button variant="ghost" onclick={() => openEvent(null)}>
-          {#snippet icon()}<Plus />{/snippet}
-          Add an event (e.g. Reception)
-        </Button>
-      {/if}
-      {#if gig.notes}
-        <ListGroup title="Notes"><p class="notes">{gig.notes}</p></ListGroup>
-      {/if}
-    {:else if tab === "money"}
-      {@const waiting = waitingMoney(gig.id)}
-      {#if waiting.length}
-        <ListGroup title="Waiting to sync" footer="Saved on this device. Totals update once they sync.">
-          {#each waiting as w (w.id)}
-            <ListRow title={w.label.replace(/ · .*$/, "")} subtitle="Recorded offline" />
-          {/each}
-        </ListGroup>
-      {/if}
-      {#if money.fee && money.received && money.balance && money.payment_status}
-        {@const cancelled = gig.status === "cancelled"}
-        <ListGroup title="Client payments">
-          <div class="summary">
-            <div class="money-head">
-              <span class="muted">{cancelled ? "Gig cancelled" : "From the client"}</span>
-              {#if cancelled}<Pill>Cancelled</Pill>{:else}<Pill tone={paymentTone(money.payment_status)}
-                  >{paymentLabel(money.payment_status)}</Pill
-                >{/if}
-            </div>
-            <div class="stats">
-              <Stat label="Fee" value={money.fee.amount_display} />
-              {#if cancelled && money.kept}
-                <Stat label="Kept" value={money.kept.amount_display} tone="green" />
+              {#if e.lineup.length}
+                {@const open = lineupOpenFor(e)}
+                {@const each = lineupMoney(e)}
+                <button
+                  class="fold"
+                  type="button"
+                  aria-expanded={open}
+                  onclick={() => (unfolded[e.id] = !open)}
+                >
+                  <span class="band" aria-hidden="true"><Users size={18} /></span>
+                  <span class="grow"
+                    >{e.lineup.length} playing{#if each}<span class="muted">&nbsp;· {each}</span>{/if}</span
+                  >
+                  <span class="chev" class:turned={open}><ChevronDown size={18} /></span>
+                </button>
+                {#if open}
+                  {#each e.lineup as l (l.id)}
+                    <ListRow title={l.is_me ? `${l.name} (you)` : l.name} subtitle={l.part ?? undefined}>
+                      {#snippet leading()}<Avatar name={l.name} size={32} />{/snippet}
+                      {#snippet trailing()}{#if l.share}<span class="amt num">{l.share.amount_display}</span
+                          >{/if}{/snippet}
+                    </ListRow>
+                  {/each}
+                  {#if manager && gig.status !== "cancelled"}
+                    <div class="row-actions">
+                      <Button size="sm" variant="tinted" onclick={() => openLineup(e)}>Change lineup</Button>
+                    </div>
+                  {/if}
+                {/if}
               {:else}
-                <Stat label="Received" value={money.received.amount_display} tone="green" />
-                <Stat
-                  label={money.balance.amount_paise < 0 ? "Overpaid" : "Balance"}
-                  value={money.balance.amount_display.replace("-", "")}
-                  tone={money.balance.amount_paise > 0
-                    ? "amber"
-                    : money.balance.amount_paise < 0
-                      ? "violet"
-                      : undefined}
+                <ListRow
+                  title="No lineup yet"
+                  subtitle={gig.status === "cancelled"
+                    ? "No lineup was set."
+                    : manager
+                      ? "Choose who plays and their shares."
+                      : "The managers set who plays."}
+                  onclick={manager && gig.status !== "cancelled" ? () => openLineup(e) : undefined}
                 />
               {/if}
-            </div>
-            {#if !cancelled}
-              <div
-                class="bar"
-                role="progressbar"
-                aria-label="Received"
-                aria-valuenow={Math.round(progress)}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <span style:width="{progress}%"></span>
-              </div>
-            {/if}
-            {#if manager}
-              <Button variant={cancelled ? "secondary" : "primary"} full onclick={() => (payOpen = true)}>
-                {#snippet icon()}<Plus />{/snippet}
-                Record client payment
-              </Button>
-            {/if}
-          </div>
-          {#each money.payments ?? [] as p (p.id)}
-            <ListRow
-              title="{p.kind === 'refund' ? 'Refund' : methodLabel(p.method)} · {p.amount.amount_display}"
-              subtitle={[p.paid_on_display, p.kind === "refund" ? methodLabel(p.method) : null, p.note]
-                .filter(Boolean)
-                .join(" · ")}
-            >
-              {#snippet trailing()}
-                {#if p.kind === "refund"}<Pill tone="amber">Refund</Pill>
-                {:else if p.reversed_by_id}<Pill>Reversed</Pill>
-                {:else if p.reverses_id}<Pill tone="violet">Correction</Pill>
-                {:else if manager}
-                  <button
-                    class="icon-btn"
-                    aria-label="Reverse payment of {p.amount.amount_display}"
-                    onclick={() => reverse("payment", p.id, `the ${p.amount.amount_display} payment`)}
-                    ><Undo size={18} /></button
+            </ListGroup>
+          {/each}
+          {#if manager && gig.status !== "cancelled"}
+            <Button variant="ghost" onclick={() => openEvent(null)}>
+              {#snippet icon()}<Plus />{/snippet}
+              Add an event (e.g. Reception)
+            </Button>
+          {/if}
+          {#if gig.notes}
+            <ListGroup title="Notes"><p class="notes">{gig.notes}</p></ListGroup>
+          {/if}
+        {:else if tab === "money"}
+          {@const waiting = waitingMoney(gig.id)}
+          {#if waiting.length}
+            <ListGroup title="Waiting to sync" footer="Saved on this device. Totals update once they sync.">
+              {#each waiting as w (w.id)}
+                <ListRow title={w.label.replace(/ · .*$/, "")} subtitle="Recorded offline" />
+              {/each}
+            </ListGroup>
+          {/if}
+          {#if money.fee && money.received && money.balance && money.payment_status}
+            {@const cancelled = gig.status === "cancelled"}
+            <ListGroup title="Client payments">
+              <div class="summary">
+                <div class="money-head">
+                  <span class="muted">{cancelled ? "Gig cancelled" : "From the client"}</span>
+                  {#if cancelled}<Pill>Cancelled</Pill>{:else}<Pill tone={paymentTone(money.payment_status)}
+                      >{paymentLabel(money.payment_status)}</Pill
+                    >{/if}
+                </div>
+                <div class="stats">
+                  <Stat label="Fee" value={money.fee.amount_display} />
+                  {#if cancelled && money.kept}
+                    <Stat label="Kept" value={money.kept.amount_display} tone="green" />
+                  {:else}
+                    <Stat label="Received" value={money.received.amount_display} tone="green" />
+                    <Stat
+                      label={money.balance.amount_paise < 0 ? "Overpaid" : "Balance"}
+                      value={money.balance.amount_display.replace("-", "")}
+                      tone={money.balance.amount_paise > 0
+                        ? "amber"
+                        : money.balance.amount_paise < 0
+                          ? "violet"
+                          : undefined}
+                    />
+                  {/if}
+                </div>
+                {#if !cancelled}
+                  <div
+                    class="bar"
+                    role="progressbar"
+                    aria-label="Received"
+                    aria-valuenow={Math.round(progress)}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
                   >
+                    <span style:width="{progress}%"></span>
+                  </div>
                 {/if}
-              {/snippet}
-            </ListRow>
-          {/each}
-        </ListGroup>
-      {/if}
+                {#if manager}
+                  <Button variant={cancelled ? "secondary" : "primary"} full onclick={() => (payOpen = true)}>
+                    {#snippet icon()}<Plus />{/snippet}
+                    Record client payment
+                  </Button>
+                {/if}
+              </div>
+              {#each money.payments ?? [] as p (p.id)}
+                <ListRow
+                  title="{p.kind === 'refund' ? 'Refund' : methodLabel(p.method)} · {p.amount.amount_display}"
+                  subtitle={[p.paid_on_display, p.kind === "refund" ? methodLabel(p.method) : null, p.note]
+                    .filter(Boolean)
+                    .join(" · ")}
+                >
+                  {#snippet trailing()}
+                    {#if p.kind === "refund"}<Pill tone="amber">Refund</Pill>
+                    {:else if p.reversed_by_id}<Pill>Reversed</Pill>
+                    {:else if p.reverses_id}<Pill tone="violet">Correction</Pill>
+                    {:else if manager}
+                      <button
+                        class="icon-btn"
+                        aria-label="Reverse payment of {p.amount.amount_display}"
+                        onclick={() => reverse("payment", p.id, `the ${p.amount.amount_display} payment`)}
+                        ><Undo size={18} /></button
+                      >
+                    {/if}
+                  {/snippet}
+                </ListRow>
+              {/each}
+            </ListGroup>
+          {/if}
 
-      {#if !manager && (money.mine.share.amount_paise > 0 || money.mine.payouts.length)}
-        <ListGroup title="Your share">
-          <div class="summary">
-            <div class="money-head">
-              <span class="muted">For playing this gig</span>
-              <Pill tone={paymentTone(money.mine.status)}>{payoutLabel(money.mine.status)}</Pill>
-            </div>
-            <div class="stats">
-              <Stat label="Share" value={money.mine.share.amount_display} />
-              <Stat label="Paid to you" value={money.mine.paid.amount_display} tone="green" />
-              <Stat
-                label="Still owed"
-                value={money.mine.owed.amount_display}
-                tone={money.mine.owed.amount_paise > 0 ? "amber" : undefined}
-              />
-            </div>
-          </div>
-          {#each money.mine.payouts as x (x.id)}
-            <ListRow
-              title="Paid · {x.amount.amount_display}"
-              subtitle="{x.paid_on_display} · {methodLabel(x.method)}"
-            />
-          {/each}
-        </ListGroup>
-      {/if}
+          {#if !manager && (money.mine.share.amount_paise > 0 || money.mine.payouts.length)}
+            <ListGroup title="Your share">
+              <div class="summary">
+                <div class="money-head">
+                  <span class="muted">For playing this gig</span>
+                  <Pill tone={paymentTone(money.mine.status)}>{payoutLabel(money.mine.status)}</Pill>
+                </div>
+                <div class="stats">
+                  <Stat label="Share" value={money.mine.share.amount_display} />
+                  <Stat label="Paid to you" value={money.mine.paid.amount_display} tone="green" />
+                  <Stat
+                    label="Still owed"
+                    value={money.mine.owed.amount_display}
+                    tone={money.mine.owed.amount_paise > 0 ? "amber" : undefined}
+                  />
+                </div>
+              </div>
+              {#each money.mine.payouts as x (x.id)}
+                <ListRow
+                  title="Paid · {x.amount.amount_display}"
+                  subtitle="{x.paid_on_display} · {methodLabel(x.method)}"
+                />
+              {/each}
+            </ListGroup>
+          {/if}
 
-      {#if money.payees}
-        {@const payouts = money.payees.flatMap((p) => p.payouts.map((x) => ({ ...x, name: p.name })))}
-        <ListGroup title="Shares and payouts" footer={manager ? "Tap someone to pay them." : undefined}>
-          {#each money.payees as p (p.person_id)}
-            <ListRow
-              title={p.is_me ? `${p.name} (you)` : p.name}
-              subtitle={p.paid.amount_paise
-                ? `Share ${p.share.amount_display} · paid ${p.paid.amount_display}`
-                : `Share ${p.share.amount_display}`}
-              onclick={manager ? () => openPayout(p) : undefined}
-            >
-              {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
-              {#snippet trailing()}
-                {#if p.owed.amount_paise > 0}<span class="owed num">{p.owed.amount_display} owed</span
-                  >{:else}<Pill tone={paymentTone(p.status)}>{payoutLabel(p.status)}</Pill>{/if}
-              {/snippet}
-            </ListRow>
-          {:else}
-            <ListRow title="No shares yet" subtitle="Set each event's lineup (Details) to share the fee." />
-          {/each}
-          {#if payouts.length}
-            <p class="sub">Payments made</p>
-            {#each payouts as p (p.id)}
-              <ListRow
-                title="{p.name} · {p.amount.amount_display}"
-                subtitle={[p.paid_on_display, methodLabel(p.method), p.note].filter(Boolean).join(" · ")}
-              >
-                {#snippet trailing()}
-                  {#if p.reversed_by_id}<Pill>Reversed</Pill>
-                  {:else if p.reverses_id}<Pill tone="violet">Correction</Pill>
-                  {:else if manager}
+          {#if money.payees}
+            {@const payouts = money.payees.flatMap((p) => p.payouts.map((x) => ({ ...x, name: p.name })))}
+            <ListGroup title="Shares and payouts" footer={manager ? "Tap someone to pay them." : undefined}>
+              {#each money.payees as p (p.person_id)}
+                <ListRow
+                  title={p.is_me ? `${p.name} (you)` : p.name}
+                  subtitle={p.paid.amount_paise
+                    ? `Share ${p.share.amount_display} · paid ${p.paid.amount_display}`
+                    : `Share ${p.share.amount_display}`}
+                  onclick={manager ? () => openPayout(p) : undefined}
+                >
+                  {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
+                  {#snippet trailing()}
+                    {#if p.owed.amount_paise > 0}<span class="owed num">{p.owed.amount_display} owed</span
+                      >{:else}<Pill tone={paymentTone(p.status)}>{payoutLabel(p.status)}</Pill>{/if}
+                  {/snippet}
+                </ListRow>
+              {:else}
+                <ListRow
+                  title="No shares yet"
+                  subtitle="Set each event's lineup (Details) to share the fee."
+                />
+              {/each}
+              {#if payouts.length}
+                <p class="sub">Payments made</p>
+                {#each payouts as p (p.id)}
+                  <ListRow
+                    title="{p.name} · {p.amount.amount_display}"
+                    subtitle={[p.paid_on_display, methodLabel(p.method), p.note].filter(Boolean).join(" · ")}
+                  >
+                    {#snippet trailing()}
+                      {#if p.reversed_by_id}<Pill>Reversed</Pill>
+                      {:else if p.reverses_id}<Pill tone="violet">Correction</Pill>
+                      {:else if manager}
+                        <button
+                          class="icon-btn"
+                          aria-label="Reverse payout of {p.amount.amount_display} to {p.name}"
+                          onclick={() =>
+                            reverse("payout", p.id, `the ${p.amount.amount_display} payout to ${p.name}`)}
+                          ><Undo size={18} /></button
+                        >
+                      {/if}
+                    {/snippet}
+                  </ListRow>
+                {/each}
+              {/if}
+            </ListGroup>
+          {/if}
+
+          {#if money.expenses && money.net && money.shares_total && money.expenses_total}
+            <ListGroup title="Expenses and net">
+              {#snippet action()}<button class="link" onclick={() => (expenseOpen = true)}>Add expense</button
+                >{/snippet}
+              {#each money.expenses as x (x.id)}
+                <ListRow
+                  title="{x.category} · {x.amount.amount_display}"
+                  subtitle={[x.spent_on_display, x.note].filter(Boolean).join(" · ")}
+                >
+                  {#snippet trailing()}
                     <button
                       class="icon-btn"
-                      aria-label="Reverse payout of {p.amount.amount_display} to {p.name}"
-                      onclick={() =>
-                        reverse("payout", p.id, `the ${p.amount.amount_display} payout to ${p.name}`)}
-                      ><Undo size={18} /></button
+                      aria-label="Remove expense of {x.amount.amount_display}"
+                      onclick={() => removeExpense(x.id, x.amount.amount_display)}><Trash size={18} /></button
                     >
-                  {/if}
-                {/snippet}
+                  {/snippet}
+                </ListRow>
+              {/each}
+              <div class="summary totals">
+                <div class="stats">
+                  <Stat label="Shares" value={money.shares_total.amount_display} />
+                  <Stat label="Expenses" value={money.expenses_total.amount_display} />
+                  <Stat
+                    label="Net"
+                    value={money.net.amount_display}
+                    tone={money.net.amount_paise < 0 ? "red" : "green"}
+                    hint={gig.status === "cancelled" ? "Kept − shares − expenses" : "Fee − shares − expenses"}
+                  />
+                </div>
+              </div>
+            </ListGroup>
+          {/if}
+        {:else}
+          <ListGroup title="People on this gig">
+            {#snippet action()}
+              {#if manager}<button class="link" onclick={() => openPerson(null)}>Add</button>{/if}
+            {/snippet}
+            {#each gig.people as p (p.id)}
+              <ListRow
+                title={p.is_me ? `${p.name} (you)` : p.name}
+                subtitle={p.has_account ? undefined : "No account yet"}
+                onclick={manager || p.is_me ? () => openPerson(p) : undefined}
+              >
+                {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
+                {#snippet trailing()}<Pill tone={p.role === "manager" ? "accent" : undefined}
+                    >{p.role === "manager" ? "Manager" : "Player"}</Pill
+                  >{/snippet}
               </ListRow>
             {/each}
-          {/if}
-        </ListGroup>
-      {/if}
+          </ListGroup>
 
-      {#if money.expenses && money.net && money.shares_total && money.expenses_total}
-        <ListGroup title="Expenses and net">
-          {#snippet action()}<button class="link" onclick={() => (expenseOpen = true)}>Add expense</button
-            >{/snippet}
-          {#each money.expenses as x (x.id)}
-            <ListRow
-              title="{x.category} · {x.amount.amount_display}"
-              subtitle={[x.spent_on_display, x.note].filter(Boolean).join(" · ")}
+          {#if manager}
+            <ListGroup
+              title="What players see and do"
+              footer="Managers always see everything. Players always see their own share."
             >
-              {#snippet trailing()}
-                <button
-                  class="icon-btn"
-                  aria-label="Remove expense of {x.amount.amount_display}"
-                  onclick={() => removeExpense(x.id, x.amount.amount_display)}><Trash size={18} /></button
-                >
-              {/snippet}
-            </ListRow>
-          {/each}
-          <div class="summary totals">
-            <div class="stats">
-              <Stat label="Shares" value={money.shares_total.amount_display} />
-              <Stat label="Expenses" value={money.expenses_total.amount_display} />
-              <Stat
-                label="Net"
-                value={money.net.amount_display}
-                tone={money.net.amount_paise < 0 ? "red" : "green"}
-                hint={gig.status === "cancelled" ? "Kept − shares − expenses" : "Fee − shares − expenses"}
-              />
-            </div>
-          </div>
-        </ListGroup>
-      {/if}
-    {:else}
-      <ListGroup title="People on this gig">
-        {#snippet action()}
-          {#if manager}<button class="link" onclick={() => openPerson(null)}>Add</button>{/if}
-        {/snippet}
-        {#each gig.people as p (p.id)}
-          <ListRow
-            title={p.is_me ? `${p.name} (you)` : p.name}
-            subtitle={p.has_account ? undefined : "No account yet"}
-            onclick={manager || p.is_me ? () => openPerson(p) : undefined}
-          >
-            {#snippet leading()}<Avatar name={p.name} size={32} />{/snippet}
-            {#snippet trailing()}<Pill tone={p.role === "manager" ? "accent" : undefined}
-                >{p.role === "manager" ? "Manager" : "Player"}</Pill
-              >{/snippet}
-          </ListRow>
-        {/each}
-      </ListGroup>
-
-      {#if manager}
-        <ListGroup
-          title="What players see and do"
-          footer="Managers always see everything. Players always see their own share."
-        >
-          {#each SETTINGS as s (s.key)}
-            <label class="toggle">
-              <span class="toggle-text"
-                ><span>{s.label}</span>{#if s.hint}<span class="muted small">{s.hint}</span>{/if}</span
-              >
-              <input
-                type="checkbox"
-                role="switch"
-                checked={gig.settings[s.key]}
-                disabled={busy === s.key}
-                onchange={() => toggleSetting(s.key)}
-              />
-            </label>
-          {/each}
-        </ListGroup>
-      {/if}
-    {/if}
+              {#each SETTINGS as s (s.key)}
+                <label class="toggle">
+                  <span class="toggle-text"
+                    ><span>{s.label}</span>{#if s.hint}<span class="muted small">{s.hint}</span>{/if}</span
+                  >
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    checked={gig.settings[s.key]}
+                    disabled={busy === s.key}
+                    onchange={() => toggleSetting(s.key)}
+                  />
+                </label>
+              {/each}
+            </ListGroup>
+          {/if}
+        {/if}
+      </div>
+    {/key}
   </div>
 
   <GigEditor bind:open={editOpen} {gig} onsaved={set} />
@@ -729,6 +761,15 @@
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
     max-width: 760px;
+  }
+  .panel {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-5);
+    min-height: 50vh;
+  }
+  .panel > :global(.btn) {
+    justify-self: start;
   }
   .page > :global(.btn) {
     justify-self: start;
