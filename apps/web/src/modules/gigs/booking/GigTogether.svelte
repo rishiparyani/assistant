@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import type { BookingView } from "@assistant/shared";
   import { NotSaved, PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
@@ -91,7 +92,11 @@
       {#if q.error && isOfflineError(q.error)}<NotSaved />{:else}<Skeleton rows={5} />{/if}
     {:else}
       {#key section}
-        <div class="panel" use:swipeTabs={swipeTo} in:fly={{ x: slide(dir), duration: 180 }}>
+        <div
+          class="panel"
+          use:swipeTabs={{ go: swipeTo, can: (d) => nextTab(ORDER, current, d) !== null }}
+          in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
+        >
           {#if section === "guests"}
             <GigGuests {gig} onsaved={set} />
           {:else if section === "lists"}
@@ -113,6 +118,7 @@
     min-height: 50vh;
   }
   .page {
+    overflow-x: clip;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);

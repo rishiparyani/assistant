@@ -7,17 +7,30 @@
   // no browser reload). Also refreshes when you come back to the app.
   const THRESHOLD = 70;
   let startY: number | null = null;
+  let startX = 0;
   let pull = $state(0);
   let refreshing = $state(false);
+  // Decided after the first few pixels: a pull only if the finger goes mostly down. A
+  // sideways swipe (e.g. between tabs) that drifts a little never shows the spinner.
+  let vertical: boolean | null = null;
 
   function onstart(e: TouchEvent) {
     if (window.scrollY > 0 || document.querySelector("dialog[open]")) return;
     startY = e.touches[0]!.clientY;
+    startX = e.touches[0]!.clientX;
+    vertical = null;
   }
   function onmove(e: TouchEvent) {
     if (startY === null) return;
     const dy = e.touches[0]!.clientY - startY;
-    pull = dy > 0 && window.scrollY <= 0 ? Math.min(110, dy * 0.5) : 0;
+    const dx = e.touches[0]!.clientX - startX;
+    if (vertical === null && Math.hypot(dx, dy) > 10) vertical = Math.abs(dy) > 1.5 * Math.abs(dx);
+    if (vertical === false) {
+      startY = null;
+      pull = 0;
+      return;
+    }
+    pull = vertical && dy > 0 && window.scrollY <= 0 ? Math.min(110, dy * 0.5) : 0;
   }
   function onend() {
     if (startY !== null && pull >= THRESHOLD * 0.5 + 10) run();
