@@ -40,7 +40,8 @@
   } from "../../../core/ui/index.ts";
   import { navigate } from "../../../core/router.svelte.ts";
   import { fly } from "svelte/transition";
-  import { nextTab, slide, swipeTabs } from "../../../core/ui/swipe.ts";
+  import { nextTab, revealTabs, slide, swipeTabs } from "../../../core/ui/swipe.ts";
+  import { tick } from "svelte";
   import NotFound from "../../../core/pages/NotFound.svelte";
   import { ApiError } from "../../../core/api.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
@@ -106,9 +107,12 @@
     dir = TABS.indexOf(tab) >= TABS.indexOf(lastTab) ? 1 : -1;
     lastTab = tab;
   });
-  const swipeTo = (d: 1 | -1) => {
+  const swipeTo = async (d: 1 | -1) => {
     const next = nextTab(TABS, tab, d);
-    if (next) tab = next;
+    if (!next) return;
+    tab = next;
+    await tick();
+    revealTabs("Sections");
   };
 
   const set = (g: BookingView) => q.set(g);

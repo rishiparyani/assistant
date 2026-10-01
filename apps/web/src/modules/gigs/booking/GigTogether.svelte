@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import type { BookingView } from "@assistant/shared";
   import { NotSaved, PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
   import { navigate } from "../../../core/router.svelte.ts";
   import NotFound from "../../../core/pages/NotFound.svelte";
-  import { nextTab, slide, swipeTabs } from "../../../core/ui/swipe.ts";
+  import { nextTab, revealTabs, slide, swipeTabs } from "../../../core/ui/swipe.ts";
   import { ApiError } from "../../../core/api.ts";
   import { createQuery, dropCache } from "../../../core/query.svelte.ts";
   import { bookingsApi } from "../gigs-api.ts";
@@ -61,9 +61,12 @@
     dir = ORDER.indexOf(section) >= ORDER.indexOf(lastSection) ? 1 : -1;
     lastSection = section;
   });
-  const swipeTo = (d: 1 | -1) => {
+  const swipeTo = async (d: 1 | -1) => {
     const next = nextTab(ORDER, current, d);
-    if (next) current = next;
+    if (!next) return;
+    current = next;
+    await tick();
+    revealTabs("Together");
   };
   $effect(() => {
     if (current !== section) navigate(`/gigs/${gigId}/${current}`, { replace: true });

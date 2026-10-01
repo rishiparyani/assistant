@@ -73,3 +73,16 @@ export function nextTab<T>(order: readonly T[], current: T, dir: 1 | -1): T | nu
 /** Slide distance for a tab change (0 when the person prefers less motion). */
 export const slide = (dir: number) =>
   typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 32 * dir;
+
+/**
+ * After a swipe from far down a long tab, the next tab would open at the same scroll
+ * position, hiding its top: bring the page's tab bar back into view, just under the
+ * phone's sticky top bar. Call after the new tab has rendered.
+ */
+export function revealTabs(label: string) {
+  const tabs = document.querySelector(`[role="tablist"][aria-label="${CSS.escape(label)}"]`);
+  if (!tabs) return;
+  const bar = document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0;
+  const top = tabs.getBoundingClientRect().top;
+  if (top < bar) window.scrollTo({ top: window.scrollY + top - bar - 8 });
+}
