@@ -7,6 +7,7 @@
 import { ApiError, request } from "./api.ts";
 import { connection, saveSoon } from "./offline.svelte.ts";
 import { publish, readCache, refreshAll, setOverlay } from "./query.svelte.ts";
+import { OUTBOX_PREFIX } from "./outbox-key.ts";
 
 export interface Change {
   /** Also the Idempotency-Key. */
@@ -46,7 +47,7 @@ function updateShowWaiting() {
 }
 
 // --- Kept on the device, per user ---------------------------------------------------------
-const PREFIX = "assistant:outbox:";
+const PREFIX = OUTBOX_PREFIX;
 let owner: string | null = null;
 
 function save() {
