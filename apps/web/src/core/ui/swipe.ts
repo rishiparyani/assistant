@@ -3,7 +3,7 @@
 // in; a short or slow swipe springs back. Use:
 //   <div use:swipeTabs={{ go: (dir) => step(dir), can: (dir) => hasTab(dir) }}>
 // dir is 1 for the next tab (swipe left) and -1 for the previous one. Vertical scrolling is
-// left to the browser (touch-action: pan-y). It stays out of the way of the screen edges
+// left to the browser (touch-action: pan-y, plus pinch-zoom). It stays out of the way of the screen edges
 // (iOS back), form fields, drag handles, sheets, anything that scrolls sideways itself and
 // anything marked data-no-swipe.
 
@@ -34,7 +34,7 @@ export function swipeTabs(node: HTMLElement, options: SwipeTabs) {
   let t0 = 0;
   let dx = 0;
   let state: "idle" | "deciding" | "dragging" = "idle";
-  node.style.touchAction = "pan-y";
+  node.style.touchAction = "pan-y pinch-zoom";
 
   const place = (x: number, animate: boolean) => {
     node.style.transition = animate ? "transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1)" : "none";
@@ -56,6 +56,7 @@ export function swipeTabs(node: HTMLElement, options: SwipeTabs) {
   }
   function move(e: TouchEvent) {
     if (state === "idle") return;
+    if (e.touches.length !== 1) return cancel(); // a second finger: pinch, not a swipe
     const t = e.touches[0]!;
     const mx = t.clientX - x0;
     const my = t.clientY - y0;
@@ -72,6 +73,11 @@ export function swipeTabs(node: HTMLElement, options: SwipeTabs) {
     const dir: 1 | -1 = dx < 0 ? 1 : -1;
     // At the first or last tab it only gives a little, like a rubber band.
     place(opts.can(dir) ? dx : dx * 0.25, false);
+  }
+  // The system or browser took the gesture over: put the tab back, never change it.
+  function cancel() {
+    if (state === "dragging") place(0, true);
+    state = "idle";
   }
   function end() {
     if (state !== "dragging") {
@@ -102,7 +108,7 @@ export function swipeTabs(node: HTMLElement, options: SwipeTabs) {
   node.addEventListener("touchstart", start, { passive: true });
   node.addEventListener("touchmove", move, { passive: true });
   node.addEventListener("touchend", end, { passive: true });
-  node.addEventListener("touchcancel", end, { passive: true });
+  node.addEventListener("touchcancel", cancel, { passive: true });
   return {
     update(next: SwipeTabs) {
       opts = next;
@@ -111,7 +117,7 @@ export function swipeTabs(node: HTMLElement, options: SwipeTabs) {
       node.removeEventListener("touchstart", start);
       node.removeEventListener("touchmove", move);
       node.removeEventListener("touchend", end);
-      node.removeEventListener("touchcancel", end);
+      node.removeEventListener("touchcancel", cancel);
     },
   };
 }
