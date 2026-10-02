@@ -61,6 +61,9 @@
   import { withDefaults } from "./gig-defaults.ts";
   import { waitingMoney } from "../offline-changes.ts";
   import GigTogether from "./GigTogetherCard.svelte";
+  import GigRehearsals from "./GigRehearsals.svelte";
+  import RehearsalSheet from "./RehearsalSheet.svelte";
+  import Drum from "@lucide/svelte/icons/drum";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
   let { gigId }: { gigId: string } = $props();
@@ -84,6 +87,7 @@
   let expenseOpen = $state(false);
   let eventOpen = $state(false);
   let eventFor = $state<BookingEventView | null>(null);
+  let eventKind = $state<"show" | "rehearsal">("show");
   let lineupOpen = $state(false);
   let lineupFor = $state<BookingEventView | null>(null);
   let personOpen = $state(false);
@@ -94,14 +98,28 @@
   let moreOpen = $state(false);
   // Lineups are folded to one line per event; a one-event gig shows its lineup open.
   let unfolded = $state<Record<string, boolean>>({});
-  const lineupOpenFor = (e: BookingEventView) => unfolded[e.id] ?? gig?.events.length === 1;
+  const lineupOpenFor = (e: BookingEventView) => unfolded[e.id] ?? shows.length === 1;
+  // A gig's shows and its rehearsals (docs/design/rehearsals.md). A rehearsal that isn't
+  // for a gig (kind "rehearsal") has only rehearsals, and no money.
+  const rehearsalOnly = $derived(gig?.kind === "rehearsal");
+  const noun = $derived(rehearsalOnly ? "rehearsal" : "gig");
+  const shows = $derived(
+    gig ? (rehearsalOnly ? gig.events : gig.events.filter((e) => e.kind === "show")) : [],
+  );
+  const nextRehearsal = $derived(
+    rehearsalOnly
+      ? null
+      : (gig?.events.find((e) => e.kind === "rehearsal" && Date.parse(e.start_at) > Date.now()) ?? null),
+  );
 
   // Tabs keep the page short: what and when, the money, and who's on it. Guests, lists
   // and notes live on their own "Together" page (the card above the tabs).
   type Tab = "details" | "money" | "people";
   let tab = $state<Tab>("details");
   // Swipe sideways between the tabs; the new one slides in from the side it came from.
-  const TABS: readonly Tab[] = ["details", "money", "people"];
+  const TABS = $derived<readonly Tab[]>(
+    gig?.kind === "rehearsal" ? ["details", "people"] : ["details", "money", "people"],
+  );
   let dir = $state<1 | -1>(1);
   let lastTab: Tab = "details";
   $effect.pre(() => {
@@ -128,19 +146,19 @@
 
   // The summary at the top: when, where, who for and the money, a line each.
   const when = $derived.by(() => {
-    if (!gig?.events.length) return null;
-    const first = gig.events[0]!;
-    if (gig.events.length === 1)
+    if (!shows.length) return null;
+    const first = shows[0]!;
+    if (shows.length === 1)
       return { day: formatDateIST(first.start_at), extra: timeRange(first.start_at, first.end_at) };
     const firstDay = formatDateIST(first.start_at);
-    const lastDay = formatDateIST(gig.events.at(-1)!.start_at);
+    const lastDay = formatDateIST(shows.at(-1)!.start_at);
     return {
       day: firstDay === lastDay ? firstDay : `${firstDay} – ${lastDay}`,
-      extra: `${gig.events.length} events`,
+      extra: `${shows.length} ${rehearsalOnly ? "dates" : "events"}`,
     };
   });
   const where = $derived.by(() => {
-    const events = gig?.events ?? [];
+    const events = shows;
     const venues = [...new Set(events.map((e) => e.venue_name).filter(Boolean))];
     const cities = [...new Set(events.map((e) => e.venue_city).filter(Boolean))];
     if (!venues.length) return cities.join(", ") || null;
@@ -160,13 +178,13 @@
   // Without an end time, a gig counts as over 12 hours after it starts.
   const over = $derived(
     gig
-      ? gig.events.every(
+      ? shows.every(
           (e) => (e.end_at ? Date.parse(e.end_at) : Date.parse(e.start_at) + 12 * 3600_000) <= Date.now(),
         )
       : false,
   );
   const nextStep = $derived(
-    !manager || !gig
+    !manager || !gig || rehearsalOnly
       ? null
       : gig.status === "enquiry"
         ? ("confirm" as const)
@@ -179,14 +197,14 @@
   const moreActions = $derived.by(() => {
     if (!gig || !manager) return [];
     const out: { label: string; icon?: typeof Check; destructive?: boolean; onclick: () => void }[] = [];
-    if (gig.status === "enquiry")
+    if (gig.status === "enquiry" && !rehearsalOnly)
       out.push({ label: "Confirm gig", icon: Check, onclick: () => void setStatus("confirm") });
-    if (gig.status === "confirmed")
+    if (gig.status === "confirmed" && !rehearsalOnly)
       out.push({ label: "Mark as played", icon: Check, onclick: () => void setStatus("complete") });
-    if (live) out.push({ label: "Cancel gig", icon: Ban, onclick: () => (cancelOpen = true) });
+    if (live) out.push({ label: `Cancel ${noun}`, icon: Ban, onclick: () => (cancelOpen = true) });
     if (gig.status === "cancelled")
-      out.push({ label: "Reopen gig", icon: Undo, onclick: () => void reopen() });
-    out.push({ label: "Delete gig", icon: Trash, destructive: true, onclick: () => void deleteGig() });
+      out.push({ label: `Reopen ${noun}`, icon: Undo, onclick: () => void reopen() });
+    out.push({ label: `Delete ${noun}`, icon: Trash, destructive: true, onclick: () => void deleteGig() });
     return out;
   });
   /** "₹12,000 each" when the shares are equal, else their total. */
@@ -213,18 +231,23 @@
   async function reopen() {
     const refunded = gig?.money.payments?.some((p) => p.kind === "refund");
     const ok = await confirm({
-      title: "Reopen this gig?",
+      title: `Reopen this ${noun}?`,
       message:
         "It goes back to how it was before it was cancelled, and everyone on it sees it again." +
         (refunded ? " The refund stays recorded; if it didn't happen, record the payment again." : ""),
       confirmLabel: "Reopen",
     });
-    if (ok) await act("reopen", () => bookingsApi.setStatus(gigId, "reopen"), "Gig reopened");
+    if (ok)
+      await act(
+        "reopen",
+        () => bookingsApi.setStatus(gigId, "reopen"),
+        rehearsalOnly ? "Rehearsal reopened" : "Gig reopened",
+      );
   }
 
   async function deleteGig() {
     const ok = await confirm({
-      title: "Delete this gig?",
+      title: `Delete this ${noun}?`,
       message: "It disappears for everyone on it. Use Cancel instead if it just isn't happening.",
       confirmLabel: "Delete",
       destructive: true,
@@ -232,7 +255,7 @@
     if (!ok) return;
     try {
       await bookingsApi.remove(gigId);
-      toast.success("Gig deleted");
+      toast.success(rehearsalOnly ? "Rehearsal deleted" : "Gig deleted");
       navigate("/gigs");
     } catch (e) {
       toast.error(e);
@@ -266,12 +289,20 @@
 
   async function removeEvent(e: BookingEventView) {
     const ok = await confirm({
-      title: `Remove ${e.title ?? "this event"}?`,
-      message: "Its lineup goes too. Payouts already recorded are kept.",
+      title: `Remove ${e.title ?? (e.kind === "rehearsal" ? "this rehearsal" : "this event")}?`,
+      message:
+        e.kind === "rehearsal"
+          ? "Everyone's answers go too."
+          : "Its lineup goes too. Payouts already recorded are kept.",
       confirmLabel: "Remove",
       destructive: true,
     });
-    if (ok) await act("event", () => bookingsApi.removeEvent(gigId, e.id), "Event removed");
+    if (ok)
+      await act(
+        "event",
+        () => bookingsApi.removeEvent(gigId, e.id),
+        e.kind === "rehearsal" ? "Rehearsal removed" : "Event removed",
+      );
   }
 
   async function toggleSetting(key: keyof GigSettings) {
@@ -283,7 +314,11 @@
     );
   }
 
-  const openEvent = (e: BookingEventView | null) => ((eventFor = e), (eventOpen = true));
+  const openEvent = (e: BookingEventView | null, kind: "show" | "rehearsal" = e?.kind ?? "show") => (
+    (eventFor = e),
+    (eventKind = kind),
+    (eventOpen = true)
+  );
   const openLineup = (e: BookingEventView) => ((lineupFor = e), (lineupOpen = true));
   const openPerson = (p: BookingPersonView | null) => ((personFor = p), (personOpen = true));
   const openPayout = (p: PayeeView) => ((payoutFor = p), (payoutOpen = true));
@@ -315,7 +350,7 @@
   <PageHeader title={gig.title} back="/gigs" backLabel="Gigs">
     {#snippet actions()}
       {#if manager}
-        <Button onclick={() => (editOpen = true)} aria-label="Edit gig">
+        <Button onclick={() => (editOpen = true)} aria-label="Edit {noun}">
           {#snippet icon()}<Pencil />{/snippet}
           Edit
         </Button>
@@ -330,7 +365,14 @@
     <Card>
       <div class="hero">
         <div class="status">
-          <Pill tone={statusTone(gig.status)}>{statusLabel(gig.status)}</Pill>
+          {#if rehearsalOnly}
+            <Pill tone="violet">Rehearsal</Pill>
+            {#if gig.status === "cancelled"}<Pill tone={statusTone(gig.status)}
+                >{statusLabel(gig.status)}</Pill
+              >{/if}
+          {:else}
+            <Pill tone={statusTone(gig.status)}>{statusLabel(gig.status)}</Pill>
+          {/if}
           {#if meta.length}<span class="meta">{meta.join(" · ")}</span>{/if}
         </div>
         <ul class="facts">
@@ -341,6 +383,21 @@
             </li>
           {/if}
           {#if where}<li><MapPin size={18} /><span>{where}</span></li>{/if}
+          {#if nextRehearsal && gig.status !== "cancelled"}
+            <li>
+              <Drum size={18} />
+              <button class="fact-link" type="button" onclick={() => (tab = "details")}
+                >Rehearsal {formatDateIST(nextRehearsal.start_at).replace(/ \d{4}$/, "")}, {timeRange(
+                  nextRehearsal.start_at,
+                  nextRehearsal.end_at,
+                )}{nextRehearsal.my_going === true
+                  ? " · you're going"
+                  : nextRehearsal.my_going === false
+                    ? " · you can't"
+                    : " · are you coming?"}</button
+              >
+            </li>
+          {/if}
           {#if gig.client}
             <li>
               <User size={18} />
@@ -358,7 +415,9 @@
               {/if}
             </li>
           {/if}
-          {#if money.fee && money.received && gig.status !== "cancelled"}
+          {#if rehearsalOnly}
+            <!-- No money on a rehearsal that isn't for a gig. -->
+          {:else if money.fee && money.received && gig.status !== "cancelled"}
             <li>
               <Wallet size={18} />
               <button class="fact-link" type="button" onclick={() => (tab = "money")}
@@ -404,10 +463,10 @@
       label="Sections"
       bind:value={tab}
       options={[
-        { value: "details", label: gig.events.length > 1 ? "Events" : "Details" },
-        { value: "money", label: "Money" },
-        { value: "people", label: "People" },
-      ]}
+        { value: "details" as const, label: shows.length > 1 && !rehearsalOnly ? "Events" : "Details" },
+        { value: "money" as const, label: "Money" },
+        { value: "people" as const, label: "People" },
+      ].filter((o) => TABS.includes(o.value))}
     />
 
     {#key tab}
@@ -417,8 +476,8 @@
         in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
       >
         {#if tab === "details"}
-          {#each gig.events as e, i (e.id)}
-            {@const single = gig.events.length === 1}
+          {#each rehearsalOnly ? [] : shows as e, i (e.id)}
+            {@const single = shows.length === 1}
             <!-- One event: its time and place are in the summary above, so just the lineup here. -->
             <ListGroup title={single ? "Lineup" : (e.title ?? `Event ${i + 1}`)}>
               {#snippet action()}
@@ -492,12 +551,18 @@
               {/if}
             </ListGroup>
           {/each}
-          {#if manager && gig.status !== "cancelled"}
-            <Button variant="ghost" onclick={() => openEvent(null)}>
+          {#if manager && gig.status !== "cancelled" && !rehearsalOnly}
+            <Button variant="ghost" onclick={() => openEvent(null, "show")}>
               {#snippet icon()}<Plus />{/snippet}
               Add an event (e.g. Reception)
             </Button>
           {/if}
+          <GigRehearsals
+            {gig}
+            onsaved={set}
+            onadd={() => openEvent(null, "rehearsal")}
+            onedit={(e) => openEvent(e)}
+          />
           {#if gig.notes}
             <ListGroup title="Notes"><p class="notes">{gig.notes}</p></ListGroup>
           {/if}
@@ -733,7 +798,11 @@
     {/key}
   </div>
 
-  <GigEditor bind:open={editOpen} {gig} onsaved={set} />
+  {#if rehearsalOnly}
+    <RehearsalSheet bind:open={editOpen} {gig} onsaved={set} />
+  {:else}
+    <GigEditor bind:open={editOpen} {gig} onsaved={set} />
+  {/if}
   <CancelSheet bind:open={cancelOpen} {gig} onsaved={set} />
   <PaymentSheet
     bind:open={payOpen}
@@ -754,7 +823,14 @@
     }}
   />
   <ExpenseSheet bind:open={expenseOpen} {gig} onsaved={set} />
-  <EventSheet bind:open={eventOpen} {gig} event={eventFor} onsaved={set} onremove={removeEvent} />
+  <EventSheet
+    bind:open={eventOpen}
+    {gig}
+    event={eventFor}
+    kind={eventKind}
+    onsaved={set}
+    onremove={removeEvent}
+  />
   <ActionSheet bind:open={moreOpen} title={gig.title} actions={moreActions} />
   {#if lineupFor}<LineupSheet bind:open={lineupOpen} {gig} event={lineupFor} onsaved={set} />{/if}
   <PersonSheet bind:open={personOpen} {gig} person={personFor} onsaved={set} />

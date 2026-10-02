@@ -17,6 +17,11 @@ export function nextDay(date: string): string {
   return new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
 }
 
+/** "YYYY-MM-DD" moved by n days (negative goes back). */
+export function addDays(date: string, n: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
 export const toApiLocal = (date: string, time: string) => `${date}T${time || "00:00"}`;
 
 /** "7:00 pm" */

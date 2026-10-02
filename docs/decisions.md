@@ -328,3 +328,7 @@ Owner: "we should be able to uncancel". `reopen` returns a cancelled gig to its 
 ## 2026-10-01: gigspree.in goes live
 
 The owner finished the domain set-up (DNS clean, deploy token can manage `gigspree.in`, Google origins and redirect URIs). The move from 2026-09-29 is restored as decided then, and the iPhone app's server is now `https://gigspree.in` (dev builds `https://dev.gigspree.in`).
+
+## 2026-10-02: Rehearsals belong to their gig; a rehearsal of its own is optional
+
+Owner: rehearsals are almost always for a gig, so a rehearsal is an event of the gig (`kind` show/rehearsal) and reaches everyone on it through the existing summaries (Home, lists, calendar feed, notifications, offline). A rehearsal not for any gig is a gig of kind `rehearsal` (no client or fee). People answer Going / Can't per rehearsal (stored in the gig's object, no version bump). Rehearsals have no lineup or shares, don't move a gig's date in reports and aren't in duplicate warnings. Chosen over a separate rehearsal object linked to a gig, which would need cross-object writes to show on the gig. Details: docs/design/rehearsals.md.

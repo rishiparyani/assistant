@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { MyEventView } from "@assistant/shared";
-  import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
   import CalendarDays from "@lucide/svelte/icons/calendar-days";
@@ -21,6 +20,7 @@
   import GigEditor from "./GigEditor.svelte";
   import GigCalendar from "./GigCalendar.svelte";
   import GigEventRow from "./GigEventRow.svelte";
+  import NewButton from "./NewButton.svelte";
   import { monthLabel } from "../time.ts";
 
   // List (default) or calendar; remembered on this device only.
@@ -49,7 +49,8 @@
   }
 
   // Every event of every gig I'm on, from my own summaries (may lag a few seconds).
-  type Tab = "upcoming" | "past" | "all";
+  // "Rehearsals" is my upcoming rehearsals only (docs/design/rehearsals.md).
+  type Tab = "upcoming" | "rehearsals" | "past" | "all";
   let tab = $state<Tab>("upcoming");
   let query = $state("");
   let search = $state(""); // the query, settled for 200 ms
@@ -69,9 +70,11 @@
     const base =
       tab === "upcoming"
         ? { from: now, order: "asc" as const }
-        : tab === "past"
-          ? { to: now, order: "desc" as const }
-          : { order: "desc" as const };
+        : tab === "rehearsals"
+          ? { from: now, order: "asc" as const, kind: "rehearsal" as const }
+          : tab === "past"
+            ? { to: now, order: "desc" as const }
+            : { order: "desc" as const };
     return { ...base, q: search || undefined, limit: 30, ...extraParams };
   }
 
@@ -131,10 +134,7 @@
         onclick={() => setView("calendar")}><CalendarDays size={20} /></button
       >
     </div>
-    <Button variant="primary" onclick={() => create()}>
-      {#snippet icon()}<Plus />{/snippet}
-      New gig
-    </Button>
+    <NewButton onnewgig={() => create()} />
   {/snippet}
 </PageHeader>
 
@@ -147,6 +147,7 @@
       bind:value={tab}
       options={[
         { value: "upcoming", label: "Upcoming" },
+        { value: "rehearsals", label: "Rehearsals" },
         { value: "past", label: "Past" },
         { value: "all", label: "All" },
       ]}
@@ -166,14 +167,24 @@
     {#if first.error && isOfflineError(first.error)}<NotSaved />{:else}<Skeleton rows={5} />{/if}
   {:else if items.length === 0}
     <EmptyState
-      title={query ? "No gigs match" : tab === "upcoming" ? "No upcoming gigs" : "No gigs yet"}
+      title={query
+        ? "No gigs match"
+        : tab === "upcoming"
+          ? "No upcoming gigs"
+          : tab === "rehearsals"
+            ? "No rehearsals coming up"
+            : "No gigs yet"}
       text={query
         ? "Try another word from the title, client or venue."
-        : "Gigs you create, and gigs others add you to, show up here."}
+        : tab === "rehearsals"
+          ? "Add one from a gig's page, or with New → Rehearsal."
+          : "Gigs you create, and gigs others add you to, show up here."}
     >
       {#snippet icon()}<CalendarPlus size={26} />{/snippet}
       {#snippet action()}
-        {#if !query}<Button variant="primary" onclick={() => create()}>Add a gig</Button>{/if}
+        {#if !query && tab !== "rehearsals"}<Button variant="primary" onclick={() => create()}
+            >Add a gig</Button
+          >{/if}
       {/snippet}
     </EmptyState>
   {:else}

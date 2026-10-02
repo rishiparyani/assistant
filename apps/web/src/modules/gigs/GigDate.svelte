@@ -1,12 +1,12 @@
 <script lang="ts">
-  // A calendar tile: "DEC / 12 / Sat", in India time.
-  let { iso, muted = false }: { iso: string; muted?: boolean } = $props();
+  // A calendar tile: "DEC / 12 / Sat", in India time. Rehearsals get their own colour.
+  let { iso, muted = false, soft = false }: { iso: string; muted?: boolean; soft?: boolean } = $props();
   const d = $derived(new Date(Date.parse(iso) + 330 * 60_000));
   const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 </script>
 
-<span class="tile" class:muted aria-hidden="true">
+<span class="tile" class:muted class:soft={soft && !muted} aria-hidden="true">
   <span class="m">{MONTHS[d.getUTCMonth()]}</span>
   <span class="d">{d.getUTCDate()}</span>
   <span class="w">{DAYS[d.getUTCDay()]}</span>
@@ -25,6 +25,10 @@
     color: var(--accent-text);
     line-height: 1;
     flex-shrink: 0;
+  }
+  .soft {
+    background: var(--violet-soft);
+    color: var(--violet);
   }
   .muted {
     background: var(--grey-soft);

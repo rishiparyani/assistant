@@ -15,6 +15,8 @@ import {
   ulid,
   type BookingRole,
   type BookingView,
+  type EventKind,
+  type GigKind,
   type GigListView,
   type GigMoney,
   type GigNoteView,
@@ -64,6 +66,7 @@ const BACKUP_TABLES = [
   "list_items",
   "notes",
   "guests",
+  "attendance",
   "_audit",
   "_targets",
   "_meta",
@@ -245,10 +248,26 @@ const MIGRATIONS: Migrations = [
   `alter table list_items add column song_id text;`,
   // 9: what a cancelled gig was (enquiry or confirmed), so reopening puts it back.
   `alter table gig add column cancelled_from text;`,
+  // 10: rehearsals (docs/design/rehearsals.md). Events are shows or rehearsals; a gig of
+  // kind "rehearsal" is a rehearsal that isn't for any gig. People answer whether they're
+  // coming to a rehearsal (no answer = no row).
+  `
+  alter table gig add column kind text not null default 'gig' check (kind in ('gig', 'rehearsal'));
+  alter table events add column kind text not null default 'show' check (kind in ('show', 'rehearsal'));
+  create table attendance (
+    event_id text not null,
+    person_id text not null,
+    going integer not null check (going in (0, 1)),
+    updated_at text not null,
+    primary key (event_id, person_id)
+  );
+  create index attendance_person_idx on attendance (person_id);
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
 export interface EventInput {
+  kind?: EventKind;
   title?: string | null;
   start_at: string;
   end_at?: string | null;
@@ -348,6 +367,7 @@ export interface TagRef {
 
 export interface CreateGigInput {
   gig_id: string;
+  kind?: GigKind;
   title: string;
   event_type?: string | null;
   status?: "enquiry" | "confirmed";
@@ -384,6 +404,7 @@ export interface UpdateEventInput {
 type GigStatus = BookingView["status"];
 type GigRow = {
   id: string;
+  kind: GigKind;
   title: string;
   event_type: string | null;
   status: GigStatus;
@@ -405,6 +426,7 @@ type GigRow = {
 };
 type EventRow = {
   id: string;
+  kind: EventKind;
   title: string | null;
   start_at: string;
   end_at: string | null;
@@ -474,15 +496,32 @@ export class BookingObject extends DurableObject<Env> {
     if (!input.events.length) throw new ObjectError("validation_failed", "A gig needs at least one event");
     if (!input.people.some((p) => p.user_id === actor.userId && p.role === "manager"))
       throw new ObjectError("validation_failed", "The creator must be one of the gig's managers");
+    const kind = input.kind ?? "gig";
+    if (kind === "rehearsal") {
+      if (input.client || (input.fee_paise ?? 0) > 0)
+        throw new ObjectError("validation_failed", "A rehearsal has no client or fee", {
+          reason: "rehearsal_no_money",
+        });
+      // A rehearsal that isn't for a gig holds only rehearsals, and is simply on.
+      input = {
+        ...input,
+        status: "confirmed",
+        events: input.events.map((e) => ({ ...e, kind: "rehearsal" })),
+      };
+    } else if (!input.events.some((e) => (e.kind ?? "show") === "show"))
+      throw new ObjectError("validation_failed", "A gig needs at least one show (not only rehearsals)", {
+        reason: "no_show",
+      });
     const hash = await hashOf(["create", input]);
     const view = idempotent(this.ctx.storage, key, hash, () => {
       if (this.gigRow()) throw new ObjectError("conflict", "This gig already exists");
       const ts = nowIso();
       this.sql.exec(
-        `insert into gig (id, title, event_type, status, client_name, client_phone, client_organisation, notes,
+        `insert into gig (id, kind, title, event_type, status, client_name, client_phone, client_organisation, notes,
            fee_paise, settings_json, collective_tag_id, collective_name, created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         input.gig_id,
+        kind,
         input.title,
         input.event_type ?? null,
         input.status ?? "enquiry",
@@ -514,6 +553,10 @@ export class BookingObject extends DurableObject<Env> {
   async update(input: UpdateGigInput, actor: Actor, key: string | null): Promise<BookingView> {
     return this.write(["update", input], actor, key, "manager", (gig) => {
       this.checkVersion(gig, input.version);
+      if (gig.kind === "rehearsal" && (input.client || (input.fee_paise ?? 0) > 0))
+        throw new ObjectError("validation_failed", "A rehearsal has no client or fee", {
+          reason: "rehearsal_no_money",
+        });
       const next = {
         title: input.title ?? gig.title,
         event_type: input.event_type === undefined ? gig.event_type : input.event_type,
@@ -674,9 +717,10 @@ export class BookingObject extends DurableObject<Env> {
       this.checkNotCancelled(gig);
       const count = this.eventRows().length;
       if (count >= 20) throw new ObjectError("validation_failed", "A gig can have at most 20 events");
-      const id = this.insertEvent(input, count);
+      const event = gig.kind === "rehearsal" ? { ...input, kind: "rehearsal" as const } : input;
+      const id = this.insertEvent(event, count);
       this.touch(gig.id);
-      return { action: "add_event", entityType: "event", entityId: id, after: input };
+      return { action: "add_event", entityType: "event", entityId: id, after: event };
     });
   }
 
@@ -724,12 +768,18 @@ export class BookingObject extends DurableObject<Env> {
     return this.write(["remove_event", eventId], actor, key, "manager", (gig) => {
       this.checkNotCancelled(gig);
       const e = this.requireEvent(eventId);
-      if (this.eventRows().length <= 1)
+      const events = this.eventRows();
+      if (events.length <= 1)
         throw new ObjectError("conflict", "A gig needs at least one event; delete the gig instead", {
           reason: "last_event",
         });
+      if (gig.kind === "gig" && e.kind === "show" && !events.some((x) => x.kind === "show" && x.id !== e.id))
+        throw new ObjectError("conflict", "A gig needs at least one show; delete the gig instead", {
+          reason: "last_show",
+        });
       this.sql.exec(`update events set deleted_at = ? where id = ?`, nowIso(), e.id);
       this.sql.exec(`delete from lineup where event_id = ?`, e.id);
+      this.sql.exec(`delete from attendance where event_id = ?`, e.id);
       this.touch(gig.id);
       return { action: "remove_event", entityType: "event", entityId: e.id, before: e };
     });
@@ -808,6 +858,7 @@ export class BookingObject extends DurableObject<Env> {
           );
         this.sql.exec(`update people set removed_at = ? where id = ?`, nowIso(), p.id);
         this.sql.exec(`delete from lineup where person_id = ?`, p.id);
+        this.sql.exec(`delete from attendance where person_id = ?`, p.id);
         this.touch(gig.id);
         return {
           action: "remove_person",
@@ -937,6 +988,12 @@ export class BookingObject extends DurableObject<Env> {
       this.checkNotCancelled(gig);
       this.checkVersion(gig, version);
       const e = this.requireEvent(eventId);
+      if (e.kind === "rehearsal")
+        throw new ObjectError(
+          "validation_failed",
+          "A rehearsal has no lineup; everyone on the gig says if they're coming",
+          { reason: "rehearsal_no_lineup" },
+        );
       const resolved = entries.map((x) => ({ ...x, person: this.pickPerson(x) }));
       const ids = resolved.map((x) => x.person.id);
       if (new Set(ids).size !== ids.length)
@@ -1005,6 +1062,57 @@ export class BookingObject extends DurableObject<Env> {
         entityType: "payout",
         entityId: id,
         before: { payout_id: p.id, person_id: p.person_id, amount_paise: p.amount_paise },
+      };
+    });
+  }
+
+  // --- Rehearsals --------------------------------------------------------------------
+
+  /**
+   * Whether someone is coming to a rehearsal. Everyone on the gig answers for themselves;
+   * managers may answer for anyone. Like lists, it doesn't bump the gig's version.
+   */
+  async setAttendance(
+    eventId: string,
+    personId: string | null,
+    going: boolean,
+    actor: Actor,
+    key: string | null,
+  ): Promise<BookingView> {
+    return this.write(["attendance", eventId, personId, going], actor, key, "player", (gig) => {
+      this.checkNotCancelled(gig);
+      const e = this.requireEvent(eventId);
+      if (e.kind !== "rehearsal")
+        throw new ObjectError("validation_failed", "Only rehearsals ask who's coming", {
+          reason: "not_rehearsal",
+        });
+      const me = this.requireMe(actor);
+      const who = personId ? this.requirePerson(personId) : me;
+      if (who.id !== me.id && me.role !== "manager")
+        throw new ObjectError("forbidden", "Only the gig's managers can answer for someone else");
+      const before = this.sql
+        .exec<{ going: number }>(
+          `select going from attendance where event_id = ? and person_id = ?`,
+          e.id,
+          who.id,
+        )
+        .toArray()[0];
+      if (before && Boolean(before.going) === going) return null;
+      this.sql.exec(
+        `insert into attendance (event_id, person_id, going, updated_at) values (?, ?, ?, ?)
+         on conflict (event_id, person_id) do update set going = excluded.going, updated_at = excluded.updated_at`,
+        e.id,
+        who.id,
+        going ? 1 : 0,
+        nowIso(),
+      );
+      this.stamp(gig.id);
+      return {
+        action: "set_attendance",
+        entityType: "event",
+        entityId: e.id,
+        before: before ? { person_id: who.id, going: Boolean(before.going) } : undefined,
+        after: { person_id: who.id, going },
       };
     });
   }
@@ -1503,6 +1611,9 @@ export class BookingObject extends DurableObject<Env> {
       const lineup = this.lineupRows();
       const totals = this.totals(gig, lineup);
       const tagRows = this.tagRows();
+      const answers = this.attendanceRows();
+      // A gig's date is its first show's; rehearsals before it don't move it in reports.
+      const firstShow = events.find((e) => e.kind === "show") ?? events[0];
       const settings = settingsOf(gig);
       const changedBy =
         this.sql
@@ -1514,12 +1625,13 @@ export class BookingObject extends DurableObject<Env> {
         const manager = p.role === "manager";
         const gigRow: PersonGigSummary = {
           gig_id: gig.id,
+          kind: gig.kind,
           gig_title: gig.title,
           event_type: gig.event_type,
           client_name: gig.client_name,
           status: gig.status,
           role: p.role,
-          first_start_at: events[0]?.start_at ?? gig.created_at,
+          first_start_at: firstShow?.start_at ?? gig.created_at,
           share_paise: sum(mine.map((l) => l.share_paise)),
           paid_paise: this.paidTo(p.id),
           fee_paise: manager ? totals.fee : null,
@@ -1544,6 +1656,8 @@ export class BookingObject extends DurableObject<Env> {
         const rows = events.map((e) => ({
           gig_id: gig.id,
           event_id: e.id,
+          kind: e.kind,
+          going: e.kind === "rehearsal" ? answerOf(answers, e.id, p.id) : null,
           gig_title: gig.title,
           event_title: e.title,
           event_type: gig.event_type,
@@ -1560,7 +1674,8 @@ export class BookingObject extends DurableObject<Env> {
         peopleOut[p.user_id] = { events: rows, gig: gigRow };
       }
       const managers = people.filter((p) => p.role === "manager" && p.user_id).map((p) => p.user_id!);
-      for (const e of events) {
+      // Rehearsals aren't bookings: duplicate warnings look at shows only.
+      for (const e of events.filter((x) => x.kind === "show")) {
         const ym = monthOf(e.start_at);
         (monthsOut[ym] ??= []).push({
           gig_id: gig.id,
@@ -1732,6 +1847,16 @@ export class BookingObject extends DurableObject<Env> {
       .toArray();
   }
 
+  /** Rehearsal answers of people still on the gig, in the order people were added. */
+  private attendanceRows(): { event_id: string; person_id: string; going: number }[] {
+    return this.sql
+      .exec<{ event_id: string; person_id: string; going: number }>(
+        `select a.event_id, a.person_id, a.going from attendance a
+         join people p on p.id = a.person_id where p.removed_at is null order by p.rowid`,
+      )
+      .toArray();
+  }
+
   private expenseRows(): ExpenseRow[] {
     return this.sql
       .exec<ExpenseRow>(
@@ -1882,7 +2007,7 @@ export class BookingObject extends DurableObject<Env> {
   private eventRows(): EventRow[] {
     return this.sql
       .exec<EventRow>(
-        `select id, title, start_at, end_at, venue_name, venue_city, notes, position
+        `select id, kind, title, start_at, end_at, venue_name, venue_city, notes, position
          from events where deleted_at is null order by start_at, position`,
       )
       .toArray();
@@ -1917,9 +2042,10 @@ export class BookingObject extends DurableObject<Env> {
     checkTimes(e.start_at, e.end_at ?? null);
     const id = ulid();
     this.sql.exec(
-      `insert into events (id, title, start_at, end_at, venue_name, venue_city, notes, position)
-       values (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert into events (id, kind, title, start_at, end_at, venue_name, venue_city, notes, position)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
+      e.kind ?? "show",
       e.title ?? null,
       e.start_at,
       e.end_at ?? null,
@@ -2269,8 +2395,11 @@ export class BookingObject extends DurableObject<Env> {
     const people = see.lineup ? allPeople : allPeople.filter((p) => p.id === me?.id || p.role === "manager");
     const names = new Map(allPeople.map((p) => [p.id, p.name]));
     const lineup = this.lineupRows();
+    const visible = new Set(people.map((p) => p.id));
+    const answers = this.attendanceRows().filter((a) => visible.has(a.person_id));
     return {
       id: gig.id,
+      kind: gig.kind,
       title: gig.title,
       event_type: gig.event_type,
       status: gig.status,
@@ -2286,6 +2415,7 @@ export class BookingObject extends DurableObject<Env> {
       version: gig.version,
       events: this.eventRows().map((e) => ({
         id: e.id,
+        kind: e.kind,
         title: e.title,
         start_at: e.start_at,
         start_display: formatDateTimeIST(e.start_at),
@@ -2304,6 +2434,15 @@ export class BookingObject extends DurableObject<Env> {
             is_me: l.person_id === me?.id,
             share: see.shares || l.person_id === me?.id ? money(l.share_paise) : null,
           })),
+        attendance: answers
+          .filter((a) => a.event_id === e.id)
+          .map((a) => ({
+            person_id: a.person_id,
+            name: names.get(a.person_id) ?? "",
+            going: a.going === 1,
+            is_me: a.person_id === me?.id,
+          })),
+        my_going: answerOf(answers, e.id, me?.id),
       })),
       people: people.map((p) => ({
         id: p.id,
@@ -2434,6 +2573,15 @@ export class BookingObject extends DurableObject<Env> {
 }
 
 /** How venues and clients are compared for duplicate warnings. */
+function answerOf(
+  rows: { event_id: string; person_id: string; going: number }[],
+  eventId: string,
+  personId: string | undefined,
+): boolean | null {
+  const a = personId ? rows.find((r) => r.event_id === eventId && r.person_id === personId) : undefined;
+  return a ? a.going === 1 : null;
+}
+
 function nameKey(name: string | null): string | null {
   const k = name?.trim().toLowerCase().replace(/\s+/g, " ");
   return k ? k : null;

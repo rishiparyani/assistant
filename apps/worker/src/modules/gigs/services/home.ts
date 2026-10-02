@@ -77,7 +77,8 @@ export async function getHome(ctx: OpUserCtx): Promise<HomeView> {
     person.gigs(),
   ]);
 
-  const live = gigs.filter((g) => g.status !== "cancelled");
+  // Rehearsals that aren't for a gig have no money and aren't gigs played.
+  const live = gigs.filter((g) => g.status !== "cancelled" && g.kind !== "rehearsal");
   const played = live.filter((g) => g.first_start_at <= nowIso);
   const thisMonth = live.filter(
     (g) => g.first_start_at >= monthStart && g.first_start_at < dayStart(`${nextMonth}-01`),
@@ -90,6 +91,8 @@ export async function getHome(ctx: OpUserCtx): Promise<HomeView> {
       .slice(0, 8)
       .map(({ share_paise, ...e }) => ({
         ...e,
+        kind: e.kind ?? "show",
+        going: e.going ?? null,
         start_display: formatDateTimeIST(e.start_at),
         share: money(share_paise),
         collective_name: e.collective_name ?? null,
@@ -152,6 +155,8 @@ export async function getMyReport(
     with_tags: true,
   });
   if (unknown) rows = [];
+  // Reports are about gigs; rehearsals that aren't for a gig have no money.
+  rows = rows.filter((g) => g.kind !== "rehearsal");
   // Cancelled gigs count only when money moved (an advance kept, or someone paid).
   if (!input.status)
     rows = rows.filter((g) => g.status !== "cancelled" || (g.received_paise ?? 0) > 0 || g.paid_paise !== 0);
