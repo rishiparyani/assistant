@@ -849,6 +849,7 @@
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
     min-height: 50vh;
+    align-content: start;
   }
   .panel > :global(.btn) {
     justify-self: start;
