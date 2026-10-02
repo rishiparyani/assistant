@@ -1,8 +1,14 @@
 # Status
 
-_Updated: 2026-09-30_
+_Updated: 2026-10-02_
 
 ## Last done
+
+- **Gig page shows only what the gig has + one Add button** (2026-10-02, owner: "there are no notes but still notes is there on the screen… an add button and inside it we can add any of these things"): Guests / Lists / Notes tiles appear only when they have something; the "Add an event" and "Add a rehearsal" buttons are gone; "₹0 of ₹0 received" is hidden. A round + button in the gig's header opens "Add to this gig": Rehearsal, Event, Person, Guest, List, Note, Client payment, Expense (what each person may add; players get Guest, List, Note). Guest/List/Note open their page ready to add (`?add=1`, removed from the address at once). 8 browser checks (manager and player menus, each target, tiles appear after adding, dark); rehearsal checks re-run (9).
+
+- **Rehearsals** (decision 2026-10-02, `docs/design/rehearsals.md`; owner: "link it to a gig by default, unlinking optional"): a rehearsal is an event of its gig (`kind` show/rehearsal); "Add a rehearsal" on the gig page (date two days before the gig, or a week after the last rehearsal), a Rehearsals section with Going / Can't make it for everyone on the gig and who's coming; the gig summary shows the next rehearsal and my answer. New → Rehearsal picks my soonest gig, or "Not for a gig" (a gig of kind rehearsal: no money, Details · People only, optional band people from its last gig). Rehearsals show on Home, the Gigs list (new Rehearsals tab), calendar and feed with a violet date and my answer; bandmates get "Rehearsal for “…”". Reports, Home money and duplicate warnings ignore them. Booking and person object migration 10; `set_rehearsal_attendance` (REST + MCP).
+  - Tests: 3 worker tests (`rehearsals.test.ts`); 9 browser checks (add, answer as manager and player, who's coming, Rehearsals tab, New → Rehearsal for a gig and not for a gig, edit, dark and 1280).
+  - Next (not built): repeating rehearsals, moving a rehearsal out of its gig, studio cost split, day-before reminders.
 
 - **Swipe feels like iPhone + no stray refresh** (2026-10-01, owner: "no animation" and "the reload icon keeps showing up"): the tab content now follows the finger (`touch-action: pan-y`), slides away and the next tab slides in; under a quarter of the width (and not a quick flick) it springs back, and at the first/last tab it only gives a little. Pull-to-refresh now decides the direction after 10 px and ignores sideways gestures, so swiping at the top of a page no longer shows the spinner. 6 browser touch checks.
 

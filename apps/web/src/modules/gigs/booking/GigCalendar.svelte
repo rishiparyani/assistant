@@ -177,8 +177,10 @@
               {#if list.length}
                 <span class="titles" aria-hidden="true">
                   {#each list.slice(0, 3) as e (e.event_id)}
-                    <span class="title {statusTone(e.status)}" class:struck={e.status === "cancelled"}
-                      >{e.gig_title}</span
+                    <span
+                      class="title {e.kind === 'rehearsal' ? 'violet' : statusTone(e.status)}"
+                      class:struck={e.status === "cancelled"}
+                      >{e.kind === "rehearsal" ? `Rehearsal: ${e.gig_title}` : e.gig_title}</span
                     >
                   {/each}
                   {#if list.length > 3}<span class="more">{list.length - 3} more</span>{/if}

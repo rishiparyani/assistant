@@ -11,6 +11,16 @@ export const GIG_STATUSES = ["enquiry", "confirmed", "completed", "cancelled"] a
 export type GigStatus = (typeof GIG_STATUSES)[number];
 
 export const BOOKING_ROLES = ["manager", "player"] as const;
+
+/**
+ * A gig's events are shows (the performance) or rehearsals for it. A rehearsal normally
+ * belongs to its gig; one that isn't for any gig is a gig of kind "rehearsal" (no client or
+ * fee, only rehearsals). See docs/design/rehearsals.md.
+ */
+export const EVENT_KINDS = ["show", "rehearsal"] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+export const GIG_KINDS = ["gig", "rehearsal"] as const;
+export type GigKind = (typeof GIG_KINDS)[number];
 export type BookingRole = (typeof BOOKING_ROLES)[number];
 
 /** Who may see what on a gig (managers always see everything). */
@@ -65,6 +75,12 @@ export const ClientSnapshot = z.object({
 });
 
 export const EventInput = z.object({
+  kind: z
+    .enum(EVENT_KINDS)
+    .default("show")
+    .describe(
+      "show (default) or rehearsal; a rehearsal has no lineup or shares, people say if they're coming",
+    ),
   title: optionalText(80).describe('e.g. "Sangeet", "Reception"; optional for single-event gigs'),
   start_at: dateTime,
   end_at: dateTime.nullish(),
@@ -84,6 +100,12 @@ export const PersonInput = z
   .refine((p) => p.user_id || p.email || p.name, "Give a user_id, an email or a name");
 
 export const CreateBookingInput = z.object({
+  kind: z
+    .enum(GIG_KINDS)
+    .default("gig")
+    .describe(
+      "gig (default), or rehearsal for a rehearsal that isn't for any gig (no client or fee). To add a rehearsal for a gig, use add_gig_event with kind rehearsal.",
+    ),
   title,
   event_type: optionalText(60).describe("Public, Private or another of my gig types (get_gig_types)"),
   status: z.enum(["enquiry", "confirmed"]).default("enquiry"),
@@ -139,6 +161,11 @@ export const UpdateEventInput = BookingRef.extend({
 });
 export const EventRef = BookingRef.extend({ event_id: id("Event") });
 
+export const SetAttendanceInput = EventRef.extend({
+  going: z.boolean().describe("true: coming to the rehearsal; false: can't make it"),
+  person_id: id("Person").optional().describe("Managers can answer for someone on the gig; default yourself"),
+}).describe("Say whether you (or, for managers, someone else) are coming to a rehearsal");
+
 export const AddPersonInput = BookingRef.extend({
   user_id: id("User").optional(),
   email: z.email().trim().toLowerCase().optional(),
@@ -159,11 +186,21 @@ export const FindMyGigsInput = PageInput.extend({
   to: dateTime.optional().describe("Latest event start (exclusive)"),
   q: z.string().trim().min(1).max(100).optional().describe("Search gig title, event, client and venue"),
   status: z.enum(["enquiry", "confirmed", "completed", "cancelled"]).optional(),
+  kind: z.enum(EVENT_KINDS).optional().describe("Only shows, or only rehearsals"),
   order: z.enum(["asc", "desc"]).default("asc"),
 });
 
+/** Someone's answer for a rehearsal. */
+export interface AttendanceView {
+  person_id: string;
+  name: string;
+  going: boolean;
+  is_me: boolean;
+}
+
 export interface BookingEventView {
   id: string;
+  kind: EventKind;
   title: string | null;
   start_at: string;
   start_display: string;
@@ -174,6 +211,10 @@ export interface BookingEventView {
   notes: string | null;
   /** Who's playing; only your own entry when the gig hides the lineup from players. */
   lineup: LineupView[];
+  /** Rehearsals: who said they're coming or not (people who haven't answered aren't listed). */
+  attendance: AttendanceView[];
+  /** Rehearsals: my answer, or null if I haven't answered. */
+  my_going: boolean | null;
 }
 
 export interface BookingPersonView {
@@ -187,6 +228,7 @@ export interface BookingPersonView {
 
 export interface BookingView {
   id: string;
+  kind: GigKind;
   title: string;
   event_type: string | null;
   status: "enquiry" | "confirmed" | "completed" | "cancelled";
@@ -217,6 +259,9 @@ export interface BookingView {
 export interface MyEventView {
   gig_id: string;
   event_id: string;
+  kind: EventKind;
+  /** Rehearsals: my answer (null if I haven't said). */
+  going: boolean | null;
   gig_title: string;
   event_title: string | null;
   event_type: string | null;

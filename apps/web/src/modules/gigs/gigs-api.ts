@@ -31,6 +31,7 @@ const q = (params: Record<string, string | number | undefined | null>) => {
 };
 
 export interface EventFields {
+  kind?: "show" | "rehearsal";
   title?: string | null;
   start_at: string;
   end_at?: string | null;
@@ -91,6 +92,7 @@ export const bookingsApi = {
     order?: "asc" | "desc";
     q?: string;
     status?: string;
+    kind?: "show" | "rehearsal";
     cursor?: string;
     limit?: number;
   }) => request<Page<MyEventView>>("GET", `/api/me/gigs${q(p)}`),
@@ -130,7 +132,12 @@ export const bookingsApi = {
   // Gig
   // online-only: the server picks the gig id and sets up its object.
   create: (
-    body: GigFields & { status?: "enquiry" | "confirmed"; events: EventFields[]; people: PersonFields[] },
+    body: GigFields & {
+      kind?: "gig" | "rehearsal";
+      status?: "enquiry" | "confirmed";
+      events: EventFields[];
+      people: PersonFields[];
+    },
   ) => request<BookingView>("POST", "/api/gigs", body),
   get: (id: string) => request<BookingView>("GET", base(id)),
   // online-only: checked against the gig version the sheet opened (conflicts).
@@ -154,6 +161,12 @@ export const bookingsApi = {
   // online-only: events move gig dates and lineups; server rules.
   removeEvent: (id: string, eventId: string) =>
     request<BookingView>("DELETE", `${base(id)}/events/${eventId}`),
+  // online-only: answered ahead of the rehearsal; the server checks who may answer for whom.
+  setAttendance: (id: string, eventId: string, going: boolean, personId?: string) =>
+    request<BookingView>("PUT", `${base(id)}/events/${eventId}/attendance`, {
+      going,
+      person_id: personId,
+    }),
 
   // online-only: people and roles are permission changes.
   addPerson: (id: string, p: PersonFields) => request<BookingView>("POST", `${base(id)}/people`, p),

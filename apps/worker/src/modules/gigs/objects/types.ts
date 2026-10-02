@@ -4,6 +4,10 @@
 export type PersonEventSummary = {
   gig_id: string;
   event_id: string;
+  /** Older summaries have none: a show. */
+  kind?: "show" | "rehearsal";
+  /** Rehearsals: my answer (null if I haven't said). */
+  going?: boolean | null;
   gig_title: string;
   event_title: string | null;
   event_type: string | null;
@@ -25,6 +29,8 @@ export type PersonEventSummary = {
  */
 export type PersonGigSummary = {
   gig_id: string;
+  /** Older summaries have none: a gig. */
+  kind?: "gig" | "rehearsal";
   gig_title: string;
   event_type: string | null;
   client_name: string | null;

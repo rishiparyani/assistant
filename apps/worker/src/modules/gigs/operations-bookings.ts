@@ -31,6 +31,7 @@ import {
   UpdateEventInput,
   UpdatePersonInput,
   SetGigTypesInput,
+  SetAttendanceInput,
 } from "@assistant/shared";
 import { defineOperation } from "../../core/operations.ts";
 import { z } from "zod";
@@ -132,7 +133,8 @@ export const bookingOperations = [
   defineOperation({
     id: "gigs.add_booking_event",
     tool: "add_gig_event",
-    description: 'Add an event to a gig, e.g. a "Reception" after the "Sangeet" (managers).',
+    description:
+      'Add an event to a gig, e.g. a "Reception" after the "Sangeet", or a rehearsal for it (kind rehearsal) (managers).',
     kind: "write",
     http: { method: "POST", path: "/gigs/:gig_id/events", status: 201 },
     input: AddEventInput,
@@ -156,6 +158,16 @@ export const bookingOperations = [
     http: { method: "DELETE", path: "/gigs/:gig_id/events/:event_id" },
     input: EventRef,
     handler: (ctx, input) => b.removeBookingEvent(ctx, input.gig_id, input.event_id),
+  }),
+  defineOperation({
+    id: "gigs.set_attendance",
+    tool: "set_rehearsal_attendance",
+    description:
+      "Say whether you're coming to a rehearsal (going true/false). Managers can answer for someone on the gig with person_id.",
+    kind: "write",
+    http: { method: "PUT", path: "/gigs/:gig_id/events/:event_id/attendance" },
+    input: SetAttendanceInput,
+    handler: (ctx, input) => b.setAttendance(ctx, input),
   }),
   defineOperation({
     id: "gigs.add_booking_person",

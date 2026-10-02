@@ -150,6 +150,15 @@ const MIGRATIONS: Migrations = [
   create table gig_types (name_key text primary key, name text not null, position integer not null);
   create index gig_types_position_idx on gig_types (position);
   `,
+  // Rehearsals (docs/design/rehearsals.md): an event is a show or a rehearsal (with my
+  // answer, 1 going / 0 not / null unanswered); a gig of kind "rehearsal" isn't for any gig.
+  `
+  alter table my_events add column kind text not null default 'show';
+  alter table my_events add column going integer;
+  alter table my_gigs add column kind text not null default 'gig';
+  create index my_events_kind_idx on my_events (kind, start_at);
+  create index my_gigs_kind_idx on my_gigs (kind);
+  `,
 ];
 
 /** Search words for a contact: name, city and email words, and phone digits. */
@@ -196,6 +205,7 @@ const MAX_SOCKETS = 8;
 /** A my_gigs row as stored (tags and flags are shaped on the way out). */
 type GigRow = {
   gig_id: string;
+  kind: "gig" | "rehearsal";
   gig_title: string;
   event_type: string | null;
   client_name: string | null;
@@ -334,7 +344,7 @@ export class PersonObject extends DurableObject<Env> {
         url,
       });
     // A time or venue change on an event that's still ahead.
-    const old = new Map(
+    const old = new Map<string, { event_id: string; start_at: string; venue_name: string | null }>(
       this.sql
         .exec<{ event_id: string; start_at: string; venue_name: string | null }>(
           `select event_id, start_at, venue_name from my_events where gig_id = ?`,
@@ -343,6 +353,16 @@ export class PersonObject extends DurableObject<Env> {
         .toArray()
         .map((e) => [e.event_id, e]),
     );
+    // A new rehearsal ahead (for a gig I was already on).
+    const added = rows.find((r) => r.kind === "rehearsal" && r.start_at >= now && !old.has(r.event_id));
+    if (added && gig.status !== "cancelled")
+      out.push({
+        kind: "rehearsal_added",
+        title:
+          gig.kind === "rehearsal" ? `New rehearsal: “${gig.gig_title}”` : `Rehearsal for “${gig.gig_title}”`,
+        body: `${where(added)} · Are you coming?`,
+        url,
+      });
     const moved = rows.find((r) => {
       const o = old.get(r.event_id);
       return (
@@ -389,11 +409,12 @@ export class PersonObject extends DurableObject<Env> {
         this.sql.exec(`insert or ignore into my_gig_people (gig_id, user_id) values (?, ?)`, gigId, u);
       if (gig)
         this.sql.exec(
-          `insert into my_gigs (gig_id, gig_title, event_type, client_name, status, role, first_start_at, share_paise,
+          `insert into my_gigs (gig_id, kind, gig_title, event_type, client_name, status, role, first_start_at, share_paise,
              paid_paise, fee_paise, received_paise, expenses_paise, shares_total_paise, payouts_paise,
              collective_tag_id, collective_name, lineup_visible)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           gig.gig_id,
+          gig.kind ?? "gig",
           gig.gig_title,
           gig.event_type ?? null,
           gig.client_name ?? null,
@@ -413,11 +434,13 @@ export class PersonObject extends DurableObject<Env> {
         );
       for (const r of rows) {
         this.sql.exec(
-          `insert into my_events (event_id, gig_id, gig_title, event_title, event_type, client_name, start_at, end_at,
-             venue_name, status, role, part, share_paise, collective_name)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `insert into my_events (event_id, gig_id, kind, going, gig_title, event_title, event_type, client_name, start_at,
+             end_at, venue_name, status, role, part, share_paise, collective_name)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           r.event_id,
           r.gig_id,
+          r.kind ?? "show",
+          r.going == null ? null : r.going ? 1 : 0,
           r.gig_title,
           r.event_title,
           r.event_type,
@@ -482,6 +505,8 @@ export class PersonObject extends DurableObject<Env> {
       status?: string;
       /** Leave out events of gigs with this status (Home skips cancelled ones). */
       exclude_status?: string;
+      /** Only shows or only rehearsals. */
+      kind?: "show" | "rehearsal";
       order?: "asc" | "desc";
       limit?: number;
       after?: [string, string] | null;
@@ -491,12 +516,12 @@ export class PersonObject extends DurableObject<Env> {
     const after = q.after ?? null;
     const cmp = desc ? "<" : ">";
     return this.sql
-      .exec<PersonEventSummary>(
-        `select gig_id, event_id, gig_title, event_title, event_type, client_name, start_at, end_at, venue_name,
-                status, role, part, share_paise, collective_name
+      .exec<Omit<PersonEventSummary, "going"> & { going: number | null }>(
+        `select gig_id, event_id, kind, going, gig_title, event_title, event_type, client_name, start_at, end_at,
+                venue_name, status, role, part, share_paise, collective_name
          from my_events
          where start_at >= ? and start_at < ?
-           and (? is null or status = ?) and (? is null or status <> ?)
+           and (? is null or status = ?) and (? is null or status <> ?) and (? is null or kind = ?)
            and (? is null or lower(gig_title || ' ' || coalesce(event_title, '') || ' ' || coalesce(client_name, '')
                 || ' ' || coalesce(venue_name, '')) like ? escape '\\')
            and (? is null or start_at ${cmp} ? or (start_at = ? and event_id ${cmp} ?))
@@ -508,6 +533,8 @@ export class PersonObject extends DurableObject<Env> {
         q.status ?? null,
         q.exclude_status ?? null,
         q.exclude_status ?? null,
+        q.kind ?? null,
+        q.kind ?? null,
         q.q ? 1 : null,
         q.q ? `%${q.q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null,
         after ? 1 : null,
@@ -516,7 +543,8 @@ export class PersonObject extends DurableObject<Env> {
         after?.[1] ?? null,
         q.limit ?? 1000,
       )
-      .toArray();
+      .toArray()
+      .map((r) => ({ ...r, going: r.going === null ? null : r.going === 1 }));
   }
 
   /** My gigs with money, by first event, optionally filtered (Home and reports). */
@@ -540,7 +568,7 @@ export class PersonObject extends DurableObject<Env> {
       .join("");
     const rows = this.sql
       .exec<GigRow>(
-        `select gig_id, gig_title, event_type, client_name, status, role, first_start_at, share_paise, paid_paise,
+        `select gig_id, kind, gig_title, event_type, client_name, status, role, first_start_at, share_paise, paid_paise,
                 fee_paise, received_paise, expenses_paise, shares_total_paise, payouts_paise,
                 collective_tag_id, collective_name, lineup_visible
          from my_gigs
@@ -1071,9 +1099,11 @@ export class PersonObject extends DurableObject<Env> {
         role: "manager" | "player";
         part: string | null;
         collective_name: string | null;
+        kind: "show" | "rehearsal";
+        going: number | null;
         updated_at: string | null;
       }>(
-        `select e.event_id, e.gig_id, e.gig_title, e.event_title, e.client_name, e.start_at, e.end_at,
+        `select e.event_id, e.gig_id, e.kind, e.going, e.gig_title, e.event_title, e.client_name, e.start_at, e.end_at,
            e.venue_name, e.status, e.role, e.part, e.collective_name, a.at as updated_at
          from my_events e left join applied a on a.gig_id = e.gig_id
          where e.start_at >= ? order by e.start_at limit ?`,

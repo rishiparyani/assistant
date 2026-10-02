@@ -18,10 +18,27 @@ export async function gigsCalendar(
   const rows = await ctx.objects.PEOPLE.getByName(personName(userId)).calendarEvents(from);
   return rows.map((e) => {
     const cancelled = e.status === "cancelled";
-    const title =
-      e.event_title && e.event_title !== e.gig_title ? `${e.gig_title}: ${e.event_title}` : e.gig_title;
+    const rehearsal = e.kind === "rehearsal";
+    const title = rehearsal
+      ? `Rehearsal: ${e.gig_title}`
+      : e.event_title && e.event_title !== e.gig_title
+        ? `${e.gig_title}: ${e.event_title}`
+        : e.gig_title;
     const details = [
-      [e.role === "manager" ? "You manage this gig" : "You're playing", e.part].filter(Boolean).join(" · "),
+      rehearsal
+        ? [
+            e.event_title,
+            e.going === 1
+              ? "You're going"
+              : e.going === 0
+                ? "You can't make it"
+                : "Say if you're coming in Gigspree",
+          ]
+            .filter(Boolean)
+            .join(" · ")
+        : [e.role === "manager" ? "You manage this gig" : "You're playing", e.part]
+            .filter(Boolean)
+            .join(" · "),
       e.client_name ? `Client: ${e.client_name}` : null,
       e.collective_name ? `Collective: ${e.collective_name}` : null,
       e.status === "enquiry" ? "Not confirmed yet (enquiry)" : null,

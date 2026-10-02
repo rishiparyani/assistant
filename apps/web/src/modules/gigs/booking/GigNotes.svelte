@@ -7,7 +7,19 @@
 
   // Notes everyone on the gig can post (soundcheck times, what to bring, changes). They
   // appear for the others live. Authors edit their own; authors and managers remove.
-  let { gig, onsaved }: { gig: BookingView; onsaved: (g: BookingView) => void } = $props();
+  let {
+    gig,
+    onsaved,
+    adding = false,
+  }: {
+    gig: BookingView;
+    onsaved: (g: BookingView) => void;
+    /** Opened from the gig page's Add menu: start with the note box ready. */
+    adding?: boolean;
+  } = $props();
+  $effect(() => {
+    if (adding) document.getElementById(`${uid}-draft`)?.focus();
+  });
 
   const uid = $props.id();
   const canEdit = $derived(gig.can_edit_lists);

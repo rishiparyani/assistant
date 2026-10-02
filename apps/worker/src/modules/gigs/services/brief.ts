@@ -33,17 +33,24 @@ export async function getBrief(ctx: OpUserCtx, input: z.output<typeof BriefInput
       from: now.toISOString(),
       to: input.what === "week" ? new Date(now.getTime() + 7 * 86400_000).toISOString() : undefined,
       exclude_status: "cancelled",
+      // "Next gig" means the next show; the week's list includes rehearsals.
+      kind: input.what === "next" ? "show" : undefined,
       order: "asc",
       limit: input.what === "next" ? 1 : 100,
     });
-    // One item per gig (its first event in the period), so a two-day wedding is one gig.
-    const firsts = [...new Map(events.map((e) => [e.gig_id, e])).values()].sort((a, b) =>
-      a.start_at.localeCompare(b.start_at),
-    );
+    // One item per gig (its first event in the period), so a two-day wedding is one gig;
+    // a gig's rehearsals are their own items.
+    const firsts = [
+      ...new Map(events.map((e) => [e.kind === "rehearsal" ? e.event_id : e.gig_id, e])).values(),
+    ].sort((a, b) => a.start_at.localeCompare(b.start_at));
     const items = firsts.map((e) => ({
       gig_id: e.gig_id,
       title:
-        e.event_title && e.event_title !== e.gig_title ? `${e.gig_title}: ${e.event_title}` : e.gig_title,
+        e.kind === "rehearsal"
+          ? `Rehearsal for ${e.gig_title}`
+          : e.event_title && e.event_title !== e.gig_title
+            ? `${e.gig_title}: ${e.event_title}`
+            : e.gig_title,
       when: spoken(e.start_at),
       venue: e.venue_name,
     }));

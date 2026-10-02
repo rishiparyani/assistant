@@ -2,7 +2,6 @@
   import type { GigAmount, HomeView, NotificationsView } from "@assistant/shared";
   import Bell from "@lucide/svelte/icons/bell";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
-  import Plus from "@lucide/svelte/icons/plus";
   import {
     Button,
     Card,
@@ -22,7 +21,8 @@
   import { bookingsApi } from "../gigs-api.ts";
   import GigDate from "../GigDate.svelte";
   import GigEditor from "./GigEditor.svelte";
-  import { statusLabel, statusTone } from "../status.ts";
+  import NewButton from "./NewButton.svelte";
+  import { eventTitle, rehearsalPill, statusLabel, statusTone } from "../status.ts";
   import { time12 } from "../time.ts";
 
   // Home: only my things (docs/design/gig-centric.md §2). Built from my own summaries,
@@ -70,10 +70,7 @@
 
 <PageHeader title="{greeting}, {firstName}" subtitle={today}>
   {#snippet actions()}
-    <Button variant="primary" onclick={() => (creating = true)}>
-      {#snippet icon()}<Plus />{/snippet}
-      New gig
-    </Button>
+    <NewButton onnewgig={() => (creating = true)} />
   {/snippet}
 </PageHeader>
 
@@ -158,18 +155,25 @@
       <ListGroup title="Coming up">
         {#snippet action()}<a class="link" href="/gigs">All gigs</a>{/snippet}
         {#each data.upcoming as e (e.event_id)}
+          {@const rehearsal = e.kind === "rehearsal"}
+          {@const pill = rehearsal
+            ? rehearsalPill(e)
+            : { label: statusLabel(e.status), tone: statusTone(e.status) }}
           <ListRow
             href="/gigs/{e.gig_id}"
-            title={e.event_title ? `${e.gig_title} · ${e.event_title}` : e.gig_title}
-            subtitle={[time12(e.start_at), e.venue_name, e.part, e.collective_name]
+            title={eventTitle(e)}
+            subtitle={(rehearsal
+              ? [time12(e.start_at), e.venue_name, e.event_title ? e.gig_title : e.collective_name]
+              : [time12(e.start_at), e.venue_name, e.part, e.collective_name]
+            )
               .filter(Boolean)
               .join(" · ")}
           >
-            {#snippet leading()}<GigDate iso={e.start_at} />{/snippet}
+            {#snippet leading()}<GigDate iso={e.start_at} soft={rehearsal} />{/snippet}
             {#snippet trailing()}
               <span class="right">
                 {#if e.share.amount_paise > 0}<span class="amt num">{e.share.amount_display}</span>{/if}
-                <Pill tone={statusTone(e.status)}>{statusLabel(e.status)}</Pill>
+                <Pill tone={pill.tone}>{pill.label}</Pill>
               </span>
             {/snippet}
           </ListRow>

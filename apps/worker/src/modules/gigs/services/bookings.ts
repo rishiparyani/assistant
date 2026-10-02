@@ -27,6 +27,7 @@ import {
   type UpdatePersonInput,
   type AddEventInput,
   type BookingStatusInput,
+  type SetAttendanceInput,
 } from "@assistant/shared";
 import type { z } from "zod";
 import type { OpUserCtx } from "../../../core/operations.ts";
@@ -117,6 +118,7 @@ export async function createBooking(
     {
       ...tags,
       gig_id: gigId,
+      kind: input.kind,
       title: input.title,
       event_type: input.event_type ?? null,
       status: input.status,
@@ -194,6 +196,16 @@ export function updateBookingEvent(ctx: OpUserCtx, input: z.output<typeof Update
   return bookingStub(ctx, gig_id).updateEvent(event_id, rest, actorOf(ctx), ctx.idempotencyKey);
 }
 
+export function setAttendance(ctx: OpUserCtx, input: z.output<typeof SetAttendanceInput>) {
+  return bookingStub(ctx, input.gig_id).setAttendance(
+    input.event_id,
+    input.person_id ?? null,
+    input.going,
+    actorOf(ctx),
+    ctx.idempotencyKey,
+  );
+}
+
 export const removeBookingEvent = (ctx: OpUserCtx, gigId: string, eventId: string) =>
   bookingStub(ctx, gigId).removeEvent(eventId, actorOf(ctx), ctx.idempotencyKey);
 
@@ -232,6 +244,7 @@ export async function findMyGigs(
     to: input.to,
     q: input.q,
     status: input.status,
+    kind: input.kind,
     order: input.order,
     limit: input.limit + 1,
     after: after as [string, string] | null,
@@ -239,6 +252,8 @@ export async function findMyGigs(
   const more = rows.length > input.limit;
   const items = rows.slice(0, input.limit).map(({ share_paise, ...r }) => ({
     ...r,
+    kind: r.kind ?? "show",
+    going: r.going ?? null,
     start_display: formatDateTimeIST(r.start_at),
     share: money(share_paise),
     collective_name: r.collective_name ?? null,

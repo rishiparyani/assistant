@@ -18,3 +18,17 @@ export const statusLabel = (s: GigStatus | string) => GIG[s as GigStatus]?.label
 export const statusTone = (s: GigStatus | string): Tone => GIG[s as GigStatus]?.tone ?? "grey";
 export const paymentLabel = (s: PaymentStatus) => PAYMENT[s].label;
 export const paymentTone = (s: PaymentStatus) => PAYMENT[s].tone;
+
+/** A rehearsal's pill in lists: my answer (or a nudge), unless it's cancelled. */
+export function rehearsalPill(e: { status: string; going: boolean | null }): { label: string; tone: Tone } {
+  if (e.status === "cancelled") return GIG.cancelled;
+  if (e.going === true) return { label: "Going", tone: "green" };
+  if (e.going === false) return { label: "Can't go", tone: "grey" };
+  return { label: "Coming?", tone: "amber" };
+}
+
+/** How a row names an event: "Rehearsal · Test Wedding", "Wedding · Sangeet" or "Wedding". */
+export function eventTitle(e: { kind?: string; gig_title: string; event_title: string | null }): string {
+  if (e.kind === "rehearsal") return `Rehearsal · ${e.event_title ?? e.gig_title}`;
+  return e.event_title ? `${e.gig_title} · ${e.event_title}` : e.gig_title;
+}
