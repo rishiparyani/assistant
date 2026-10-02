@@ -190,6 +190,23 @@ describe("rehearsals not for a gig", () => {
       ).status,
     ).toBe(400);
 
+    // No money at all, and it's never "played" (cancel and reopen work).
+    for (const [path, body] of [
+      ["payments", { amount: "100", method: "cash" }],
+      ["expenses", { category: "Rehearsal", amount: "100", spent_on: inDays(0).slice(0, 10) }],
+      ["payouts", { person_id: r.people[0]!.id, amount: "100", method: "cash" }],
+    ] as const)
+      expect((await as(owner)(`/gigs/${r.id}/${path}`, { body })).status).toBe(400);
+    expect((await as(owner)(`/gigs/${r.id}/status`, { body: { action: "complete" } })).status).toBe(409);
+    const cancelled = await json<BookingView>(
+      await as(owner)(`/gigs/${r.id}/status`, { body: { action: "cancel" } }),
+    );
+    expect(cancelled.status).toBe("cancelled");
+    const reopened = await json<BookingView>(
+      await as(owner)(`/gigs/${r.id}/status`, { body: { action: "reopen" } }),
+    );
+    expect(reopened.status).toBe("confirmed");
+
     const home = await waitFor(
       () => as(mate)("/me/overview").then((x) => json<HomeView>(x)),
       (h) => h.upcoming.length === 2,

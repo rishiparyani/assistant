@@ -624,6 +624,11 @@ export class BookingObject extends DurableObject<Env> {
     return this.write(["status", action, reason, refund], actor, key, "manager", (gig) => {
       const t: { to: GigStatus; from: GigStatus[] } =
         action === "reopen" ? { to: this.statusBeforeCancel(), from: ["cancelled"] } : TRANSITIONS[action];
+      // A rehearsal of its own is simply on: it can be cancelled and reopened, nothing else.
+      if (gig.kind === "rehearsal" && action === "complete")
+        throw new ObjectError("conflict", "A rehearsal can be cancelled or reopened, not marked as played", {
+          reason: "rehearsal_status",
+        });
       if (gig.status === t.to) return null; // already there: nothing to do
       if (!t.from.includes(gig.status))
         throw new ObjectError("conflict", `A ${gig.status} gig can't be changed to ${t.to}`, {
@@ -920,6 +925,7 @@ export class BookingObject extends DurableObject<Env> {
 
   async recordPayment(input: MoneyEntryInput, actor: Actor, key: string | null): Promise<BookingView> {
     return this.write(["record_payment", input], actor, key, "manager", (gig) => {
+      checkHasMoney(gig);
       const id = this.insertEntry("payments", input, actor, null);
       this.stamp(gig.id);
       return { action: "record_payment", entityType: "payment", entityId: id, after: input };
@@ -947,6 +953,7 @@ export class BookingObject extends DurableObject<Env> {
 
   async recordExpense(input: ExpenseInput, actor: Actor, key: string | null): Promise<BookingView> {
     return this.write(["record_expense", input], actor, key, "manager", (gig) => {
+      checkHasMoney(gig);
       if (input.event_id) this.requireEvent(input.event_id);
       const id = ulid();
       this.sql.exec(
@@ -1028,6 +1035,7 @@ export class BookingObject extends DurableObject<Env> {
     key: string | null,
   ): Promise<BookingView> {
     return this.write(["record_payout", input], actor, key, "manager", (gig) => {
+      checkHasMoney(gig);
       const person = this.pickPerson(input);
       if (input.event_id) this.requireEvent(input.event_id);
       const id = this.insertEntry("payouts", input, actor, null, {
@@ -2573,6 +2581,14 @@ export class BookingObject extends DurableObject<Env> {
 }
 
 /** How venues and clients are compared for duplicate warnings. */
+/** A rehearsal that isn't for a gig has no money (docs/design/rehearsals.md). */
+function checkHasMoney(gig: GigRow) {
+  if (gig.kind === "rehearsal")
+    throw new ObjectError("validation_failed", "A rehearsal has no money; record it on the gig it's for", {
+      reason: "rehearsal_no_money",
+    });
+}
+
 function answerOf(
   rows: { event_id: string; person_id: string; going: number }[],
   eventId: string,
