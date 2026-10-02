@@ -332,3 +332,7 @@ The owner finished the domain set-up (DNS clean, deploy token can manage `gigspr
 ## 2026-10-02: Rehearsals belong to their gig; a rehearsal of its own is optional
 
 Owner: rehearsals are almost always for a gig, so a rehearsal is an event of the gig (`kind` show/rehearsal) and reaches everyone on it through the existing summaries (Home, lists, calendar feed, notifications, offline). A rehearsal not for any gig is a gig of kind `rehearsal` (no client or fee). People answer Going / Can't per rehearsal (stored in the gig's object, no version bump). Rehearsals have no lineup or shares, don't move a gig's date in reports and aren't in duplicate warnings. Chosen over a separate rehearsal object linked to a gig, which would need cross-object writes to show on the gig. Details: docs/design/rehearsals.md.
+
+## 2026-10-02: The gig page shows only what a gig has; one Add button adds the rest
+
+Owner: empty sections (no notes, no guests) were still on screen. Sections and tiles now appear only once they have something; a single Add (+) button in the gig's header lists everything that can be added (filtered by role and gig kind). Empty states stay on the pages behind the tiles (Guests, Lists, Notes), where they explain what each is for.

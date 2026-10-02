@@ -1,15 +1,15 @@
 <script lang="ts">
   import type { BookingEventView, BookingView } from "@assistant/shared";
-  import Plus from "@lucide/svelte/icons/plus";
   import ChevronDown from "@lucide/svelte/icons/chevron-down";
   import MapPin from "@lucide/svelte/icons/map-pin";
-  import { Avatar, Button, ListGroup, ListRow, Pill, toast } from "../../../core/ui/index.ts";
+  import { Avatar, ListGroup, ListRow, Pill, toast } from "../../../core/ui/index.ts";
   import GigDate from "../GigDate.svelte";
   import { bookingsApi } from "../gigs-api.ts";
   import { timeRange } from "../time.ts";
 
   // A gig's rehearsals (docs/design/rehearsals.md): when and where, and who's coming.
-  // Everyone on the gig answers for themselves; managers add and change rehearsals.
+  // Everyone on the gig answers for themselves; managers add and change rehearsals (the
+  // first from the gig page's Add menu; nothing shows while there are none).
   let {
     gig,
     onsaved,
@@ -124,11 +124,6 @@
       </div>
     {/each}
   </ListGroup>
-{:else if manager && editable && gig.kind === "gig"}
-  <Button variant="ghost" onclick={onadd}>
-    {#snippet icon()}<Plus />{/snippet}
-    Add a rehearsal
-  </Button>
 {/if}
 
 <style>

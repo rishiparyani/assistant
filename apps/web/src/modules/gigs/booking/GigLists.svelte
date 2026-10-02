@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { BookingView, GigListItemView, GigListView } from "@assistant/shared";
   import GripVertical from "@lucide/svelte/icons/grip-vertical";
   import ListPlus from "@lucide/svelte/icons/list-plus";
@@ -25,7 +26,16 @@
   // A gig's lists (setlists, packing, run of show): everyone on the gig sees them live and,
   // unless a manager turned it off, changes them. Drag the handle to reorder (or use the
   // arrow keys on it, or Up/Down in the item's sheet).
-  let { gig, onsaved }: { gig: BookingView; onsaved: (g: BookingView) => void } = $props();
+  let {
+    gig,
+    onsaved,
+    adding = false,
+  }: {
+    gig: BookingView;
+    onsaved: (g: BookingView) => void;
+    /** Opened from the gig page's Add menu: start with "New list" open. */
+    adding?: boolean;
+  } = $props();
 
   const canEdit = $derived(gig.can_edit_lists);
   let listOpen = $state(false);
@@ -181,6 +191,9 @@
   }
 
   const openList = (l: GigListView | null) => ((listFor = l), (listOpen = true));
+  $effect(() => {
+    if (adding && untrack(() => canEdit)) untrack(() => openList(null));
+  });
   const openItem = (list: GigListView, item: GigListItemView) => {
     if (!canEdit) return;
     itemFor = { list, item };

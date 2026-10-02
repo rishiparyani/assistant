@@ -14,7 +14,19 @@
 
   // A gig's guest list. Everyone adds their own guests until it closes; managers see all,
   // set limits and share it with the venue. Each guest counts as 1 + plus-ones.
-  let { gig, onsaved }: { gig: BookingView; onsaved: (g: BookingView) => void } = $props();
+  let {
+    gig,
+    onsaved,
+    adding: startAdding = false,
+  }: {
+    gig: BookingView;
+    onsaved: (g: BookingView) => void;
+    /** Opened from the gig page's Add menu: start with the name box ready. */
+    adding?: boolean;
+  } = $props();
+  $effect(() => {
+    if (startAdding) document.getElementById(`${uid}-name`)?.focus();
+  });
 
   const uid = $props.id();
   const list = $derived(gig.guest_list);

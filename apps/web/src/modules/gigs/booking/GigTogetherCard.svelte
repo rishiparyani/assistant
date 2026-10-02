@@ -5,7 +5,8 @@
   import MessageSquare from "@lucide/svelte/icons/message-square";
 
   // The way into the gig's shared space (guest list, lists, notes), kept apart from the
-  // gig's own details: a tile each, with where things stand.
+  // gig's own details: a tile for each that has something in it (empty ones are started
+  // from the gig page's Add menu), with where things stand.
   let { gig }: { gig: BookingView } = $props();
 
   // Short, so the three sit side by side on a phone.
@@ -18,33 +19,46 @@
   });
   const count = (n: number, one: string, many: string, none: string) =>
     n ? `${n} ${n === 1 ? one : many}` : none;
-  const tiles = $derived([
-    { href: `/gigs/${gig.id}/guests`, label: "Guests", sub: guests, icon: Users, tone: "violet" },
-    {
-      href: `/gigs/${gig.id}/lists`,
-      label: "Lists",
-      sub: count(gig.lists.length, "list", "lists", "Setlists…"),
-      icon: ListChecks,
-      tone: "blue",
-    },
-    {
-      href: `/gigs/${gig.id}/notes`,
-      label: "Notes",
-      sub: count(gig.shared_notes.length, "note", "notes", "None yet"),
-      icon: MessageSquare,
-      tone: "green",
-    },
-  ]);
+  const tiles = $derived(
+    [
+      {
+        href: `/gigs/${gig.id}/guests`,
+        label: "Guests",
+        sub: guests,
+        icon: Users,
+        tone: "violet",
+        has: gig.guest_list.heads > 0,
+      },
+      {
+        href: `/gigs/${gig.id}/lists`,
+        label: "Lists",
+        sub: count(gig.lists.length, "list", "lists", ""),
+        icon: ListChecks,
+        tone: "blue",
+        has: gig.lists.length > 0,
+      },
+      {
+        href: `/gigs/${gig.id}/notes`,
+        label: "Notes",
+        sub: count(gig.shared_notes.length, "note", "notes", ""),
+        icon: MessageSquare,
+        tone: "green",
+        has: gig.shared_notes.length > 0,
+      },
+    ].filter((t) => t.has),
+  );
 </script>
 
-<nav class="together" aria-label="Together: guests, lists and notes">
-  {#each tiles as t (t.href)}
-    <a class="tile" href={t.href}>
-      <span class="label"><span class="ico {t.tone}"><t.icon size={16} /></span>{t.label}</span>
-      <span class="sub">{t.sub}</span>
-    </a>
-  {/each}
-</nav>
+{#if tiles.length}
+  <nav class="together" aria-label="Together: guests, lists and notes">
+    {#each tiles as t (t.href)}
+      <a class="tile" href={t.href}>
+        <span class="label"><span class="ico {t.tone}"><t.icon size={16} /></span>{t.label}</span>
+        <span class="sub">{t.sub}</span>
+      </a>
+    {/each}
+  </nav>
+{/if}
 
 <style>
   .together {

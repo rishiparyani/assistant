@@ -5,7 +5,7 @@
   import type { BookingView } from "@assistant/shared";
   import { NotSaved, PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
-  import { navigate } from "../../../core/router.svelte.ts";
+  import { navigate, router } from "../../../core/router.svelte.ts";
   import NotFound from "../../../core/pages/NotFound.svelte";
   import { nextTab, revealTabs, slide, swipeTabs } from "../../../core/ui/swipe.ts";
   import { ApiError } from "../../../core/api.ts";
@@ -31,6 +31,9 @@
     if (missing) dropCache(`gig:${gigId}`);
   });
   const set = (g: BookingView) => q.set(g);
+  // "?add=1" (the gig page's Add menu): the section opens ready to add, once.
+  const adding = untrack(() => router.route.query.get("add") === "1");
+  if (adding) history.replaceState(history.state, "", location.pathname);
 
   const TITLES: Record<Section, string> = { guests: "Guest list", lists: "Lists", notes: "Notes" };
   const first = $derived(gig?.events[0]);
@@ -98,11 +101,11 @@
           in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
         >
           {#if section === "guests"}
-            <GigGuests {gig} onsaved={set} />
+            <GigGuests {gig} onsaved={set} {adding} />
           {:else if section === "lists"}
-            <GigLists {gig} onsaved={set} />
+            <GigLists {gig} onsaved={set} {adding} />
           {:else}
-            <GigNotes {gig} onsaved={set} />
+            <GigNotes {gig} onsaved={set} {adding} />
           {/if}
         </div>
       {/key}

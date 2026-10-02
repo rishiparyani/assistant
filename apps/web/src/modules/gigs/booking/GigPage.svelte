@@ -64,6 +64,12 @@
   import GigRehearsals from "./GigRehearsals.svelte";
   import RehearsalSheet from "./RehearsalSheet.svelte";
   import Drum from "@lucide/svelte/icons/drum";
+  import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
+  import UserPlus from "@lucide/svelte/icons/user-plus";
+  import ListChecks from "@lucide/svelte/icons/list-checks";
+  import MessageSquare from "@lucide/svelte/icons/message-square";
+  import Receipt from "@lucide/svelte/icons/receipt";
+  import IndianRupee from "@lucide/svelte/icons/indian-rupee";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
   let { gigId }: { gigId: string } = $props();
@@ -96,6 +102,7 @@
   let payoutFor = $state<PayeeView | null>(null);
   let cancelOpen = $state(false);
   let moreOpen = $state(false);
+  let addOpen = $state(false);
   // Lineups are folded to one line per event; a one-event gig shows its lineup open.
   let unfolded = $state<Record<string, boolean>>({});
   const lineupOpenFor = (e: BookingEventView) => unfolded[e.id] ?? shows.length === 1;
@@ -205,6 +212,40 @@
     if (gig.status === "cancelled")
       out.push({ label: `Reopen ${noun}`, icon: Undo, onclick: () => void reopen() });
     out.push({ label: `Delete ${noun}`, icon: Trash, destructive: true, onclick: () => void deleteGig() });
+    return out;
+  });
+  // The Add menu: everything that can be added here. Empty sections aren't shown on the
+  // page; they appear once something is added.
+  const addActions = $derived.by(() => {
+    if (!gig) return [];
+    const open = gig.status !== "cancelled";
+    const out: { label: string; icon?: typeof Check; onclick: () => void }[] = [];
+    const together = (section: string) => () => navigate(`/gigs/${gig!.id}/${section}?add=1`);
+    if (manager && open && !rehearsalOnly) {
+      out.push({ label: "Rehearsal", icon: Drum, onclick: () => openEvent(null, "rehearsal") });
+      out.push({
+        label: "Event (e.g. Reception)",
+        icon: CalendarPlus,
+        onclick: () => openEvent(null, "show"),
+      });
+    }
+    if (manager && open && rehearsalOnly)
+      out.push({ label: "Another date", icon: CalendarPlus, onclick: () => openEvent(null, "rehearsal") });
+    if (manager) out.push({ label: "Person", icon: UserPlus, onclick: () => openPerson(null) });
+    if (manager || gig.guest_list.open)
+      out.push({ label: "Guest", icon: Users, onclick: together("guests") });
+    if (gig.can_edit_lists) {
+      out.push({ label: "List (e.g. setlist)", icon: ListChecks, onclick: together("lists") });
+      out.push({ label: "Note", icon: MessageSquare, onclick: together("notes") });
+    }
+    if (manager && !rehearsalOnly) {
+      out.push({
+        label: "Client payment",
+        icon: IndianRupee,
+        onclick: () => ((tab = "money"), (payOpen = true)),
+      });
+      out.push({ label: "Expense", icon: Receipt, onclick: () => ((tab = "money"), (expenseOpen = true)) });
+    }
     return out;
   });
   /** "₹12,000 each" when the shares are equal, else their total. */
@@ -349,6 +390,11 @@
 {:else}
   <PageHeader title={gig.title} back="/gigs" backLabel="Gigs">
     {#snippet actions()}
+      {#if addActions.length}
+        <button class="more add" type="button" aria-label="Add" onclick={() => (addOpen = true)}
+          ><Plus size={22} /></button
+        >
+      {/if}
       {#if manager}
         <Button onclick={() => (editOpen = true)} aria-label="Edit {noun}">
           {#snippet icon()}<Pencil />{/snippet}
@@ -417,7 +463,7 @@
           {/if}
           {#if rehearsalOnly}
             <!-- No money on a rehearsal that isn't for a gig. -->
-          {:else if money.fee && money.received && gig.status !== "cancelled"}
+          {:else if money.fee && money.received && gig.status !== "cancelled" && (money.fee.amount_paise > 0 || money.received.amount_paise !== 0)}
             <li>
               <Wallet size={18} />
               <button class="fact-link" type="button" onclick={() => (tab = "money")}
@@ -551,12 +597,6 @@
               {/if}
             </ListGroup>
           {/each}
-          {#if manager && gig.status !== "cancelled" && !rehearsalOnly}
-            <Button variant="ghost" onclick={() => openEvent(null, "show")}>
-              {#snippet icon()}<Plus />{/snippet}
-              Add an event (e.g. Reception)
-            </Button>
-          {/if}
           <GigRehearsals
             {gig}
             onsaved={set}
@@ -832,6 +872,7 @@
     onremove={removeEvent}
   />
   <ActionSheet bind:open={moreOpen} title={gig.title} actions={moreActions} />
+  <ActionSheet bind:open={addOpen} title="Add to this {noun}" actions={addActions} />
   {#if lineupFor}<LineupSheet bind:open={lineupOpen} {gig} event={lineupFor} onsaved={set} />{/if}
   <PersonSheet bind:open={personOpen} {gig} person={personFor} onsaved={set} />
 {/if}
@@ -941,6 +982,11 @@
     color: var(--text);
     box-shadow: var(--shadow-sm);
     cursor: pointer;
+  }
+  .more.add {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--text-on-accent);
   }
   .fold {
     display: flex;
