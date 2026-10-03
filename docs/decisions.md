@@ -348,3 +348,7 @@ Owner: clients ask to soft-block two or three dates. A date option is a show fla
 ## 2026-10-03: Guests arrive in parts (arrival count per guest)
 
 Owner: a "Rahul +2" group doesn't always arrive together. Each guest keeps how many of the group are in (`arrived_count`, 0 to 1 + plus-ones) instead of a yes/no; `arrived` stays as "the whole group is in" for older clients and the door link. Groups get a − / + counter at the gig and on the venue's door page; singles keep the tick. Arrival time stays the first arrival.
+
+## 2026-10-03: Breaks in lists, not setlists
+
+The owner asked for breaks in setlists (10 or 15 minutes, sometimes two), and for it to stay generic because lists aren't only setlists. A list item now has a kind: `item` or `break`. A break is a divider with a name ("Break" by default; "Interval", "Set 2", "Cables" all work) and an optional length in minutes. Breaks are never numbered or ticked, and the list's count says "12 items · 2 breaks". Stage mode shows a break between the songs it sits between. Reason: one divider covers intervals in a setlist, pauses in a run of show and headings in a packing list, so no list type is needed. Booking migration 13 (`list_items.kind`, `minutes`). Works offline like other item changes.

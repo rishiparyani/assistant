@@ -102,9 +102,14 @@
     <div class="title">
       <strong>{song.title}</strong>
       <span
-        >{[shownKey, song.tempo_bpm ? `${song.tempo_bpm} bpm` : null, song.capo ? `capo ${song.capo}` : null]
+        >{[
+          shownKey,
+          song.tempo_bpm ? `${song.tempo_bpm} bpm` : null,
+          song.capo ? `capo ${song.capo}` : null,
+          songs.length > 1 ? `${index + 1} of ${songs.length}` : null,
+        ]
           .filter(Boolean)
-          .join(" · ")}{#if songs.length > 1}&nbsp;· {index + 1} of {songs.length}{/if}</span
+          .join(" · ")}</span
       >
     </div>
     <button class="icon" onclick={() => (scale = Math.max(0.7, scale - 0.1))} aria-label="Smaller text"
@@ -116,7 +121,12 @@
   </header>
 
   <div class="scroll" bind:this={scroller} style:font-size="{scale}em">
-    {#if song.chart}
+    {#if song.pause !== undefined}
+      <div class="pause">
+        <strong>{song.title}</strong>
+        {#if song.pause}<span>{song.pause}</span>{/if}
+      </div>
+    {:else if song.chart}
       <ChordChart chart={song.chart} steps={song.steps ?? 0} toKey={shownKey} size="stage" />
     {:else}
       <p class="none">No chart for this song yet.</p>
@@ -230,6 +240,19 @@
   }
   .none {
     color: #a1a1ab;
+  }
+  .pause {
+    display: grid;
+    gap: var(--space-3);
+    justify-items: center;
+    padding: 18vh var(--space-4) 0;
+    text-align: center;
+    color: #a1a1ab;
+  }
+  .pause strong {
+    font-size: 2em;
+    color: #f4f4f6;
+    overflow-wrap: anywhere;
   }
   .next-song {
     margin-top: var(--space-6);

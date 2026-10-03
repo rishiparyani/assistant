@@ -9,6 +9,7 @@ export function withDefaults(g: BookingView): BookingView {
     g.guest_list &&
     g.kind &&
     g.events.every((e) => e.hold !== undefined) &&
+    g.lists.every((l) => l.items.every((i) => i.kind !== undefined)) &&
     g.guest_list.guests.every((x) => x.arrived_count !== undefined)
   )
     return g;
@@ -22,7 +23,10 @@ export function withDefaults(g: BookingView): BookingView {
       attendance: e.attendance ?? [],
       my_going: e.my_going ?? null,
     })),
-    lists: g.lists ?? [],
+    lists: (g.lists ?? []).map((l) => ({
+      ...l,
+      items: l.items.map((i) => ({ ...i, kind: i.kind ?? "item", minutes: i.minutes ?? null })),
+    })),
     shared_notes: g.shared_notes ?? [],
     can_edit_lists: g.can_edit_lists ?? false,
     guest_list: g.guest_list

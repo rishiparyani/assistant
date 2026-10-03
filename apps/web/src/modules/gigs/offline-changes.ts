@@ -57,8 +57,10 @@ const withList = (g: BookingView, listId: unknown, fn: (l: GigListView) => GigLi
 });
 const item = (x: Body, pending = true): GigListItemView => ({
   id: String(x.id),
+  kind: x.kind === "break" ? "break" : "item",
   text: String(x.text),
   detail: (x.detail as string | null | undefined) ?? null,
+  minutes: (x.minutes as number | null | undefined) ?? null,
   song_id: (x.song_id as string | undefined) ?? null,
   done: false,
   done_by: null,
@@ -178,6 +180,7 @@ on("gigs.update_list_item", (g, b, c) =>
             ...x,
             ...(b.text !== undefined ? { text: String(b.text) } : {}),
             ...(b.detail !== undefined ? { detail: (b.detail as string | null) ?? null } : {}),
+            ...(b.minutes !== undefined ? { minutes: (b.minutes as number | null) ?? null } : {}),
             ...(b.done !== undefined
               ? { done: !!b.done, done_by: b.done ? (me(g)?.name ?? "You") : null }
               : {}),

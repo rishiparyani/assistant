@@ -18,6 +18,7 @@ import {
   type EventKind,
   type GigKind,
   type GigListView,
+  type ListItemKind,
   type GigMoney,
   type GigNoteView,
   type GuestListView,
@@ -274,6 +275,12 @@ const MIGRATIONS: Migrations = [
   alter table guests add column arrived_count integer not null default 0 check (arrived_count >= 0);
   update guests set arrived_count = 1 + plus_ones where arrived_at is not null;
   `,
+  // 13: breaks in lists (an interval between sets, a heading on a packing list): never
+  // numbered or ticked; a break may say how long it is.
+  `
+  alter table list_items add column kind text not null default 'item' check (kind in ('item', 'break'));
+  alter table list_items add column minutes integer check (minutes is null or minutes > 0);
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -331,6 +338,9 @@ export interface ListItemInput {
   detail: string | null;
   /** A song in the list maker's library (music module); the text is its title. */
   song_id?: string | null;
+  kind?: ListItemKind;
+  /** A break's length (breaks only). */
+  minutes?: number | null;
 }
 export interface CreateListInput {
   id?: string | null;
@@ -372,6 +382,7 @@ export interface UpdateItemInput {
   text?: string;
   detail?: string | null;
   done?: boolean;
+  minutes?: number | null;
 }
 /** A tag from the D1 registry (the Worker resolves names to ids). */
 export interface TagRef {
@@ -1300,6 +1311,9 @@ export class BookingObject extends DurableObject<Env> {
       const before = this.requireItem(listId, itemId);
       if (input.done !== undefined && !list.checkable)
         throw new ObjectError("validation_failed", "This list doesn't have tick boxes");
+      if (input.done !== undefined && before.kind === "break")
+        throw new ObjectError("validation_failed", "A break can't be ticked");
+      checkBreak(before.kind, input.minutes, null);
       const done =
         input.done === undefined
           ? { at: before.done_at, by: before.done_by_name }
@@ -1310,11 +1324,15 @@ export class BookingObject extends DurableObject<Env> {
         text: input.text ?? before.text,
         detail: input.detail === undefined ? before.detail : input.detail,
         done_at: done.at,
+        ...(before.kind === "break"
+          ? { minutes: input.minutes === undefined ? before.minutes : input.minutes }
+          : {}),
       };
       this.sql.exec(
-        `update list_items set text = ?, detail = ?, done_at = ?, done_by_name = ?, updated_at = ? where id = ?`,
+        `update list_items set text = ?, detail = ?, minutes = ?, done_at = ?, done_by_name = ?, updated_at = ? where id = ?`,
         after.text,
         after.detail,
+        after.minutes ?? null,
         done.at,
         done.by,
         nowIso(),
@@ -1326,7 +1344,12 @@ export class BookingObject extends DurableObject<Env> {
         action: "update_list_item",
         entityType: "list_item",
         entityId: itemId,
-        before: { text: before.text, detail: before.detail, done_at: before.done_at },
+        before: {
+          text: before.text,
+          detail: before.detail,
+          done_at: before.done_at,
+          ...(before.kind === "break" ? { kind: before.kind, minutes: before.minutes } : {}),
+        },
         after,
       };
     });
@@ -2409,12 +2432,12 @@ export class BookingObject extends DurableObject<Env> {
     return (
       listId
         ? this.sql.exec<ItemRow>(
-            `select id, list_id, text, detail, song_id, position, done_at, done_by_name from list_items
+            `select id, list_id, kind, text, detail, minutes, song_id, position, done_at, done_by_name from list_items
              where list_id = ? and deleted_at is null order by position, id`,
             listId,
           )
         : this.sql.exec<ItemRow>(
-            `select id, list_id, text, detail, song_id, position, done_at, done_by_name from list_items
+            `select id, list_id, kind, text, detail, minutes, song_id, position, done_at, done_by_name from list_items
              where deleted_at is null order by list_id, position, id`,
           )
     ).toArray();
@@ -2423,7 +2446,7 @@ export class BookingObject extends DurableObject<Env> {
   private requireItem(listId: string, id: string): ItemRow {
     const item = this.sql
       .exec<ItemRow>(
-        `select id, list_id, text, detail, song_id, position, done_at, done_by_name from list_items
+        `select id, list_id, kind, text, detail, minutes, song_id, position, done_at, done_by_name from list_items
          where id = ? and list_id = ? and deleted_at is null`,
         id,
         listId,
@@ -2482,16 +2505,19 @@ export class BookingObject extends DurableObject<Env> {
     ts: string,
   ): string[] {
     if (after) this.requireItem(listId, after);
+    for (const item of items) checkBreak(item.kind ?? "item", item.minutes, item.song_id);
     const positions = this.positionsAfter(listId, this.itemRows(listId), after, items.length);
     return items.map((item, i) => {
       const id = this.newId("list_items", item.id);
       this.sql.exec(
-        `insert into list_items (id, list_id, text, detail, song_id, position, created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into list_items (id, list_id, kind, text, detail, minutes, song_id, position, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         listId,
+        item.kind ?? "item",
         item.text,
         item.detail,
+        item.minutes ?? null,
         item.song_id ?? null,
         positions[i]!,
         actor.userId,
@@ -2653,8 +2679,10 @@ export class BookingObject extends DurableObject<Env> {
         .filter((x) => x.list_id === l.id)
         .map((x) => ({
           id: x.id,
+          kind: x.kind,
           text: x.text,
           detail: x.detail,
+          minutes: x.minutes,
           song_id: x.song_id,
           done: !!x.done_at,
           done_by: x.done_at ? x.done_by_name : null,
@@ -2865,11 +2893,24 @@ type ListRow = {
   updated_at: string;
 };
 
+/** Only a break has a length, and a break is never a song. */
+function checkBreak(
+  kind: ListItemKind,
+  minutes: number | null | undefined,
+  songId: string | null | undefined,
+) {
+  if (kind !== "break" && minutes != null)
+    throw new ObjectError("validation_failed", "Only a break has a length in minutes");
+  if (kind === "break" && songId) throw new ObjectError("validation_failed", "A break can't be a song");
+}
+
 type ItemRow = {
   id: string;
   list_id: string;
+  kind: ListItemKind;
   text: string;
   detail: string | null;
+  minutes: number | null;
   song_id: string | null;
   position: number;
   done_at: string | null;

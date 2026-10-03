@@ -277,8 +277,17 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
       return one(`Removed the list ${quoted(str(before.title))}`);
     case "add_list_items": {
       const items = Array.isArray(after.items) ? (after.items as Obj[]) : [];
+      const breaks = items.filter((i) => i.kind === "break").length;
+      const what =
+        items.length === 1
+          ? breaks
+            ? "a break"
+            : "an item"
+          : breaks === items.length
+            ? `${items.length} breaks`
+            : `${items.length} items`;
       return one(
-        `Added ${items.length === 1 ? "an item" : `${items.length} items`} to ${list(row.entity_id)}`,
+        `Added ${what} to ${list(row.entity_id)}`,
         items.length
           ? short(
               items
@@ -295,9 +304,13 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
       const where = item ? ` in ${list(item.list_id)}` : "";
       if ("done" in after || ("done_at" in after && after.done_at !== before.done_at))
         return one(`${after.done || after.done_at ? "Ticked" : "Unticked"} ${quoted(text)}${where}`);
+      const mins = (m: unknown) => (typeof m === "number" ? `${m} min` : "no length");
       return one(
         `Changed ${quoted(text)}${where}`,
         str(after.text) && after.text !== before.text ? `Text: ${before.text} → ${after.text}` : null,
+        before.kind === "break" && "minutes" in after && after.minutes !== before.minutes
+          ? `Length: ${mins(before.minutes)} → ${mins(after.minutes)}`
+          : null,
       );
     }
     case "move_list_item": {

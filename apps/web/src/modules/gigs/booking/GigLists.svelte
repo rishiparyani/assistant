@@ -22,10 +22,12 @@
   import { outbox } from "../../../core/outbox.svelte.ts";
   import ListSheet from "./ListSheet.svelte";
   import ItemSheet from "./ItemSheet.svelte";
+  import { breakLength, listSummary, numbers } from "./list-breaks.ts";
 
   // A gig's lists (setlists, packing, run of show): everyone on the gig sees them live and,
   // unless a manager turned it off, changes them. Drag the handle to reorder (or use the
-  // arrow keys on it, or Up/Down in the item's sheet).
+  // arrow keys on it, or Up/Down in the item's sheet). Breaks divide a list (the interval
+  // between sets, a heading): not numbered or ticked; stage mode shows them between songs.
   let {
     gig,
     onsaved,
@@ -41,7 +43,7 @@
   let listOpen = $state(false);
   let listFor = $state<GigListView | null>(null);
   let itemOpen = $state(false);
-  let itemFor = $state<{ list: GigListView; item: GigListItemView } | null>(null);
+  let itemFor = $state<{ list: GigListView; item: GigListItemView | null } | null>(null);
   let drafts = $state<Record<string, string>>({});
 
   // While a move is on its way, show the new order at once.
@@ -99,15 +101,29 @@
   /** The list's songs with their charts: the library saved on this device first (stage mode
    *  must not wait on a weak signal), the server only for songs not saved yet. */
   async function play(l: GigListView) {
-    const items = itemsOf(l).filter((i) => i.song_id);
+    // Songs, with the breaks that fall between them (one where several are in a row).
+    const items: GigListItemView[] = [];
+    for (const i of itemsOf(l)) {
+      if (i.song_id) items.push(i);
+      else if (i.kind === "break" && items.length && items.at(-1)!.kind !== "break") items.push(i);
+    }
+    while (items.at(-1)?.kind === "break") items.pop();
     const out = await Promise.all(
       items.map(async (item): Promise<StageSong> => {
+        if (item.kind === "break")
+          return {
+            title: breakLength(item.text, item.minutes),
+            key: null,
+            tempo_bpm: null,
+            chart: null,
+            pause: item.detail ?? "",
+          };
         const song =
           (await savedSong(item.song_id!)) ?? (await musicApi.song(item.song_id!).catch(() => undefined));
         return song ?? { title: item.text, key: null, tempo_bpm: null, chart: null };
       }),
     );
-    if (out.length) stage = out;
+    if (out.some((s) => s.pause === undefined)) stage = out;
   }
 
   const toggle = (l: GigListView, i: GigListItemView) =>
@@ -194,7 +210,7 @@
   $effect(() => {
     if (adding && untrack(() => canEdit)) untrack(() => openList(null));
   });
-  const openItem = (list: GigListView, item: GigListItemView) => {
+  const openItem = (list: GigListView, item: GigListItemView | null) => {
     if (!canEdit) return;
     itemFor = { list, item };
     itemOpen = true;
@@ -217,19 +233,13 @@
   <div class="lists">
     {#each gig.lists as l (l.id)}
       {@const items = itemsOf(l)}
+      {@const nums = numbers(items)}
       <section class="list" aria-label={l.title}>
         <header>
           <div class="titles">
             <h2>{l.title}</h2>
             <p>
-              {[
-                eventName(l.event_id),
-                l.checkable
-                  ? `${items.filter((i) => i.done).length} of ${items.length} done`
-                  : `${items.length} ${items.length === 1 ? "item" : "items"}`,
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              {[eventName(l.event_id), listSummary(items, l.checkable)].filter(Boolean).join(" · ")}
             </p>
           </div>
           {#if items.some((i) => i.song_id)}
@@ -257,6 +267,7 @@
           {#each items as item, i (item.id)}
             <li
               class="item"
+              class:break={item.kind === "break"}
               class:dragging={drag?.itemId === item.id}
               class:settling={!!drag && drag.itemId !== item.id}
               data-id={item.id}
@@ -276,7 +287,24 @@
                   <GripVertical size={18} />
                 </button>
               {/if}
-              {#if l.checkable}
+              {#if item.kind === "break"}
+                <button
+                  class="body pause"
+                  type="button"
+                  disabled={!canEdit}
+                  onclick={() => openItem(l, item)}
+                  aria-label={canEdit ? `Edit ${item.text}` : undefined}
+                >
+                  <span class="pause-name">{breakLength(item.text, item.minutes)}</span>
+                  {#if item.detail || (item.pending && outbox.showWaiting)}
+                    <span class="detail"
+                      >{[item.detail, item.pending && outbox.showWaiting ? "waiting to sync" : null]
+                        .filter(Boolean)
+                        .join(" · ")}</span
+                    >
+                  {/if}
+                </button>
+              {:else if l.checkable}
                 <input
                   class="tick"
                   type="checkbox"
@@ -286,34 +314,34 @@
                   onchange={() => toggle(l, item)}
                 />
               {:else}
-                <span class="n num" aria-hidden="true">{i + 1}</span>
+                <span class="n num" aria-hidden="true">{nums[i]}</span>
               {/if}
-              <button
-                class="body"
-                type="button"
-                disabled={!canEdit}
-                onclick={() => openItem(l, item)}
-                aria-label={canEdit ? `Edit ${item.text}` : undefined}
-              >
-                <span class="text" class:done={item.done}
-                  >{#if item.song_id}<Music
-                      size={14}
-                      class="song-mark"
-                      aria-hidden="true"
-                    />{/if}{item.text}</span
+              {#if item.kind !== "break"}<button
+                  class="body"
+                  type="button"
+                  disabled={!canEdit}
+                  onclick={() => openItem(l, item)}
+                  aria-label={canEdit ? `Edit ${item.text}` : undefined}
                 >
-                {#if item.detail || (item.done && item.done_by) || (item.pending && outbox.showWaiting)}
-                  <span class="detail"
-                    >{[
-                      item.detail,
-                      item.done && item.done_by ? `ticked by ${item.done_by}` : null,
-                      item.pending && outbox.showWaiting ? "waiting to sync" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}</span
+                  <span class="text" class:done={item.done}
+                    >{#if item.song_id}<Music
+                        size={14}
+                        class="song-mark"
+                        aria-hidden="true"
+                      />{/if}{item.text}</span
                   >
-                {/if}
-              </button>
+                  {#if item.detail || (item.done && item.done_by) || (item.pending && outbox.showWaiting)}
+                    <span class="detail"
+                      >{[
+                        item.detail,
+                        item.done && item.done_by ? `ticked by ${item.done_by}` : null,
+                        item.pending && outbox.showWaiting ? "waiting to sync" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}</span
+                    >
+                  {/if}
+                </button>{/if}
               {#if item.song_id}
                 <button
                   class="icon-btn"
@@ -340,7 +368,8 @@
             {#if (drafts[l.id] ?? "").trim()}
               <button class="link" type="submit">Add</button>
             {:else}
-              <button class="link" type="button" onclick={() => pickSongs(l)}>Add songs</button>
+              <button class="link" type="button" onclick={() => openItem(l, null)}>Break</button>
+              <button class="link" type="button" onclick={() => pickSongs(l)}>Songs</button>
             {/if}
           </form>
         {/if}
@@ -365,8 +394,9 @@
     bind:open={itemOpen}
     {gig}
     list={gig.lists.find((l) => l.id === itemFor!.list.id) ?? itemFor.list}
-    item={gig.lists.find((l) => l.id === itemFor!.list.id)?.items.find((i) => i.id === itemFor!.item.id) ??
-      itemFor.item}
+    item={itemFor.item &&
+      (gig.lists.find((l) => l.id === itemFor!.list.id)?.items.find((i) => i.id === itemFor!.item!.id) ??
+        itemFor.item)}
     {onsaved}
   />
 {/if}
@@ -508,6 +538,28 @@
   .text.done {
     text-decoration: line-through;
     color: var(--text-3);
+  }
+  /* A break: a quiet band across the list, its name in the middle. */
+  .item.break {
+    background: var(--surface-2);
+  }
+  .item.dragging.break {
+    background: var(--surface-2);
+  }
+  .pause {
+    justify-items: center;
+    text-align: center;
+  }
+  .item.break .pause {
+    padding-right: calc(36px + var(--space-2));
+  }
+  .pause-name {
+    font-size: var(--text-sm);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-2);
+    overflow-wrap: anywhere;
   }
   .detail {
     font-size: var(--text-sm);
