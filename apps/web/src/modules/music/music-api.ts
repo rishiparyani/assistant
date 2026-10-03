@@ -68,4 +68,6 @@ export interface StageSong {
   capo?: number | null;
   chart: string | null;
   steps?: number;
+  /** Set for a break in a setlist (its note, or ""): shown as a pause between songs. */
+  pause?: string;
 }

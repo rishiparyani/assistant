@@ -1,5 +1,6 @@
 // Typed calls to the gig-centric operations (docs/api.md, "Gig-centric gigs"). No logic here.
 import type {
+  ListItemKind,
   GigTypesView,
   GuestLinkView,
   SharedGuestListView,
@@ -276,7 +277,13 @@ export const bookingsApi = {
   addItems: (
     id: string,
     listId: string,
-    items: { text: string; detail?: string; song_id?: string }[],
+    items: {
+      text: string;
+      detail?: string;
+      song_id?: string;
+      kind?: ListItemKind;
+      minutes?: number | null;
+    }[],
     after?: string | null,
   ) =>
     gigChange(
@@ -288,14 +295,18 @@ export const bookingsApi = {
         items: items.map((x) => ({ ...x, id: newId() })),
         ...(after !== undefined ? { after_item_id: after } : {}),
       },
-      items.length === 1 ? `Added “${items[0]!.text}”` : `Added ${items.length} items`,
+      items.length === 1
+        ? items[0]!.kind === "break"
+          ? "Break added"
+          : `Added “${items[0]!.text}”`
+        : `Added ${items.length} items`,
       { list_id: listId },
     ),
   updateItem: (
     id: string,
     listId: string,
     itemId: string,
-    i: { text?: string; detail?: string | null; done?: boolean },
+    i: { text?: string; detail?: string | null; done?: boolean; minutes?: number | null },
   ) =>
     gigChange(
       id,

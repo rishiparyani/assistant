@@ -10,12 +10,24 @@ export const LIST_LIMITS = { lists: 30, items: 300, notes: 500 } as const;
 const listTitle = z.string().trim().min(1).max(80);
 const itemText = z.string().trim().min(1).max(200);
 const noteBody = z.string().trim().min(1).max(2000);
+/** A list holds items and breaks: a break divides it (an interval between sets, a "Cables"
+ *  heading on a packing list) and is never numbered or ticked (decision 2026-10-03). */
+export const LIST_ITEM_KINDS = ["item", "break"] as const;
+export type ListItemKind = (typeof LIST_ITEM_KINDS)[number];
+const breakMinutes = z.number().int().min(1).max(600);
 
 export const ListItemInput = z.object({
   id: clientId,
   text: itemText.describe("e.g. a song title"),
   detail: optionalText(200).describe('Optional, e.g. "key of G · 4 min"'),
   song_id: id("Song").optional().describe("A song in my library (find_songs), for setlists"),
+  kind: z
+    .enum(LIST_ITEM_KINDS)
+    .default("item")
+    .describe(
+      '"break" divides the list (e.g. text "Break", minutes 15, between two sets); not numbered or ticked',
+    ),
+  minutes: breakMinutes.nullish().describe("How long a break is, in minutes (breaks only)"),
 });
 
 export const CreateGigListInput = BookingRef.extend({
@@ -42,7 +54,8 @@ export const ListItemRef = GigListRef.extend({ item_id: id("Item") });
 export const UpdateListItemInput = ListItemRef.extend({
   text: itemText.optional(),
   detail: optionalText(200),
-  done: z.boolean().optional().describe("Tick or untick (lists with checkable on)"),
+  done: z.boolean().optional().describe("Tick or untick (lists with checkable on; not breaks)"),
+  minutes: breakMinutes.nullish().describe("A break's length in minutes; null clears it (breaks only)"),
 });
 export const MoveListItemInput = ListItemRef.extend({
   after_item_id: id("Item").nullable().describe("The item it should come after; null moves it to the top"),
@@ -54,7 +67,11 @@ export const UpdateGigNoteInput = GigNoteRef.extend({ body: noteBody });
 
 export interface GigListItemView {
   id: string;
+  /** "break": a divider in the list (an interval between sets, a heading). */
+  kind: ListItemKind;
   text: string;
+  /** A break's length, or null. */
+  minutes: number | null;
   detail: string | null;
   /** A song in the list maker's library (music module), or null. */
   song_id: string | null;
