@@ -48,9 +48,11 @@ export async function getBrief(ctx: OpUserCtx, input: z.output<typeof BriefInput
       title:
         e.kind === "rehearsal"
           ? `Rehearsal for ${e.gig_title}`
-          : e.event_title && e.event_title !== e.gig_title
-            ? `${e.gig_title}: ${e.event_title}`
-            : e.gig_title,
+          : e.hold
+            ? `${e.gig_title} (on hold, not picked yet)`
+            : e.event_title && e.event_title !== e.gig_title
+              ? `${e.gig_title}: ${e.event_title}`
+              : e.gig_title,
       when: spoken(e.start_at),
       venue: e.venue_name,
     }));

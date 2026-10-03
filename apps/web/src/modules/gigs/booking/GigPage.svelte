@@ -63,6 +63,9 @@
   import GigTogether from "./GigTogetherCard.svelte";
   import GigRehearsals from "./GigRehearsals.svelte";
   import RehearsalSheet from "./RehearsalSheet.svelte";
+  import PickDateSheet from "./PickDateSheet.svelte";
+  import GigDate from "../GigDate.svelte";
+  import { HOLD_PILL } from "../status.ts";
   import Drum from "@lucide/svelte/icons/drum";
   import CalendarPlus from "@lucide/svelte/icons/calendar-plus";
   import UserPlus from "@lucide/svelte/icons/user-plus";
@@ -95,6 +98,8 @@
   let eventOpen = $state(false);
   let eventFor = $state<BookingEventView | null>(null);
   let eventKind = $state<"show" | "rehearsal">("show");
+  let eventHold = $state(false);
+  let pickOpen = $state(false);
   let lineupOpen = $state(false);
   let lineupFor = $state<BookingEventView | null>(null);
   let personOpen = $state(false);
@@ -106,7 +111,7 @@
   let addOpen = $state(false);
   // Lineups are folded to one line per event; a one-event gig shows its lineup open.
   let unfolded = $state<Record<string, boolean>>({});
-  const lineupOpenFor = (e: BookingEventView) => unfolded[e.id] ?? shows.length === 1;
+  const lineupOpenFor = (e: BookingEventView) => unfolded[e.id] ?? fixedShows.length === 1;
   // A gig's shows and its rehearsals (docs/design/rehearsals.md). A rehearsal that isn't
   // for a gig (kind "rehearsal") has only rehearsals, and no money.
   const rehearsalOnly = $derived(gig?.kind === "rehearsal");
@@ -114,6 +119,9 @@
   const shows = $derived(
     gig ? (rehearsalOnly ? gig.events : gig.events.filter((e) => e.kind === "show")) : [],
   );
+  // Date options on an enquiry (soft blocks) until the client picks; the rest are fixed shows.
+  const holds = $derived(shows.filter((e) => e.hold));
+  const fixedShows = $derived(shows.filter((e) => !e.hold));
   const nextRehearsal = $derived(
     rehearsalOnly
       ? null
@@ -154,6 +162,11 @@
 
   // The summary at the top: when, where, who for and the money, a line each.
   const when = $derived.by(() => {
+    if (holds.length && !fixedShows.length)
+      return {
+        day: holds.map((e) => formatDateIST(e.start_at).replace(/ \d{4}$/, "")).join(" · "),
+        extra: `${holds.length === 1 ? "1 date option" : `${holds.length} date options`} · client to pick`,
+      };
     if (!shows.length) return null;
     const first = shows[0]!;
     if (shows.length === 1)
@@ -200,8 +213,18 @@
           ? ("complete" as const)
           : null,
   );
-  const setStatus = (a: "confirm" | "complete") =>
-    act(a, () => bookingsApi.setStatus(gigId, a), a === "confirm" ? "Gig confirmed" : "Marked as played");
+  const setStatus = (a: "confirm" | "complete") => {
+    // With date options, confirming first asks which date the client picked.
+    if (a === "confirm" && holds.length) {
+      pickOpen = true;
+      return;
+    }
+    return act(
+      a,
+      () => bookingsApi.setStatus(gigId, a),
+      a === "confirm" ? "Gig confirmed" : "Marked as played",
+    );
+  };
   const moreActions = $derived.by(() => {
     if (!gig || !manager) return [];
     const out: { label: string; icon?: typeof Check; destructive?: boolean; onclick: () => void }[] = [];
@@ -225,6 +248,12 @@
     const together = (section: string) => () => navigate(`/gigs/${gig!.id}/${section}?add=1`);
     if (manager && open && !rehearsalOnly) {
       out.push({ label: "Rehearsal", icon: Drum, onclick: () => openEvent(null, "rehearsal") });
+      if (gig.status === "enquiry")
+        out.push({
+          label: "Date option (hold)",
+          icon: CalendarPlus,
+          onclick: () => openEvent(null, "show", true),
+        });
       out.push({
         label: "Event (e.g. Reception)",
         icon: CalendarPlus,
@@ -332,19 +361,22 @@
 
   async function removeEvent(e: BookingEventView) {
     const ok = await confirm({
-      title: `Remove ${e.title ?? (e.kind === "rehearsal" ? "this rehearsal" : "this event")}?`,
-      message:
-        e.kind === "rehearsal"
+      title: e.hold
+        ? `Release ${formatDateIST(e.start_at)}?`
+        : `Remove ${e.title ?? (e.kind === "rehearsal" ? "this rehearsal" : "this event")}?`,
+      message: e.hold
+        ? "The date is no longer held for this gig."
+        : e.kind === "rehearsal"
           ? "Everyone's answers go too."
           : "Its lineup goes too. Payouts already recorded are kept.",
-      confirmLabel: "Remove",
+      confirmLabel: e.hold ? "Release" : "Remove",
       destructive: true,
     });
     if (ok)
       await act(
         "event",
         () => bookingsApi.removeEvent(gigId, e.id),
-        e.kind === "rehearsal" ? "Rehearsal removed" : "Event removed",
+        e.hold ? "Date released" : e.kind === "rehearsal" ? "Rehearsal removed" : "Event removed",
       );
   }
 
@@ -357,11 +389,11 @@
     );
   }
 
-  const openEvent = (e: BookingEventView | null, kind: "show" | "rehearsal" = e?.kind ?? "show") => (
-    (eventFor = e),
-    (eventKind = kind),
-    (eventOpen = true)
-  );
+  const openEvent = (
+    e: BookingEventView | null,
+    kind: "show" | "rehearsal" = e?.kind ?? "show",
+    hold = e?.hold ?? false,
+  ) => ((eventFor = e), (eventKind = kind), (eventHold = hold), (eventOpen = true));
   const openLineup = (e: BookingEventView) => ((lineupFor = e), (lineupOpen = true));
   const openPerson = (p: BookingPersonView | null) => ((personFor = p), (personOpen = true));
   const openPayout = (p: PayeeView) => ((payoutFor = p), (payoutOpen = true));
@@ -511,7 +543,7 @@
       label="Sections"
       bind:value={tab}
       options={[
-        { value: "details" as const, label: shows.length > 1 && !rehearsalOnly ? "Events" : "Details" },
+        { value: "details" as const, label: fixedShows.length > 1 && !rehearsalOnly ? "Events" : "Details" },
         { value: "money" as const, label: "Money" },
         { value: "people" as const, label: "People" },
       ].filter((o) => TABS.includes(o.value))}
@@ -524,8 +556,36 @@
         in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
       >
         {#if tab === "details"}
-          {#each rehearsalOnly ? [] : shows as e, i (e.id)}
-            {@const single = shows.length === 1}
+          {#if holds.length && !rehearsalOnly}
+            <ListGroup
+              title="Date options"
+              footer={gig.status === "enquiry"
+                ? "Held until the client picks. Confirming the gig asks which date; the rest are released."
+                : undefined}
+            >
+              {#snippet action()}
+                {#if manager && gig.status === "enquiry"}<button
+                    class="link"
+                    onclick={() => openEvent(null, "show", true)}>Add</button
+                  >{/if}
+              {/snippet}
+              {#each holds as e (e.id)}
+                <ListRow
+                  title={formatDateIST(e.start_at)}
+                  subtitle={[timeRange(e.start_at, e.end_at), e.venue_name].filter(Boolean).join(" · ")}
+                  onclick={manager && gig.status === "enquiry" ? () => openEvent(e) : undefined}
+                >
+                  {#snippet leading()}<GigDate
+                      iso={e.start_at}
+                      muted={gig.status === "cancelled"}
+                    />{/snippet}
+                  {#snippet trailing()}<Pill tone={HOLD_PILL.tone}>{HOLD_PILL.label}</Pill>{/snippet}
+                </ListRow>
+              {/each}
+            </ListGroup>
+          {/if}
+          {#each rehearsalOnly ? [] : fixedShows as e, i (e.id)}
+            {@const single = fixedShows.length === 1}
             <!-- One event: its time and place are in the summary above, so just the lineup here. -->
             <ListGroup title={single ? "Lineup" : (e.title ?? `Event ${i + 1}`)}>
               {#snippet action()}
@@ -870,10 +930,12 @@
     {gig}
     event={eventFor}
     kind={eventKind}
+    hold={eventHold}
     onsaved={set}
     onremove={removeEvent}
   />
   <ActionSheet bind:open={moreOpen} title={gig.title} actions={moreActions} />
+  <PickDateSheet bind:open={pickOpen} {gig} onsaved={set} />
   <ActionSheet bind:open={addOpen} title="Add to this {noun}" actions={addActions} />
   {#if lineupFor}<LineupSheet bind:open={lineupOpen} {gig} event={lineupFor} onsaved={set} />{/if}
   <PersonSheet bind:open={personOpen} {gig} person={personFor} onsaved={set} />

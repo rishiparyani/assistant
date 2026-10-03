@@ -33,6 +33,8 @@ const q = (params: Record<string, string | number | undefined | null>) => {
 
 export interface EventFields {
   kind?: "show" | "rehearsal";
+  /** A date option on an enquiry (soft block). */
+  hold?: boolean;
   title?: string | null;
   start_at: string;
   end_at?: string | null;
@@ -150,7 +152,13 @@ export const bookingsApi = {
   setStatus: (
     id: string,
     action: "confirm" | "complete" | "cancel" | "reopen",
-    extra: { reason?: string; refund?: string; refund_method?: PaymentMethod } = {},
+    extra: {
+      reason?: string;
+      refund?: string;
+      refund_method?: PaymentMethod;
+      /** Confirming with date options: the date(s) the client picked. */
+      keep_event_ids?: string[];
+    } = {},
   ) => request<BookingView>("POST", `${base(id)}/status`, { action, ...extra }),
 
   // online-only: deletes need the server to confirm.

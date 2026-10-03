@@ -180,6 +180,7 @@ export function setBookingStatus(ctx: OpUserCtx, input: z.output<typeof BookingS
     actorOf(ctx),
     ctx.idempotencyKey,
     refund ? { amount_paise: refund, method: input.refund_method } : null,
+    input.keep_event_ids ?? null,
   );
 }
 
@@ -253,6 +254,7 @@ export async function findMyGigs(
   const items = rows.slice(0, input.limit).map(({ share_paise, ...r }) => ({
     ...r,
     kind: r.kind ?? "show",
+    hold: r.hold ?? false,
     going: r.going ?? null,
     start_display: formatDateTimeIST(r.start_at),
     share: money(share_paise),

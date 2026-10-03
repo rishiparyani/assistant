@@ -105,7 +105,7 @@ export const bookingOperations = [
     id: "gigs.set_booking_status",
     tool: "set_gig_status",
     description:
-      "Confirm, complete, cancel or reopen a gig (managers). enquiry → confirmed → completed; enquiry or confirmed → cancelled; reopen puts a cancelled gig back as it was (a refund recorded when cancelling stays). When cancelling, give refund (rupees) to return part or all of an advance; the rest is kept as income.",
+      "Confirm, complete, cancel or reopen a gig (managers). enquiry → confirmed → completed; enquiry or confirmed → cancelled; reopen puts a cancelled gig back as it was (a refund recorded when cancelling stays). When cancelling, give refund (rupees) to return part or all of an advance; the rest is kept as income. Confirming an enquiry with date options (holds) needs keep_event_ids: the date(s) the client picked; the other options are released.",
     kind: "write",
     confirm: true,
     http: { method: "POST", path: "/gigs/:gig_id/status" },

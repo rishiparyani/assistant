@@ -12,6 +12,7 @@
     gig,
     event = null,
     kind = "show",
+    hold = false,
     onsaved,
     onremove,
   }: {
@@ -20,6 +21,8 @@
     event?: BookingEventView | null;
     /** What a new event is (an edited one keeps its own). */
     kind?: "show" | "rehearsal";
+    /** A new date option on an enquiry (soft block). */
+    hold?: boolean;
     onsaved: (g: BookingView) => void;
     /** Shown when editing one of several events (a gig keeps at least one). */
     onremove?: (e: BookingEventView) => void;
@@ -36,7 +39,8 @@
   let notes = $state("");
   let busy = $state(false);
   const rehearsal = $derived((event?.kind ?? kind) === "rehearsal" || gig.kind === "rehearsal");
-  const noun = $derived(rehearsal ? "rehearsal" : "event");
+  const option = $derived(!rehearsal && (event?.hold ?? hold));
+  const noun = $derived(rehearsal ? "rehearsal" : option ? "date option" : "event");
   /** A gig keeps one show; a rehearsal can always go unless it's all there is. */
   const removable = $derived(
     event !== null &&
@@ -92,7 +96,12 @@
     ev.preventDefault();
     busy = true;
     const fields = {
-      ...(event ? {} : { kind: rehearsal ? ("rehearsal" as const) : ("show" as const) }),
+      ...(event
+        ? {}
+        : {
+            kind: rehearsal ? ("rehearsal" as const) : ("show" as const),
+            ...(option ? { hold: true } : {}),
+          }),
       title: title.trim() || null,
       start_at: toApiLocal(date, start),
       end_at: end ? toApiLocal(end < start ? nextDay(date) : date, end) : null,
@@ -105,13 +114,17 @@
         ? await bookingsApi.updateEvent(gig.id, event.id, openedVersion, fields)
         : await bookingsApi.addEvent(gig.id, fields);
       toast.success(
-        rehearsal
+        option
           ? event
-            ? "Rehearsal updated"
-            : "Rehearsal added"
-          : event
-            ? "Event updated"
-            : "Event added",
+            ? "Date option updated"
+            : "Date held"
+          : rehearsal
+            ? event
+              ? "Rehearsal updated"
+              : "Rehearsal added"
+            : event
+              ? "Event updated"
+              : "Event added",
       );
       open = false;
       onsaved(saved);
@@ -162,7 +175,7 @@
         onclick={() => {
           open = false;
           onremove(event);
-        }}>Remove this {noun}</button
+        }}>{option ? "Release this date" : `Remove this ${noun}`}</button
       >
     {/if}
   </form>

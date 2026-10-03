@@ -22,7 +22,7 @@
   import GigDate from "../GigDate.svelte";
   import GigEditor from "./GigEditor.svelte";
   import NewButton from "./NewButton.svelte";
-  import { eventTitle, rehearsalPill, statusLabel, statusTone } from "../status.ts";
+  import { HOLD_PILL, eventTitle, rehearsalPill, statusLabel, statusTone } from "../status.ts";
   import { time12 } from "../time.ts";
 
   // Home: only my things (docs/design/gig-centric.md §2). Built from my own summaries,
@@ -158,7 +158,9 @@
           {@const rehearsal = e.kind === "rehearsal"}
           {@const pill = rehearsal
             ? rehearsalPill(e)
-            : { label: statusLabel(e.status), tone: statusTone(e.status) }}
+            : e.hold && e.status === "enquiry"
+              ? HOLD_PILL
+              : { label: statusLabel(e.status), tone: statusTone(e.status) }}
           <ListRow
             href="/gigs/{e.gig_id}"
             title={eventTitle(e)}

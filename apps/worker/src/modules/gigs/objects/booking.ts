@@ -265,11 +265,15 @@ const MIGRATIONS: Migrations = [
   );
   create index attendance_person_idx on attendance (person_id);
   `,
+  // 11: date options on an enquiry (soft blocks): shows marked hold until the client picks;
+  // confirming keeps the picked one(s) and releases the rest (docs/design/holds.md).
+  `alter table events add column hold integer not null default 0 check (hold in (0, 1));`,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
 export interface EventInput {
   kind?: EventKind;
+  hold?: boolean;
   title?: string | null;
   start_at: string;
   end_at?: string | null;
@@ -429,6 +433,8 @@ type GigRow = {
 type EventRow = {
   id: string;
   kind: EventKind;
+  /** 1: a date option on an enquiry (soft block). */
+  hold: number;
   title: string | null;
   start_at: string;
   end_at: string | null;
@@ -514,6 +520,12 @@ export class BookingObject extends DurableObject<Env> {
       throw new ObjectError("validation_failed", "A gig needs at least one show (not only rehearsals)", {
         reason: "no_show",
       });
+    if (input.events.some((e) => e.hold) && (kind !== "gig" || (input.status ?? "enquiry") !== "enquiry"))
+      throw new ObjectError(
+        "validation_failed",
+        "Date options (holds) are for enquiries; confirming picks the date",
+        { reason: "hold_needs_enquiry" },
+      );
     const hash = await hashOf(["create", input]);
     const view = idempotent(this.ctx.storage, key, hash, () => {
       if (this.gigRow()) throw new ObjectError("conflict", "This gig already exists");
@@ -622,8 +634,9 @@ export class BookingObject extends DurableObject<Env> {
     actor: Actor,
     key: string | null,
     refund: { amount_paise: number; method: PaymentMethod } | null = null,
+    keep: string[] | null = null,
   ): Promise<BookingView> {
-    return this.write(["status", action, reason, refund], actor, key, "manager", (gig) => {
+    return this.write(["status", action, reason, refund, keep], actor, key, "manager", (gig) => {
       const t: { to: GigStatus; from: GigStatus[] } =
         action === "reopen" ? { to: this.statusBeforeCancel(), from: ["cancelled"] } : TRANSITIONS[action];
       // A rehearsal of its own is simply on: it can be cancelled and reopened, nothing else.
@@ -637,6 +650,35 @@ export class BookingObject extends DurableObject<Env> {
           reason: "invalid_transition",
           status: gig.status,
         });
+      // Date options (holds): confirming keeps the date(s) the client picked and releases the
+      // rest; a gig can't be played while its date is still an option.
+      const holds = this.eventRows().filter((e) => e.hold === 1);
+      let picked: string[] = [];
+      let released: string[] = [];
+      if (holds.length && action === "complete")
+        throw new ObjectError("conflict", "Confirm which date the client picked first", {
+          reason: "pick_date",
+        });
+      if (holds.length && action === "confirm") {
+        const wanted = new Set(keep ?? []);
+        const kept = holds.filter((e) => wanted.has(e.id));
+        const fixed = this.eventRows().filter((e) => e.kind === "show" && e.hold === 0);
+        if (!kept.length && !fixed.length)
+          throw new ObjectError("validation_failed", "Pick the date the client chose", {
+            reason: "pick_date",
+            options: holds.map((e) => ({ event_id: e.id, start_at: e.start_at })),
+          });
+        const ts = nowIso();
+        for (const e of holds) {
+          if (wanted.has(e.id)) this.sql.exec(`update events set hold = 0 where id = ?`, e.id);
+          else {
+            this.sql.exec(`update events set deleted_at = ? where id = ?`, ts, e.id);
+            this.sql.exec(`delete from lineup where event_id = ?`, e.id);
+          }
+        }
+        picked = kept.map((e) => e.start_at);
+        released = holds.filter((e) => !wanted.has(e.id)).map((e) => e.start_at);
+      }
       if (refund && refund.amount_paise > 0) {
         if (action !== "cancel") throw new ObjectError("validation_failed", "Refunds go with a cancellation");
         const received = this.totals(gig, []).received;
@@ -676,6 +718,8 @@ export class BookingObject extends DurableObject<Env> {
           status: t.to,
           reason: action === "cancel" ? reason : undefined,
           refund_paise: refund?.amount_paise || undefined,
+          picked: picked.length ? picked : undefined,
+          released: released.length ? released : undefined,
         },
       };
     });
@@ -724,7 +768,13 @@ export class BookingObject extends DurableObject<Env> {
       this.checkNotCancelled(gig);
       const count = this.eventRows().length;
       if (count >= 20) throw new ObjectError("validation_failed", "A gig can have at most 20 events");
-      const event = gig.kind === "rehearsal" ? { ...input, kind: "rehearsal" as const } : input;
+      const event = gig.kind === "rehearsal" ? { ...input, kind: "rehearsal" as const, hold: false } : input;
+      if (event.hold && (gig.status !== "enquiry" || (event.kind ?? "show") !== "show"))
+        throw new ObjectError(
+          "validation_failed",
+          "Date options (holds) are for enquiries; confirming picks the date",
+          { reason: "hold_needs_enquiry" },
+        );
       const id = this.insertEvent(event, count);
       this.touch(gig.id);
       return { action: "add_event", entityType: "event", entityId: id, after: event };
@@ -1005,6 +1055,12 @@ export class BookingObject extends DurableObject<Env> {
           "validation_failed",
           "A rehearsal has no lineup; everyone on the gig says if they're coming",
           { reason: "rehearsal_no_lineup" },
+        );
+      if (e.hold)
+        throw new ObjectError(
+          "validation_failed",
+          "This date is only an option; set the lineup once the client picks it",
+          { reason: "hold_no_lineup" },
         );
       const resolved = entries.map((x) => ({ ...x, person: this.pickPerson(x) }));
       const ids = resolved.map((x) => x.person.id);
@@ -1761,6 +1817,7 @@ export class BookingObject extends DurableObject<Env> {
           gig_id: gig.id,
           event_id: e.id,
           kind: e.kind,
+          hold: e.hold === 1,
           going: e.kind === "rehearsal" ? answerOf(answers, e.id, p.id) : null,
           gig_title: gig.title,
           event_title: e.title,
@@ -2111,7 +2168,7 @@ export class BookingObject extends DurableObject<Env> {
   private eventRows(): EventRow[] {
     return this.sql
       .exec<EventRow>(
-        `select id, kind, title, start_at, end_at, venue_name, venue_city, notes, position
+        `select id, kind, hold, title, start_at, end_at, venue_name, venue_city, notes, position
          from events where deleted_at is null order by start_at, position`,
       )
       .toArray();
@@ -2146,10 +2203,11 @@ export class BookingObject extends DurableObject<Env> {
     checkTimes(e.start_at, e.end_at ?? null);
     const id = ulid();
     this.sql.exec(
-      `insert into events (id, kind, title, start_at, end_at, venue_name, venue_city, notes, position)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert into events (id, kind, hold, title, start_at, end_at, venue_name, venue_city, notes, position)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       e.kind ?? "show",
+      e.hold && (e.kind ?? "show") === "show" ? 1 : 0,
       e.title ?? null,
       e.start_at,
       e.end_at ?? null,
@@ -2520,6 +2578,7 @@ export class BookingObject extends DurableObject<Env> {
       events: this.eventRows().map((e) => ({
         id: e.id,
         kind: e.kind,
+        hold: e.hold === 1,
         title: e.title,
         start_at: e.start_at,
         start_display: formatDateTimeIST(e.start_at),

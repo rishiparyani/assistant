@@ -2,7 +2,7 @@
   import type { MyEventView } from "@assistant/shared";
   import { ListRow, Pill } from "../../../core/ui/index.ts";
   import GigDate from "../GigDate.svelte";
-  import { eventTitle, rehearsalPill, statusLabel, statusTone } from "../status.ts";
+  import { HOLD_PILL, eventTitle, rehearsalPill, statusLabel, statusTone } from "../status.ts";
   import { time12 } from "../time.ts";
 
   // One event of one of my gigs, as the gigs list and the calendar show it.
@@ -19,7 +19,11 @@
       .join(" · "),
   );
   const pill = $derived(
-    rehearsal ? rehearsalPill(e) : { label: statusLabel(e.status), tone: statusTone(e.status) },
+    rehearsal
+      ? rehearsalPill(e)
+      : e.hold && e.status === "enquiry"
+        ? HOLD_PILL
+        : { label: statusLabel(e.status), tone: statusTone(e.status) },
   );
 </script>
 

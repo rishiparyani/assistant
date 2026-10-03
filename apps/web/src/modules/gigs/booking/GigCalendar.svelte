@@ -180,7 +180,11 @@
                     <span
                       class="title {e.kind === 'rehearsal' ? 'violet' : statusTone(e.status)}"
                       class:struck={e.status === "cancelled"}
-                      >{e.kind === "rehearsal" ? `Rehearsal: ${e.gig_title}` : e.gig_title}</span
+                      >{e.kind === "rehearsal"
+                        ? `Rehearsal: ${e.gig_title}`
+                        : e.hold
+                          ? `Hold: ${e.gig_title}`
+                          : e.gig_title}</span
                     >
                   {/each}
                   {#if list.length > 3}<span class="more">{list.length - 3} more</span>{/if}

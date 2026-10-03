@@ -6,6 +6,8 @@ export type PersonEventSummary = {
   event_id: string;
   /** Older summaries have none: a show. */
   kind?: "show" | "rehearsal";
+  /** A date option on an enquiry (soft block). Older summaries have none. */
+  hold?: boolean;
   /** Rehearsals: my answer (null if I haven't said). */
   going?: boolean | null;
   gig_title: string;
