@@ -20,6 +20,9 @@ export const paymentLabel = (s: PaymentStatus) => PAYMENT[s].label;
 export const paymentTone = (s: PaymentStatus) => PAYMENT[s].tone;
 
 /** A rehearsal's pill in lists: my answer (or a nudge), unless it's cancelled. */
+/** A date option on an enquiry: "Hold" until the client picks. */
+export const HOLD_PILL: { label: string; tone: Tone } = { label: "Hold", tone: "amber" };
+
 export function rehearsalPill(e: { status: string; going: boolean | null }): { label: string; tone: Tone } {
   if (e.status === "cancelled") return GIG.cancelled;
   if (e.going === true) return { label: "Going", tone: "green" };

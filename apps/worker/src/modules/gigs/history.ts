@@ -141,8 +141,17 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
         details.push(`Tags: ${tagsBefore.join(", ") || "—"} → ${tagsAfter.join(", ") || "—"}`);
       return { summary: `Changed the ${thing}'s details`, details };
     }
-    case "confirm_gig":
-      return one(`Confirmed the ${thing}`);
+    case "confirm_gig": {
+      const dates = (v: unknown) =>
+        Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string").map(day) : [];
+      const picked = dates(after.picked);
+      const released = dates(after.released);
+      return one(
+        `Confirmed the ${thing}`,
+        picked.length ? `Client picked ${picked.join(", ")}` : null,
+        released.length ? `Released ${released.join(", ")}` : null,
+      );
+    }
     case "complete_gig":
       return one("Marked it as played");
     case "cancel_gig":
@@ -158,7 +167,11 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
     case "add_event": {
       const rehearsal = after.kind === "rehearsal";
       return one(
-        rehearsal ? `Added a rehearsal` : `Added an event${str(after.title) ? `: ${after.title}` : ""}`,
+        rehearsal
+          ? `Added a rehearsal`
+          : after.hold
+            ? "Held another date option"
+            : `Added an event${str(after.title) ? `: ${after.title}` : ""}`,
         `${when(after.start_at)}${str(after.venue_name) ? ` · ${after.venue_name}` : ""}`,
       );
     }
@@ -168,7 +181,9 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
       return one(
         before.kind === "rehearsal"
           ? "Removed a rehearsal"
-          : `Removed an event${str(before.title) ? `: ${before.title}` : ""}`,
+          : before.hold
+            ? "Released a date option"
+            : `Removed an event${str(before.title) ? `: ${before.title}` : ""}`,
         when(before.start_at),
       );
     case "add_person":

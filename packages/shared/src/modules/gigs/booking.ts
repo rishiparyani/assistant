@@ -82,6 +82,12 @@ export const EventInput = z.object({
       "show (default) or rehearsal; a rehearsal has no lineup or shares, people say if they're coming",
     ),
   title: optionalText(80).describe('e.g. "Sangeet", "Reception"; optional for single-event gigs'),
+  hold: z
+    .boolean()
+    .optional()
+    .describe(
+      "A date option the client hasn't picked yet (soft block; enquiries only). Confirming the gig picks among the options and releases the rest.",
+    ),
   start_at: dateTime,
   end_at: dateTime.nullish(),
   venue_name: optionalText(120),
@@ -173,6 +179,13 @@ export const BookingStatusInput = BookingRef.extend({
     .enum(["confirm", "complete", "cancel", "reopen"])
     .describe("reopen undoes a cancellation: the gig goes back to enquiry or confirmed, as it was"),
   reason: optionalText(500),
+  keep_event_ids: z
+    .array(id("Event"))
+    .max(20)
+    .optional()
+    .describe(
+      "Confirming an enquiry with date options (holds): the option(s) the client picked. The other options are released.",
+    ),
   ...moneyFields("refund"),
   refund_method: z
     .enum(["cash", "upi", "bank", "cheque", "other"])
@@ -233,6 +246,8 @@ export interface AttendanceView {
 export interface BookingEventView {
   id: string;
   kind: EventKind;
+  /** A date option on an enquiry (soft block) until the client picks. */
+  hold: boolean;
   title: string | null;
   start_at: string;
   start_display: string;
@@ -292,6 +307,8 @@ export interface MyEventView {
   gig_id: string;
   event_id: string;
   kind: EventKind;
+  /** A date option on an enquiry (soft block). */
+  hold: boolean;
   /** Rehearsals: my answer (null if I haven't said). */
   going: boolean | null;
   gig_title: string;

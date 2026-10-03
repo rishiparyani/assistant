@@ -340,3 +340,7 @@ Owner: empty sections (no notes, no guests) were still on screen. Sections and t
 ## 2026-10-03: Gig history in plain words, for managers
 
 Owner wants "who changed what". Every write is already in the gig's own audit log (rule 11), so no new storage: the gig object turns its log into sentences with before → after (`modules/gigs/history.ts`), using the names of people, events, lists and guests even after they're removed. Managers only, because it includes money; `get_gig_history` pages with `before`. A history for players without money, and for per-person data (address book, songs), can come later.
+
+## 2026-10-03: Date options (holds) on enquiries
+
+Owner: clients ask to soft-block two or three dates. A date option is a show flagged `hold` on an enquiry; everyone on the gig sees it as a hold (Home, list, calendar, feed), and confirming asks which date(s) the client picked, keeping those and releasing the rest. No lineup on holds, so options never add up as money. Chosen over a separate "hold" object: holds are the gig's own possible dates and need nothing new beyond a flag. Details: docs/design/holds.md.

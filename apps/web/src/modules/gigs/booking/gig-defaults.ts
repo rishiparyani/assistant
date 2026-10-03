@@ -3,13 +3,15 @@
 import type { BookingView } from "@assistant/shared";
 
 export function withDefaults(g: BookingView): BookingView {
-  if (g.lists && g.shared_notes && g.guest_list && g.kind) return g;
+  if (g.lists && g.shared_notes && g.guest_list && g.kind && g.events.every((e) => e.hold !== undefined))
+    return g;
   return {
     ...g,
     kind: g.kind ?? "gig",
     events: g.events.map((e) => ({
       ...e,
       kind: e.kind ?? "show",
+      hold: e.hold ?? false,
       attendance: e.attendance ?? [],
       my_going: e.my_going ?? null,
     })),

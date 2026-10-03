@@ -27,18 +27,18 @@ REST under `/api`, same operations exposed as MCP tools at `/mcp`. Both are gene
 
 User-scoped routes under `/api` (access comes from each gig's own people and roles; people not on a gig get 404). Writes need an `Idempotency-Key`, which is stored **inside the gig's object**, not in D1; a retried create returns the same gig (the key maps to the gig id in the creator's person object).
 
-| Operation (tool)                                           | Route                                                                         | Who                                     |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------- |
-| `create_gig`                                               | `POST /gigs`                                                                  | anyone signed in; becomes manager       |
-| `find_my_gigs`                                             | `GET /me/gigs?from=&to=&order=&limit=&cursor=`                                | me (from my summaries; may lag seconds) |
-| `get_gig`                                                  | `GET /gigs/:gig_id`                                                           | people on the gig                       |
-| `update_gig`                                               | `PATCH /gigs/:gig_id` (with `version`)                                        | managers                                |
-| `set_gig_status`                                           | `POST /gigs/:gig_id/status` (`confirm`/`complete`/`cancel`/`reopen`)          | managers                                |
-| `delete_gig`                                               | `DELETE /gigs/:gig_id`                                                        | managers (soft delete)                  |
-| `get_gig_history`                                          | `GET /gigs/:gig_id/history?before=`                                           | managers (plain words, 50 a page)       |
-| `add_gig_event`, `update_gig_event`, `remove_gig_event`    | `POST /gigs/:gig_id/events`, `PATCH`/`DELETE /gigs/:gig_id/events/:event_id`  | managers (a gig keeps ≥ 1 event)        |
-| `set_rehearsal_attendance`                                 | `PUT /gigs/:gig_id/events/:event_id/attendance`                               | anyone on the gig (managers for others) |
-| `add_gig_person`, `update_gig_person`, `remove_gig_person` | `POST /gigs/:gig_id/people`, `PATCH`/`DELETE /gigs/:gig_id/people/:person_id` | managers (a gig keeps ≥ 1 manager)      |
+| Operation (tool)                                           | Route                                                                                                           | Who                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `create_gig`                                               | `POST /gigs`                                                                                                    | anyone signed in; becomes manager       |
+| `find_my_gigs`                                             | `GET /me/gigs?from=&to=&order=&limit=&cursor=`                                                                  | me (from my summaries; may lag seconds) |
+| `get_gig`                                                  | `GET /gigs/:gig_id`                                                                                             | people on the gig                       |
+| `update_gig`                                               | `PATCH /gigs/:gig_id` (with `version`)                                                                          | managers                                |
+| `set_gig_status`                                           | `POST /gigs/:gig_id/status` (`confirm`/`complete`/`cancel`/`reopen`; `keep_event_ids` picks among date options) | managers                                |
+| `delete_gig`                                               | `DELETE /gigs/:gig_id`                                                                                          | managers (soft delete)                  |
+| `get_gig_history`                                          | `GET /gigs/:gig_id/history?before=`                                                                             | managers (plain words, 50 a page)       |
+| `add_gig_event`, `update_gig_event`, `remove_gig_event`    | `POST /gigs/:gig_id/events`, `PATCH`/`DELETE /gigs/:gig_id/events/:event_id`                                    | managers (a gig keeps ≥ 1 event)        |
+| `set_rehearsal_attendance`                                 | `PUT /gigs/:gig_id/events/:event_id/attendance`                                                                 | anyone on the gig (managers for others) |
+| `add_gig_person`, `update_gig_person`, `remove_gig_person` | `POST /gigs/:gig_id/people`, `PATCH`/`DELETE /gigs/:gig_id/people/:person_id`                                   | managers (a gig keeps ≥ 1 manager)      |
 
 | `record_gig_payment`, `reverse_gig_payment` | `POST /gigs/:gig_id/payments`, `POST /gigs/:gig_id/payments/:payment_id/reverse` | managers |
 | `record_gig_expense`, `remove_gig_expense` | `POST /gigs/:gig_id/expenses`, `DELETE /gigs/:gig_id/expenses/:expense_id` | managers |

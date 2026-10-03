@@ -19,11 +19,14 @@ export async function gigsCalendar(
   return rows.map((e) => {
     const cancelled = e.status === "cancelled";
     const rehearsal = e.kind === "rehearsal";
+    const hold = e.hold === 1;
     const title = rehearsal
       ? `Rehearsal: ${e.gig_title}`
-      : e.event_title && e.event_title !== e.gig_title
-        ? `${e.gig_title}: ${e.event_title}`
-        : e.gig_title;
+      : hold
+        ? `Hold: ${e.gig_title}`
+        : e.event_title && e.event_title !== e.gig_title
+          ? `${e.gig_title}: ${e.event_title}`
+          : e.gig_title;
     const details = [
       rehearsal
         ? [
@@ -41,12 +44,16 @@ export async function gigsCalendar(
             .join(" · "),
       e.client_name ? `Client: ${e.client_name}` : null,
       e.collective_name ? `Collective: ${e.collective_name}` : null,
-      e.status === "enquiry" ? "Not confirmed yet (enquiry)" : null,
+      hold
+        ? "A date option: the client hasn't picked yet (soft block)"
+        : e.status === "enquiry"
+          ? "Not confirmed yet (enquiry)"
+          : null,
       `${ctx.baseUrl}/gigs/${e.gig_id}`,
     ].filter(Boolean);
     return {
       uid: `${e.event_id}@assistant`,
-      title: `${cancelled ? "Cancelled: " : e.status === "enquiry" ? "Enquiry: " : ""}${title}`,
+      title: `${cancelled ? "Cancelled: " : e.status === "enquiry" && !hold ? "Enquiry: " : ""}${title}`,
       start: e.start_at,
       end: e.end_at ?? new Date(Date.parse(e.start_at) + DEFAULT_HOURS * 3600_000).toISOString(),
       location: e.venue_name,

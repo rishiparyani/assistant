@@ -76,6 +76,9 @@
     ];
   });
   let status = $state<"enquiry" | "confirmed">("confirmed");
+  // An enquiry can hold several dates until the client picks one (soft blocks).
+  let dateMode = $state<"fixed" | "options">("fixed");
+  const options = $derived(status === "enquiry" && dateMode === "options");
   let clientName = $state("");
   let clientPhone = $state("");
   let fee = $state("");
@@ -112,6 +115,7 @@
       title = g?.title ?? "";
       eventType = g?.event_type ?? "";
       status = "confirmed";
+      dateMode = "fixed";
       clientName = g?.client?.name ?? "";
       clientPhone = g?.client?.phone ?? "";
       fee = g?.money.fee ? String(g.money.fee.amount_paise / 100) : "";
@@ -190,7 +194,8 @@
   function eventFields(e: EventRow): EventFields {
     const endDate = e.end && e.end < e.start ? nextDay(e.date) : e.date;
     return {
-      title: e.title.trim() || null,
+      title: options ? null : e.title.trim() || null,
+      ...(options ? { hold: true } : {}),
       start_at: toApiLocal(e.date, e.start),
       end_at: e.end ? toApiLocal(endDate, e.end) : null,
       venue_name: e.venue.trim() || null,
@@ -312,10 +317,36 @@
 
     {#if !editing}
       <section class="block">
-        <h3>{events.length > 1 ? "Events" : "When and where"}</h3>
+        <h3>{options ? "Date options" : events.length > 1 ? "Events" : "When and where"}</h3>
+        {#if status === "enquiry"}
+          <Segmented
+            label="Dates"
+            bind:value={dateMode}
+            options={[
+              { value: "fixed", label: "Fixed date" },
+              { value: "options", label: "Date options" },
+            ]}
+          />
+          {#if options}
+            <p class="hint">
+              Soft-block the dates the client is choosing between. Everyone on the gig sees them as holds;
+              when you confirm, you pick the date and the rest are released.
+            </p>
+          {/if}
+        {/if}
         {#each events as ev, i (i)}
           <div class="event">
-            {#if events.length > 1}
+            {#if options && events.length > 1}
+              <div class="event-head">
+                <span class="option">Option {i + 1}</span>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  aria-label="Remove option {i + 1}"
+                  onclick={() => events.splice(i, 1)}><X size={18} /></button
+                >
+              </div>
+            {:else if !options && events.length > 1}
               <div class="event-head">
                 <TextField
                   label="Event {i + 1}"
@@ -357,10 +388,17 @@
           <Button
             size="sm"
             variant="ghost"
-            onclick={() => events.push({ ...blankEvent(), date: events.at(-1)?.date ?? todayIST() })}
+            onclick={() =>
+              events.push({
+                ...blankEvent(),
+                date: events.at(-1)?.date ?? todayIST(),
+                start: options ? (events.at(-1)?.start ?? "19:00") : "19:00",
+                venue: options ? (events.at(-1)?.venue ?? "") : "",
+                city: options ? (events.at(-1)?.city ?? "") : "",
+              })}
           >
             {#snippet icon()}<Plus />{/snippet}
-            Add another event
+            {options ? "Add another date option" : "Add another event"}
           </Button>
         {/if}
       </section>
@@ -494,6 +532,10 @@
     background: none;
     color: var(--text-3);
     cursor: pointer;
+  }
+  .option {
+    align-self: center;
+    font-weight: 600;
   }
   .hint {
     margin: 0;

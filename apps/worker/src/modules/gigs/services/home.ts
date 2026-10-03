@@ -92,6 +92,7 @@ export async function getHome(ctx: OpUserCtx): Promise<HomeView> {
       .map(({ share_paise, ...e }) => ({
         ...e,
         kind: e.kind ?? "show",
+        hold: e.hold ?? false,
         going: e.going ?? null,
         start_display: formatDateTimeIST(e.start_at),
         share: money(share_paise),
