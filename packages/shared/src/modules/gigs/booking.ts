@@ -119,6 +119,38 @@ export const CreateBookingInput = z.object({
 });
 
 export const BookingRef = z.object({ gig_id: id("Gig") });
+
+export const GigHistoryInput = BookingRef.extend({
+  before: z.coerce
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe("For older entries: the id of the last entry you have (next_before)"),
+});
+
+/** One change to a gig, in plain words (who, when, from where, what). */
+export interface GigHistoryEntry {
+  id: number;
+  at: string;
+  at_display: string;
+  /** The person's name on the gig; "The venue" for the shared guest link; "Gigspree" for automatic changes. */
+  who: string;
+  is_me: boolean;
+  /** web, siri, mcp, system or link */
+  source: string;
+  /** app, Siri, AI assistant, automatic, venue link */
+  source_label: string;
+  action: string;
+  summary: string;
+  /** What changed, e.g. "Fee: ₹15,000 → ₹20,000". */
+  details: string[];
+}
+export interface GigHistoryView {
+  items: GigHistoryEntry[];
+  /** Pass as `before` for older entries; null when there are none. */
+  next_before: number | null;
+}
 const version = z
   .number()
   .int()

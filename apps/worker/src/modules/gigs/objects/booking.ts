@@ -24,6 +24,7 @@ import {
   type SharedGuestListView,
   type GigPaymentView,
   type GigSettings,
+  type GigHistoryView,
   type PayeeView,
   type PaymentMethod,
 } from "@assistant/shared";
@@ -49,6 +50,7 @@ import {
   type Migrations,
 } from "../../../core/objects/storage.ts";
 import { ObjectError } from "../../../core/objects/errors.ts";
+import { describe, sourceLabel, whoDid, type AuditRow, type HistoryNames } from "../history.ts";
 import { createdMonthOf, monthName, monthOf, pendingName, pendingShard } from "./names.ts";
 import type { GigSummaries, IndexCard, LearnedContact, PersonGigSummary, SummaryMessage } from "./types.ts";
 
@@ -1593,16 +1595,61 @@ export class BookingObject extends DurableObject<Env> {
   }
 
   /** The gig's history of changes (managers only). */
-  async history(
-    actor: Actor,
-  ): Promise<{ at: string; actor_user_id: string | null; source: string; action: string }[]> {
-    this.requireGig();
+  /**
+   * Who changed what, newest first, in plain words (managers; it includes money). A page
+   * of `limit` entries older than `beforeId` (the log's own row id).
+   */
+  async history(actor: Actor, beforeId: number | null = null, limit = 50): Promise<GigHistoryView> {
+    const gig = this.requireGig();
     this.requireRole(actor, "manager");
-    return this.sql
-      .exec<{ at: string; actor_user_id: string | null; source: string; action: string }>(
-        `select at, actor_user_id, source, action from _audit order by id desc limit 200`,
+    const rows = this.sql
+      .exec<AuditRow>(
+        `select id, at, actor_user_id, source, action, entity_type, entity_id, before_json, after_json
+         from _audit where (? is null or id < ?) order by id desc limit ?`,
+        beforeId,
+        beforeId,
+        limit + 1,
       )
       .toArray();
+    const all = <T>(q: string) => this.sql.exec<T & Record<string, SqlStorageValue>>(q).toArray();
+    const people = all<{ id: string; user_id: string | null; name: string }>(
+      `select id, user_id, name from people`,
+    );
+    const names: HistoryNames = {
+      users: new Map(people.filter((p) => p.user_id).map((p) => [p.user_id!, p.name])),
+      people: new Map(people.map((p) => [p.id, p.name])),
+      personOfUser: new Map(people.filter((p) => p.user_id).map((p) => [p.user_id!, p.id])),
+      events: new Map(
+        all<{ id: string; title: string | null; start_at: string; kind: string }>(
+          `select id, title, start_at, kind from events`,
+        ).map((e) => [e.id, e]),
+      ),
+      lists: new Map(
+        all<{ id: string; title: string }>(`select id, title from lists`).map((l) => [l.id, l.title]),
+      ),
+      items: new Map(
+        all<{ id: string; list_id: string; text: string }>(`select id, list_id, text from list_items`).map(
+          (i) => [i.id, i],
+        ),
+      ),
+      guests: new Map(
+        all<{ id: string; name: string }>(`select id, name from guests`).map((g) => [g.id, g.name]),
+      ),
+      gigKind: gig.kind,
+    };
+    const me = actor.userId;
+    const items = rows.slice(0, limit).map((r) => ({
+      id: r.id,
+      at: r.at,
+      at_display: formatDateTimeIST(r.at),
+      who: whoDid(r, names),
+      is_me: r.actor_user_id !== null && r.actor_user_id === me,
+      source: r.source,
+      source_label: sourceLabel(r.source),
+      action: r.action,
+      ...describe(r, names),
+    }));
+    return { items, next_before: rows.length > limit ? (items.at(-1)?.id ?? null) : null };
   }
 
   /** What this gig tells people's Homes and the month indexes, at the current sequence. */

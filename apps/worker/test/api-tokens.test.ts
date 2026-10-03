@@ -80,8 +80,10 @@ describe("API tokens", () => {
       body: { amount: "5000", paid_on: "2026-12-12", method: "upi" },
     });
     expect(pay.status).toBe(201);
-    const history = await json<{ source: string; action: string }[]>(await as(me)(`/gigs/${gig.id}/history`));
-    expect(history.every((h) => h.source === "siri")).toBe(true);
+    const history = await json<{ items: { source: string; action: string }[] }>(
+      await as(me)(`/gigs/${gig.id}/history`),
+    );
+    expect(history.items.every((h) => h.source === "siri")).toBe(true);
 
     // Another person's token can't see my gig.
     const theirs = await makeToken(stranger, "Test Other");

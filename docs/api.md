@@ -35,7 +35,7 @@ User-scoped routes under `/api` (access comes from each gig's own people and rol
 | `update_gig`                                               | `PATCH /gigs/:gig_id` (with `version`)                                        | managers                                |
 | `set_gig_status`                                           | `POST /gigs/:gig_id/status` (`confirm`/`complete`/`cancel`/`reopen`)          | managers                                |
 | `delete_gig`                                               | `DELETE /gigs/:gig_id`                                                        | managers (soft delete)                  |
-| `get_gig_history`                                          | `GET /gigs/:gig_id/history`                                                   | managers                                |
+| `get_gig_history`                                          | `GET /gigs/:gig_id/history?before=`                                           | managers (plain words, 50 a page)       |
 | `add_gig_event`, `update_gig_event`, `remove_gig_event`    | `POST /gigs/:gig_id/events`, `PATCH`/`DELETE /gigs/:gig_id/events/:event_id`  | managers (a gig keeps ≥ 1 event)        |
 | `set_rehearsal_attendance`                                 | `PUT /gigs/:gig_id/events/:event_id/attendance`                               | anyone on the gig (managers for others) |
 | `add_gig_person`, `update_gig_person`, `remove_gig_person` | `POST /gigs/:gig_id/people`, `PATCH`/`DELETE /gigs/:gig_id/people/:person_id` | managers (a gig keeps ≥ 1 manager)      |

@@ -12,6 +12,7 @@ import type {
   GigSettings,
   HomeView,
   MyEventView,
+  GigHistoryView,
   MyReportView,
   MyTagView,
   Page,
@@ -140,6 +141,8 @@ export const bookingsApi = {
     },
   ) => request<BookingView>("POST", "/api/gigs", body),
   get: (id: string) => request<BookingView>("GET", base(id)),
+  history: (id: string, before?: number) =>
+    request<GigHistoryView>("GET", `${base(id)}/history${q({ before })}`),
   // online-only: checked against the gig version the sheet opened (conflicts).
   update: (id: string, version: number, body: GigFields) =>
     request<BookingView>("PATCH", base(id), { version, ...body }),

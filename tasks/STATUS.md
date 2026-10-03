@@ -1,8 +1,11 @@
 # Status
 
-_Updated: 2026-10-02_
+_Updated: 2026-10-03_
 
 ## Last done
+
+- **Gig history: who changed what** (decision 2026-10-03, owner: "maintain a history of who changed what"): every gig already kept an audit log inside its object (rule 11); now it reads in plain words. More (⋯) → History on a gig (managers; players get "Only managers see the history", since it includes money): grouped by day, "Test Mate posted a note", "You changed the gig's details · Fee: ₹15,000 → ₹20,000", time and where it came from (app, Siri, AI assistant, venue link, automatic), 50 at a time with "Show older changes". `modules/gigs/history.ts` (pure: action → sentence + before → after, names of removed people/events/lists kept), `get_gig_history` now returns `{items, next_before}` with `before` for older pages (REST + MCP). Tests: `history.test.ts`; 3 browser checks (light, dark, 1280; player refused).
+  - Next (not built): history for a person's own things (address book, songs), and showing players the non-money part.
 
 - **Gig page shows only what the gig has + one Add button** (2026-10-02, owner: "there are no notes but still notes is there on the screen… an add button and inside it we can add any of these things"): Guests / Lists / Notes tiles appear only when they have something; the "Add an event" and "Add a rehearsal" buttons are gone; "₹0 of ₹0 received" is hidden. A round + button in the gig's header opens "Add to this gig": Rehearsal, Event, Person, Guest, List, Note, Client payment, Expense (what each person may add; players get Guest, List, Note). Guest/List/Note open their page ready to add (`?add=1`, removed from the address at once). 8 browser checks (manager and player menus, each target, tiles appear after adding, dark); rehearsal checks re-run (9).
 
