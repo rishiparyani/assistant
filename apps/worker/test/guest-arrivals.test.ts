@@ -66,11 +66,16 @@ describe("guests arriving in parts", () => {
     expect(shared.guests[0]).toMatchObject({ arrived_count: 3, arrived: true });
     expect((await door({ arrived_count: -1 })).status).toBe(400);
 
-    // The history says who came in.
+    // The history says who came in, and keeps an edit that also trimmed arrivals.
     const h = await json<GigHistoryView>(await as(manager)(`/gigs/${gig.id}/history`));
     expect(h.items.slice(0, 2).map((e) => [e.who, e.summary, e.details])).toEqual([
       ["The venue", "Marked 1 more of Test Rahul's group as arrived", ["3 of 3 in"]],
       ["The venue", "Marked 2 more of Test Rahul's group as arrived", ["2 of 3 in"]],
     ]);
+    const trimmed = h.items.find((e) => e.details.includes("Plus-ones: 2 → 1"))!;
+    expect(trimmed).toMatchObject({
+      summary: "Changed guest Test Rahul",
+      details: ["Plus-ones: 2 → 1", "Corrected Test Rahul's arrivals", "2 of 2 in"],
+    });
   });
 });

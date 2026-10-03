@@ -331,6 +331,12 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
       if (num(after.plus_ones) !== null && after.plus_ones !== before.plus_ones)
         details.push(`Plus-ones: ${before.plus_ones ?? 0} → ${after.plus_ones}`);
       const arrival = arrivalChange(name, before, after, 1 + (num(after.plus_ones) ?? 0));
+      // An edit that also changed arrivals (fewer plus-ones trims them) keeps both.
+      if (arrival && details.length)
+        return {
+          summary: `Changed guest ${name}`,
+          details: [...details, arrival.summary, ...arrival.details],
+        };
       if (arrival) return arrival;
       return { summary: `Changed guest ${name}`, details };
     }

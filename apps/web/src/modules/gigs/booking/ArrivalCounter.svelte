@@ -52,8 +52,8 @@
   button {
     display: inline-grid;
     place-items: center;
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border: 0;
     border-radius: var(--radius-full);
     background: none;
@@ -73,5 +73,11 @@
   }
   .all span {
     color: var(--green);
+  }
+  /* The printed door list has an empty box to tick by hand instead. */
+  @media print {
+    .counter {
+      display: none;
+    }
   }
 </style>
