@@ -65,6 +65,23 @@ describe("gig history", () => {
     );
     expect(page.items.map((e) => e.summary)).toEqual(["Changed the gig's details", "Created the gig"]);
 
+    // A save without changes isn't history; a rename shows what changed.
+    const mateId = gig.people.find((p) => p.name === "Test Mate")!.id;
+    await as(owner)(`/gigs/${gig.id}/people/${mateId}`, { method: "PATCH", body: { name: "Test Mate" } });
+    await as(owner)(`/gigs/${gig.id}/people/${mateId}`, { method: "PATCH", body: { name: "Test Mate B" } });
+    // The venue link: on, then only the door check-in changes (same link), then a new link.
+    await as(owner)(`/gigs/${gig.id}/guest-link`, { body: {} });
+    await as(owner)(`/gigs/${gig.id}/guest-link`, { body: { check_in: false } });
+    await as(owner)(`/gigs/${gig.id}/guest-link`, { body: { reset: true } });
+    const later = await json<GigHistoryView>(await as(owner)(`/gigs/${gig.id}/history`));
+    expect(later.items.slice(0, 4).map((e) => [e.summary, e.details])).toEqual([
+      ["Made a new venue link (the old one stopped working)", []],
+      ["Changed what the venue can do with its link", ["The venue can no longer tick off arrivals"]],
+      ["Turned on the venue's guest list link", []],
+      ["Changed Test Mate B's details", ["Name: Test Mate → Test Mate B"]],
+    ]);
+    expect(later.items[4]!.summary).toBe("Posted a note"); // the no-change save left no entry
+
     // Players don't see it (it includes money).
     expect((await as(mate)(`/gigs/${gig.id}/history`)).status).toBe(403);
   });

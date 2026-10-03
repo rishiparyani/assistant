@@ -176,10 +176,20 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
         `Added ${str(after.name) ?? "someone"} as a ${after.role === "manager" ? "manager" : "player"}`,
       );
     case "update_person": {
+      // Only what changed (older entries may record a save without changes).
       const name = str(after.name) ?? str(before.name) ?? person(row.entity_id);
+      const details: string[] = [];
+      if (str(after.name) && after.name !== before.name) details.push(`Name: ${before.name} → ${after.name}`);
+      if (after.phone_changed) details.push("Changed their phone number");
       if (before.role !== after.role)
-        return one(after.role === "manager" ? `Made ${name} a manager` : `Made ${name} a player`);
-      return one(`Renamed ${str(before.name) ?? "someone"} to ${name}`);
+        return {
+          summary: after.role === "manager" ? `Made ${name} a manager` : `Made ${name} a player`,
+          details,
+        };
+      return {
+        summary: details.length ? `Changed ${name}'s details` : `Saved ${name}'s details (no changes)`,
+        details,
+      };
     }
     case "remove_person":
       return one(`Removed ${str(before.name) ?? "someone"} from the ${thing}`);
@@ -329,11 +339,25 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
       return { summary: "Changed the guest list's limits", details };
     }
     case "enable_guest_link":
-      return one("Turned on the venue's guest list link");
     case "disable_guest_link":
-      return one("Turned off the venue's guest list link");
-    case "set_guest_link":
-      return one("Made a new venue link (the old one stopped working)");
+    case "set_guest_link": {
+      const checkIn =
+        "check_in" in after && after.check_in !== before.check_in
+          ? after.check_in
+            ? "The venue can now tick off arrivals"
+            : "The venue can no longer tick off arrivals"
+          : null;
+      if (row.action === "disable_guest_link") return one("Turned off the venue's guest list link");
+      if (row.action === "enable_guest_link")
+        return one(
+          before.enabled
+            ? "Made a new venue link (the old one stopped working)"
+            : "Turned on the venue's guest list link",
+          checkIn,
+        );
+      // Same link; only what the venue may do changed.
+      return one("Changed what the venue can do with its link", checkIn);
+    }
     default:
       return one(row.action.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()));
   }
