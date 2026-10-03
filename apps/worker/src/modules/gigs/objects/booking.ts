@@ -24,6 +24,7 @@ import {
   type SharedGuestListView,
   type GigPaymentView,
   type GigSettings,
+  type GigHistoryView,
   type PayeeView,
   type PaymentMethod,
 } from "@assistant/shared";
@@ -49,6 +50,7 @@ import {
   type Migrations,
 } from "../../../core/objects/storage.ts";
 import { ObjectError } from "../../../core/objects/errors.ts";
+import { describe, sourceLabel, whoDid, type AuditRow, type HistoryNames } from "../history.ts";
 import { createdMonthOf, monthName, monthOf, pendingName, pendingShard } from "./names.ts";
 import type { GigSummaries, IndexCard, LearnedContact, PersonGigSummary, SummaryMessage } from "./types.ts";
 
@@ -820,6 +822,9 @@ export class BookingObject extends DurableObject<Env> {
         name: input.name ?? p.name,
         phone: input.phone === undefined ? p.phone : input.phone,
       };
+      // Saving without a change isn't a change (and would read "Renamed X to X" in the history).
+      if (next.role === p.role && next.name === p.name && (next.phone ?? null) === (p.phone ?? null))
+        return null;
       if (p.role === "manager" && next.role !== "manager") this.keepAManager(p.id);
       this.sql.exec(
         `update people set role = ?, name = ?, phone = ? where id = ?`,
@@ -834,7 +839,7 @@ export class BookingObject extends DurableObject<Env> {
         entityType: "person",
         entityId: p.id,
         before: { role: p.role, name: p.name },
-        after: { role: next.role, name: next.name },
+        after: { role: next.role, name: next.name, phone_changed: next.phone !== p.phone || undefined },
       };
     });
   }
@@ -1524,6 +1529,8 @@ export class BookingObject extends DurableObject<Env> {
         after.link_sealed = link.sealed;
       }
       if (checkIn !== undefined) after.link_check_in = checkIn;
+      // Same link, same permission: nothing changed (and nothing for the history).
+      if (kind === "same" && after.link_check_in === before.link_check_in) return null;
       this.saveGuestSettings(gig.id, after);
       this.stamp(gig.id);
       return {
@@ -1593,16 +1600,105 @@ export class BookingObject extends DurableObject<Env> {
   }
 
   /** The gig's history of changes (managers only). */
-  async history(
-    actor: Actor,
-  ): Promise<{ at: string; actor_user_id: string | null; source: string; action: string }[]> {
-    this.requireGig();
+  /**
+   * Who changed what, newest first, in plain words (managers; it includes money). A page
+   * of `limit` entries older than `beforeId` (the log's own row id).
+   */
+  async history(actor: Actor, beforeId: number | null = null, limit = 50): Promise<GigHistoryView> {
+    const gig = this.requireGig();
     this.requireRole(actor, "manager");
-    return this.sql
-      .exec<{ at: string; actor_user_id: string | null; source: string; action: string }>(
-        `select at, actor_user_id, source, action from _audit order by id desc limit 200`,
+    const rows = this.sql
+      .exec<AuditRow>(
+        `select id, at, actor_user_id, source, action, entity_type, entity_id, before_json, after_json
+         from _audit where (? is null or id < ?) order by id desc limit ?`,
+        beforeId,
+        beforeId,
+        limit + 1,
       )
       .toArray();
+    // Only the people, events, lists, items and guests this page mentions (removed ones
+    // too), so a page costs the same however long the gig's history is.
+    const page = rows.slice(0, limit);
+    const ids = new Set<string>();
+    const users = new Set<string>();
+    const collect = (v: unknown): void => {
+      if (typeof v === "string") {
+        if (ULID_RE.test(v)) ids.add(v);
+      } else if (Array.isArray(v)) v.forEach(collect);
+      else if (v && typeof v === "object") Object.values(v).forEach(collect);
+    };
+    for (const r of page) {
+      ids.add(r.entity_id);
+      if (r.actor_user_id) users.add(r.actor_user_id);
+      for (const json of [r.before_json, r.after_json]) {
+        try {
+          collect(json ? JSON.parse(json) : null);
+        } catch {
+          // an unreadable entry still shows its sentence
+        }
+      }
+    }
+    const byIds = <T extends Record<string, SqlStorageValue>>(sql: string, list: string[]): T[] => {
+      const out: T[] = [];
+      for (let i = 0; i < list.length; i += 90) {
+        const chunk = list.slice(i, i + 90);
+        out.push(
+          ...this.sql.exec<T>(sql.replace("(?)", `(${chunk.map(() => "?").join(", ")})`), ...chunk).toArray(),
+        );
+      }
+      return out;
+    };
+    const idList = [...ids];
+    const people = [
+      ...byIds<{ id: string; user_id: string | null; name: string }>(
+        `select id, user_id, name from people where id in (?)`,
+        idList,
+      ),
+      ...byIds<{ id: string; user_id: string | null; name: string }>(
+        `select id, user_id, name from people where user_id in (?)`,
+        [...users],
+      ),
+    ];
+    const items = byIds<{ id: string; list_id: string; text: string }>(
+      `select id, list_id, text from list_items where id in (?)`,
+      idList,
+    );
+    const names: HistoryNames = {
+      users: new Map(people.filter((p) => p.user_id).map((p) => [p.user_id!, p.name])),
+      people: new Map(people.map((p) => [p.id, p.name])),
+      personOfUser: new Map(people.filter((p) => p.user_id).map((p) => [p.user_id!, p.id])),
+      events: new Map(
+        byIds<{ id: string; title: string | null; start_at: string; kind: string }>(
+          `select id, title, start_at, kind from events where id in (?)`,
+          idList,
+        ).map((e) => [e.id, e]),
+      ),
+      lists: new Map(
+        byIds<{ id: string; title: string }>(`select id, title from lists where id in (?)`, [
+          ...new Set([...idList, ...items.map((i) => i.list_id)]),
+        ]).map((l) => [l.id, l.title]),
+      ),
+      items: new Map(items.map((i) => [i.id, i])),
+      guests: new Map(
+        byIds<{ id: string; name: string }>(`select id, name from guests where id in (?)`, idList).map(
+          (g) => [g.id, g.name],
+        ),
+      ),
+      gigKind: gig.kind,
+    };
+    const me = actor.userId;
+    const entries = page.map((r) => ({
+      id: r.id,
+      at: r.at,
+      at_display: formatDateTimeIST(r.at),
+      who: whoDid(r, names),
+      is_me: r.actor_user_id !== null && r.actor_user_id === me,
+      source: r.source,
+      source_label: sourceLabel(r.source),
+      action: r.action,
+      ...describe(r, names),
+    }));
+    return { items: entries, next_before: rows.length > limit ? (entries.at(-1)?.id ?? null) : null };
   }
 
   /** What this gig tells people's Homes and the month indexes, at the current sequence. */
@@ -2588,6 +2684,9 @@ function checkHasMoney(gig: GigRow) {
       reason: "rehearsal_no_money",
     });
 }
+
+/** Ids in this app are ULIDs (made here or on a device). */
+const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
 function answerOf(
   rows: { event_id: string; person_id: string; going: number }[],

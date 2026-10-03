@@ -16,6 +16,7 @@
   import MyGigs from "../modules/gigs/booking/MyGigs.svelte";
   import GigPage from "../modules/gigs/booking/GigPage.svelte";
   import GigTogether from "../modules/gigs/booking/GigTogether.svelte";
+  import GigHistory from "../modules/gigs/booking/GigHistory.svelte";
   import Reports from "../modules/gigs/booking/Reports.svelte";
   import Contacts from "../modules/gigs/booking/Contacts.svelte";
   import Settings from "./pages/Settings.svelte";
@@ -77,6 +78,10 @@
       {:else if route.name === "booking"}
         {#key route.params.gigId}
           <GigPage gigId={route.params.gigId!} />
+        {/key}
+      {:else if route.name === "gig_history"}
+        {#key route.params.gigId}
+          <GigHistory gigId={route.params.gigId!} />
         {/key}
       {:else if route.name === "gig_together"}
         {#key route.params.gigId}

@@ -126,8 +126,8 @@ describe("access and edits", () => {
       current_version: 2,
     });
 
-    const history = await json<{ action: string }[]>(await as(owner)(`/gigs/${gig.id}/history`));
-    expect(history.map((h) => h.action)).toEqual(["update_gig", "create_gig"]);
+    const history = await json<{ items: { action: string }[] }>(await as(owner)(`/gigs/${gig.id}/history`));
+    expect(history.items.map((h) => h.action)).toEqual(["update_gig", "create_gig"]);
     expect((await as(mate)(`/gigs/${gig.id}/history`)).status).toBe(403);
   });
 

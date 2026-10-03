@@ -336,3 +336,7 @@ Owner: rehearsals are almost always for a gig, so a rehearsal is an event of the
 ## 2026-10-02: The gig page shows only what a gig has; one Add button adds the rest
 
 Owner: empty sections (no notes, no guests) were still on screen. Sections and tiles now appear only once they have something; a single Add (+) button in the gig's header lists everything that can be added (filtered by role and gig kind). Empty states stay on the pages behind the tiles (Guests, Lists, Notes), where they explain what each is for.
+
+## 2026-10-03: Gig history in plain words, for managers
+
+Owner wants "who changed what". Every write is already in the gig's own audit log (rule 11), so no new storage: the gig object turns its log into sentences with before → after (`modules/gigs/history.ts`), using the names of people, events, lists and guests even after they're removed. Managers only, because it includes money; `get_gig_history` pages with `before`. A history for players without money, and for per-person data (address book, songs), can come later.

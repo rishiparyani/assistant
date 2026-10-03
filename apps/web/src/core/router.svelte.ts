@@ -13,6 +13,7 @@ const PATTERNS: [string, RegExp][] = [
   ["admin", /^\/admin$/],
   ["my_gigs", /^\/gigs$/],
   ["booking", /^\/gigs\/(?<gigId>[^/]+)$/],
+  ["gig_history", /^\/gigs\/(?<gigId>[^/]+)\/history$/],
   ["gig_together", /^\/gigs\/(?<gigId>[^/]+)\/(?<section>guests|lists|notes)$/],
   ["reports", /^\/reports$/],
   ["contacts", /^\/contacts$/],

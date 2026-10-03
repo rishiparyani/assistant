@@ -32,6 +32,7 @@ import {
   UpdatePersonInput,
   SetGigTypesInput,
   SetAttendanceInput,
+  GigHistoryInput,
 } from "@assistant/shared";
 import { defineOperation } from "../../core/operations.ts";
 import { z } from "zod";
@@ -124,11 +125,12 @@ export const bookingOperations = [
   defineOperation({
     id: "gigs.get_booking_history",
     tool: "get_gig_history",
-    description: "Who changed what on a gig, newest first (managers).",
+    description:
+      "Who changed what on a gig, newest first, in plain words with before → after (managers). 50 at a time; pass next_before as before for older ones.",
     kind: "read",
     http: { method: "GET", path: "/gigs/:gig_id/history" },
-    input: BookingRef,
-    handler: (ctx, input) => b.bookingHistory(ctx, input.gig_id),
+    input: GigHistoryInput,
+    handler: (ctx, input) => b.bookingHistory(ctx, input.gig_id, input.before),
   }),
   defineOperation({
     id: "gigs.add_booking_event",

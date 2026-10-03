@@ -138,8 +138,8 @@ export async function createBooking(
 
 export const getBooking = (ctx: OpUserCtx, gigId: string) => bookingStub(ctx, gigId).view(actorOf(ctx));
 
-export const bookingHistory = (ctx: OpUserCtx, gigId: string) =>
-  bookingStub(ctx, gigId).history(actorOf(ctx));
+export const bookingHistory = (ctx: OpUserCtx, gigId: string, before?: number) =>
+  bookingStub(ctx, gigId).history(actorOf(ctx), before ?? null);
 
 /**
  * Tag refs for an edit. New tag names are added to the shared registry, so only after the

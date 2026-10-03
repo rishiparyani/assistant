@@ -231,10 +231,10 @@ describe("MCP", () => {
       (r) => r.structuredContent.items?.length > 0,
     );
     expect(found.structuredContent.items[0].gig_id).toBe(gigId);
-    const history = await json<{ source: string }[]>(
+    const history = await json<{ items: { source: string }[] }>(
       await call(`/api/gigs/${gigId}/history`, { cookie: me.cookie }),
     );
-    expect(history.every((h) => h.source === "mcp")).toBe(true);
+    expect(history.items.every((h) => h.source === "mcp")).toBe(true);
   });
 
   it("keeps people to their own gigs and reports errors as tool errors", async () => {

@@ -69,6 +69,7 @@
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import MessageSquare from "@lucide/svelte/icons/message-square";
   import Receipt from "@lucide/svelte/icons/receipt";
+  import History from "@lucide/svelte/icons/history";
   import IndianRupee from "@lucide/svelte/icons/indian-rupee";
 
   // One gig: always exact (read from the gig itself), showing only what I may see.
@@ -211,6 +212,7 @@
     if (live) out.push({ label: `Cancel ${noun}`, icon: Ban, onclick: () => (cancelOpen = true) });
     if (gig.status === "cancelled")
       out.push({ label: `Reopen ${noun}`, icon: Undo, onclick: () => void reopen() });
+    out.push({ label: "History", icon: History, onclick: () => navigate(`/gigs/${gig!.id}/history`) });
     out.push({ label: `Delete ${noun}`, icon: Trash, destructive: true, onclick: () => void deleteGig() });
     return out;
   });
