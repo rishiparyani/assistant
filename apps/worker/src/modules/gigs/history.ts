@@ -330,15 +330,16 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
       if (str(after.name) && after.name !== before.name) details.push(`Name: ${before.name} → ${after.name}`);
       if (num(after.plus_ones) !== null && after.plus_ones !== before.plus_ones)
         details.push(`Plus-ones: ${before.plus_ones ?? 0} → ${after.plus_ones}`);
-      if ("arrived_at" in after && after.arrived_at !== before.arrived_at)
-        return one(after.arrived_at ? `Marked ${name} as arrived` : `Unmarked ${name} as arrived`);
+      const arrival = arrivalChange(name, before, after, 1 + (num(after.plus_ones) ?? 0));
+      if (arrival) return arrival;
       return { summary: `Changed guest ${name}`, details };
     }
     case "remove_guest":
       return one(`Removed guest ${str(before.name) ?? n.guests.get(row.entity_id) ?? ""}`.trim());
     case "guest_arrived":
-      return one(
-        `${after.arrived_at ? "Marked" : "Unmarked"} ${n.guests.get(row.entity_id) ?? "a guest"} as arrived`,
+      return (
+        arrivalChange(n.guests.get(row.entity_id) ?? "a guest", before, after, num(after.heads) ?? 1) ??
+        one(`Marked ${n.guests.get(row.entity_id) ?? "a guest"}'s arrival`)
       );
     case "set_guest_list": {
       const limit = (v: unknown) => (num(v) !== null ? String(v) : "no limit");
@@ -376,6 +377,33 @@ export function describe(row: AuditRow, n: HistoryNames): Described {
     default:
       return one(row.action.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()));
   }
+}
+
+/**
+ * Arrivals at the door, whole groups or in parts ("2 of Rahul's group arrived · 3 of 3
+ * in"); older entries only know whether they had arrived. Null when arrivals didn't change.
+ */
+function arrivalChange(name: string, before: Obj, after: Obj, heads: number): Described | null {
+  const was = num(before.arrived_count);
+  const now = num(after.arrived_count);
+  if (now !== null && was !== null) {
+    if (now === was) return null;
+    const count = heads > 1 ? [`${now} of ${heads} in`] : [];
+    if (now === 0) return { summary: `Unmarked ${name} as arrived`, details: [] };
+    if (now < was) return { summary: `Corrected ${name}'s arrivals`, details: count };
+    if (heads === 1 || (was === 0 && now === heads))
+      return { summary: `Marked ${name} as arrived`, details: count };
+    const n = now - was;
+    return {
+      summary: `Marked ${n === 1 ? "1 more" : `${n} more`} of ${name}'s group as arrived`,
+      details: count,
+    };
+  }
+  if (!("arrived_at" in after) || after.arrived_at === before.arrived_at) return null;
+  return {
+    summary: after.arrived_at ? `Marked ${name} as arrived` : `Unmarked ${name} as arrived`,
+    details: [],
+  };
 }
 
 /** Who did it, as people on the gig know them. */

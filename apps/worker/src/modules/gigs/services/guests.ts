@@ -35,7 +35,13 @@ export const addGuests = (ctx: OpUserCtx, i: z.output<typeof AddGigGuestsInput>)
 export const updateGuest = (ctx: OpUserCtx, i: z.output<typeof UpdateGigGuestInput>) =>
   gig(ctx, i.gig_id).updateGuest(
     i.guest_id,
-    { name: i.name, plus_ones: i.plus_ones, note: i.note, arrived: i.arrived },
+    {
+      name: i.name,
+      plus_ones: i.plus_ones,
+      note: i.note,
+      arrived: i.arrived,
+      arrived_count: i.arrived_count,
+    },
     actorOf(ctx),
     ctx.idempotencyKey,
   );
@@ -99,9 +105,23 @@ export async function sharedGuestAction(
   const stub = stubFor(env, token);
   if (!stub) return null;
   if (action !== "arrive") throw new AppError("not_found", "Unknown action");
-  const b = body as { guest_id?: unknown; arrived?: unknown };
-  if (typeof b?.guest_id !== "string" || b.guest_id.length > 40 || typeof b.arrived !== "boolean")
-    throw new AppError("validation_failed", "Give guest_id and arrived (true or false)");
+  const b = body as { guest_id?: unknown; arrived?: unknown; arrived_count?: unknown };
+  const count = b?.arrived_count;
+  const validCount = typeof count === "number" && Number.isInteger(count) && count >= 0 && count <= 51;
+  if (
+    typeof b?.guest_id !== "string" ||
+    b.guest_id.length > 40 ||
+    (typeof b.arrived !== "boolean" && !validCount)
+  )
+    throw new AppError(
+      "validation_failed",
+      "Give guest_id and arrived (true or false) or arrived_count (how many of the group are in)",
+    );
   // Keys from the link live alongside members' keys in the gig; keep them apart.
-  return stub.sharedArrive(await hashToken(token), b.guest_id, b.arrived, key ? `link:${key}` : null);
+  return stub.sharedArrive(
+    await hashToken(token),
+    b.guest_id,
+    validCount ? (count as number) : (b.arrived as boolean),
+    key ? `link:${key}` : null,
+  );
 }

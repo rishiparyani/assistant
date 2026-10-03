@@ -268,6 +268,12 @@ const MIGRATIONS: Migrations = [
   // 11: date options on an enquiry (soft blocks): shows marked hold until the client picks;
   // confirming keeps the picked one(s) and releases the rest (docs/design/holds.md).
   `alter table events add column hold integer not null default 0 check (hold in (0, 1));`,
+  // 12: groups can arrive in parts (Rahul +2: 1 of 3 in). Guests ticked as arrived before
+  // this came in whole.
+  `
+  alter table guests add column arrived_count integer not null default 0 check (arrived_count >= 0);
+  update guests set arrived_count = 1 + plus_ones where arrived_at is not null;
+  `,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */
@@ -349,6 +355,8 @@ export interface UpdateGuestInput {
   plus_ones?: number;
   note?: string | null;
   arrived?: boolean;
+  /** How many of the group are in (0 to 1 + plus_ones). */
+  arrived_count?: number;
 }
 export interface GuestSettingsInput {
   total_limit?: number | null;
@@ -1496,7 +1504,7 @@ export class BookingObject extends DurableObject<Env> {
       const changesDetails =
         input.name !== undefined || input.plus_ones !== undefined || input.note !== undefined;
       if (me.role !== "manager") {
-        if (input.arrived !== undefined)
+        if (input.arrived !== undefined || input.arrived_count !== undefined)
           throw new ObjectError("forbidden", "Only managers (or the venue's door link) mark arrivals");
         if (before.host_person_id !== me.id) throw new ObjectError("not_found", "Guest not found");
         if (changesDetails) this.requireListOpen(gig, me);
@@ -1504,22 +1512,22 @@ export class BookingObject extends DurableObject<Env> {
       const plusOnes = input.plus_ones ?? before.plus_ones;
       if (plusOnes > before.plus_ones)
         this.checkGuestLimits(gig, this.requirePerson(before.host_person_id), plusOnes - before.plus_ones);
+      const count = arrivedCount(before, 1 + plusOnes, input.arrived_count ?? input.arrived);
       const after = {
         name: input.name ?? before.name,
         plus_ones: plusOnes,
         note: input.note === undefined ? before.note : input.note,
-        arrived_at:
-          input.arrived === undefined
-            ? before.arrived_at
-            : input.arrived
-              ? (before.arrived_at ?? nowIso())
-              : null,
+        arrived_count: count,
+        // When the first of the group came in.
+        arrived_at: count ? (before.arrived_at ?? nowIso()) : null,
       };
       this.sql.exec(
-        `update guests set name = ?, plus_ones = ?, note = ?, arrived_at = ?, updated_at = ? where id = ?`,
+        `update guests set name = ?, plus_ones = ?, note = ?, arrived_count = ?, arrived_at = ?, updated_at = ?
+         where id = ?`,
         after.name,
         after.plus_ones,
         after.note,
+        after.arrived_count,
         after.arrived_at,
         nowIso(),
         guestId,
@@ -1618,7 +1626,7 @@ export class BookingObject extends DurableObject<Env> {
   async sharedArrive(
     tokenHash: string,
     guestId: string,
-    arrived: boolean,
+    arrived: boolean | number,
     key: string | null,
   ): Promise<SharedGuestListView | null> {
     const gig = this.gigRow();
@@ -1628,16 +1636,23 @@ export class BookingObject extends DurableObject<Env> {
     const actor: Actor = { userId: null, source: "link" };
     const result = idempotent(this.ctx.storage, key, await hashOf(["arrive", guestId, arrived]), () => {
       const g = this.requireGuest(guestId);
-      const at = arrived ? (g.arrived_at ?? nowIso()) : null;
-      if (at !== g.arrived_at) {
-        this.sql.exec(`update guests set arrived_at = ?, updated_at = ? where id = ?`, at, nowIso(), guestId);
+      const count = arrivedCount(g, 1 + g.plus_ones, arrived);
+      if (count !== g.arrived_count) {
+        const at = count ? (g.arrived_at ?? nowIso()) : null;
+        this.sql.exec(
+          `update guests set arrived_count = ?, arrived_at = ?, updated_at = ? where id = ?`,
+          count,
+          at,
+          nowIso(),
+          guestId,
+        );
         this.stamp(gig.id);
         audit(this.sql, actor, {
           action: "guest_arrived",
           entityType: "guest",
           entityId: guestId,
-          before: { arrived_at: g.arrived_at },
-          after: { arrived_at: at },
+          before: { arrived_at: g.arrived_at, arrived_count: g.arrived_count, heads: 1 + g.plus_ones },
+          after: { arrived_at: at, arrived_count: count, heads: 1 + g.plus_ones },
         });
         bumpAndNote(this.sql);
       }
@@ -2244,7 +2259,7 @@ export class BookingObject extends DurableObject<Env> {
   private requireGuest(id: string): GuestRow {
     const g = this.sql
       .exec<GuestRow>(
-        `select id, name, plus_ones, note, host_person_id, created_at, arrived_at from guests
+        `select id, name, plus_ones, note, host_person_id, created_at, arrived_at, arrived_count from guests
          where id = ? and deleted_at is null`,
         id,
       )
@@ -2256,7 +2271,7 @@ export class BookingObject extends DurableObject<Env> {
   private guestRows(): GuestRow[] {
     return this.sql
       .exec<GuestRow>(
-        `select id, name, plus_ones, note, host_person_id, created_at, arrived_at from guests
+        `select id, name, plus_ones, note, host_person_id, created_at, arrived_at, arrived_count from guests
          where deleted_at is null order by created_at, rowid`,
       )
       .toArray();
@@ -2309,7 +2324,7 @@ export class BookingObject extends DurableObject<Env> {
       starts_display: first ? formatDateTimeIST(first.start_at) : null,
       venue: first ? [first.venue_name, first.venue_city].filter(Boolean).join(", ") || null : null,
       heads: sum(rows.map((g) => 1 + g.plus_ones)),
-      arrived_heads: sum(rows.filter((g) => g.arrived_at).map((g) => 1 + g.plus_ones)),
+      arrived_heads: sum(rows.map((g) => g.arrived_count)),
       check_in: guestSettingsOf(gig).link_check_in,
       guests: rows
         .map((g) => ({
@@ -2318,7 +2333,8 @@ export class BookingObject extends DurableObject<Env> {
           plus_ones: g.plus_ones,
           note: g.note,
           guest_of: names.get(g.host_person_id) ?? "",
-          arrived: !!g.arrived_at,
+          arrived: g.arrived_count >= 1 + g.plus_ones,
+          arrived_count: g.arrived_count,
         }))
         .sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" })),
     };
@@ -2338,7 +2354,7 @@ export class BookingObject extends DurableObject<Env> {
       open: manager || guestListOpen(gig),
       heads: heads(rows),
       my_heads: heads(mine),
-      arrived_heads: heads(rows.filter((g) => g.arrived_at)),
+      arrived_heads: sum(rows.map((g) => g.arrived_count)),
       guests: (manager ? rows : mine).map((g) => ({
         id: g.id,
         name: g.name,
@@ -2347,7 +2363,8 @@ export class BookingObject extends DurableObject<Env> {
         host_person_id: g.host_person_id,
         host_name: names.get(g.host_person_id) ?? "",
         is_mine: g.host_person_id === me?.id,
-        arrived: !!g.arrived_at,
+        arrived: g.arrived_count >= 1 + g.plus_ones,
+        arrived_count: g.arrived_count,
         created_at: g.created_at,
       })),
       link: manager ? { enabled: !!s.link_hash, check_in: s.link_check_in } : null,
@@ -2747,6 +2764,16 @@ function checkHasMoney(gig: GigRow) {
 /** Ids in this app are ULIDs (made here or on a device). */
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 
+/**
+ * How many of a guest's group are in after a change: a count (kept within the group's
+ * size), true for the whole group, false for none; or as it was, trimmed if the group shrank.
+ */
+function arrivedCount(g: { arrived_count: number }, heads: number, change: number | boolean | undefined) {
+  const next =
+    change === undefined ? g.arrived_count : change === true ? heads : change === false ? 0 : change;
+  return Math.max(0, Math.min(heads, next));
+}
+
 function answerOf(
   rows: { event_id: string; person_id: string; going: number }[],
   eventId: string,
@@ -2866,6 +2893,7 @@ type GuestRow = {
   host_person_id: string;
   created_at: string;
   arrived_at: string | null;
+  arrived_count: number;
 };
 
 type GuestSettings = {

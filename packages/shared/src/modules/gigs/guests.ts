@@ -29,7 +29,19 @@ export const UpdateGigGuestInput = GigGuestRef.extend({
   name: guestName.optional(),
   plus_ones: plusOnes.optional(),
   note: optionalText(120),
-  arrived: z.boolean().optional().describe("Mark them arrived at the door (managers)"),
+  arrived: z
+    .boolean()
+    .optional()
+    .describe("Mark the whole group arrived (true) or not (false) at the door (managers)"),
+  arrived_count: z
+    .number()
+    .int()
+    .min(0)
+    .max(51)
+    .optional()
+    .describe(
+      "How many of the group are in so far, from 0 to 1 + plus-ones (managers); e.g. 1 when Rahul +2 comes alone first",
+    ),
 });
 export const SetGuestListInput = BookingRef.extend({
   total_limit: headLimit.nullish().describe("Most heads on the whole list; null for no limit"),
@@ -52,7 +64,10 @@ export interface GigGuestView {
   host_person_id: string;
   host_name: string;
   is_mine: boolean;
+  /** The whole group is in. */
   arrived: boolean;
+  /** How many of the group are in so far (0 to 1 + plus_ones). */
+  arrived_count: number;
   created_at: string;
   /** Set on the device for a change still waiting to sync (never sent by the server). */
   pending?: boolean;
@@ -89,7 +104,10 @@ export interface SharedGuestListView {
     plus_ones: number;
     note: string | null;
     guest_of: string;
+    /** The whole group is in. */
     arrived: boolean;
+    /** How many of the group are in so far. */
+    arrived_count: number;
   }[];
 }
 

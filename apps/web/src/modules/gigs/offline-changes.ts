@@ -70,12 +70,28 @@ function insertAfter<T extends { id: string }>(items: T[], add: T[], after: unkn
   const i = items.findIndex((x) => x.id === after);
   return i < 0 ? [...items, ...add] : [...items.slice(0, i + 1), ...add, ...items.slice(i + 1)];
 }
+/** A guest's arrivals after a change (a count, or the whole group yes/no), as the server keeps them. */
+function arrivalOf(x: GigGuestView, b: Body): Partial<GigGuestView> {
+  const size = 1 + (b.plus_ones !== undefined ? Number(b.plus_ones) : x.plus_ones);
+  const was = x.arrived_count ?? (x.arrived ? 1 + x.plus_ones : 0);
+  const next =
+    b.arrived_count !== undefined
+      ? Number(b.arrived_count)
+      : b.arrived !== undefined
+        ? b.arrived
+          ? size
+          : 0
+        : was;
+  const count = Math.max(0, Math.min(size, next));
+  return { arrived_count: count, arrived: count >= size };
+}
 const heads = (gs: GigGuestView[]) => gs.reduce((n, g) => n + 1 + g.plus_ones, 0);
 function withGuests(g: BookingView, fn: (gs: GigGuestView[]) => GigGuestView[]): BookingView {
   const before = g.guest_list.guests;
   const after = fn(before);
   const mine = (gs: GigGuestView[]) => gs.filter((x) => x.is_mine);
-  const arrived = (gs: GigGuestView[]) => gs.filter((x) => x.arrived);
+  const inHeads = (gs: GigGuestView[]) =>
+    gs.reduce((n, x) => n + (x.arrived_count ?? (x.arrived ? 1 + x.plus_ones : 0)), 0);
   return {
     ...g,
     guest_list: {
@@ -83,7 +99,7 @@ function withGuests(g: BookingView, fn: (gs: GigGuestView[]) => GigGuestView[]):
       guests: after,
       heads: g.guest_list.heads + heads(after) - heads(before),
       my_heads: g.guest_list.my_heads + heads(mine(after)) - heads(mine(before)),
-      arrived_heads: g.guest_list.arrived_heads + heads(arrived(after)) - heads(arrived(before)),
+      arrived_heads: g.guest_list.arrived_heads + inHeads(after) - inHeads(before),
     },
   };
 }
@@ -204,6 +220,7 @@ on("gigs.add_gig_guests", (g, b, c) => {
       host_name: host?.name ?? my?.name ?? "You",
       is_mine: hostId === my?.id,
       arrived: false,
+      arrived_count: 0,
       created_at: iso(c),
       pending: true,
     })),
@@ -219,7 +236,7 @@ on("gigs.update_gig_guest", (g, b, c) =>
             ...(b.name !== undefined ? { name: String(b.name) } : {}),
             ...(b.plus_ones !== undefined ? { plus_ones: Number(b.plus_ones) } : {}),
             ...(b.note !== undefined ? { note: (b.note as string | null) ?? null } : {}),
-            ...(b.arrived !== undefined ? { arrived: !!b.arrived } : {}),
+            ...arrivalOf(x, b),
             pending: true,
           },
     ),
