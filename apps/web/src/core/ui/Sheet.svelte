@@ -102,6 +102,13 @@
     overflow-y: auto;
     overflow-x: hidden;
     grid-template-columns: minmax(0, 1fr);
+    /* Rows keep their full height and the sheet scrolls: otherwise a box that clips its
+       corners (overflow: hidden) is squeezed to fit the screen and hides what's inside it,
+       like the third person on a lineup. */
+    grid-auto-rows: max-content;
+    align-content: start;
+    /* Scrolling inside the sheet never drags the page behind it (iOS). */
+    overscroll-behavior: contain;
     padding: var(--space-2) var(--space-5) var(--space-5);
     display: grid;
     gap: var(--space-4);
