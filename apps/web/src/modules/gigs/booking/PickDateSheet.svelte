@@ -20,6 +20,8 @@
     if (open) picked = {};
   });
   const chosen = $derived(holds.filter((e) => picked[e.id]).map((e) => e.id));
+  // A gig with a fixed date as well can be confirmed with no option picked (all released).
+  const hasFixed = $derived(gig.events.some((e) => e.kind === "show" && !e.hold));
 
   async function confirm() {
     busy = true;
@@ -52,11 +54,15 @@
   <p class="hint">
     {chosen.length && chosen.length < holds.length
       ? `The other ${holds.length - chosen.length === 1 ? "date is" : `${holds.length - chosen.length} dates are`} released.`
-      : "Pick one (or more, if they booked several days)."}
+      : !chosen.length && hasFixed
+        ? "None picked: the gig keeps its fixed date and these options are released."
+        : "Pick one (or more, if they booked several days)."}
   </p>
   {#snippet footer()}
     <Button onclick={() => (open = false)}>Cancel</Button>
-    <Button variant="primary" loading={busy} disabled={!chosen.length} onclick={confirm}>Confirm gig</Button>
+    <Button variant="primary" loading={busy} disabled={!chosen.length && !hasFixed} onclick={confirm}
+      >Confirm gig</Button
+    >
   {/snippet}
 </Sheet>
 
