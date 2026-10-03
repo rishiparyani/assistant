@@ -7,6 +7,7 @@
   import { bookingsApi } from "../gigs-api.ts";
   import { outbox } from "../../../core/outbox.svelte.ts";
   import PlusOnes from "./PlusOnes.svelte";
+  import ArrivalCounter from "./ArrivalCounter.svelte";
   import { parseGuest, parseGuests } from "./guest-parse.ts";
   import GuestSheet from "./GuestSheet.svelte";
   import GuestLimitsSheet from "./GuestLimitsSheet.svelte";
@@ -101,9 +102,9 @@
     void save(guests);
   }
 
-  async function arrive(g: GigGuestView) {
+  async function arrive(g: GigGuestView, count = g.arrived ? 0 : 1 + g.plus_ones) {
     try {
-      onsaved(await bookingsApi.updateGuest(gig.id, g.id, { arrived: !g.arrived }));
+      onsaved(await bookingsApi.updateGuest(gig.id, g.id, { arrived_count: count }, 1 + g.plus_ones));
     } catch (err) {
       toast.error(err);
     }
@@ -215,7 +216,7 @@
         <ul>
           {#each grp.guests as g (g.id)}
             <li class:arrived={g.arrived}>
-              {#if manager}
+              {#if manager && !g.plus_ones}
                 <input
                   class="tick"
                   type="checkbox"
@@ -234,9 +235,13 @@
                 <span class="gname"
                   >{g.name}{#if g.plus_ones}<span class="plus num">+{g.plus_ones}</span>{/if}</span
                 >
-                {#if g.note || g.arrived || (g.pending && outbox.showWaiting)}<span class="note"
+                {#if g.note || g.arrived_count || (g.pending && outbox.showWaiting)}<span class="note"
                     >{[
-                      g.arrived ? "arrived" : null,
+                      g.arrived
+                        ? "arrived"
+                        : g.arrived_count
+                          ? `${g.arrived_count} of ${1 + g.plus_ones} arrived`
+                          : null,
                       g.note,
                       g.pending && outbox.showWaiting ? "waiting to sync" : null,
                     ]
@@ -244,6 +249,14 @@
                       .join(" · ")}</span
                   >{/if}
               </button>
+              {#if manager && g.plus_ones}
+                <ArrivalCounter
+                  name={g.name}
+                  count={g.arrived_count}
+                  heads={1 + g.plus_ones}
+                  onchange={(n) => arrive(g, n)}
+                />
+              {/if}
             </li>
           {/each}
         </ul>

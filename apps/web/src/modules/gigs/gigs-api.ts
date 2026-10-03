@@ -370,7 +370,9 @@ export const bookingsApi = {
   updateGuest: (
     id: string,
     guestId: string,
-    g: { name?: string; plus_ones?: number; note?: string | null; arrived?: boolean },
+    g: { name?: string; plus_ones?: number; note?: string | null; arrived?: boolean; arrived_count?: number },
+    /** The group's size, for the label of an arrival made offline. */
+    heads?: number,
   ) =>
     gigChange(
       id,
@@ -378,7 +380,17 @@ export const bookingsApi = {
       "PATCH",
       `${base(id)}/guests/${guestId}`,
       g,
-      g.arrived === undefined ? "Guest changed" : g.arrived ? "Guest arrived" : "Guest not arrived",
+      g.arrived_count !== undefined
+        ? g.arrived_count === 0
+          ? "Guest not arrived"
+          : heads && heads > 1
+            ? `Guest arrived (${g.arrived_count} of ${heads})`
+            : "Guest arrived"
+        : g.arrived === undefined
+          ? "Guest changed"
+          : g.arrived
+            ? "Guest arrived"
+            : "Guest not arrived",
       { guest_id: guestId },
     ),
   removeGuest: (id: string, guestId: string) =>
@@ -409,9 +421,9 @@ export const bookingsApi = {
   sharedGuests: (token: string) =>
     request<SharedGuestListView>("GET", `/api/shared/${encodeURIComponent(token)}`),
   // online-only: the venue page has no sign-in, so no outbox.
-  sharedArrive: (token: string, guestId: string, arrived: boolean) =>
+  sharedArrive: (token: string, guestId: string, arrivedCount: number) =>
     request<SharedGuestListView>("POST", `/api/shared/${encodeURIComponent(token)}/arrive`, {
       guest_id: guestId,
-      arrived,
+      arrived_count: arrivedCount,
     }),
 };

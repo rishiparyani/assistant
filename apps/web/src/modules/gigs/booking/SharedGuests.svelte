@@ -6,6 +6,7 @@
   import { Button, Spinner, toast } from "../../../core/ui/index.ts";
   import { ApiError } from "../../../core/api.ts";
   import { bookingsApi } from "../gigs-api.ts";
+  import ArrivalCounter from "./ArrivalCounter.svelte";
 
   // What the venue sees from the band's link: no sign-in. The list, whose guest each one
   // is, and (if the band allows) a tick for door staff. Refreshes itself while open.
@@ -52,13 +53,19 @@
     ),
   );
 
-  async function toggle(id: string, arrived: boolean) {
+  /** How many of a guest's group are in (a whole single guest: 0 or 1). */
+  async function arrive(id: string, count: number) {
     if (!data?.check_in) return;
     busyId = id;
     // Show it at once; the answer confirms it.
-    data = { ...data, guests: data.guests.map((g) => (g.id === id ? { ...g, arrived } : g)) };
+    data = {
+      ...data,
+      guests: data.guests.map((g) =>
+        g.id === id ? { ...g, arrived_count: count, arrived: count >= 1 + g.plus_ones } : g,
+      ),
+    };
     try {
-      data = await bookingsApi.sharedArrive(token, id, arrived);
+      data = await bookingsApi.sharedArrive(token, id, count);
       updatedAt = new Date();
     } catch (e) {
       toast.error(e);
@@ -114,7 +121,16 @@
             >
             <span class="sub">Guest of {g.guest_of}{g.note ? ` · ${g.note}` : ""}</span>
           </div>
-          {#if data.check_in}
+          {#if data.check_in && g.plus_ones}
+            <ArrivalCounter
+              name={g.name}
+              count={g.arrived_count ?? (g.arrived ? 1 + g.plus_ones : 0)}
+              heads={1 + g.plus_ones}
+              disabled={busyId === g.id}
+              onchange={(n) => arrive(g.id, n)}
+            />
+            <span class="box print-only" aria-hidden="true"></span>
+          {:else if data.check_in}
             <button
               class="arrive"
               class:on={g.arrived}
@@ -122,7 +138,7 @@
               aria-pressed={g.arrived}
               aria-label="{g.arrived ? 'Arrived' : 'Mark arrived'}: {g.name}"
               disabled={busyId === g.id}
-              onclick={() => toggle(g.id, !g.arrived)}
+              onclick={() => arrive(g.id, g.arrived ? 0 : 1)}
             >
               <Check size={18} />
               <span>{g.arrived ? "In" : "Arrived"}</span>

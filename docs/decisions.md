@@ -344,3 +344,7 @@ Owner wants "who changed what". Every write is already in the gig's own audit lo
 ## 2026-10-03: Date options (holds) on enquiries
 
 Owner: clients ask to soft-block two or three dates. A date option is a show flagged `hold` on an enquiry; everyone on the gig sees it as a hold (Home, list, calendar, feed), and confirming asks which date(s) the client picked, keeping those and releasing the rest. No lineup on holds, so options never add up as money. Chosen over a separate "hold" object: holds are the gig's own possible dates and need nothing new beyond a flag. Details: docs/design/holds.md.
+
+## 2026-10-03: Guests arrive in parts (arrival count per guest)
+
+Owner: a "Rahul +2" group doesn't always arrive together. Each guest keeps how many of the group are in (`arrived_count`, 0 to 1 + plus-ones) instead of a yes/no; `arrived` stays as "the whole group is in" for older clients and the door link. Groups get a − / + counter at the gig and on the venue's door page; singles keep the tick. Arrival time stays the first arrival.
