@@ -107,6 +107,8 @@
        like the third person on a lineup. */
     grid-auto-rows: max-content;
     align-content: start;
+    /* Scrolling inside the sheet never drags the page behind it (iOS). */
+    overscroll-behavior: contain;
     padding: var(--space-2) var(--space-5) var(--space-5);
     display: grid;
     gap: var(--space-4);
