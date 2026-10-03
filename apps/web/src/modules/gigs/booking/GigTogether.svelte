@@ -3,7 +3,7 @@
   import { fly } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import type { BookingView } from "@assistant/shared";
-  import { NotSaved, PageHeader, Segmented, Skeleton } from "../../../core/ui/index.ts";
+  import { NotSaved, PageHeader, Skeleton, Tabs } from "../../../core/ui/index.ts";
   import { isOfflineError } from "../../../core/offline.svelte.ts";
   import { navigate, router } from "../../../core/router.svelte.ts";
   import NotFound from "../../../core/pages/NotFound.svelte";
@@ -82,7 +82,7 @@
 {:else}
   <PageHeader title={TITLES[section]} {subtitle} back="/gigs/{gigId}" backLabel="Gig" />
   <div class="page">
-    <Segmented
+    <Tabs
       label="Together"
       bind:value={current}
       options={[
@@ -94,21 +94,23 @@
     {#if !gig}
       {#if q.error && isOfflineError(q.error)}<NotSaved />{:else}<Skeleton rows={5} />{/if}
     {:else}
-      {#key section}
-        <div
-          class="panel"
-          use:swipeTabs={{ go: swipeTo, can: (d) => nextTab(ORDER, current, d) !== null }}
-          in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
-        >
-          {#if section === "guests"}
-            <GigGuests {gig} onsaved={set} {adding} />
-          {:else if section === "lists"}
-            <GigLists {gig} onsaved={set} {adding} />
-          {:else}
-            <GigNotes {gig} onsaved={set} {adding} />
-          {/if}
-        </div>
-      {/key}
+      <div class="clip">
+        {#key section}
+          <div
+            class="panel"
+            use:swipeTabs={{ go: swipeTo, can: (d) => nextTab(ORDER, current, d) !== null }}
+            in:fly={{ x: slide(dir), duration: 260, opacity: 0.4, easing: cubicOut }}
+          >
+            {#if section === "guests"}
+              <GigGuests {gig} onsaved={set} {adding} />
+            {:else if section === "lists"}
+              <GigLists {gig} onsaved={set} {adding} />
+            {:else}
+              <GigNotes {gig} onsaved={set} {adding} />
+            {/if}
+          </div>
+        {/key}
+      </div>
     {/if}
   </div>
 {/if}
@@ -120,8 +122,13 @@
     gap: var(--space-5);
     min-height: 50vh;
   }
-  .page {
+  /* The tab content slides sideways; the sticky tab bar above it reaches the screen edges. */
+  .clip {
     overflow-x: clip;
+    min-width: 0;
+    margin-top: calc(-1 * var(--space-2));
+  }
+  .page {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-5);
