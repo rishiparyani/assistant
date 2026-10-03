@@ -352,3 +352,7 @@ Owner: a "Rahul +2" group doesn't always arrive together. Each guest keeps how m
 ## 2026-10-03: Breaks in lists, not setlists
 
 The owner asked for breaks in setlists (10 or 15 minutes, sometimes two), and for it to stay generic because lists aren't only setlists. A list item now has a kind: `item` or `break`. A break is a divider with a name ("Break" by default; "Interval", "Set 2", "Cables" all work) and an optional length in minutes. Breaks are never numbered or ticked, and the list's count says "12 items · 2 breaks". Stage mode shows a break between the songs it sits between. Reason: one divider covers intervals in a setlist, pauses in a run of show and headings in a packing list, so no list type is needed. Booking migration 13 (`list_items.kind`, `minutes`). Works offline like other item changes.
+
+## 2026-10-03: Page tabs are tabs, not a pill switch
+
+The owner found it hard to tell which tab the content below belonged to. The pill switch (`Segmented`) looks like a filter and scrolls away. Sections that own the content under them (a gig's Details · Money · People; Guest list · Lists · Notes) now use `Tabs`: an underline on the open tab, and a bar that stays pinned under the top bar while you scroll. `Segmented` stays for choices and filters inside a page. Reason: it matches the iOS and Android tab patterns people already know, and the open tab is always on screen.

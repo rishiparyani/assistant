@@ -7,6 +7,7 @@ export { default as ListRow } from "./ListRow.svelte";
 export { default as PageHeader } from "./PageHeader.svelte";
 export { default as Pill } from "./Pill.svelte";
 export { default as Segmented } from "./Segmented.svelte";
+export { default as Tabs } from "./Tabs.svelte";
 export { default as SelectField } from "./SelectField.svelte";
 export { default as Sheet } from "./Sheet.svelte";
 export { default as Skeleton } from "./Skeleton.svelte";

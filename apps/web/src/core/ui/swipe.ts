@@ -138,9 +138,18 @@ export const slide = (dir: number) =>
  * phone's sticky top bar. Call after the new tab has rendered.
  */
 export function revealTabs(label: string) {
-  const tabs = document.querySelector(`[role="tablist"][aria-label="${CSS.escape(label)}"]`);
-  if (!tabs) return;
   const bar = document.querySelector(".topbar")?.getBoundingClientRect().bottom ?? 0;
+  const tabs = document.querySelector<HTMLElement>(`[role="tablist"][aria-label="${CSS.escape(label)}"]`);
+  if (!tabs) return;
+  if (tabs.dataset.stickyTabs !== undefined) {
+    // Sticky Tabs (core/ui/Tabs.svelte) are always in view; scroll back to where they sit
+    // before they stick (just after what comes before them), so the new tab starts under them.
+    const prev = tabs.previousElementSibling;
+    const gap = parseFloat(getComputedStyle(tabs.parentElement!).rowGap) || 0;
+    const natural = prev ? prev.getBoundingClientRect().bottom + gap : tabs.getBoundingClientRect().top;
+    if (natural < bar) window.scrollTo({ top: window.scrollY + natural - bar });
+    return;
+  }
   const top = tabs.getBoundingClientRect().top;
   if (top < bar) window.scrollTo({ top: window.scrollY + top - bar - 8 });
 }
