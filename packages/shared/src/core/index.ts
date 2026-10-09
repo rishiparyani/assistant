@@ -8,3 +8,4 @@ export * from "./calendar.ts";
 export * from "./tokens.ts";
 export * from "./notifications.ts";
 export * from "./fields.ts";
+export * from "./spaces.ts";

@@ -45,6 +45,8 @@ export interface OperationDef<S extends z.ZodType = z.ZodType, O = unknown> {
   http: { method: HttpMethod; path: string; status?: 200 | 201 };
   /** Two-step from MCP (money, cancellations, deletes); used in T10. */
   confirm?: boolean;
+  /** Two-step from MCP only for some inputs (e.g. a record write that touches a money field). */
+  confirmWhen?: (ctx: OpUserCtx, input: z.output<S>) => Promise<boolean>;
   input: S;
   handler: (ctx: OpUserCtx, input: z.output<S>) => Promise<O>;
 }

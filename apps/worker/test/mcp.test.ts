@@ -257,4 +257,35 @@ describe("MCP", () => {
     const method = (await (await rpc(token, "resources/list")).json()) as { error: { code: number } };
     expect(method.error.code).toBe(-32601);
   });
+
+  it("asks to confirm record writes that change money, and only those", async () => {
+    const me = await signUp("Test Me");
+    const token = await connect(me);
+    const note = await tool(token, "add_record", { collection: "Notes", values: { Title: "Test note" } });
+    expect(note.structuredContent.title).toBe("Test note");
+    const args = { collection: "Expenses", values: { What: "Test cab", Amount: "300" } };
+    const preview = await tool(token, "add_record", args);
+    expect(preview.structuredContent.needs_confirmation).toBe(true);
+    const done = await tool(token, "add_record", {
+      ...args,
+      confirm_token: preview.structuredContent.confirm_token,
+    });
+    expect(done.structuredContent.named.Amount).toBe("₹300");
+    const rename = await tool(token, "update_record", {
+      record_id: done.structuredContent.id,
+      values: { What: "Test taxi" },
+    });
+    expect(rename.structuredContent.title).toBe("Test taxi");
+    const change = await tool(token, "update_record", {
+      record_id: done.structuredContent.id,
+      values: { amount: 400 },
+    });
+    expect(change.structuredContent.needs_confirmation).toBe(true);
+    // A new setup is confirmed first too.
+    const setup = await tool(token, "create_collection", {
+      name: "Test Jams",
+      fields: [{ name: "Title", type: "text" }],
+    });
+    expect(setup.structuredContent.needs_confirmation).toBe(true);
+  });
 });

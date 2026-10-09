@@ -57,6 +57,13 @@
       "when": 1790631753391,
       "tag": "0007_user_audit_request_key",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791565964066,
+      "tag": "0008_spaces",
+      "breakpoints": true
     }
   ]
 }

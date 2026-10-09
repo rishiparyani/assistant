@@ -14,6 +14,7 @@ import { authRoutes } from "./auth/routes.ts";
 import { adminRoutes } from "./admin/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
+import { spaceOperations } from "./spaces/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
 
 /** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
@@ -28,7 +29,11 @@ export function createApp({ modules }: AppOptions) {
   const userCreated = modules.flatMap((m) => (m.hooks?.userCreated ? [m.hooks.userCreated] : []));
   if (new Set(ids).size !== ids.length) throw new Error(`Duplicate module ids: ${ids.join(", ")}`);
   const moduleSchemas = Object.assign({}, ...modules.map((m) => m.schema ?? {}));
-  const operations: AnyOperation[] = [...coreOperations, ...modules.flatMap((m) => m.operations ?? [])];
+  const operations: AnyOperation[] = [
+    ...coreOperations,
+    ...spaceOperations,
+    ...modules.flatMap((m) => m.operations ?? []),
+  ];
 
   const app = new Hono<AppEnv>();
 

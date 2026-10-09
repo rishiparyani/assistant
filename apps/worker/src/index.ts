@@ -29,5 +29,8 @@ export {
 // Music: one song library per person.
 export { LibraryObject } from "./modules/music/objects/library.ts";
 
+// Core: one database per space (collections, records; docs/design/universal.md).
+export { SpaceObject } from "./core/spaces/space-object.ts";
+
 // Core: one inbox (notifications, push devices) per person.
 export { InboxObject } from "./core/push/inbox.ts";

@@ -40,7 +40,7 @@ function inputSchema(op: AnyOperation) {
       description:
         "Optional unique id for this action; repeating a call with the same id doesn't repeat the action",
     };
-  if (op.confirm)
+  if (op.confirm || op.confirmWhen)
     properties.confirm_token = {
       type: "string",
       description: "Leave out at first; send the token from the preview after the person agrees",
@@ -52,11 +52,15 @@ export function toolList(ops: readonly AnyOperation[]) {
   return mcpTools(ops).map((op) => ({
     name: op.tool,
     title: op.tool.replace(/_/g, " "),
-    description: op.confirm ? `${op.description} (needs confirmation)` : op.description,
+    description: op.confirm
+      ? `${op.description} (needs confirmation)`
+      : op.confirmWhen
+        ? `${op.description} (needs confirmation when it changes money)`
+        : op.description,
     inputSchema: inputSchema(op),
     annotations: {
       readOnlyHint: op.kind === "read",
-      destructiveHint: op.kind === "write" && !!op.confirm,
+      destructiveHint: op.kind === "write" && !!(op.confirm || op.confirmWhen),
       idempotentHint: op.kind === "read",
       openWorldHint: false,
     },
@@ -118,7 +122,9 @@ async function callTool(
     let key: string | null = null;
     if (op.kind === "write") {
       const bound = { u: base.user.id, t: op.tool, h: await sha256(actionArgs(args)) };
-      if (op.confirm) {
+      const needsConfirm =
+        op.confirm || (op.confirmWhen ? await op.confirmWhen(operationContext(op, base), input) : false);
+      if (needsConfirm) {
         const token = typeof args.confirm_token === "string" ? args.confirm_token : null;
         if (!token) {
           // Step one: a preview and a token for exactly this action, this person, 10 minutes.
