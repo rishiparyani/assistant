@@ -23,8 +23,11 @@ import {
   type FindResult,
   type LinkedRef,
   type Period,
+  type OpenedView,
   type RecordView,
+  type SavedView,
   type StoredValue,
+  type ViewMode,
 } from "@assistant/shared";
 import {
   BASE_TABLES,
@@ -130,7 +133,49 @@ const MIGRATIONS: Migrations = [
     op text not null
   );
   `,
+  // Saved views: a collection with filters, search and sort; pinned ones are shortcuts.
+  `
+  create table views (
+    id text primary key,
+    name text not null,
+    name_key text not null,
+    collection_id text not null,
+    query_json text not null,
+    mode text not null default 'list',
+    pinned integer not null default 0,
+    position real not null default 0,
+    created_by text,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create unique index views_name_idx on views (name_key) where deleted_at is null;
+  create index views_order_idx on views (deleted_at, pinned, position);
+  create index views_collection_idx on views (collection_id) where deleted_at is null;
+  `,
 ];
+
+type ViewQuery = {
+  filters: Filter[];
+  search: string | null;
+  sort: { field: string; dir: "asc" | "desc" } | null;
+};
+type ViewInput = {
+  filters?: Filter[];
+  search?: string | null;
+  sort?: { field: string; dir: "asc" | "desc" } | null;
+  mode?: ViewMode;
+};
+type ViewRow = {
+  id: string;
+  name: string;
+  collection_id: string;
+  query_json: string;
+  mode: ViewMode;
+  pinned: number;
+  position: number;
+  updated_at: string;
+};
 
 type CollectionRow = {
   id: string;
@@ -269,7 +314,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   private logChange(
-    kind: "collection" | "record" | "space",
+    kind: "collection" | "record" | "space" | "view",
     id: string,
     op: "upsert" | "delete",
     ts: string,
@@ -1222,6 +1267,189 @@ export class SpaceObject extends DurableObject<Env> {
     throw new ObjectError("validation_failed", `Unknown filter "${op}"`);
   }
 
+  // --- Saved views ---------------------------------------------------------------------------
+
+  async views(actor: Actor): Promise<SavedView[]> {
+    this.role(actor);
+    return this.sql
+      .exec<ViewRow>(`select * from views where deleted_at is null order by pinned desc, position, name_key`)
+      .toArray()
+      .flatMap((v) => this.viewOf(v) ?? []);
+  }
+
+  async saveView(
+    actor: Actor,
+    key: string | null,
+    input: ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean },
+  ) {
+    return this.write(actor, key, ["save_view", input], (ts) => {
+      const c = this.requireCollection(input.collection);
+      const n = this.sql
+        .exec<{ n: number }>(`select count(*) as n from views where deleted_at is null`)
+        .one().n;
+      if (n >= SPACE_LIMITS.views)
+        throw new ObjectError("validation_failed", `A space can have up to ${SPACE_LIMITS.views} views`);
+      this.checkViewName(input.name, null);
+      const query = this.checkViewQuery(c, input);
+      const id = this.newId("views", input.id);
+      const position =
+        this.sql
+          .exec<{ p: number | null }>(`select max(position) as p from views where deleted_at is null`)
+          .one().p ?? 0;
+      this.sql.exec(
+        `insert into views (id, name, name_key, collection_id, query_json, mode, pinned, position, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        input.name.trim(),
+        nameKey(input.name),
+        c.id,
+        JSON.stringify(query),
+        input.mode ?? "list",
+        input.pinned ? 1 : 0,
+        position + 1,
+        actor.userId,
+        ts,
+        ts,
+      );
+      this.logChange("view", id, "upsert", ts);
+      audit(this.sql, actor, { action: "save_view", entityType: "view", entityId: id, after: input });
+      return this.viewOf(this.requireView(id))!;
+    });
+  }
+
+  async updateView(
+    actor: Actor,
+    key: string | null,
+    ref: string,
+    input: ViewInput & { name?: string; pinned?: boolean; position?: number },
+  ): Promise<SavedView> {
+    return this.write(actor, key, ["update_view", ref, input], (ts) => {
+      const v = this.requireView(ref);
+      const c = this.requireCollection(v.collection_id);
+      if (input.name !== undefined) this.checkViewName(input.name, v.id);
+      const before = JSON.parse(v.query_json) as ViewQuery;
+      const query = this.checkViewQuery(c, {
+        filters: input.filters ?? before.filters,
+        search: input.search === undefined ? before.search : input.search,
+        sort: input.sort === undefined ? before.sort : input.sort,
+      });
+      this.sql.exec(
+        `update views set name = ?, name_key = ?, query_json = ?, mode = ?, pinned = ?, position = ?, updated_at = ? where id = ?`,
+        input.name?.trim() ?? v.name,
+        nameKey(input.name ?? v.name),
+        JSON.stringify(query),
+        input.mode ?? v.mode,
+        input.pinned === undefined ? v.pinned : input.pinned ? 1 : 0,
+        input.position ?? v.position,
+        ts,
+        v.id,
+      );
+      this.logChange("view", v.id, "upsert", ts);
+      audit(this.sql, actor, {
+        action: "update_view",
+        entityType: "view",
+        entityId: v.id,
+        before: this.viewOf(v),
+        after: input,
+      });
+      return this.viewOf(this.requireView(v.id))!;
+    });
+  }
+
+  async deleteView(actor: Actor, key: string | null, ref: string): Promise<{ deleted: string }> {
+    return this.write(actor, key, ["delete_view", ref], (ts) => {
+      const v = this.requireView(ref);
+      this.sql.exec(`update views set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, v.id);
+      this.logChange("view", v.id, "delete", ts);
+      audit(this.sql, actor, {
+        action: "delete_view",
+        entityType: "view",
+        entityId: v.id,
+        before: { name: v.name },
+      });
+      return { deleted: v.id };
+    });
+  }
+
+  /** A view with its records (what the pop-up shows, and what "show my view" answers). */
+  async openView(actor: Actor, ref: string, page: { limit: number; cursor?: string }): Promise<OpenedView> {
+    this.role(actor);
+    const v = this.requireView(ref);
+    const view = this.viewOf(v);
+    if (!view) throw new ObjectError("not_found", `The collection of "${v.name}" was removed`);
+    const result = await this.find(actor, v.collection_id, {
+      filters: view.filters,
+      search: view.search ?? undefined,
+      sort: view.sort ?? undefined,
+      limit: page.limit,
+      cursor: page.cursor,
+    });
+    return { view, collection: this.collectionView(this.requireCollection(v.collection_id)), result };
+  }
+
+  private checkViewName(name: string, exceptId: string | null) {
+    const taken = this.sql
+      .exec<{ id: string }>(`select id from views where name_key = ? and deleted_at is null`, nameKey(name))
+      .toArray()[0];
+    if (taken && taken.id !== exceptId)
+      throw new ObjectError("conflict", `There's already a view called "${name}"`);
+  }
+
+  /** Filters and sort must name real fields (kept by id, so renames don't break views). */
+  private checkViewQuery(c: CollectionRow, q: ViewInput): ViewQuery {
+    const fields = this.fieldRows(c.id);
+    const filters = (q.filters ?? []).map((f) => {
+      const field = this.matchField(fields, f.field);
+      // Checks the filter now (bad values fail here, not when the view opens).
+      this.filterClause(field, f, { userId: null, source: "system" });
+      return { ...f, field: field.id };
+    });
+    const sort = q.sort ? { field: this.matchField(fields, q.sort.field).id, dir: q.sort.dir } : null;
+    return { filters, search: q.search?.trim() || null, sort };
+  }
+
+  private requireView(ref: string): ViewRow {
+    const rows = this.sql
+      .exec<ViewRow>(
+        `select * from views where deleted_at is null and (id = ? or name_key = ?)`,
+        ref,
+        nameKey(ref),
+      )
+      .toArray();
+    if (rows[0]) return rows[0];
+    const names = this.sql
+      .exec<{ name: string }>(`select name from views where deleted_at is null order by position`)
+      .toArray()
+      .map((r) => r.name);
+    throw new ObjectError("not_found", `No view "${ref}". Views: ${names.join(", ") || "none yet"}`, {
+      candidates: names,
+    });
+  }
+
+  private viewOf(v: ViewRow): SavedView | null {
+    const c = this.sql
+      .exec<{ name: string }>(
+        `select name from collections where id = ? and deleted_at is null`,
+        v.collection_id,
+      )
+      .toArray()[0];
+    if (!c) return null;
+    const q = JSON.parse(v.query_json) as ViewQuery;
+    return {
+      id: v.id,
+      name: v.name,
+      collection_id: v.collection_id,
+      collection: c.name,
+      filters: q.filters,
+      search: q.search,
+      sort: q.sort,
+      mode: v.mode,
+      pinned: v.pinned === 1,
+      position: v.position,
+      updated_at: v.updated_at,
+    };
+  }
+
   // --- Sync ---------------------------------------------------------------------------------
 
   async changes(actor: Actor, since: number, limit: number): Promise<ChangesView> {
@@ -1336,7 +1564,7 @@ export class SpaceObject extends DurableObject<Env> {
     throw new ObjectError("not_found", `${f.name}: nothing called "${ref}"`);
   }
 
-  private newId(table: "collections" | "fields" | "records", given?: string | null): string {
+  private newId(table: "collections" | "fields" | "records" | "views", given?: string | null): string {
     if (!given) return ulid();
     if (this.sql.exec(`select 1 from ${table} where id = ?`, given).toArray().length)
       throw new ObjectError("conflict", "That id is already used", { reason: "id_taken" });

@@ -1,7 +1,15 @@
 // The universal engine (docs/design/universal.md): spaces, collections, typed fields,
 // records, links, filters, the name resolver and the change log. Fake data only.
 import { describe, expect, it } from "vitest";
-import type { ChangesView, CollectionView, FindResult, RecordView, SpaceView } from "@assistant/shared";
+import type {
+  ChangesView,
+  CollectionView,
+  FindResult,
+  OpenedView,
+  RecordView,
+  SavedView,
+  SpaceView,
+} from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -318,6 +326,58 @@ describe("guards", () => {
       body: { options: { target: "Albums" } },
     });
     expect(retarget.status).toBe(409);
+  });
+});
+
+describe("saved views", () => {
+  it("saves, pins, opens and renames views; filters keep working after a field rename", async () => {
+    const me = await signUp("Test Owner");
+    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+    for (const [w, a] of [
+      ["Test big", "2000"],
+      ["Test small", "100"],
+    ])
+      await api(me)("/collections/Expenses/records", {
+        body: { values: { What: w, Amount: a, Date: today } },
+      });
+    const saved = await api(me)("/views", {
+      body: {
+        name: "Big this month",
+        collection: "Expenses",
+        filters: [
+          { field: "Amount", op: "gte", value: 500 },
+          { field: "Date", op: "period", value: "this_month" },
+        ],
+        sort: { field: "Amount", dir: "desc" },
+        pinned: true,
+      },
+    });
+    expect(saved.status).toBe(201);
+    const v = await json<SavedView>(saved);
+    expect(v).toMatchObject({ name: "Big this month", collection: "Expenses", pinned: true, mode: "list" });
+    // Bad filters fail when saving, not later.
+    const bad = await api(me)("/views", {
+      body: { name: "Bad", collection: "Expenses", filters: [{ field: "Colour", op: "eq", value: "red" }] },
+    });
+    expect(bad.status).toBe(400);
+    expect((await api(me)("/views", { body: { name: "big THIS month", collection: "Notes" } })).status).toBe(
+      409,
+    );
+
+    await api(me)("/collections/Expenses/fields/Amount", { method: "PATCH", body: { name: "Cost" } });
+    const opened = await json<OpenedView>(await api(me)(`/views/${encodeURIComponent("Big this month")}`));
+    expect(opened.result.items.map((i) => i.title)).toEqual(["Test big"]);
+    expect(opened.collection.name).toBe("Expenses");
+
+    const unpinned = await json<SavedView>(
+      await api(me)(`/views/${v.id}`, { method: "PATCH", body: { pinned: false, name: "Big ones" } }),
+    );
+    expect(unpinned).toMatchObject({ name: "Big ones", pinned: false });
+    expect((await json<SavedView[]>(await api(me)("/views"))).map((x) => x.name)).toEqual(["Big ones"]);
+    expect((await api(me)(`/views/${v.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await json<SavedView[]>(await api(me)("/views"))).toEqual([]);
+    const other = await signUp("Test Other");
+    expect((await api(other)(`/views/${v.id}`)).status).toBe(404);
   });
 });
 

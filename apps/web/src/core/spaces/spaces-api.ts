@@ -14,6 +14,8 @@ import {
   type Filter,
   type FindResult,
   type LinkedRef,
+  type OpenedView,
+  type SavedView,
   type Period,
   type RecordView,
   type SpaceView,
@@ -129,7 +131,30 @@ export const spacesApi = {
   // online-only: changing a setup needs the server.
   removeField: (ref: string, field: string) =>
     request<CollectionView>("DELETE", `/api/collections/${enc(ref)}/fields/${enc(field)}`),
+
+  views: () => request<SavedView[]>("GET", "/api/views"),
+  openView: (id: string, quiet = false) =>
+    request<OpenedView>("GET", `/api/views/${enc(id)}`, undefined, { quiet }),
+  // online-only: a saved view is part of the setup (names are checked across the space).
+  saveView: (body: ViewBody & { name: string; collection: string; pinned?: boolean }) =>
+    request<SavedView>("POST", "/api/views", body),
+  // online-only: a saved view is part of the setup.
+  updateView: (id: string, body: Partial<ViewBody> & { name?: string; pinned?: boolean }) =>
+    request<SavedView>("PATCH", `/api/views/${enc(id)}`, body),
+  // online-only: a saved view is part of the setup.
+  deleteView: (id: string) => request<{ deleted: string }>("DELETE", `/api/views/${enc(id)}`),
 };
+
+/** What a saved view keeps: the collection page's filters, search, sort and layout. */
+export interface ViewBody {
+  filters: Filter[];
+  search: string | null;
+  sort: { field: string; dir: "asc" | "desc" } | null;
+  mode: "list" | "table";
+}
+
+export const VIEWS_KEY = "spaces:views";
+export const viewKey = (id: string) => `spaces:view:${id}`;
 
 // --- Cache keys -----------------------------------------------------------------------------
 // A collection's screens share one prefix, so a waiting change shows on all of them.
@@ -151,6 +176,11 @@ export async function saveSpacesAhead() {
     writeCache(`spaces:collection:${c.id}`, c);
     writeCache(listKey(c.id), await spacesApi.find(c.id, {}, true));
   }
+  // Pinned views open offline too.
+  const views = await spacesApi.views();
+  writeCache(VIEWS_KEY, views);
+  for (const v of views.filter((x) => x.pinned).slice(0, 12))
+    writeCache(viewKey(v.id), await spacesApi.openView(v.id, true));
 }
 
 // --- Values on screen -----------------------------------------------------------------------

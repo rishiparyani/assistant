@@ -15,6 +15,7 @@ export const SPACE_LIMITS = {
   findLimit: 100,
   linksPerField: 500,
   aliases: 10,
+  views: 200,
 } as const;
 
 /** Field types available now (design §2); more arrive with later stages. */
@@ -115,7 +116,7 @@ export interface FindResult {
 export interface ChangeView {
   seq: number;
   at: string;
-  kind: "collection" | "record" | "space";
+  kind: "collection" | "record" | "space" | "view";
   id: string;
   op: "upsert" | "delete";
 }
@@ -292,6 +293,67 @@ export const ChangesInput = SpaceRef.extend({
   since: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(1000).default(500),
 });
+
+// --- Saved views (design §10: pop-up and pinned views) -----------------------------------
+
+export const VIEW_MODES = ["list", "table"] as const;
+export type ViewMode = (typeof VIEW_MODES)[number];
+
+/** A collection seen a saved way: its filters, search and sort, as a list or a table. */
+export interface SavedView {
+  id: string;
+  name: string;
+  collection_id: string;
+  collection: string;
+  filters: Filter[];
+  search: string | null;
+  sort: { field: string; dir: "asc" | "desc" } | null;
+  mode: ViewMode;
+  /** On the shortcuts bar (and, later, as an iPhone widget). */
+  pinned: boolean;
+  position: number;
+  updated_at: string;
+}
+
+const viewQuery = {
+  filters: z.array(FilterInput).max(10).optional(),
+  search: z.string().trim().max(100).nullish(),
+  sort: z
+    .object({ field: z.string().trim().min(1).max(80), dir: z.enum(["asc", "desc"]).default("asc") })
+    .nullish(),
+  mode: z.enum(VIEW_MODES).optional(),
+};
+
+export const SaveViewInput = SpaceRef.extend({
+  id: clientId,
+  name: name("View name, e.g. Unpaid this month"),
+  collection: nameOrId("Collection"),
+  ...viewQuery,
+  pinned: z.boolean().optional().describe("Put it on the shortcuts bar"),
+});
+
+export const ViewRef = SpaceRef.extend({
+  view_id: z.string().trim().min(1).max(80).describe("View id or name"),
+});
+
+export const UpdateViewInput = ViewRef.extend({
+  name: name("New name").optional(),
+  ...viewQuery,
+  pinned: z.boolean().optional(),
+  position: z.number().optional(),
+});
+
+export const OpenViewInput = ViewRef.extend({
+  limit: z.coerce.number().int().min(1).max(SPACE_LIMITS.findLimit).default(30),
+  cursor: z.string().max(400).optional(),
+});
+
+/** A view with its records, as the pop-up shows it. */
+export interface OpenedView {
+  view: SavedView;
+  collection: CollectionView;
+  result: FindResult;
+}
 
 // --- Values -------------------------------------------------------------------------------
 

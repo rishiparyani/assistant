@@ -127,3 +127,15 @@ Plain routes, not operations (never MCP tools or Siri actions). Admins are the e
 | `GET`, `POST /api/admin/admins`, `DELETE /api/admin/admins/:email` | list, add, remove admins                                                                             |
 | `POST /api/admin/tools/:module.tool`                               | run a module tool (gigs: `flush`, `rebuild` with `from`/`to` months)                                 |
 | `GET /api/admin/log`                                               | last 50 admin actions (D1 `admin_audit`)                                                             |
+
+### Saved views
+
+| Method | Path                  | What                                                                        |
+| ------ | --------------------- | --------------------------------------------------------------------------- |
+| GET    | `/api/views`          | Saved views (pinned first)                                                  |
+| GET    | `/api/views/:view_id` | Open a view (id or name): `{ view, collection, result }`                    |
+| POST   | `/api/views`          | Save `{ name, collection, filters?, search?, sort?, mode?, pinned? }` (201) |
+| PATCH  | `/api/views/:view_id` | Rename, change the query, pin / unpin, move                                 |
+| DELETE | `/api/views/:view_id` | Delete the view (records stay); needs confirmation from MCP                 |
+
+Filters use the find language; periods ("this_month") and "me" are kept as written, so the view stays current. Fields are kept by id, so renaming a field doesn't break a view.
