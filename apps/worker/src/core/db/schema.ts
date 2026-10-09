@@ -108,3 +108,47 @@ export const userAudit = sqliteTable(
     index("user_audit_request_idx").on(t.userId, t.requestKey),
   ],
 );
+
+/**
+ * Spaces (docs/design/universal.md): which spaces exist and who is in them, for listing
+ * "my spaces". Everything inside a space (collections, records, rules) lives in its own
+ * Durable Object, which also checks roles itself. Written only when a space is created or
+ * its members change. One personal space per user (unique index).
+ */
+export const spaces = sqliteTable(
+  "spaces",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: text("kind", { enum: ["personal", "shared"] }).notNull(),
+    ownerUserId: text("owner_user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at"),
+    deletedAt: text("deleted_at"),
+  },
+  (t) => [
+    index("spaces_owner_idx").on(t.ownerUserId),
+    uniqueIndex("spaces_personal_idx")
+      .on(t.ownerUserId)
+      .where(sql`kind = 'personal'`),
+  ],
+);
+
+export const spaceMembers = sqliteTable(
+  "space_members",
+  {
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => spaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["owner", "editor", "viewer"] }).notNull(),
+    addedAt: timestamp("added_at"),
+  },
+  (t) => [
+    uniqueIndex("space_members_pk").on(t.spaceId, t.userId),
+    index("space_members_user_idx").on(t.userId),
+  ],
+);

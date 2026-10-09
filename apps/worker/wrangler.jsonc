@@ -37,6 +37,7 @@
       { "name": "PENDING", "class_name": "PendingObject" },
       { "name": "INBOX", "class_name": "InboxObject" },
       { "name": "LIBRARIES", "class_name": "LibraryObject" },
+      { "name": "SPACES", "class_name": "SpaceObject" },
     ],
   },
   "migrations": [
@@ -51,6 +52,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["LibraryObject"],
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["SpaceObject"],
     },
   ],
   // Outbox notes travel here; the deploy workflow creates the queues if missing.
@@ -101,6 +106,7 @@
           { "name": "PENDING", "class_name": "PendingObject" },
           { "name": "INBOX", "class_name": "InboxObject" },
           { "name": "LIBRARIES", "class_name": "LibraryObject" },
+          { "name": "SPACES", "class_name": "SpaceObject" },
         ],
       },
       "migrations": [
@@ -115,6 +121,10 @@
         {
           "tag": "v3",
           "new_sqlite_classes": ["LibraryObject"],
+        },
+        {
+          "tag": "v4",
+          "new_sqlite_classes": ["SpaceObject"],
         },
       ],
       // Outbox notes travel here; the deploy workflow creates the queues if missing.

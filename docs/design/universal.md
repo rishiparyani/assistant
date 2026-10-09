@@ -80,6 +80,14 @@ View:       "This month" — table, Date in this month, newest first, total of A
 
 **Changing a setup is safe:** adding a field is instant; changing a type shows a preview of what converts; removing a field hides it first (undoable); formulas recalculate in the background. Limits stop runaway setups (fields per collection, automation chain depth, formula run time).
 
+**Setups change over time; old records stay usable.** Example: last year's fam jam and this year's, with a changed setup, in one report.
+
+- **One collection evolves in place.** Adding, renaming or hiding a field keeps field ids, so last year's records keep their values (a hidden field's values are kept and can be shown again). The assistant changes the existing setup rather than copying it.
+- **Editions are records, not collections.** A _Fam jams_ collection holds "Fam Jam 2026", "Fam Jam 2027"; _Songs_ and _Sign-ups_ link to their jam. A report across years is a view with no year filter, grouped by jam. When asked to "set up next year's fam jam", the assistant adds a new jam record and reuses the setup.
+- **Reports can include hidden fields** and show a gap where a field didn't exist yet.
+- **Setup history:** every setup change is in the space's history with its date ("Instrument became a choice on 3 Feb 2027"), and the setup as it was on a date can be shown.
+- **If a setup was copied anyway** (two collections), a **combined view** reads several collections as one, matching fields by name or by a mapping the assistant proposes and you approve.
+
 **There is a fixed, small set of blocks** (about 14 field types and 5 rule kinds), each built and tested once. Variety comes from combining them. When a real workflow needs something the blocks can't express, a new **generic** block is added, never workflow-specific code.
 
 ## 5. Test case: fam jam sign-ups
