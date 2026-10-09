@@ -1327,7 +1327,9 @@ export class SpaceObject extends DurableObject<Env> {
       const v = this.requireView(ref);
       const c = this.requireCollection(v.collection_id);
       if (input.name !== undefined) this.checkViewName(input.name, v.id);
-      const before = JSON.parse(v.query_json) as ViewQuery;
+      // The view as it reads now (fields hidden since then have dropped out).
+      const current = this.viewOf(v)!;
+      const before: ViewQuery = { filters: current.filters, search: current.search, sort: current.sort };
       const query = this.checkViewQuery(c, {
         filters: input.filters ?? before.filters,
         search: input.search === undefined ? before.search : input.search,
@@ -1435,6 +1437,19 @@ export class SpaceObject extends DurableObject<Env> {
       .toArray()[0];
     if (!c) return null;
     const q = JSON.parse(v.query_json) as ViewQuery;
+    // A field hidden since the view was saved drops out of it, so the view still opens
+    // (its values are kept; showing the field again brings the filter back).
+    const live = new Set(
+      this.sql
+        .exec<{ id: string }>(
+          `select id from fields where collection_id = ? and deleted_at is null`,
+          v.collection_id,
+        )
+        .toArray()
+        .map((f) => f.id),
+    );
+    q.filters = q.filters.filter((f) => live.has(f.field));
+    if (q.sort && !live.has(q.sort.field)) q.sort = null;
     return {
       id: v.id,
       name: v.name,

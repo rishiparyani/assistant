@@ -369,6 +369,12 @@ describe("saved views", () => {
     expect(opened.result.items.map((i) => i.title)).toEqual(["Test big"]);
     expect(opened.collection.name).toBe("Expenses");
 
+    // Hiding a field the view uses: the view still opens, without that filter.
+    await api(me)("/collections/Expenses/fields/Date", { method: "DELETE" });
+    const stillOpens = await json<OpenedView>(await api(me)(`/views/${v.id}`));
+    expect(stillOpens.view.filters).toHaveLength(1);
+    expect(stillOpens.result.items.map((i) => i.title)).toEqual(["Test big"]);
+
     const unpinned = await json<SavedView>(
       await api(me)(`/views/${v.id}`, { method: "PATCH", body: { pinned: false, name: "Big ones" } }),
     );

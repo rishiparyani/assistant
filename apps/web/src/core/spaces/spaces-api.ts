@@ -154,6 +154,15 @@ export interface ViewBody {
 }
 
 export const VIEWS_KEY = "spaces:views";
+
+/** A saved view's query exactly as the collection page builds it (same cache key). */
+export function viewQuery(v: Pick<SavedView, "filters" | "search" | "sort">): FindQuery {
+  return {
+    ...(v.filters.length ? { filters: v.filters } : {}),
+    ...(v.search ? { search: v.search } : {}),
+    ...(v.sort ? { sort: { field: v.sort.field, dir: v.sort.dir } } : {}),
+  };
+}
 export const viewKey = (id: string) => `spaces:view:${id}`;
 
 // --- Cache keys -----------------------------------------------------------------------------
@@ -179,8 +188,12 @@ export async function saveSpacesAhead() {
   // Pinned views open offline too.
   const views = await spacesApi.views();
   writeCache(VIEWS_KEY, views);
-  for (const v of views.filter((x) => x.pinned).slice(0, 12))
-    writeCache(viewKey(v.id), await spacesApi.openView(v.id, true));
+  for (const v of views.filter((x) => x.pinned).slice(0, 12)) {
+    const opened = await spacesApi.openView(v.id, true);
+    writeCache(viewKey(v.id), opened);
+    // Also where the full view reads it (Open from the pop-up works offline).
+    writeCache(listKey(v.collection_id, viewQuery(v)), opened.result);
+  }
 }
 
 // --- Values on screen -----------------------------------------------------------------------
