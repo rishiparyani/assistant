@@ -39,7 +39,12 @@ describe("admin panel", () => {
   it("shows counts only, and the tools", async () => {
     await signUp();
     const o = await json<Overview>(await call("/api/admin/overview", { cookie: await owner() }));
-    expect(o.sections.map((s) => s.title)).toEqual(["People", "Gigs", "Delivery (outbox → queue)"]);
+    expect(o.sections.map((s) => s.title)).toEqual([
+      "People",
+      "Assistant (AI)",
+      "Gigs",
+      "Delivery (outbox → queue)",
+    ]);
     const people = o.sections[0]!.stats;
     expect(people.find((s) => s.label === "Accounts")!.value).toBeGreaterThanOrEqual(2);
     expect(people.find((s) => s.label === "New this week")!.value).toBeGreaterThanOrEqual(2);

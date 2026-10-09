@@ -8,6 +8,7 @@
   import LogOut from "@lucide/svelte/icons/log-out";
   import Gauge from "@lucide/svelte/icons/gauge";
   import CircleHelp from "@lucide/svelte/icons/circle-help";
+  import House from "@lucide/svelte/icons/house";
   import ChartColumn from "@lucide/svelte/icons/chart-column";
   import { Avatar, Card, ListGroup, ListRow, PageHeader, confirm, toast } from "../ui/index.ts";
   import { outbox } from "../outbox.svelte.ts";
@@ -123,6 +124,11 @@
     <ListRow title="Help" subtitle="Examples of what you can ask, and how to do it by tapping" href="/help">
       {#snippet leading()}<span class="admin-icon"><CircleHelp size={20} /></span>{/snippet}
     </ListRow>
+    <div class="phone-only">
+      <ListRow title="Overview" subtitle="Upcoming gigs and money" href="/overview">
+        {#snippet leading()}<span class="admin-icon"><House size={20} /></span>{/snippet}
+      </ListRow>
+    </div>
     <div class="phone-only">
       <ListRow title="Reports" subtitle="Earnings and gigs over time" href="/reports">
         {#snippet leading()}<span class="admin-icon"><ChartColumn size={20} /></span>{/snippet}

@@ -56,6 +56,9 @@ export default defineConfig({
       configPath: "../worker/wrangler.jsonc",
       // Share local state (D1) with wrangler commands run in apps/worker (pnpm db:migrate).
       persistState: { path: "../worker/.wrangler/state" },
+      // Local dev never calls Workers AI (it would need a Cloudflare login); the assistant
+      // uses its scripted test model there (AI_FAKE=1 in .dev.vars).
+      remoteBindings: false,
     }),
   ],
   server: { port: 8787, strictPort: true },

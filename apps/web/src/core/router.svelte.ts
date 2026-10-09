@@ -7,6 +7,7 @@ export interface Route {
 
 const PATTERNS: [string, RegExp][] = [
   ["root", /^\/$/],
+  ["overview", /^\/overview$/],
   ["login", /^\/login$/],
   ["consent", /^\/consent$/],
   ["settings", /^\/settings$/],

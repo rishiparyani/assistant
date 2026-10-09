@@ -15,6 +15,7 @@ import { adminRoutes } from "./admin/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
 import { spaceOperations } from "./spaces/operations.ts";
+import { assistantOperations } from "./assistant/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
 
 /** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
@@ -34,6 +35,8 @@ export function createApp({ modules }: AppOptions) {
     ...spaceOperations,
     ...modules.flatMap((m) => m.operations ?? []),
   ];
+  // The assistant's tools are the operations above.
+  operations.push(...assistantOperations(() => operations));
 
   const app = new Hono<AppEnv>();
 

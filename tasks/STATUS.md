@@ -4,6 +4,10 @@ _Updated: 2026-10-09_
 
 ## Last done
 
+- **Chat with the assistant, router first part** (P2-1c + P2-1b chat home; decision 2026-10-10): the chat is now Home (`/`); the old gig home moved to `/overview` (sidebar; Settings on phones). Router in `apps/worker/src/core/assistant/` (`service.ts` levels/tools/cards/handover/escalation, `models.ts` settings table and prices, `client.ts` Workers AI through AI Gateway, `chat-object.ts` per person, `budget-object.ts` cap + neurons + call log, `fake-model.ts` tests/dev only). Level 1 GLM 4.7 Flash on the free route is live without owner steps; level 2 Kimi K2.6 switches on with `AI_PAID_GATEWAY` (owner: docs/setup.md "AI for the in-app assistant"); level 3 Claude is listed but off. Web: `core/assistant/ChatPage.svelte` (messages, confirm cards, Think harder, suggestions, pinned views above), Help examples open the chat prefilled. Admin panel: "Assistant (AI)" section. Tests: `assistant.test.ts` (6). Browser-checked at 390 and 1280 dark.
+  - Gotchas: the AI binding is remote-only, so the test pool and the Vite plugin run with `remoteBindings: false`; local dev uses the scripted model (`AI_FAKE=1` in `.dev.vars`). Chat messages are ordered by rowid (ULIDs in one millisecond aren't ordered).
+  - Next: the model test on dev with the real free model, streaming replies, level 3 once credit exists.
+
 - **Saved and pinned views** (P2-1b, design §10): a view keeps a collection's filters (periods stay relative, "me" stays the viewer), search, sort and list/table layout. Space object migration 2 (`views` table, filters stored by field id so renames don't break them; bad filters fail on save). Operations `core.list_views`, `open_view` (MCP `show_view`), `save_view`, `update_view`, `delete_view` (confirm). Web: "Save view" on a collection (pin by default), "Update ‘…’" when a view is open (`/c/:id?view=…`), the shortcuts bar of views on Collections, and a pop-up panel per view (records, Open, Pin/Unpin, Delete); pinned views are saved ahead for offline. Test: `spaces.test.ts` saved views; browser-checked at 390.
   - Next: chat home with the router (P2-1c), then the full local copy.
 

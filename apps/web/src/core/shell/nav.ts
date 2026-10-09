@@ -2,14 +2,16 @@
 export interface NavItem {
   href: string;
   label: string;
-  icon: "home" | "gigs" | "collections" | "songs" | "people" | "band" | "reports" | "settings";
+  icon: "home" | "chat" | "gigs" | "collections" | "songs" | "people" | "band" | "reports" | "settings";
   exact?: boolean;
   /** Left out of the phone's tab bar (Settings is under the avatar there). */
   phone?: false;
 }
 
 export const MAIN_NAV: NavItem[] = [
-  { href: "/", label: "Home", icon: "home", exact: true },
+  { href: "/", label: "Chat", icon: "chat", exact: true },
+  // The gig app's home (upcoming gigs, money); on phones it's in Settings.
+  { href: "/overview", label: "Overview", icon: "home", phone: false },
   { href: "/gigs", label: "Gigs", icon: "gigs" },
   { href: "/c", label: "Collections", icon: "collections" },
   { href: "/songs", label: "Songs", icon: "songs" },

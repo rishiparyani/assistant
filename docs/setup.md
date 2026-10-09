@@ -99,6 +99,18 @@ Done by the repo owner in the browser; agents should give step-by-step instructi
 
 Status of each is tracked in `tasks/STATUS.md` under "Owner setup".
 
+## AI for the in-app assistant (owner, when ready)
+
+The everyday assistant works with no setup: it uses Workers AI's free daily allowance through the auto-created `default` AI Gateway (Standard billing; on the Free plan it simply stops for the day when the allowance is used). The **smart model** (Kimi K2.6, for building setups by chat) needs prepaid credit on a second gateway:
+
+1. Cloudflare dashboard → **AI** → **AI Gateway** → **Create gateway**. Name it `paid`.
+2. Open it → **Settings** → Workers AI billing: **Unified billing**.
+3. **Billing** (account) → **AI credits** → buy credit (for example $10). Leave **auto top-up off**.
+4. On the `paid` gateway → **Spend limits**: set a monthly limit at the cap (₹2,000, about $22). This is a backup; the app enforces the cap itself.
+5. Tell the agent the gateway's name (`paid`); it sets `AI_PAID_GATEWAY` in `apps/worker/wrangler.jsonc` and deploys. Nothing secret is involved.
+
+The admin panel's "Assistant (AI)" section shows this month's spend, today's free allowance and whether the smart model is on.
+
 ## Free-tier limits
 
 **GitHub Actions:** public repo = unlimited minutes. If the repo is made private: 2,000 min/month on the free plan (a CI + deploy run is ~2–3 min; nightly backup ~1 min). Over the limit, with the default $0 spending limit, workflows stop until the next month; nothing is charged and the live app keeps running.

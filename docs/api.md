@@ -139,3 +139,15 @@ Plain routes, not operations (never MCP tools or Siri actions). Admins are the e
 | DELETE | `/api/views/:view_id` | Delete the view (records stay); needs confirmation from MCP                 |
 
 Filters use the find language; periods ("this_month") and "me" are kept as written, so the view stays current. Fields are kept by id, so renaming a field doesn't break a view.
+
+### Chat with the assistant (session only)
+
+| Method | Path                                   | What                                                          |
+| ------ | -------------------------------------- | ------------------------------------------------------------- |
+| GET    | `/api/chat`                            | `{ items, setup_in_progress, smart_available }`               |
+| POST   | `/api/chat`                            | Send `{ text, think_harder? }`; answers with the updated chat |
+| POST   | `/api/chat/actions/:action_id/confirm` | Run what a card shows (once)                                  |
+| POST   | `/api/chat/actions/:action_id/cancel`  | Drop a card                                                   |
+| DELETE | `/api/chat`                            | Start a new chat (saved records stay)                         |
+
+Items are `user`, `assistant`, `note` (system notes such as "Done: …") or `card` (with `card.status` waiting / done / cancelled / failed / expired). Tool calls and raw results stay on the server. Not available to API tokens or MCP: outside assistants use the tools directly.
