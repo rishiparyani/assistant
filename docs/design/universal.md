@@ -10,7 +10,7 @@ So the app stops knowing about gigs. Instead it gives people **building blocks**
 
 Four principles:
 
-1. **Two kinds of people.** **Full users** (the owner for now) get everything: spaces, collections, rules, reports, AI. **Collaborators** (bandmates, family, venues) get only the specific things shared with them, like a shared note in a notes app, and a simple screen to work on them. Collaborating is free; full features and AI can be offered to them later (section 9).
+1. **Two kinds of people.** **Full users** (the owner for now) get everything: spaces, collections, rules, reports, AI. **Collaborators** (bandmates, family, venues) get only the specific things shared with them, like a shared note in a notes app, and a simple screen to work on them. Collaborating is free; full features and AI can be offered to them later (section 11).
 2. **Rules belong to the user, not the code.** Checks, status flows, automations and permissions are data the user creates. The code only runs them.
 3. **Money and permissions stay trustworthy.** Money is exact (integer paise), can be protected (add-only, corrected by reversing), and every change is audited.
 4. **Chat-centric.** The chat is the home screen and the main way to do things; screens and views open from it. Every action also has a normal screen (collaborators, and days when the AI allowance is used up).
@@ -130,7 +130,31 @@ Everything the current gig app does becomes data, not code:
 
 The template is checked against the current app's tests: if a behaviour can't be built from blocks, the blocks are missing something, and that is fixed in the engine (not with gig-only code).
 
-## 8. Chat and the assistant
+## 8. Screens: record pages and the screen builder
+
+**Record pages.** Every record has a page showing its fields and, as sections, the collections linked to it (a gig shows Guests, Notes, Set list, Rehearsals, Payments), only those that have something, with one **+ Add** button.
+
+**Field display formats.** A field chooses how it appears everywhere: a number as a **counter** (− 1 of 3 +, with a maximum from another field), a yes/no as a **toggle**, long text as **rich text** or a **chord chart** (from the Songbook app: transpose, capo), a number as **stars** or a **progress bar**. Most screens then need no building.
+
+**Ordered links.** A link list can keep your own order (drag to reorder): set lists, run of show, packing lists. Rows can be **dividers** (a break with a length, a heading), shown as separators.
+
+**Screen builder.** The chat (or you, by tapping) arranges **components** into a custom screen, saved as a layout (data, not code), bound to collections, filters and actions. Screens can be pinned, opened as pop-up views, attached to share links and shown as iPhone widgets.
+
+Starting components: list, table, card, board, calendar, big number or total, progress bar, simple chart, next item, countdown; counter, toggle, choice chips, rating, text box, date picker, search; action button (set a field, create a record, open a view, start stage mode), quick add; sections, tabs, pinned header, **door list** (big tap targets, high contrast), **stage/reader** (full screen, auto-scroll, page-turner keys, next item); chord chart, timer. Print or PDF any screen or view.
+
+Example, the venue's door screen for a guest list: search at the top; "32 of 40 in" as a progress total (Arrived ÷ Heads); a list of the gig's guests (Name, Host, Note) filtered by the search; a counter bound to Arrived with maximum Heads; an **All in** button setting Arrived to Heads; door-list layout.
+
+When a screen needs something the library lacks (a metronome, a seating chart), a new **generic component** is added in code, once, and the chat can use it anywhere. Possible much later, as an experiment: AI-written mini-pages in a locked sandbox with a narrow, permission-checked data doorway.
+
+## 9. Apps (specialised modules)
+
+Where the generic blocks aren't enough, a built-in **app** adds deep features. Apps are **built in code** (by the developer agent, with the owner's approval), never by the in-app chat. The in-app chat **uses** them.
+
+**App contract.** An app provides its own record types (stored in its own objects), screens, actions, what a shared record shows, and templates. In return: any collection can **link** to its records; they appear in **search**; its screens open as tabs, pop-up views and **widgets**; its actions come from the operation registry, so they work from screens, the in-app assistant, Claude/ChatGPT over MCP, and **Siri**; it follows **sharing and visibility**. Core never depends on an app; an app can be switched on or off per person or space.
+
+**First app: Songbook**, adapted from today's music module: song library, ChordPro charts, transpose and capo, keys and tempo, stage mode with auto-scroll and page-turner keys, later versions and arrangements per band and practice tools. Set lists anywhere link to Songbook songs; Play runs them in stage mode with breaks between songs.
+
+## 10. Chat and the assistant
 
 - **Chat is the home screen.** Your chat with the assistant opens first; your spaces and pinned views are one tap away.
 - **Pop-up views.** "Show my calendar" opens a panel (a sheet on phones, a side panel on wide screens). It can be closed, minimised to a chip above the message box, or **pinned** to the shortcuts bar with its filter.
@@ -197,7 +221,7 @@ Like Claude's and ChatGPT's connectors: a **Connectors** page where a full user 
 
 Per-person and per-link rate limits; a CPU limit per request; automation depth and daily limits; capped retries; a usage watchdog in the 15-minute health check that switches to **safe mode** (pause automations and background jobs) and alerts on Telegram; a kill switch. DDoS traffic is not billed by Cloudflare, and on the Free plan nothing is billed at all.
 
-## 9. Collaborators and sharing
+## 11. Collaborators and sharing
 
 Like sharing one note from a notes app: the other person works on **that note**, not on your whole app.
 
@@ -229,7 +253,7 @@ Like sharing one note from a notes app: the other person works on **that note**,
 
 **Later: upgrading a collaborator.** You can make someone a full user (their own spaces, reports, AI), paid by you or by them. Their existing shares keep working.
 
-## 10. Storage and architecture (for agents)
+## 12. Storage and architecture (for agents)
 
 Same stack: Cloudflare Workers, Durable Objects, D1, Svelte, Capacitor for iPhone.
 
@@ -253,7 +277,7 @@ Same stack: Cloudflare Workers, Durable Objects, D1, Svelte, Capacitor for iPhon
 
 The app opens offline; pinned views and upcoming records are saved ahead. Record changes go through the offline outbox and sync later. Chat with the assistant needs a connection; comments queue and sync later.
 
-## 11. Rules that change (AGENTS.md)
+## 13. Rules that change (AGENTS.md)
 
 These need the owner's OK and a decision entry:
 
@@ -262,7 +286,7 @@ These need the owner's OK and a decision entry:
 - "Collective is a tag, no workspaces" → **spaces belong to full users**; others collaborate through **shares** of specific things.
 - Money, idempotency, audit, soft delete, ULIDs, no fuzzy writes, offline-first and "no raw SQL for the AI" **stay** as they are.
 
-## 12. Build stages
+## 14. Build stages
 
 Each stage ships something usable.
 
@@ -270,13 +294,14 @@ Each stage ships something usable.
 2. **Sharing.** Cards, views and forms; join links; field and row visibility; personal answers; the collaborators' "Shared with me" screen; comments.
 3. **iPhone widgets and App Intents.** Any pinned view as a home-screen or lock-screen widget (chosen in iOS's widget settings, keeps its filters; interactive: tick, mark done, count arrivals). App Intents expose actions to Siri, Shortcuts, Spotlight and the Action button ("Add expense", "Ask Gigspree…", "Show [view]", "Add to [list]"). Native Swift in `apps/ios`: the app saves view snapshots in shared App Group storage and widgets refresh from the server when iOS allows; views map to native widget layouts (list, number, progress, next item, mini calendar).
 4. **Search.** By words and by meaning across records, chats and comments.
-5. **Calculated fields and rules.** Formulas, rollups, checks (including uniqueness), status flows, permissions, protected money; the pick board; counters, action buttons, door-list layout and print. Fam jam and guest list tests pass.
-6. **Automations, reports and connectors.** Notifications, reminders, scheduled reports to Telegram, email and live links, set up by chat; the Connectors page (Gmail, Calendar, Drive).
-7. **The Gigs template.** Rebuild gigs from blocks, pass the current behaviour checks, then remove the old gig code.
-8. **Full users beyond the owner.** Upgrading collaborators; later, paid plans.
-9. **Later, if wanted:** in-app group chats (Band, Family) with the assistant on mention; Telegram as a second way to chat; Live Activities on gig days.
+5. **Calculated fields and rules.** Formulas, rollups, checks (including uniqueness), status flows, permissions, protected money; the pick board. Fam jam test passes.
+6. **Screens and the Songbook app.** Record pages with linked sections, field display formats (counter, toggle, rich text, chord chart), ordered links with dividers, the screen builder with the starting components, print/PDF; the Songbook app (from the music module) with set lists linking to it. Guest list test passes.
+7. **Automations, reports and connectors.** Notifications, reminders, scheduled reports to Telegram, email and live links, set up by chat; the Connectors page (Gmail, Calendar, Drive).
+8. **The Gigs template.** Rebuild gigs from blocks, pass the current behaviour checks, then remove the old gig code.
+9. **Full users beyond the owner.** Upgrading collaborators; later, paid plans.
+10. **Later, if wanted:** in-app group chats (Band, Family) with the assistant on mention; Telegram as a second way to chat; Live Activities on gig days.
 
-## 13. Decided and open
+## 15. Decided and open
 
 Decided by the owner (2026-10-09):
 
@@ -286,6 +311,7 @@ Decided by the owner (2026-10-09):
 - Connectors instead of "email in". English and Hinglish.
 - iPhone widgets for any pinned view and App Intents (Siri, Shortcuts, Spotlight, Action button), right after core and sharing.
 - Test cases the engine must pass: fam jam sign-ups and the gig guest list, both built by chat.
+- A **screen builder** from components (the chat arranges them; new components are added in code) and **apps** for deep features, built in code; **Songbook** is the first app.
 - No privacy rule for AI providers while only the owner uses AI. No WhatsApp automation (against WhatsApp's terms). In-app group chats later.
 
 Open: sharing templates between full users (later).
