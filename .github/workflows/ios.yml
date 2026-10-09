@@ -188,6 +188,8 @@ jobs:
       # an account may have; revoke the ones earlier builds made (scripts/apple-dev-certs.mjs).
       - name: Revoke development certificates from earlier builds
         if: steps.ready.outputs.ok
+        # Housekeeping: a problem here must never stop the build.
+        continue-on-error: true
         run: node scripts/apple-dev-certs.mjs
 
       - name: Build and upload to TestFlight
