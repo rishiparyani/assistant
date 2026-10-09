@@ -356,18 +356,33 @@ export class SpaceObject extends DurableObject<Env> {
     return id;
   }
 
+  /** A field's name and aliases must not match another live field's name or alias (rule 10). */
+  private checkFieldNames(collectionId: string, exceptId: string | null, name: string, aliases: string[]) {
+    const taken = new Map<string, string>();
+    for (const other of this.fieldRows(collectionId)) {
+      if (other.id === exceptId) continue;
+      taken.set(other.name_key, other.name);
+      for (const a of JSON.parse(other.aliases_json) as string[]) taken.set(nameKey(a), other.name);
+    }
+    const own = nameKey(name);
+    for (const n of [name, ...aliases]) {
+      const k = nameKey(n);
+      const by = taken.get(k);
+      if (by === undefined) continue;
+      throw new ObjectError(
+        "conflict",
+        k === own && nameKey(by) === k
+          ? `This collection already has a field called "${n}"`
+          : `"${n}" already names the field "${by}"`,
+      );
+    }
+    if (aliases.some((a) => nameKey(a) === own) || new Set(aliases.map(nameKey)).size !== aliases.length)
+      throw new ObjectError("validation_failed", "Aliases must differ from the name and each other");
+  }
+
   private insertField(collectionId: string, f: FieldSpec, position: number, ts: string): string {
     const nk = nameKey(f.name);
-    if (
-      this.sql
-        .exec(
-          `select 1 from fields where collection_id = ? and name_key = ? and deleted_at is null`,
-          collectionId,
-          nk,
-        )
-        .toArray().length
-    )
-      throw new ObjectError("conflict", `This collection already has a field called "${f.name}"`);
+    this.checkFieldNames(collectionId, null, f.name, f.aliases ?? []);
     const options = this.checkOptions(f.type, f.options ?? {});
     const id = this.newId("fields", f.id);
     this.sql.exec(
@@ -485,19 +500,8 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["update_field", collection, field, input], (ts) => {
       const c = this.requireCollection(collection);
       const f = this.requireField(c.id, field);
-      if (input.name !== undefined && nameKey(input.name) !== f.name_key) {
-        if (
-          this.sql
-            .exec(
-              `select 1 from fields where collection_id = ? and name_key = ? and deleted_at is null`,
-              c.id,
-              nameKey(input.name),
-            )
-            .toArray().length
-        )
-          throw new ObjectError("conflict", `This collection already has a field called "${input.name}"`);
-      }
       const before = toField(f);
+      this.checkFieldNames(c.id, f.id, input.name ?? f.name, input.aliases ?? before.aliases);
       let options = before.options;
       if (input.options !== undefined) {
         options = this.checkOptions(f.type, { ...before.options, ...input.options });
@@ -514,6 +518,37 @@ export class SpaceObject extends DurableObject<Env> {
               "conflict",
               `Records still use ${dropped.map((d) => `"${d}"`).join(", ")}; change them first`,
             );
+        }
+        // Existing links must still fit: one record each, and in the (new) target collection.
+        if (f.type === "link") {
+          if (before.options.many && !options.many) {
+            const several = this.sql
+              .exec(
+                `select from_id from links where field_id = ? group by from_id having count(*) > 1 limit 1`,
+                f.id,
+              )
+              .toArray().length;
+            if (several)
+              throw new ObjectError(
+                "conflict",
+                `Some records link more than one record in ${f.name}; unlink the extras first`,
+              );
+          }
+          if (options.target && options.target !== before.options.target) {
+            const outside = this.sql
+              .exec(
+                `select 1 from links l join records r on r.id = l.to_id
+                 where l.field_id = ? and r.collection_id != ? limit 1`,
+                f.id,
+                options.target,
+              )
+              .toArray().length;
+            if (outside)
+              throw new ObjectError(
+                "conflict",
+                `Some records in ${f.name} link to another collection; unlink them first`,
+              );
+          }
         }
       }
       this.sql.exec(
@@ -609,7 +644,10 @@ export class SpaceObject extends DurableObject<Env> {
       const fields = this.fieldRows(c.id);
       const { values, links } = this.readValues(fields, input.values);
       for (const f of fields)
-        if (f.required && f.type !== "link" && (values[f.id] === null || values[f.id] === undefined))
+        if (
+          f.required &&
+          (f.type === "link" ? !links.get(f.id)?.length : values[f.id] === null || values[f.id] === undefined)
+        )
           throw new ObjectError("validation_failed", `${f.name} is required`);
       const id = this.newId("records", input.id);
       this.saveRecord(id, c, fields, values, ts, actor, true);
@@ -628,6 +666,41 @@ export class SpaceObject extends DurableObject<Env> {
         after: input.values,
       });
       return this.recordView(this.requireRecord(id));
+    });
+  }
+
+  /** Whether a write to these values touches a money field (MCP asks for confirmation then). */
+  async touchesMoney(
+    actor: Actor,
+    target: { collection?: string; recordId?: string },
+    keys: string[],
+  ): Promise<boolean> {
+    this.role(actor);
+    const collectionId = target.recordId
+      ? this.sql
+          .exec<{ collection_id: string }>(
+            `select collection_id from records where id = ? and deleted_at is null`,
+            target.recordId,
+          )
+          .toArray()[0]?.collection_id
+      : target.collection
+        ? this.sql
+            .exec<{ id: string }>(
+              `select id from collections where deleted_at is null and (id = ? or name_key = ?)`,
+              target.collection,
+              nameKey(target.collection),
+            )
+            .toArray()[0]?.id
+        : undefined;
+    // Unknown collections, records or fields fail in the write itself.
+    if (!collectionId) return false;
+    const fields = this.fieldRows(collectionId);
+    return keys.some((k) => {
+      try {
+        return this.matchField(fields, k).type === "money";
+      } catch {
+        return false;
+      }
     });
   }
 
@@ -656,9 +729,9 @@ export class SpaceObject extends DurableObject<Env> {
       for (const f of fields)
         if (
           f.required &&
-          f.type !== "link" &&
-          f.id in values &&
-          (merged[f.id] === null || merged[f.id] === undefined)
+          (f.type === "link"
+            ? links.has(f.id) && !links.get(f.id)!.length
+            : f.id in values && (merged[f.id] === null || merged[f.id] === undefined))
         )
           throw new ObjectError("validation_failed", `${f.name} is required`);
       this.saveRecord(r.id, c, fields, merged, ts, actor, false);
@@ -1138,10 +1211,12 @@ export class SpaceObject extends DurableObject<Env> {
       }
       case "contains": {
         if (numeric) throw new ObjectError("validation_failed", `${f.name}: "contains" works on text`);
-        return [
-          sub(`txt like ? escape '\\'`),
-          [f.id, `%${escapeLike(String(flt.value ?? "").toLowerCase())}%`],
-        ];
+        const pattern = `%${escapeLike(String(flt.value ?? "").toLowerCase())}%`;
+        // Text is matched on the whole stored value (the index keeps only a prefix); a
+        // "contains" can't use an index either way, and the collection filter bounds the scan.
+        if (f.type === "text" || f.type === "long_text")
+          return [`lower(json_extract(r.values_json, ?)) like ? escape '\\'`, [`$."${f.id}"`, pattern]];
+        return [sub(`lower(txt) like ? escape '\\'`), [f.id, pattern]];
       }
     }
     throw new ObjectError("validation_failed", `Unknown filter "${op}"`);

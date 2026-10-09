@@ -170,6 +170,10 @@ export const spaceOperations = [
     kind: "write",
     http: { method: "POST", path: "/collections/:collection/records", status: 201 },
     input: AddRecordInput,
+    confirmWhen: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.touchesMoney(actor, { collection: i.collection }, Object.keys(i.values));
+    },
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.addRecord(actor, ctx.idempotencyKey, i.collection, { id: i.id ?? null, values: i.values });
@@ -182,6 +186,10 @@ export const spaceOperations = [
     kind: "write",
     http: { method: "PATCH", path: "/records/:record_id" },
     input: UpdateRecordInput,
+    confirmWhen: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.touchesMoney(actor, { recordId: i.record_id }, Object.keys(i.values));
+    },
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.updateRecord(actor, ctx.idempotencyKey, i.record_id, {

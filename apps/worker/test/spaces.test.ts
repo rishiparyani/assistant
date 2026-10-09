@@ -238,6 +238,89 @@ describe("collections and links", () => {
   });
 });
 
+describe("guards", () => {
+  it("finds text anywhere in long values", async () => {
+    const me = await signUp("Test Owner");
+    const body = `${"x ".repeat(400)}Test needle`;
+    await api(me)("/collections/Notes/records", { body: { values: { Title: "Test long", Body: body } } });
+    const found = await json<FindResult>(
+      await api(me)("/collections/Notes/find", {
+        body: { filters: [{ field: "Body", op: "contains", value: "NEEDLE" }] },
+      }),
+    );
+    expect(found.items.map((i) => i.title)).toEqual(["Test long"]);
+  });
+
+  it("requires required links, on add and on clearing", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", { body: { name: "Jams", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections", {
+      body: {
+        name: "Sign-ups",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Jam", type: "link", required: true, options: { target: "Jams" } },
+        ],
+      },
+    });
+    await api(me)("/collections/Jams/records", { body: { values: { Title: "Test Jam 2026" } } });
+    const none = await api(me)("/collections/Sign-ups/records", { body: { values: { Title: "Test A" } } });
+    expect((await json(none)).error.message).toBe("Jam is required");
+    const r = await json<RecordView>(
+      await api(me)("/collections/Sign-ups/records", {
+        body: { values: { Title: "Test A", Jam: "Test Jam 2026" } },
+      }),
+    );
+    const cleared = await api(me)(`/records/${r.id}`, { method: "PATCH", body: { values: { Jam: null } } });
+    expect((await json(cleared)).error.message).toBe("Jam is required");
+  });
+
+  it("refuses aliases that would make a field name ambiguous", async () => {
+    const me = await signUp("Test Owner");
+    const clash = await api(me)("/collections/Notes/fields/Body", {
+      method: "PATCH",
+      body: { aliases: ["title"] },
+    });
+    expect(clash.status).toBe(409);
+    await api(me)("/collections/Notes/fields/Body", { method: "PATCH", body: { aliases: ["content"] } });
+    const second = await api(me)("/collections/Notes/fields", {
+      body: { field: { name: "Content", type: "text" } },
+    });
+    expect(second.status).toBe(409);
+    expect((await json(second)).error.message).toMatch(/already names the field "Body"/);
+  });
+
+  it("won't change link options that existing links don't fit", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", { body: { name: "Songs", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections", { body: { name: "Albums", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections", {
+      body: {
+        name: "Sets",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Songs", type: "link", options: { target: "Songs", many: true } },
+        ],
+      },
+    });
+    for (const t of ["Test S1", "Test S2"])
+      await api(me)("/collections/Songs/records", { body: { values: { Title: t } } });
+    await api(me)("/collections/Sets/records", {
+      body: { values: { Title: "Test Set", Songs: ["Test S1", "Test S2"] } },
+    });
+    const one = await api(me)("/collections/Sets/fields/Songs", {
+      method: "PATCH",
+      body: { options: { many: false } },
+    });
+    expect(one.status).toBe(409);
+    const retarget = await api(me)("/collections/Sets/fields/Songs", {
+      method: "PATCH",
+      body: { options: { target: "Albums" } },
+    });
+    expect(retarget.status).toBe(409);
+  });
+});
+
 describe("access and sync", () => {
   it("keeps spaces private and logs changes for devices", async () => {
     const me = await signUp("Test Owner");
