@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { CollectionView, Filter, FindResult, RecordView } from "@assistant/shared";
+  import type { CollectionView, Filter, FindResult, RecordView, SavedView } from "@assistant/shared";
   import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import SlidersHorizontal from "@lucide/svelte/icons/sliders-horizontal";
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import X from "@lucide/svelte/icons/x";
+  import Bookmark from "@lucide/svelte/icons/bookmark";
   import {
     Button,
     EmptyState,
@@ -14,7 +15,9 @@
     Pill,
     Segmented,
     SelectField,
+    Sheet,
     Skeleton,
+    TextField,
     toast,
   } from "../ui/index.ts";
   import { createQuery } from "../query.svelte.ts";
@@ -28,13 +31,14 @@
     showValue,
     spacesApi,
     summaryOf,
+    VIEWS_KEY,
     type FindQuery,
   } from "./spaces-api.ts";
   import RecordSheet from "./RecordSheet.svelte";
   import FilterSheet from "./FilterSheet.svelte";
 
   // One collection's records as a list or a table, with search, filters and sorting.
-  let { collectionId }: { collectionId: string } = $props();
+  let { collectionId, viewId = null }: { collectionId: string; viewId?: string | null } = $props();
 
   const col = createQuery<CollectionView>(
     () => `spaces:collection:${collectionId}`,
@@ -71,6 +75,65 @@
   let filters = $state<Filter[]>([]);
   let sort = $state("");
   let filtering = $state(false);
+
+  // A saved view opened here (?view=…): its filters, search, sort and layout, once.
+  const views = createQuery<SavedView[]>(() => VIEWS_KEY, spacesApi.views);
+  const view = $derived(viewId ? (views.data ?? []).find((v) => v.id === viewId) : undefined);
+  let applied = $state<string | null>(null);
+  $effect(() => {
+    if (!view || applied === view.id) return;
+    applied = view.id;
+    filters = view.filters;
+    typed = search = view.search ?? "";
+    sort = view.sort ? `${view.sort.dir === "desc" ? "-" : "+"}${view.sort.field}` : "";
+    mode = view.mode;
+  });
+
+  // Save what's on screen as a view (optionally pinned to the shortcuts bar).
+  let saving = $state(false);
+  let viewName = $state("");
+  let pin = $state(true);
+  let busySaving = $state(false);
+  const viewBody = () => ({
+    filters,
+    search: search || null,
+    sort: sort ? { field: sort.slice(1), dir: sort[0] === "-" ? ("desc" as const) : ("asc" as const) } : null,
+    mode,
+  });
+  async function saveView(ev: SubmitEvent) {
+    ev.preventDefault();
+    if (!collection || !viewName.trim()) return;
+    busySaving = true;
+    try {
+      const v = await spacesApi.saveView({
+        name: viewName.trim(),
+        collection: collection.id,
+        pinned: pin,
+        ...viewBody(),
+      });
+      toast.success(pin ? `Saved and pinned “${v.name}”` : `Saved “${v.name}”`);
+      saving = false;
+      void views.refresh();
+      navigate(`/c/${collection.id}?view=${encodeURIComponent(v.id)}`, { replace: true });
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      busySaving = false;
+    }
+  }
+  async function updateView() {
+    if (!view) return;
+    busySaving = true;
+    try {
+      await spacesApi.updateView(view.id, viewBody());
+      toast.success(`Updated “${view.name}”`);
+      void views.refresh();
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      busySaving = false;
+    }
+  }
   let adding = $state(false);
 
   const query = $derived<FindQuery>({
@@ -136,7 +199,7 @@
 {:else}
   <PageHeader
     title={collection.name}
-    subtitle={collection.description ?? undefined}
+    subtitle={view ? `Saved view: ${view.name}` : (collection.description ?? undefined)}
     back="/c"
     backLabel="Collections"
   >
@@ -165,6 +228,24 @@
       {#snippet icon()}<SlidersHorizontal />{/snippet}
       Filter
     </Button>
+    {#if view}
+      <Button variant="tinted" onclick={updateView} loading={busySaving}>
+        {#snippet icon()}<Bookmark />{/snippet}
+        Update “{view.name}”
+      </Button>
+    {:else}
+      <Button
+        variant="secondary"
+        onclick={() => {
+          viewName = "";
+          pin = true;
+          saving = true;
+        }}
+      >
+        {#snippet icon()}<Bookmark />{/snippet}
+        Save view
+      </Button>
+    {/if}
   </div>
   <div class="bar">
     <div class="sort">
@@ -254,9 +335,53 @@
 
   <RecordSheet bind:open={adding} {collection} onsaved={() => void records.refresh()} />
   <FilterSheet bind:open={filtering} {collection} onadd={(f) => (filters = [...filters, f])} />
+  <Sheet bind:open={saving} title="Save this view">
+    <form id="save-view-{collection.id}" class="form" onsubmit={saveView}>
+      <p class="fine">
+        Keeps {collection.name} with these filters and sort{search ? " and search" : ""}. Periods like “this
+        month” stay current.
+      </p>
+      <TextField
+        label="Name"
+        id="view-name-{collection.id}"
+        bind:value={viewName}
+        required
+        maxlength={80}
+        placeholder="Unpaid this month"
+      />
+      <label class="check"><input type="checkbox" bind:checked={pin} /> Pin it to the shortcuts bar</label>
+    </form>
+    {#snippet footer()}
+      <Button onclick={() => (saving = false)}>Cancel</Button>
+      <Button variant="primary" type="submit" form="save-view-{collection.id}" loading={busySaving}
+        >Save</Button
+      >
+    {/snippet}
+  </Sheet>
 {/if}
 
 <style>
+  .form {
+    display: grid;
+    gap: var(--space-4);
+  }
+  .fine {
+    margin: 0;
+    color: var(--text-2);
+    font-size: var(--text-sm);
+  }
+  .check {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 44px;
+    color: var(--text-2);
+  }
+  .check input {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--accent);
+  }
   .bar {
     display: flex;
     align-items: end;

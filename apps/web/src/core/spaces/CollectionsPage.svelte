@@ -8,6 +8,7 @@
   import { navigate } from "../router.svelte.ts";
   import { COLLECTIONS_KEY, spacesApi } from "./spaces-api.ts";
   import CollectionSheet from "./CollectionSheet.svelte";
+  import PinnedBar from "./PinnedBar.svelte";
 
   // My collections: the starter ones (notes, reminders, events, expenses) and any I make.
   let adding = $state(false);
@@ -37,6 +38,8 @@
     </Button>
   {/snippet}
 </PageHeader>
+
+<PinnedBar all />
 
 {#if !list.data}
   <Skeleton rows={4} label="Loading your collections" />

@@ -104,8 +104,8 @@
       {:else if route.name === "collections"}
         <CollectionsPage />
       {:else if route.name === "collection"}
-        {#key route.params.collectionId}
-          <CollectionPage collectionId={route.params.collectionId!} />
+        {#key `${route.params.collectionId}?${route.query.get("view") ?? ""}`}
+          <CollectionPage collectionId={route.params.collectionId!} viewId={route.query.get("view")} />
         {/key}
       {:else if route.name === "collection_setup"}
         {#key route.params.collectionId}

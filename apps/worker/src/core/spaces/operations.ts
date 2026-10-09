@@ -10,6 +10,10 @@ import {
   CreateCollectionInput,
   FindRecordsInput,
   LinkRecordsInput,
+  OpenViewInput,
+  SaveViewInput,
+  UpdateViewInput,
+  ViewRef,
   RecordRef,
   RemoveFieldInput,
   SpaceRef,
@@ -235,6 +239,85 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.unlinkRecords(actor, ctx.idempotencyKey, i.record_id, i.field, i.to);
+    },
+  }),
+  defineOperation({
+    id: "core.list_views",
+    tool: "list_views",
+    description: "Saved views (a collection with filters and sort); pinned ones are the person's shortcuts.",
+    kind: "read",
+    http: { method: "GET", path: "/views" },
+    input: SpaceRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.views(actor);
+    },
+  }),
+  defineOperation({
+    id: "core.open_view",
+    tool: "show_view",
+    description: "Open a saved view by name or id: its records with the view's filters and sort.",
+    kind: "read",
+    http: { method: "GET", path: "/views/:view_id" },
+    input: OpenViewInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.openView(actor, i.view_id, { limit: i.limit, cursor: i.cursor });
+    },
+  }),
+  defineOperation({
+    id: "core.save_view",
+    tool: "save_view",
+    description:
+      'Save a view of a collection (filters like find_records; periods such as "this_month" stay relative). pinned puts it on the shortcuts bar.',
+    kind: "write",
+    http: { method: "POST", path: "/views", status: 201 },
+    input: SaveViewInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.saveView(actor, ctx.idempotencyKey, {
+        id: i.id ?? null,
+        name: i.name,
+        collection: i.collection,
+        filters: i.filters,
+        search: i.search,
+        sort: i.sort,
+        mode: i.mode,
+        pinned: i.pinned,
+      });
+    },
+  }),
+  defineOperation({
+    id: "core.update_view",
+    tool: "update_view",
+    description: "Rename a saved view, change its filters or sort, or pin / unpin it.",
+    kind: "write",
+    http: { method: "PATCH", path: "/views/:view_id" },
+    input: UpdateViewInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.updateView(actor, ctx.idempotencyKey, i.view_id, {
+        name: i.name,
+        filters: i.filters,
+        search: i.search,
+        sort: i.sort,
+        mode: i.mode,
+        pinned: i.pinned,
+        position: i.position,
+      });
+    },
+  }),
+  defineOperation({
+    id: "core.delete_view",
+    tool: "delete_view",
+    description: "Delete a saved view (its records stay).",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/views/:view_id" },
+    input: ViewRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.deleteView(actor, ctx.idempotencyKey, i.view_id);
     },
   }),
   defineOperation({
