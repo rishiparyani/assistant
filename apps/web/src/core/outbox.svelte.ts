@@ -102,13 +102,17 @@ export function applyWith(kind: string, fn: Applier) {
   appliers.set(kind, fn);
 }
 
-/** The saved data with this scope's waiting changes laid over it. */
+/**
+ * The saved data with this scope's waiting changes laid over it. A change's scope also
+ * covers keys under it ("space:<collection>" covers "space:<collection>|list|…"), so one
+ * change shows on every screen of its collection; the applier tells the shapes apart.
+ */
 export function overlay<T>(scope: string, base: T | undefined): T | undefined {
   if (base === undefined) return base;
   let data: unknown = base;
   let changed = false;
   for (const c of outbox.waiting) {
-    if (c.scope !== scope) continue;
+    if (c.scope !== scope && !scope.startsWith(`${c.scope}|`)) continue;
     const fn = appliers.get(c.kind);
     if (!fn) continue;
     try {
