@@ -7,11 +7,15 @@
   import { saveGigsAhead } from "../modules/gigs/offline.ts";
   import { saveSongsAhead } from "../modules/music/music-api.ts";
   import { saveSpacesAhead } from "./spaces/spaces-api.ts";
+  import { saveSharedAhead } from "./spaces/shares-api.ts";
   import CollectionsPage from "./spaces/CollectionsPage.svelte";
   import CollectionPage from "./spaces/CollectionPage.svelte";
   import RecordPage from "./spaces/RecordPage.svelte";
   import SetupPage from "./spaces/SetupPage.svelte";
   import HelpPage from "./spaces/HelpPage.svelte";
+  import JoinPage from "./spaces/JoinPage.svelte";
+  import SharedPage from "./spaces/SharedPage.svelte";
+  import SharedCardPage from "./spaces/SharedCardPage.svelte";
   import ChatPage from "./assistant/ChatPage.svelte";
   import SongsPage from "../modules/music/SongsPage.svelte";
   import SongPage from "../modules/music/SongPage.svelte";
@@ -43,6 +47,7 @@
   saveAheadWith(saveGigsAhead);
   saveAheadWith(saveSongsAhead);
   saveAheadWith(saveSpacesAhead);
+  saveAheadWith(saveSharedAhead);
   const signedIn = startOffline(() => !!session.me);
   $effect(() => signedIn(!!session.me));
   // Send changes made offline whenever there's a chance.
@@ -52,7 +57,8 @@
   // Signed-out users go to sign-in (and come back afterwards).
   $effect(() => {
     if (!session.loaded || session.me || PUBLIC.has(route.name)) return;
-    const next = window.location.pathname + window.location.search;
+    // The hash too: a join link keeps its token there.
+    const next = window.location.pathname + window.location.search + window.location.hash;
     navigate(next === "/" ? "/login" : `/login?next=${encodeURIComponent(next)}`, { replace: true });
   });
 </script>
@@ -120,6 +126,14 @@
         {/key}
       {:else if route.name === "help"}
         <HelpPage />
+      {:else if route.name === "join"}
+        <JoinPage />
+      {:else if route.name === "shared"}
+        <SharedPage />
+      {:else if route.name === "shared_card"}
+        {#key route.params.shareId}
+          <SharedCardPage shareId={route.params.shareId!} />
+        {/key}
       {:else if route.name === "songs"}
         <SongsPage />
       {:else if route.name === "song"}

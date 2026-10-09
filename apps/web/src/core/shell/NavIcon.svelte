@@ -7,6 +7,7 @@
   import ChartColumn from "@lucide/svelte/icons/chart-column";
   import Music from "@lucide/svelte/icons/music";
   import Layers from "@lucide/svelte/icons/layers";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import MessageCircle from "@lucide/svelte/icons/message-circle";
   import type { NavItem } from "./nav.ts";
 
@@ -22,6 +23,7 @@
 {:else if icon === "gigs"}<CalendarDays {size} {strokeWidth} />
 {:else if icon === "chat"}<MessageCircle {size} {strokeWidth} />
 {:else if icon === "collections"}<Layers {size} {strokeWidth} />
+{:else if icon === "shared"}<Inbox {size} {strokeWidth} />
 {:else if icon === "songs"}<Music {size} {strokeWidth} />
 {:else if icon === "people"}<Contact {size} {strokeWidth} />
 {:else if icon === "band"}<Users {size} {strokeWidth} />

@@ -596,3 +596,101 @@ export const ChatSendInput = z.object({
   think_harder: z.boolean().optional(),
 });
 export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });
+
+// --- Sharing (design §11) -------------------------------------------------------------------
+
+export const SHARE_ACCESS = ["view", "edit"] as const;
+export type ShareAccess = (typeof SHARE_ACCESS)[number];
+
+/** What a share includes besides its record: a link field of the record, or records linking to it. */
+export type ShareInclude = { field: string } | { from_field: string };
+
+export interface ShareView {
+  id: string;
+  kind: "card";
+  record_id: string;
+  title: string;
+  access: ShareAccess;
+  /** The linked parts included, by name ("Set list", "Rehearsals"). */
+  include: { key: string; title: string }[];
+  hidden_fields: { id: string; name: string }[];
+  people: { user_id: string; name: string; joined_at: string }[];
+  expires_at: string | null;
+  created_at: string;
+}
+
+/** A new share: the link is shown once (only its hash is kept). */
+export interface CreatedShare {
+  share: ShareView;
+  link: string;
+}
+
+export interface SharedField {
+  id: string;
+  name: string;
+  type: FieldType;
+  options: FieldOptions;
+  value: StoredValue;
+  display: string | string[] | null;
+  editable: boolean;
+  /** The record's title field (shown as its title). */
+  title: boolean;
+}
+/** A record as a collaborator sees it: only the fields shared with them (no links out). */
+export interface SharedRecord {
+  id: string;
+  title: string;
+  fields: SharedField[];
+}
+/** What a collaborator sees: one card and the parts the owner included. */
+export interface SharedCardView {
+  share: { id: string; title: string; access: ShareAccess; owner: string };
+  record: SharedRecord;
+  sections: {
+    key: string;
+    title: string;
+    collection_id: string;
+    /** Collaborators with edit access may add records here (linked to the card). */
+    can_add: boolean;
+    fields: { id: string; name: string; type: FieldType; options: FieldOptions; editable: boolean }[];
+    records: SharedRecord[];
+  }[];
+}
+
+export interface SharedWithMe {
+  share_id: string;
+  title: string;
+  owner: string;
+  access: ShareAccess;
+  joined_at: string;
+}
+
+const fieldRefs = z.array(z.string().trim().min(1).max(80)).max(100);
+
+export const CreateShareInput = SpaceRef.extend({
+  record_id: z.string().trim().min(1).max(40).describe("The record to share (its card)"),
+  include: z
+    .array(z.string().trim().min(1).max(160))
+    .max(20)
+    .optional()
+    .describe(
+      'Linked parts to include: a link field of the record ("Set list"), or a collection that links to it ("Rehearsals")',
+    ),
+  access: z.enum(SHARE_ACCESS).default("view"),
+  hide_fields: fieldRefs.optional().describe("Fields the collaborator doesn't see (any included collection)"),
+  expires_in_days: z.coerce.number().int().min(1).max(365).optional(),
+});
+export const ShareRef = SpaceRef.extend({ share_id: z.string().trim().min(1).max(40) });
+export const SharePersonRef = ShareRef.extend({ user_id: z.string().trim().min(1).max(60) });
+export const ListSharesInput = SpaceRef.extend({ record_id: z.string().trim().min(1).max(40).optional() });
+export const JoinShareInput = z.object({ token: z.string().trim().min(20).max(200) });
+export const SharedRef = z.object({ share_id: z.string().trim().min(1).max(40) });
+export const UpdateSharedRecordInput = SharedRef.extend({
+  record_id: z.string().trim().min(1).max(40),
+  values: z.record(z.string(), z.unknown()),
+});
+export const AddSharedRecordInput = SharedRef.extend({
+  section: z.string().trim().min(1).max(80).describe("The section key"),
+  id: clientId,
+  values: z.record(z.string(), z.unknown()),
+});

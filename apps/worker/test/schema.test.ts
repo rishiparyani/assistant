@@ -34,6 +34,7 @@ describe("migrations", () => {
         "passkey",
         "pending_people",
         "session",
+        "shared_with",
         "space_members",
         "spaces",
         "tags",

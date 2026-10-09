@@ -23,6 +23,10 @@ const PATTERNS: [string, RegExp][] = [
   ["collection", /^\/c\/(?<collectionId>[^/]+)$/],
   ["record", /^\/c\/(?<collectionId>[^/]+)\/(?<recordId>[^/]+)$/],
   ["help", /^\/help$/],
+  // Cards others shared with me; /join#<token> joins one.
+  ["join", /^\/join$/],
+  ["shared", /^\/shared$/],
+  ["shared_card", /^\/shared\/(?<shareId>[^/]+)$/],
   ["songs", /^\/songs$/],
   ["song", /^\/songs\/(?<songId>[^/]+)$/],
   // A gig's guest list shared with its venue (no sign-in; the link is the key).

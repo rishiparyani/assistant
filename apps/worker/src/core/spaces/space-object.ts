@@ -26,6 +26,12 @@ import {
   type OpenedView,
   type RecordView,
   type SavedView,
+  type ShareAccess,
+  type ShareInclude,
+  type ShareView,
+  type SharedCardView,
+  type SharedRecord,
+  type SharedWithMe,
   type StoredValue,
   type ViewMode,
 } from "@assistant/shared";
@@ -153,6 +159,32 @@ const MIGRATIONS: Migrations = [
   create index views_order_idx on views (deleted_at, pinned, position);
   create index views_collection_idx on views (collection_id) where deleted_at is null;
   `,
+  // Sharing (design §11): a card is one record plus the linked parts the owner chose. The join
+  // link is kept only as a hash; people who joined are listed per share.
+  `
+  create table shares (
+    id text primary key,
+    record_id text not null,
+    token_hash text not null,
+    access text not null check (access in ('view', 'edit')),
+    include_json text not null default '[]',
+    hidden_json text not null default '[]',
+    expires_at text,
+    created_by text,
+    created_at text not null,
+    revoked_at text
+  );
+  create unique index shares_token_idx on shares (token_hash);
+  create index shares_record_idx on shares (record_id, revoked_at);
+  create table share_people (
+    share_id text not null,
+    user_id text not null,
+    name text not null,
+    joined_at text not null,
+    primary key (share_id, user_id)
+  ) without rowid;
+  create index share_people_user_idx on share_people (user_id);
+  `,
 ];
 
 type ViewQuery = {
@@ -206,6 +238,18 @@ type RecordRow = {
   version: number;
 };
 type Role = "owner" | "editor" | "viewer";
+type ShareRow = {
+  id: string;
+  record_id: string;
+  token_hash: string;
+  access: ShareAccess;
+  include_json: string;
+  hidden_json: string;
+  expires_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  revoked_at: string | null;
+};
 
 export interface SpaceInit {
   id: string;
@@ -302,8 +346,9 @@ export class SpaceObject extends DurableObject<Env> {
     key: string | null,
     request: unknown,
     run: (ts: string) => T,
+    check: () => void = () => this.canWrite(actor),
   ): Promise<T> {
-    this.canWrite(actor);
+    check();
     const hash = await hashOf(request);
     try {
       return idempotent(this.ctx.storage, key, hash, () => run(nowIso()));
@@ -684,34 +729,42 @@ export class SpaceObject extends DurableObject<Env> {
     collection: string,
     input: { id?: string | null; values: Record<string, unknown> },
   ): Promise<RecordView> {
-    return this.write(actor, key, ["add_record", collection, input], (ts) => {
-      const c = this.requireCollection(collection);
-      const fields = this.fieldRows(c.id);
-      const { values, links } = this.readValues(fields, input.values);
-      for (const f of fields)
-        if (
-          f.required &&
-          (f.type === "link" ? !links.get(f.id)?.length : values[f.id] === null || values[f.id] === undefined)
-        )
-          throw new ObjectError("validation_failed", `${f.name} is required`);
-      const id = this.newId("records", input.id);
-      this.saveRecord(id, c, fields, values, ts, actor, true);
-      for (const [fid, ids] of links)
-        this.setLinks(
-          fields.find((f) => f.id === fid)!,
-          id,
-          ids,
-          ts,
-        );
-      this.logChange("record", id, "upsert", ts);
-      audit(this.sql, actor, {
-        action: "add_record",
-        entityType: "record",
-        entityId: id,
-        after: input.values,
-      });
-      return this.recordView(this.requireRecord(id));
+    return this.write(actor, key, ["add_record", collection, input], (ts) =>
+      this.insertRecord(actor, ts, this.requireCollection(collection), input),
+    );
+  }
+
+  private insertRecord(
+    actor: Actor,
+    ts: string,
+    c: CollectionRow,
+    input: { id?: string | null; values: Record<string, unknown> },
+  ): RecordView {
+    const fields = this.fieldRows(c.id);
+    const { values, links } = this.readValues(fields, input.values);
+    for (const f of fields)
+      if (
+        f.required &&
+        (f.type === "link" ? !links.get(f.id)?.length : values[f.id] === null || values[f.id] === undefined)
+      )
+        throw new ObjectError("validation_failed", `${f.name} is required`);
+    const id = this.newId("records", input.id);
+    this.saveRecord(id, c, fields, values, ts, actor, true);
+    for (const [fid, ids] of links)
+      this.setLinks(
+        fields.find((f) => f.id === fid)!,
+        id,
+        ids,
+        ts,
+      );
+    this.logChange("record", id, "upsert", ts);
+    audit(this.sql, actor, {
+      action: "add_record",
+      entityType: "record",
+      entityId: id,
+      after: input.values,
     });
+    return this.recordView(this.requireRecord(id));
   }
 
   /** Whether a write to these values touches a money field (MCP asks for confirmation then). */
@@ -760,43 +813,51 @@ export class SpaceObject extends DurableObject<Env> {
     recordId: string,
     input: { values: Record<string, unknown>; version?: number },
   ): Promise<RecordView> {
-    return this.write(actor, key, ["update_record", recordId, input], (ts) => {
-      const r = this.requireRecord(recordId);
-      if (input.version !== undefined && input.version !== r.version)
-        throw new ObjectError("conflict", "This record changed since you read it; reload and try again", {
-          reason: "stale_version",
-        });
-      const c = this.requireCollection(r.collection_id);
-      const fields = this.fieldRows(c.id);
-      const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
-      const { values, links } = this.readValues(fields, input.values);
-      const merged = { ...before, ...values };
-      for (const f of fields)
-        if (
-          f.required &&
-          (f.type === "link"
-            ? links.has(f.id) && !links.get(f.id)!.length
-            : f.id in values && (merged[f.id] === null || merged[f.id] === undefined))
-        )
-          throw new ObjectError("validation_failed", `${f.name} is required`);
-      this.saveRecord(r.id, c, fields, merged, ts, actor, false);
-      for (const [fid, ids] of links)
-        this.setLinks(
-          fields.find((f) => f.id === fid)!,
-          r.id,
-          ids,
-          ts,
-        );
-      this.logChange("record", r.id, "upsert", ts);
-      audit(this.sql, actor, {
-        action: "update_record",
-        entityType: "record",
-        entityId: r.id,
-        before: Object.fromEntries(Object.keys(values).map((k) => [k, before[k] ?? null])),
-        after: input.values,
+    return this.write(actor, key, ["update_record", recordId, input], (ts) =>
+      this.changeRecord(actor, ts, this.requireRecord(recordId), input),
+    );
+  }
+
+  private changeRecord(
+    actor: Actor,
+    ts: string,
+    r: RecordRow,
+    input: { values: Record<string, unknown>; version?: number },
+  ): RecordView {
+    if (input.version !== undefined && input.version !== r.version)
+      throw new ObjectError("conflict", "This record changed since you read it; reload and try again", {
+        reason: "stale_version",
       });
-      return this.recordView(this.requireRecord(r.id));
+    const c = this.requireCollection(r.collection_id);
+    const fields = this.fieldRows(c.id);
+    const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const { values, links } = this.readValues(fields, input.values);
+    const merged = { ...before, ...values };
+    for (const f of fields)
+      if (
+        f.required &&
+        (f.type === "link"
+          ? links.has(f.id) && !links.get(f.id)!.length
+          : f.id in values && (merged[f.id] === null || merged[f.id] === undefined))
+      )
+        throw new ObjectError("validation_failed", `${f.name} is required`);
+    this.saveRecord(r.id, c, fields, merged, ts, actor, false);
+    for (const [fid, ids] of links)
+      this.setLinks(
+        fields.find((f) => f.id === fid)!,
+        r.id,
+        ids,
+        ts,
+      );
+    this.logChange("record", r.id, "upsert", ts);
+    audit(this.sql, actor, {
+      action: "update_record",
+      entityType: "record",
+      entityId: r.id,
+      before: Object.fromEntries(Object.keys(values).map((k) => [k, before[k] ?? null])),
+      after: input.values,
     });
+    return this.recordView(this.requireRecord(r.id));
   }
 
   /** Soft delete; links to it follow each link field's rule (unlink / block / cascade). */
@@ -1462,6 +1523,513 @@ export class SpaceObject extends DurableObject<Env> {
       pinned: v.pinned === 1,
       position: v.position,
       updated_at: v.updated_at,
+    };
+  }
+
+  // --- Sharing (design §11) ----------------------------------------------------------------
+  // A card is one record plus the linked parts its owner chose. Collaborators reach it only
+  // through a share they joined; everything else in the space stays 404 to them.
+
+  async createShare(
+    actor: Actor,
+    key: string | null,
+    input: {
+      recordId: string;
+      include: string[];
+      access: ShareAccess;
+      hide: string[];
+      expiresInDays: number | null;
+      tokenHash: string;
+    },
+  ): Promise<{ share: ShareView; token_hash: string }> {
+    const { tokenHash, ...request } = input;
+    return this.write(actor, key, ["create_share", request], (ts) => {
+      const r = this.requireRecord(input.recordId);
+      const c = this.requireCollection(r.collection_id);
+      const include = this.resolveIncludes(c, input.include);
+      const hidden = this.resolveHidden(c, include, input.hide);
+      const id = ulid();
+      this.sql.exec(
+        `insert into shares (id, record_id, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        r.id,
+        tokenHash,
+        input.access,
+        JSON.stringify(include),
+        JSON.stringify(hidden),
+        input.expiresInDays
+          ? new Date(Date.parse(ts) + input.expiresInDays * 86_400_000).toISOString()
+          : null,
+        actor.userId,
+        ts,
+      );
+      audit(this.sql, actor, { action: "create_share", entityType: "share", entityId: id, after: request });
+      return { share: this.shareView(this.requireShare(id)), token_hash: tokenHash };
+    });
+  }
+
+  async listShares(actor: Actor, recordId?: string): Promise<ShareView[]> {
+    this.canWrite(actor);
+    const rows = recordId
+      ? this.sql
+          .exec<ShareRow>(
+            `select * from shares where record_id = ? and revoked_at is null order by created_at`,
+            recordId,
+          )
+          .toArray()
+      : this.sql
+          .exec<ShareRow>(`select * from shares where revoked_at is null order by created_at`)
+          .toArray();
+    return rows.map((s) => this.shareView(s));
+  }
+
+  async revokeShare(actor: Actor, key: string | null, shareId: string): Promise<{ revoked: string }> {
+    return this.write(actor, key, ["revoke_share", shareId], (ts) => {
+      const s = this.requireShare(shareId);
+      this.sql.exec(`update shares set revoked_at = ? where id = ?`, ts, s.id);
+      audit(this.sql, actor, { action: "revoke_share", entityType: "share", entityId: s.id });
+      return { revoked: s.id };
+    });
+  }
+
+  /** A new join link; the old one stops working. People who joined keep their access. */
+  async resetShareLink(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    tokenHash: string,
+  ): Promise<{ share: ShareView; token_hash: string }> {
+    return this.write(actor, key, ["reset_share_link", shareId], () => {
+      const s = this.requireShare(shareId);
+      this.sql.exec(`update shares set token_hash = ? where id = ?`, tokenHash, s.id);
+      audit(this.sql, actor, { action: "reset_share_link", entityType: "share", entityId: s.id });
+      return { share: this.shareView(this.requireShare(s.id)), token_hash: tokenHash };
+    });
+  }
+
+  async removeSharePerson(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    userId: string,
+  ): Promise<ShareView> {
+    return this.write(actor, key, ["remove_share_person", shareId, userId], () => {
+      const s = this.requireShare(shareId);
+      this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, s.id, userId);
+      audit(this.sql, actor, {
+        action: "remove_share_person",
+        entityType: "share",
+        entityId: s.id,
+        before: { user_id: userId },
+      });
+      return this.shareView(s);
+    });
+  }
+
+  /** Joins the share whose link has this hash; null when the link is wrong, off or expired. */
+  async joinShare(
+    actor: Actor,
+    name: string,
+    tokenHash: string,
+  ): Promise<{ share_id: string; title: string } | null> {
+    if (!actor.userId) return null;
+    const s = this.sql
+      .exec<ShareRow>(`select * from shares where token_hash = ? and revoked_at is null`, tokenHash)
+      .toArray()[0];
+    if (!s || this.expired(s) || !this.liveRecord(s.record_id)) return null;
+    const joined = this.sql
+      .exec(`select 1 from share_people where share_id = ? and user_id = ?`, s.id, actor.userId)
+      .toArray().length;
+    if (!joined) {
+      this.sql.exec(
+        `insert into share_people (share_id, user_id, name, joined_at) values (?, ?, ?, ?)`,
+        s.id,
+        actor.userId,
+        name,
+        nowIso(),
+      );
+      audit(this.sql, actor, { action: "join_share", entityType: "share", entityId: s.id });
+    }
+    return { share_id: s.id, title: this.liveRecord(s.record_id)!.title };
+  }
+
+  /** The shares in this space the person joined and can still open. */
+  async sharesFor(actor: Actor): Promise<SharedWithMe[]> {
+    if (!actor.userId) return [];
+    return this.sql
+      .exec<ShareRow & { joined_at: string }>(
+        `select s.*, p.joined_at from share_people p join shares s on s.id = p.share_id
+         where p.user_id = ? and s.revoked_at is null order by p.joined_at desc`,
+        actor.userId,
+      )
+      .toArray()
+      .flatMap((s) => {
+        const r = this.liveRecord(s.record_id);
+        return r && !this.expired(s)
+          ? [
+              {
+                share_id: s.id,
+                title: r.title,
+                owner: this.ownerName(),
+                access: s.access,
+                joined_at: s.joined_at,
+              },
+            ]
+          : [];
+      });
+  }
+
+  async openShare(actor: Actor, shareId: string): Promise<SharedCardView> {
+    return this.cardView(this.joinedShare(actor, shareId));
+  }
+
+  async updateSharedRecord(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    recordId: string,
+    values: Record<string, unknown>,
+  ): Promise<SharedCardView> {
+    let s!: ShareRow;
+    return this.write(
+      actor,
+      key,
+      ["update_shared_record", shareId, recordId, values],
+      (ts) => {
+        const card = this.cardView(s);
+        const inCard =
+          card.record.id === recordId || card.sections.some((x) => x.records.some((r) => r.id === recordId));
+        if (!inCard) throw new ObjectError("not_found", "Record not found");
+        const r = this.requireRecord(recordId);
+        this.changeRecord(actor, ts, r, { values: this.sharedValues(s, r.collection_id, values) });
+        return this.cardView(s);
+      },
+      () => (s = this.editableShare(actor, shareId)),
+    );
+  }
+
+  async addSharedRecord(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    section: string,
+    input: { id?: string | null; values: Record<string, unknown> },
+  ): Promise<SharedCardView> {
+    let s!: ShareRow;
+    return this.write(
+      actor,
+      key,
+      ["add_shared_record", shareId, section, input],
+      (ts) => {
+        const include = (JSON.parse(s.include_json) as ShareInclude[]).find(
+          (x) => "from_field" in x && `from:${x.from_field}` === section,
+        );
+        const f = include && "from_field" in include ? this.liveField(include.from_field) : undefined;
+        if (!f) throw new ObjectError("not_found", "You can't add records there");
+        const c = this.requireCollection(f.collection_id);
+        this.insertRecord(actor, ts, c, {
+          id: input.id ?? null,
+          values: { ...this.sharedValues(s, c.id, input.values), [f.id]: [s.record_id] },
+        });
+        return this.cardView(s);
+      },
+      () => (s = this.editableShare(actor, shareId)),
+    );
+  }
+
+  async leaveShare(actor: Actor, key: string | null, shareId: string): Promise<{ left: string }> {
+    return this.write(
+      actor,
+      key,
+      ["leave_share", shareId],
+      () => {
+        this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, shareId, actor.userId);
+        audit(this.sql, actor, { action: "leave_share", entityType: "share", entityId: shareId });
+        return { left: shareId };
+      },
+      () => {
+        if (!actor.userId) throw new ObjectError("not_found", "Share not found");
+      },
+    );
+  }
+
+  private requireShare(id: string): ShareRow {
+    const s = this.sql
+      .exec<ShareRow>(`select * from shares where id = ? and revoked_at is null`, id)
+      .toArray()[0];
+    if (!s) throw new ObjectError("not_found", "Share not found");
+    return s;
+  }
+
+  private expired(s: ShareRow) {
+    return !!s.expires_at && s.expires_at <= nowIso();
+  }
+
+  private liveRecord(id: string): RecordRow | undefined {
+    return this.sql
+      .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
+      .toArray()[0];
+  }
+
+  private liveField(id: string): FieldRow | undefined {
+    return this.sql
+      .exec<FieldRow>(`select * from fields where id = ? and deleted_at is null`, id)
+      .toArray()[0];
+  }
+
+  private ownerName(): string {
+    return (
+      this.sql.exec<{ name: string }>(`select name from members where role = 'owner' limit 1`).toArray()[0]
+        ?.name ?? ""
+    );
+  }
+
+  /** A share the person joined (or a member of the space previewing it); anything else is 404. */
+  private joinedShare(actor: Actor, shareId: string): ShareRow {
+    const s = this.sql
+      .exec<ShareRow>(`select * from shares where id = ? and revoked_at is null`, shareId)
+      .toArray()[0];
+    const allowed =
+      !!s &&
+      !!actor.userId &&
+      !this.expired(s) &&
+      !!this.liveRecord(s.record_id) &&
+      (this.sql
+        .exec(`select 1 from share_people where share_id = ? and user_id = ?`, s.id, actor.userId)
+        .toArray().length > 0 ||
+        this.sql.exec(`select 1 from members where user_id = ?`, actor.userId).toArray().length > 0);
+    if (!allowed) throw new ObjectError("not_found", "Share not found");
+    return s;
+  }
+
+  private editableShare(actor: Actor, shareId: string): ShareRow {
+    const s = this.joinedShare(actor, shareId);
+    if (s.access !== "edit") throw new ObjectError("forbidden", "This card is shared with you to view only");
+    return s;
+  }
+
+  /** Values a collaborator may set: only fields shared with them, never links. */
+  private sharedValues(s: ShareRow, collectionId: string, input: Record<string, unknown>) {
+    const hidden = new Set(JSON.parse(s.hidden_json) as string[]);
+    const fields = this.fieldRows(collectionId);
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input)) {
+      const f = this.matchField(fields, k);
+      if (hidden.has(f.id) || f.type === "link")
+        throw new ObjectError("forbidden", `You can't change ${f.name} here`);
+      out[f.id] = v;
+    }
+    return out;
+  }
+
+  /** What the owner picked to include, as stored ids (a link field, or one that links here). */
+  private resolveIncludes(c: CollectionRow, refs: string[]): ShareInclude[] {
+    const fields = this.fieldRows(c.id);
+    const out = new Map<string, ShareInclude>();
+    for (const ref of refs) {
+      const own = fields.find((f) => f.type === "link" && (f.id === ref || f.name_key === nameKey(ref)));
+      if (own) {
+        out.set(`field:${own.id}`, { field: own.id });
+        continue;
+      }
+      const byId = this.liveField(ref);
+      if (byId && byId.type === "link" && (JSON.parse(byId.options_json) as FieldOptions).target === c.id) {
+        out.set(`from:${byId.id}`, { from_field: byId.id });
+        continue;
+      }
+      const other = this.sql
+        .exec<CollectionRow>(
+          `select id, name, description, title_field_id, position, updated_at from collections
+           where deleted_at is null and (id = ? or name_key = ?)`,
+          ref,
+          nameKey(ref),
+        )
+        .toArray()[0];
+      const linking = other
+        ? this.fieldRows(other.id).filter(
+            (f) => f.type === "link" && (JSON.parse(f.options_json) as FieldOptions).target === c.id,
+          )
+        : [];
+      if (linking.length === 1) {
+        out.set(`from:${linking[0]!.id}`, { from_field: linking[0]!.id });
+        continue;
+      }
+      if (linking.length > 1)
+        throw new ObjectError("ambiguous", `${other!.name} links to ${c.name} in more than one field`, {
+          candidates: linking.map((f) => ({ id: f.id, name: `${other!.name}: ${f.name}` })),
+        });
+      throw new ObjectError(
+        "validation_failed",
+        `"${ref}" isn't a link field of ${c.name} or a collection that links to it`,
+      );
+    }
+    return [...out.values()];
+  }
+
+  private includedCollections(c: CollectionRow, include: ShareInclude[]): string[] {
+    const ids = new Set([c.id]);
+    for (const x of include) {
+      const f = this.liveField("field" in x ? x.field : x.from_field);
+      if (!f) continue;
+      if ("from_field" in x) ids.add(f.collection_id);
+      else {
+        const target = (JSON.parse(f.options_json) as FieldOptions).target;
+        if (target) ids.add(target);
+      }
+    }
+    return [...ids];
+  }
+
+  private resolveHidden(c: CollectionRow, include: ShareInclude[], refs: string[]): string[] {
+    const cols = this.includedCollections(c, include).map((id) => this.requireCollection(id));
+    const out = new Set<string>();
+    for (const ref of refs) {
+      let found = false;
+      for (const col of cols) {
+        const f = this.fieldRows(col.id).find(
+          (x) =>
+            x.id === ref ||
+            x.name_key === nameKey(ref) ||
+            (JSON.parse(x.aliases_json) as string[]).some((a) => nameKey(a) === nameKey(ref)),
+        );
+        if (!f) continue;
+        if (f.id === col.title_field_id)
+          throw new ObjectError(
+            "validation_failed",
+            `${f.name} is the title of ${col.name}; it can't be hidden`,
+          );
+        out.add(f.id);
+        found = true;
+      }
+      if (!found) throw new ObjectError("validation_failed", `No field "${ref}" in what's shared`);
+    }
+    return [...out];
+  }
+
+  private shareView(s: ShareRow): ShareView {
+    const include = JSON.parse(s.include_json) as ShareInclude[];
+    const hidden = JSON.parse(s.hidden_json) as string[];
+    return {
+      id: s.id,
+      kind: "card",
+      record_id: s.record_id,
+      title: this.liveRecord(s.record_id)?.title ?? "Deleted",
+      access: s.access,
+      include: include.flatMap((x) => {
+        const f = this.liveField("field" in x ? x.field : x.from_field);
+        if (!f) return [];
+        return "field" in x
+          ? [{ key: `field:${f.id}`, title: f.name }]
+          : [{ key: `from:${f.id}`, title: this.requireCollection(f.collection_id).name }];
+      }),
+      hidden_fields: hidden.flatMap((id) => {
+        const f = this.liveField(id);
+        return f ? [{ id: f.id, name: f.name }] : [];
+      }),
+      people: this.sql
+        .exec<{ user_id: string; name: string; joined_at: string }>(
+          `select user_id, name, joined_at from share_people where share_id = ? order by joined_at`,
+          s.id,
+        )
+        .toArray(),
+      expires_at: s.expires_at,
+      created_at: s.created_at,
+    };
+  }
+
+  private cardView(s: ShareRow): SharedCardView {
+    const hidden = new Set(JSON.parse(s.hidden_json) as string[]);
+    const edit = s.access === "edit";
+    const shown = (collectionId: string) =>
+      this.fieldRows(collectionId).filter((f) => f.type !== "link" && !hidden.has(f.id));
+    const titleOf = (collectionId: string) => this.requireCollection(collectionId).title_field_id;
+    const toShared = (r: RecordRow, fields: FieldRow[]): SharedRecord => {
+      const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+      const titleId = titleOf(r.collection_id);
+      return {
+        id: r.id,
+        title: r.title,
+        fields: fields.map((f) => {
+          const v = values[f.id] ?? null;
+          const view = toField(f);
+          return {
+            id: f.id,
+            name: f.name,
+            type: f.type,
+            options: view.options,
+            value: v,
+            display: displayValue(f.type, v),
+            editable: edit,
+            title: f.id === titleId,
+          };
+        }),
+      };
+    };
+    const card = this.liveRecord(s.record_id);
+    if (!card) throw new ObjectError("not_found", "Share not found");
+    const cardFields = shown(card.collection_id);
+    const sections: SharedCardView["sections"] = [];
+    for (const x of JSON.parse(s.include_json) as ShareInclude[]) {
+      const f = this.liveField("field" in x ? x.field : x.from_field);
+      if (!f) continue;
+      if ("field" in x) {
+        const target = (JSON.parse(f.options_json) as FieldOptions).target ?? null;
+        const fields = target ? shown(target) : [];
+        const rows = this.sql
+          .exec<RecordRow>(
+            `select r.* from links l join records r on r.id = l.to_id
+             where l.field_id = ? and l.from_id = ? and r.deleted_at is null
+             order by l.position, l.created_at limit 500`,
+            f.id,
+            card.id,
+          )
+          .toArray();
+        sections.push({
+          key: `field:${f.id}`,
+          title: f.name,
+          collection_id: target ?? "",
+          can_add: false,
+          fields: fields.map((g) => ({
+            id: g.id,
+            name: g.name,
+            type: g.type,
+            options: toField(g).options,
+            editable: edit,
+          })),
+          records: rows.map((r) => toShared(r, target ? fields : [])),
+        });
+      } else {
+        const fields = shown(f.collection_id);
+        const rows = this.sql
+          .exec<RecordRow>(
+            `select r.* from links l join records r on r.id = l.from_id
+             where l.field_id = ? and l.to_id = ? and r.deleted_at is null
+             order by r.created_at limit 500`,
+            f.id,
+            card.id,
+          )
+          .toArray();
+        sections.push({
+          key: `from:${f.id}`,
+          title: this.requireCollection(f.collection_id).name,
+          collection_id: f.collection_id,
+          can_add: edit,
+          fields: fields.map((g) => ({
+            id: g.id,
+            name: g.name,
+            type: g.type,
+            options: toField(g).options,
+            editable: edit,
+          })),
+          records: rows.map((r) => toShared(r, fields)),
+        });
+      }
+    }
+    return {
+      share: { id: s.id, title: card.title, access: s.access, owner: this.ownerName() },
+      record: toShared(card, cardFields),
+      sections,
     };
   }
 

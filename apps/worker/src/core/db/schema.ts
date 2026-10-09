@@ -152,3 +152,26 @@ export const spaceMembers = sqliteTable(
     index("space_members_user_idx").on(t.userId),
   ],
 );
+
+/**
+ * Cards shared with a person (design §11), for their "Shared with me" list: which space holds
+ * each share they joined. The share itself (link hash, access, hidden fields, who joined)
+ * lives in the space's object, which checks every open and edit. Written on join and leave.
+ */
+export const sharedWith = sqliteTable(
+  "shared_with",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    shareId: text("share_id").notNull(),
+    spaceId: text("space_id")
+      .notNull()
+      .references(() => spaces.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at"),
+  },
+  (t) => [
+    uniqueIndex("shared_with_pk").on(t.userId, t.shareId),
+    index("shared_with_space_idx").on(t.spaceId),
+  ],
+);

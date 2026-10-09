@@ -380,3 +380,14 @@ Following design §10. Choices made while building it:
 ## 2026-10-10: Revoke CI's own development certificates before each TestFlight build
 
 Each GitHub Mac runner is fresh, so automatic signing makes a new Apple Development certificate every build, and Apple stops at its limit (uploads failed until the owner revoked 10). Chosen fix: before archiving, revoke the Development certificates named "Created via API" with the App Store Connect key the job already has (`scripts/apple-dev-certs.mjs`). No new secrets, Distribution certificates and anyone's Xcode certificates are untouched, and a failure only skips the cleanup. Rejected: storing a signing certificate as a secret (more secrets and owner steps); archiving unsigned (would lose the passkey entitlement).
+
+## 2026-10-10: Sharing cards (stage 2a), as built
+
+Following design §11. Choices made while building it:
+
+- **The share lives in the space's object** (migration index 3: `shares`, `share_people`), which checks every open and edit; anything not shared is 404. The join link carries its space id (`shr_<space id>_<secret>`), so a join goes straight to that object; only the link's hash is stored, so the link is shown once and "New link" replaces it (people who joined stay). D1 gets one small table, `shared_with` (person → share → space, written on join and leave), for the "Shared with me" list.
+- **The token is after `#`** in the link (`/join#…`), so it never reaches server logs; sign-in keeps the `#` through the redirect.
+- **What collaborators see:** the card's fields minus hidden ones, and sections for the parts included (a link field of the record, or a collection linking to it). Link fields themselves are never shown (they would name records outside the share). Money fields start hidden in the share sheet.
+- **Edit access** changes shared fields and adds records to sections that link to the card (a guest, a song); never link fields or hidden fields.
+- **Making or resetting a link is app-only** (not MCP or the in-app assistant): a link is a key to the owner's data. Revoking and removing people are MCP tools with confirmation.
+- **Online only for now:** collaborators' edits go straight to the owner's space (marked `online-only`); shared cards are saved ahead so they open offline. Comments, views and forms, row rules and personal answers come in 2b/2c.

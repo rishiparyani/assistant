@@ -35,6 +35,13 @@ The generic engine. Everything takes an optional `space` (name or id; Personal b
 - `POST /api/records/:record_id/links` (`link_records`: `field`, `to`, `after` for ordered links), `POST /api/records/:record_id/unlink` (`unlink_records`).
 - `GET /api/space-changes?since=N` (`space_changes`, session only): the space's change log for devices: `{changes: [{seq, kind, id, op}], seq, more}`.
 
+### Sharing cards (design §11)
+
+A card is one record plus the linked parts its owner includes. The join link is `https://<app>/join#shr_<space id>_<secret>` (the token sits after `#`, so it never reaches server logs); only its SHA-256 hash is kept, in the space's object, so the link shows once (when made or reset).
+
+- Owner side: `POST /api/shares` (`create_share`, app only: `record_id`, `include` (a link field of the record, or a collection or field that links to it), `access` `view` | `edit`, `hide_fields`, `expires_in_days`) → `{share, link}`; `GET /api/shares?record_id=` (`list_shares`: who joined, hidden fields, parts); `POST /api/shares/:share_id/reset` (`reset_share_link`, app only: new link, people who joined stay); `DELETE /api/shares/:share_id` (`revoke_share`, confirm); `DELETE /api/shares/:share_id/people/:user_id` (`remove_share_person`, confirm). Owners and editors of the space only; titles can't be hidden.
+- Collaborator side: `POST /api/cards/join` (`join_share`, app only: `{token}`) → `{share_id, title}`; `GET /api/cards` (`shared_with_me`); `GET /api/cards/:share_id` (`open_shared_card`: the record's shared fields and `sections` of included records, never link fields or hidden fields); `PATCH /api/cards/:share_id/records/:record_id` (`update_shared_record`, edit access, shared fields only → `403` otherwise); `POST /api/cards/:share_id/records` (`add_shared_record`: `section` key, `id`, `values`; added records link to the card); `DELETE /api/cards/:share_id` (`leave_share`). Anything not shared with the caller is `404`.
+
 ## Gigs (docs/design/gig-centric.md)
 
 User-scoped routes under `/api` (access comes from each gig's own people and roles; people not on a gig get 404). Writes need an `Idempotency-Key`, which is stored **inside the gig's object**, not in D1; a retried create returns the same gig (the key maps to the gig id in the creator's person object).
