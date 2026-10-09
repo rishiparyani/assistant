@@ -10,7 +10,7 @@ So the app stops knowing about gigs. Instead it gives people **building blocks**
 
 Four principles:
 
-1. **Two kinds of people.** **Full users** (the owner for now) get everything: spaces, collections, rules, reports, AI. **Collaborators** (bandmates, family, venues) get only the specific things shared with them, like a shared note in a notes app, and a simple screen to work on them. Collaborating is free; full features and AI can be offered to them later (section 8).
+1. **Two kinds of people.** **Full users** (the owner for now) get everything: spaces, collections, rules, reports, AI. **Collaborators** (bandmates, family, venues) get only the specific things shared with them, like a shared note in a notes app, and a simple screen to work on them. Collaborating is free; full features and AI can be offered to them later (section 9).
 2. **Rules belong to the user, not the code.** Checks, status flows, automations and permissions are data the user creates. The code only runs them.
 3. **Money and permissions stay trustworthy.** Money is exact (integer paise), can be protected (add-only, corrected by reversing), and every change is audited.
 4. **Chat-centric.** The chat is the home screen and the main way to do things; screens and views open from it. Every action also has a normal screen (collaborators, and days when the AI allowance is used up).
@@ -95,7 +95,25 @@ The finished system must run this workflow end to end, built by chat ("help me r
 
 The organizer is a full user; participants are free collaborators. Fifty people at once go through the one space object, which applies visibility before anything is returned.
 
-## 6. How the Gigs template is built from the blocks
+## 6. Test case: a gig's guest list, built by chat
+
+The old app's guest list, rebuilt by the chat from blocks, with no guest-list code:
+
+| Behaviour                                                 | Blocks                                                                                                                                       |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Guests for a gig                                          | _Guests_: Name, Plus-ones, Note, link to Gig                                                                                                 |
+| Each guest has a host                                     | **Host** (person) **defaulting to whoever adds the guest**                                                                                   |
+| Heads                                                     | Formula `1 + Plus-ones`                                                                                                                      |
+| Bandmates add and see only their guests; managers see all | Share with "add" rights and a visibility rule "rows where Host = me"                                                                         |
+| Total and per-person limits                               | Gig fields _Guest limit_, _Per-person limit_; checks "total Heads for this gig ≤ Guest limit" and "my Heads for this gig ≤ Per-person limit" |
+| List closes at a time                                     | Gig field _Closes at_; a check "only before Closes at" that applies to collaborators only                                                    |
+| Groups arrive in parts                                    | _Arrived_ number shown as a − / + counter; check "Arrived ≤ Heads"; an **All in** button setting Arrived = Heads                             |
+| Door page for the venue                                   | A share link to a view of the gig's guests: no account, only _Arrived_ editable, **door list** layout with search and big tap targets        |
+| Print                                                     | Print or PDF any view                                                                                                                        |
+
+Generic blocks this adds: default to the current person; checks scoped to certain people; filtered totals inside checks; time (`now`) in checks; counter display and action buttons; door-list layout and print/PDF for views.
+
+## 7. How the Gigs template is built from the blocks
 
 Everything the current gig app does becomes data, not code:
 
@@ -112,7 +130,7 @@ Everything the current gig app does becomes data, not code:
 
 The template is checked against the current app's tests: if a behaviour can't be built from blocks, the blocks are missing something, and that is fixed in the engine (not with gig-only code).
 
-## 7. Chat and the assistant
+## 8. Chat and the assistant
 
 - **Chat is the home screen.** Your chat with the assistant opens first; your spaces and pinned views are one tap away.
 - **Pop-up views.** "Show my calendar" opens a panel (a sheet on phones, a side panel on wide screens). It can be closed, minimised to a chip above the message box, or **pinned** to the shortcuts bar with its filter.
@@ -179,7 +197,7 @@ Like Claude's and ChatGPT's connectors: a **Connectors** page where a full user 
 
 Per-person and per-link rate limits; a CPU limit per request; automation depth and daily limits; capped retries; a usage watchdog in the 15-minute health check that switches to **safe mode** (pause automations and background jobs) and alerts on Telegram; a kill switch. DDoS traffic is not billed by Cloudflare, and on the Free plan nothing is billed at all.
 
-## 8. Collaborators and sharing
+## 9. Collaborators and sharing
 
 Like sharing one note from a notes app: the other person works on **that note**, not on your whole app.
 
@@ -211,7 +229,7 @@ Like sharing one note from a notes app: the other person works on **that note**,
 
 **Later: upgrading a collaborator.** You can make someone a full user (their own spaces, reports, AI), paid by you or by them. Their existing shares keep working.
 
-## 9. Storage and architecture (for agents)
+## 10. Storage and architecture (for agents)
 
 Same stack: Cloudflare Workers, Durable Objects, D1, Svelte, Capacitor for iPhone.
 
@@ -235,7 +253,7 @@ Same stack: Cloudflare Workers, Durable Objects, D1, Svelte, Capacitor for iPhon
 
 The app opens offline; pinned views and upcoming records are saved ahead. Record changes go through the offline outbox and sync later. Chat with the assistant needs a connection; comments queue and sync later.
 
-## 10. Rules that change (AGENTS.md)
+## 11. Rules that change (AGENTS.md)
 
 These need the owner's OK and a decision entry:
 
@@ -244,20 +262,21 @@ These need the owner's OK and a decision entry:
 - "Collective is a tag, no workspaces" → **spaces belong to full users**; others collaborate through **shares** of specific things.
 - Money, idempotency, audit, soft delete, ULIDs, no fuzzy writes, offline-first and "no raw SQL for the AI" **stay** as they are.
 
-## 11. Build stages
+## 12. Build stages
 
 Each stage ships something usable.
 
 1. **Core with chat.** Chat home with the assistant (model router, free allowance first, model test), the starter setup, spaces, collections and fields, records, links, list/table/card views, pop-up and pinned views. The assistant creates and finds things for you.
 2. **Sharing.** Cards, views and forms; join links; field and row visibility; personal answers; the collaborators' "Shared with me" screen; comments.
-3. **Search.** By words and by meaning across records, chats and comments.
-4. **Calculated fields and rules.** Formulas, rollups, checks (including uniqueness), status flows, permissions, protected money; the pick board. Fam jam test passes.
-5. **Automations, reports and connectors.** Notifications, reminders, scheduled reports to Telegram, email and live links, set up by chat; the Connectors page (Gmail, Calendar, Drive).
-6. **The Gigs template.** Rebuild gigs from blocks, pass the current behaviour checks, then remove the old gig code.
-7. **Full users beyond the owner.** Upgrading collaborators; later, paid plans.
-8. **Later, if wanted:** in-app group chats (Band, Family) with the assistant on mention; Telegram as a second way to chat; iPhone widgets for pinned views.
+3. **iPhone widgets and App Intents.** Any pinned view as a home-screen or lock-screen widget (chosen in iOS's widget settings, keeps its filters; interactive: tick, mark done, count arrivals). App Intents expose actions to Siri, Shortcuts, Spotlight and the Action button ("Add expense", "Ask Gigspree…", "Show [view]", "Add to [list]"). Native Swift in `apps/ios`: the app saves view snapshots in shared App Group storage and widgets refresh from the server when iOS allows; views map to native widget layouts (list, number, progress, next item, mini calendar).
+4. **Search.** By words and by meaning across records, chats and comments.
+5. **Calculated fields and rules.** Formulas, rollups, checks (including uniqueness), status flows, permissions, protected money; the pick board; counters, action buttons, door-list layout and print. Fam jam and guest list tests pass.
+6. **Automations, reports and connectors.** Notifications, reminders, scheduled reports to Telegram, email and live links, set up by chat; the Connectors page (Gmail, Calendar, Drive).
+7. **The Gigs template.** Rebuild gigs from blocks, pass the current behaviour checks, then remove the old gig code.
+8. **Full users beyond the owner.** Upgrading collaborators; later, paid plans.
+9. **Later, if wanted:** in-app group chats (Band, Family) with the assistant on mention; Telegram as a second way to chat; Live Activities on gig days.
 
-## 12. Decided and open
+## 13. Decided and open
 
 Decided by the owner (2026-10-09):
 
@@ -265,6 +284,8 @@ Decided by the owner (2026-10-09):
 - Starter setup plus setups built by chat; collaborators get only what's shared with them; reports by chat to Telegram or email.
 - **AI:** Cloudflare only (Workers AI and AI Gateway); Free plan; prepaid credit; **₹2,000 a month** cap; router with three levels and no rule-based message parsing; Kimi K2.6 for setups, Claude Sonnet 5.5 as backup, everyday on the free model unless the test favours Haiku 5.5.
 - Connectors instead of "email in". English and Hinglish.
+- iPhone widgets for any pinned view and App Intents (Siri, Shortcuts, Spotlight, Action button), right after core and sharing.
+- Test cases the engine must pass: fam jam sign-ups and the gig guest list, both built by chat.
 - No privacy rule for AI providers while only the owner uses AI. No WhatsApp automation (against WhatsApp's terms). In-app group chats later.
 
 Open: sharing templates between full users (later).
