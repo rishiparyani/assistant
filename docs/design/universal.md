@@ -1,6 +1,6 @@
 # Design: a universal assistant (spaces, collections, rules, chat)
 
-_Status: **draft for the owner's review** (2026-10-09, complete version for approval; revised the same day: collaborators get only what's shared with them, plus reports; then: chat-centric, starter setup, model router, how setups are stored, search, per-person visibility and the fam jam test case). Nothing is built until the owner approves. Replaces the gig-specific app: nobody uses it yet, so there is no data to move (owner, 2026-10-09)._
+_Status: **approved by the owner** (2026-10-09). Being built in the stages of section 14. Decisions: `docs/decisions.md` (2026-10-09). Architecture rules in `AGENTS.md` follow it._
 
 ## 1. Why change
 
@@ -169,6 +169,18 @@ Where the generic blocks aren't enough, a built-in **app** adds deep features. A
 - **Starter setup first.** Simple requests ("remind me at 6", "note that…", "spent ₹450 on groceries") use the starter setup. Complex ones make the assistant propose a new setup in plain words; it's created only after you approve.
 - **Only full users chat with the assistant.** Collaborators work on shared cards and see comments; they never see the chat.
 
+### Help and examples
+
+A short **Help** screen (from the menu and from the chat's empty state) explains the system in plain words with examples you can tap to try:
+
+- **Everyday:** "Remind me tomorrow at 6 to call Rahul" · "Spent ₹450 on groceries for tonight's dinner" · "Note: drummer prefers in-ears" · "What's on this weekend?" · "Kal shaam 7 baje rehearsal hai, yaad dilana"
+- **Building setups:** "Help me track my personal expenses by category" · "Make a guest list for my gigs with plus-ones and a limit per person" · "Help me run fam jam sign-ups"
+- **Views and screens:** "Show my calendar" · "Make a screen of unpaid gigs this month and pin it" · "Put my groceries list on my home screen"
+- **Sharing:** "Share the Sunburn set list with the band" · "Make a form for December availability and give me the link"
+- **Reports:** "Every Monday, send the band upcoming gigs on Telegram"
+
+The Help screen also says what the assistant can't do (send WhatsApp messages, make payments) and how to fix mistakes (undo, history). The chat's empty state shows three or four of these as tappable suggestions.
+
 ### Model router
 
 All AI goes through one **router**: our own code in the Worker (in the chat's object). It is not an AI and never interprets the user's words with patterns or rules (no regex "level 0"). It decides only facts: which level, which model, budgets, retries.
@@ -318,7 +330,7 @@ These need the owner's OK and a decision entry:
 
 Each stage ships something usable.
 
-1. **Core with chat.** Chat home with the assistant (model router, free allowance first, model test), the starter setup, spaces, collections and fields, records, links, list/table/card views, pop-up and pinned views. The assistant creates and finds things for you.
+1. **Core with chat.** Chat home with the assistant (model router, free allowance first, model test), the Help screen with examples, the starter setup, spaces, collections and fields, records, links, list/table/card views, pop-up and pinned views. The assistant creates and finds things for you.
 2. **Sharing.** Cards, views and forms; join links; field and row visibility; personal answers; the collaborators' "Shared with me" screen; comments.
 3. **iPhone: widgets, App Intents and on-device AI.** Any pinned view as a home-screen or lock-screen widget (chosen in iOS's widget settings, keeps its filters; interactive: tick, mark done, count arrivals). App Intents expose actions to Siri, Shortcuts, Spotlight and the Action button ("Add expense", "Ask Gigspree…", "Show [view]", "Add to [list]"). Native Swift in `apps/ios`: the app saves view snapshots in shared App Group storage and widgets refresh from the server when iOS allows; views map to native widget layouts (list, number, progress, next item, mini calendar). The on-device database shared by app and widgets, and Apple's on-device model as the first level for easy requests on supported iPhones.
 4. **Search.** By words and by meaning across records, chats and comments.

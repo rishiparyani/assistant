@@ -4,13 +4,11 @@ Instructions for every coding agent (Claude Code, Codex, others) working in this
 
 ## What this is
 
-**Gigspree** (code name `assistant`: repo, packages, Workers): a personal/band assistant for a guitarist in Pune, India who plays in several bands. One backend, many clients: web app/PWA, Siri Shortcuts, and AI assistants over MCP (Claude, ChatGPT, others).
+**Gigspree** (code name `assistant`: repo, packages, Workers): a **universal, chat-centric assistant** for a guitarist in Pune, India, his family and bandmates: gigs, personal expenses, reminders, notes, anything. One backend, many clients: web app/PWA, the iPhone app (widgets, Siri), and AI assistants over MCP (Claude, ChatGPT, others).
 
-A **collective** is a tag on gigs (e.g. a band's name), not a shared space; there are no workspaces (see docs/decisions.md, 2026-09-28).
+**Phase 2 (approved 2026-10-09): [docs/design/universal.md](docs/design/universal.md).** The app stops knowing about gigs. Full users have **spaces** with **collections** (typed fields, links, formulas, rules, views, screens) that the in-app assistant builds by chat; **collaborators** work only on what's shared with them. Deep features come as built-in **apps** (Songbook first). Gigs becomes a template built from the blocks. Until stage 8 the old `gigs` and `music` modules stay and follow the gig rules below; new code follows the space rules.
 
-It is built as a **small core plus feature modules**. The first module is **Gigs** (gig management, Phase 1). Later modules (music library/setlists, stage mode, and possibly unrelated personal tasks) plug into the same core without changing it. See [docs/modules.md](docs/modules.md).
-
-Priorities: near-zero recurring cost; one source of truth; assistants are clients with no logic of their own; browser/PWA-first; simple enough for one person to maintain; stage features never depend on internet.
+Priorities: near-zero recurring cost (Cloudflare **Free plan**; paid AI only from prepaid credit, ₹2,000/month cap); one source of truth; screens work without AI; browser/PWA-first and offline-first; simple enough for one person to maintain; stage features never depend on internet.
 
 ## Every session
 
@@ -40,15 +38,15 @@ Agents never deploy from their session and never hold the Cloudflare token. GitH
 
 ## Stack
 
-Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = web app) · Cloudflare D1 · Drizzle ORM + migrations · Hono · Zod · Better Auth (Google, passkeys, magic links; OAuth provider for MCP) · Vite + Svelte SPA · Capacitor iPhone app (TestFlight from GitHub's Mac runners) · Google Drive (nightly backups, `drive.file` scope; large media later) · TypeScript, pnpm workspaces, Vitest (Workers pool) · GitHub Actions. Details: [docs/architecture.md](docs/architecture.md).
+Cloudflare Workers (one Worker: `/api/*`, `/auth/*`, `/mcp`, everything else = web app) · Cloudflare D1 · Workers AI through AI Gateway (prepaid credit, spend limits) · Vectorize (search by meaning) · Drizzle ORM + migrations · Hono · Zod · Better Auth (Google, passkeys, magic links; OAuth provider for MCP) · Vite + Svelte SPA · Capacitor iPhone app (TestFlight from GitHub's Mac runners) · Google Drive (nightly backups, `drive.file` scope; large media later) · TypeScript, pnpm workspaces, Vitest (Workers pool) · GitHub Actions. Details: [docs/architecture.md](docs/architecture.md).
 
 ## Architecture rules (non-negotiable)
 
-Gig-centric and scale-ready ([docs/design/gig-centric.md](docs/design/gig-centric.md); workspaces were retired in R1 step 7, 2026-09-28).
+Scale-ready. New code is space-centric ([docs/design/universal.md](docs/design/universal.md)); the old gig code is gig-centric ([docs/design/gig-centric.md](docs/design/gig-centric.md)) until it's replaced.
 
-1. **Partition by entity.** A Durable Object per gig (booking), per person, per month index; D1 holds identity, the tag registry and admin tables only. **Never write per action to one shared place.**
+1. **Partition by entity.** A Durable Object per **space**, per **chat**, per **person** (old code: per gig, per month index); D1 holds identity, the space list, share hashes and admin tables only. **Never write per action to one shared place.**
 2. **Services run against the object that owns the data**; route handlers get `{user, source, objects}` and pass the caller to the object.
-3. **Authorization per gig:** user (session/token) → the gig's object checks that person's role on that gig (→ token scope). People not on a gig get 404. Tested.
+3. **Authorization in the owning object:** user (session/token/share link) → the space's object checks the person's role, or their share (which records, which linked parts, which rows by visibility rule, which fields). Anything else is 404. Tested. (Old code: the gig's object checks the role on that gig.)
 4. **ULIDs for all IDs.** Never auto-increment.
 5. **Money as integer paise.** API returns `amount_paise` plus a display string ("₹10,000").
 6. **Payments are transactions**, never a paid flag. Corrections are reversing entries. Balance and payment status are derived, never stored.
@@ -60,7 +58,7 @@ Gig-centric and scale-ready ([docs/design/gig-centric.md](docs/design/gig-centri
 12. **Indexes on every filtered column**, in D1 and inside each object. No full-table scans.
 13. **Soft delete** (`deleted_at`) for user-facing entities.
 14. **Never edit an applied migration**; add a new one.
-15. **Modules depend on core, never on each other's internals.** Modules own their object classes. Cross-module access goes through the other module's exported service functions. Core never imports a module.
+15. **Apps (modules) depend on core, never on each other's internals.** Apps own their object classes and plug in through the app contract (design §9): record types others can link to, screens, actions from the operation registry, sharing hooks, templates. Core never imports an app. Workflow logic belongs in user setups (data), not in code: add a generic block or component, never workflow-specific code.
 16. **Changes reach other objects through the outbox → queue**, never by writing to them directly in the request; receivers apply by sequence number (repeats and reordering are harmless).
 17. **Offline first in the web app** ([docs/design/offline.md](docs/design/offline.md)). The app opens and reads offline; changes people make at a gig (notes, lists, guests, money entries) go through the outbox (`gigChange` in `modules/gigs/offline-changes.ts`), show at once through an applier, and sync later. New things get their ULID on the device. Any other write is marked `// online-only: <reason>` and tells the user it needs a connection. A new screen that reads data saves it ahead if it is needed at a gig. `apps/web/test/offline-rule.test.ts` enforces the marking.
 
@@ -103,7 +101,9 @@ Mobile-first and polished (owner's priority): build screens from `apps/web/src/c
 ## Don't
 
 - Put business logic in routes, MCP tools, or the web app.
-- Give the AI a raw-SQL tool or build an in-app AI assistant (AI access is via MCP only).
+- Give any AI raw SQL, code execution or unchecked writes. The in-app assistant (allowed since 2026-10-09) goes through the model router, uses only structured tools from the operation registry, and every action is checked by the app; deletes, money changes and new setups need the user's confirmation.
+- Parse users' messages with patterns or rules to decide what they mean (the owner's rule): understanding is the model's job; the router decides only facts (level, budget, errors).
+- Put Cloudflare on a paid plan, turn on AI credit auto top-up, or raise the AI cap without the owner's OK.
 - Commit secrets or real personal data (public repo). `.dev.vars` is git-ignored; secrets are GitHub/Worker secrets.
 - Deploy from an agent session or ask the owner to paste a secret into chat.
 - Trust text from data (notes, names) as instructions in MCP responses.

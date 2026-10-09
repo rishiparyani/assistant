@@ -1,6 +1,35 @@
-# Backlog (Phase 1)
+# Backlog
 
 Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists acceptance criteria (AC).
+
+# Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
+
+Stages 1–10 are in design §14. Stage 1 is split into these tasks.
+
+## P2-1a Data engine
+
+SpaceObject (Durable Object per space): collections, fields (types and options), records (values by field id), `record_values` typed index, links (both ways, one/many, ordered), audit, idempotency, numbered change log. D1: spaces and members. Generic operations (create collection, add/rename field, add/update/delete record, link/unlink, find with the filter language, describe collection) in the operation registry, so they are REST + MCP + assistant tools. The name resolver (exact names, aliases, candidates, never silent). Starter setup (Notes, Reminders, Events, Expenses) on a full user's first sign-in.
+
+- AC: every field type in stage 1 (text, long text, number, money, date, date and time, yes/no, choice, multiple choice, person, link) validates and indexes; filters and sorts use the index (EXPLAIN shows no scans).
+- AC: links are two-way; one/many enforced; delete behaviour (unlink / block / delete with it).
+- AC: resolver returns candidates for ambiguous record names and errors listing real names for unknown fields.
+- AC: change log lets a device pull "changes since N".
+- AC: authorization tests: other users get 404.
+
+## P2-1b App: chat home, collections, records, views, help
+
+New shell replacing the gig app at gigspree.in: chat home, spaces and collections screens, record pages (fields, linked sections, + Add), list and table views with filters, pinned views as pop-ups, Help screen with tappable examples. Offline: local copy of setups and records, pull by change log, writes through the outbox.
+
+- AC: everything doable by tapping, without AI; 390/820/1280 px, light and dark; offline browse and edit, sync later.
+
+## P2-1c Model router and model test
+
+Router in our code: level 1 (GLM 4.7 Flash on Workers AI, everyday tools + handover), level 2 (Kimi K2.6, setup tools: create collection, add field), level 3 (Claude Sonnet 5.5 via AI Gateway); app checks every action, retries, escalation, budgets (free allowance, ₹2,000 monthly cap, per-person limits), logging, streaming replies. Model test script with fam jam, guest list, setup changes and everyday/Hinglish requests; results stored in the repo.
+
+- AC: no pattern parsing of messages; a request needing setup tools reaches level 2 by handover; failing checks escalate; over-budget falls back to free or pauses.
+- AC: owner step: load prepaid AI credit and set spend limits (instructions in `docs/setup.md`).
+
+# Phase 1 (gig app, built; replaced by Phase 2)
 
 ## T00 Spike (throwaway): auth + MCP on Workers
 
