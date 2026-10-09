@@ -2,9 +2,7 @@
   import type { CollectionView, FieldView, FindResult, LinkedRef } from "@assistant/shared";
   import X from "@lucide/svelte/icons/x";
   import { SelectField, TextArea, TextField } from "../ui/index.ts";
-  import { readCache } from "../query.svelte.ts";
-  import { connection } from "../offline.svelte.ts";
-  import { listKey, savedCollections, spacesApi } from "./spaces-api.ts";
+  import { savedCollections, spacesApi } from "./spaces-api.ts";
 
   // One input for one field, by its type. Values are kept as the form types them (text,
   // "yes"/"no", a list of choices, linked records); the shared rules check them on save.
@@ -40,11 +38,6 @@
         collection_id: r.collection_id,
         title: r.title,
       });
-      if (!connection.online) {
-        const saved = readCache<FindResult>(listKey(target))?.items ?? [];
-        results = saved.filter((r) => r.title.toLowerCase().includes(q.toLowerCase())).map(toRef);
-        return;
-      }
       try {
         const found = await spacesApi.find(target, { search: q || undefined, limit: 20 }, true);
         results = found.items.map(toRef);

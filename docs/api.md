@@ -151,3 +151,7 @@ Filters use the find language; periods ("this_month") and "me" are kept as writt
 | DELETE | `/api/chat`                            | Start a new chat (saved records stay)                         |
 
 Items are `user`, `assistant`, `note` (system notes such as "Done: …") or `card` (with `card.status` waiting / done / cancelled / failed / expired). Tool calls and raw results stay on the server. Not available to API tokens or MCP: outside assistants use the tools directly.
+
+### Space change log (session only)
+
+`GET /api/space-changes?since=N&limit=500&data=1`: `{ changes: [{ seq, at, kind, id, op }], seq, more, records?, collections?, views? }`. Devices keep the last `seq` and ask again with it; `more` means call again at once. With `data=1` the response also carries the current state of each changed record, collection and view (deleted ones are left out), which is how the app keeps its offline copy.

@@ -30,6 +30,8 @@ Rule 17 in `AGENTS.md`. For every new thing the web app can change:
 
 Records in spaces (`core/spaces/spaces-api.ts`) work the same way: `addRecord` / `updateRecord` / `deleteRecord` send through the outbox with scope `space:<collection>`, which also covers every screen key under it (`space:<collection>|list|…`, `space:<collection>|record|<id>`); the appliers tell lists and records apart.
 
+The whole space is also kept on the device (`core/spaces/local-copy.ts`): the app pulls the space's change log with data (`/api/space-changes?since=N&data=1`) into IndexedDB, and `spacesApi` reads fall back to it offline, running the shared find language (`findInRecords`) so filters and sorts match the server.
+
 `apps/web/test/offline-rule.test.ts` (runs in `pnpm test`) fails when a write is neither sent through the outbox nor marked, when module code calls `fetch()` directly or core calls it without an `online-only` mark, or when an outbox kind has no applier (money entries excepted: the Money tab lists them as waiting).
 
 ## Out of scope for now
