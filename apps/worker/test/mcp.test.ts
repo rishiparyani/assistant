@@ -281,5 +281,11 @@ describe("MCP", () => {
       values: { amount: 400 },
     });
     expect(change.structuredContent.needs_confirmation).toBe(true);
+    // A new setup is confirmed first too.
+    const setup = await tool(token, "create_collection", {
+      name: "Test Jams",
+      fields: [{ name: "Title", type: "text" }],
+    });
+    expect(setup.structuredContent.needs_confirmation).toBe(true);
   });
 });

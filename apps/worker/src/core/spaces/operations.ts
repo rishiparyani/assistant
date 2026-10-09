@@ -62,6 +62,8 @@ export const spaceOperations = [
     description:
       "Make a new collection (like a table) with typed fields. Field types: text, long_text, number, money, date, datetime, boolean, choice (options.choices), multi_choice, person, link (options.target = collection name or none for any record; options.many).",
     kind: "write",
+    // A new setup: assistants show it and wait for the person's OK.
+    confirm: true,
     http: { method: "POST", path: "/collections", status: 201 },
     input: CreateCollectionInput,
     handler: async (ctx, i) => {
