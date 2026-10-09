@@ -5,7 +5,7 @@ import { createDb, type Db } from "./db/client.ts";
 import type { Source } from "./db/schema.ts";
 import { getAuth } from "./auth/auth.ts";
 import { AppError } from "./errors.ts";
-import { decryptSecret, encryptSecret } from "./crypto.ts";
+import { decryptSecret, deriveSecret, encryptSecret } from "./crypto.ts";
 import { hashToken } from "./tokens.ts";
 import type { UserCreatedHook } from "./module.ts";
 import type { AiSettings } from "./assistant/models.ts";
@@ -55,6 +55,8 @@ export type TokenScope = "read" | "write";
 export interface Sealer {
   seal: (plaintext: string) => Promise<string>;
   unseal: (sealed: string) => Promise<string>;
+  /** A secret value that's always the same for the same label (see deriveSecret). */
+  derive: (label: string) => Promise<string>;
 }
 
 export function sealerFor(env: Env): Sealer {
@@ -66,6 +68,7 @@ export function sealerFor(env: Env): Sealer {
   return {
     seal: (text) => encryptSecret(need(), text),
     unseal: (sealed) => decryptSecret(need(), sealed),
+    derive: (label) => deriveSecret(need(), label),
   };
 }
 

@@ -22,6 +22,7 @@ import {
   openShare,
   removeSharePerson,
   resetShareLink,
+  sharedTouchesMoney,
   sharedWithMe,
   updateSharedRecord,
 } from "./shares.ts";
@@ -120,6 +121,8 @@ export const shareOperations = [
     kind: "write",
     http: { method: "PATCH", path: "/cards/:share_id/records/:record_id" },
     input: UpdateSharedRecordInput,
+    confirmWhen: (ctx, i) =>
+      sharedTouchesMoney(ctx, i.share_id, { recordId: i.record_id }, Object.keys(i.values)),
     handler: (ctx, i) => updateSharedRecord(ctx, i),
   }),
   defineOperation({
@@ -129,6 +132,8 @@ export const shareOperations = [
     kind: "write",
     http: { method: "POST", path: "/cards/:share_id/records", status: 201 },
     input: AddSharedRecordInput,
+    confirmWhen: (ctx, i) =>
+      sharedTouchesMoney(ctx, i.share_id, { section: i.section }, Object.keys(i.values)),
     handler: (ctx, i) => addSharedRecord(ctx, i),
   }),
   defineOperation({

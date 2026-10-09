@@ -32,3 +32,21 @@ export async function decryptSecret(secret: string, sealed: string): Promise<str
   );
   return new TextDecoder().decode(plain);
 }
+
+/**
+ * A secret value derived from `label` (HMAC with a key from BETTER_AUTH_SECRET, base64url,
+ * 43 characters). The same label always gives the same value, so a retried request can
+ * make the same link again without the link ever being stored.
+ */
+export async function deriveSecret(secret: string, label: string): Promise<string> {
+  const base = await crypto.subtle.importKey("raw", enc.encode(secret), "HKDF", false, ["deriveKey"]);
+  const hmac = await crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: enc.encode("assistant/derived"), info: enc.encode("v1") },
+    base,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", hmac, enc.encode(label)));
+  return b64(mac).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}

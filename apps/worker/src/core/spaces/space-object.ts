@@ -1738,6 +1738,39 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
+  /** Whether a collaborator's write touches a money field (MCP asks for confirmation then). */
+  async sharedTouchesMoney(
+    actor: Actor,
+    shareId: string,
+    target: { recordId?: string; section?: string },
+    keys: string[],
+  ): Promise<boolean> {
+    let collectionId: string | undefined;
+    try {
+      const s = this.joinedShare(actor, shareId);
+      if (target.recordId) collectionId = this.liveRecord(target.recordId)?.collection_id;
+      else if (target.section?.startsWith("from:")) {
+        const include = (JSON.parse(s.include_json) as ShareInclude[]).find(
+          (x) => "from_field" in x && `from:${x.from_field}` === target.section,
+        );
+        if (include && "from_field" in include)
+          collectionId = this.liveField(include.from_field)?.collection_id;
+      }
+    } catch {
+      // Not shared with them: the write itself says so.
+      return false;
+    }
+    if (!collectionId) return false;
+    const fields = this.fieldRows(collectionId);
+    return keys.some((k) => {
+      try {
+        return this.matchField(fields, k).type === "money";
+      } catch {
+        return false;
+      }
+    });
+  }
+
   async leaveShare(actor: Actor, key: string | null, shareId: string): Promise<{ left: string }> {
     return this.write(
       actor,

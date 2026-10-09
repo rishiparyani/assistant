@@ -17,7 +17,7 @@
   } from "../ui/index.ts";
   import { createQuery, dropCache, publish } from "../query.svelte.ts";
   import { navigate } from "../router.svelte.ts";
-  import { SHARED_KEY, sharedCardKey, sharesApi } from "./shares-api.ts";
+  import { SHARED_KEY, noLongerShared, sharedCardKey, sharesApi } from "./shares-api.ts";
   import { showValue } from "./spaces-api.ts";
   import SharedRecordSheet from "./SharedRecordSheet.svelte";
 
@@ -29,7 +29,12 @@
     () => sharedCardKey(shareId),
     () => sharesApi.open(shareId),
   );
-  const card = $derived(q.data);
+  // Turned off or I was removed: forget the saved copy and show nothing of it.
+  const revoked = $derived(noLongerShared(q.error));
+  $effect(() => {
+    if (revoked) dropCache(sharedCardKey(shareId));
+  });
+  const card = $derived(revoked ? undefined : q.data);
   const canEdit = $derived(card?.share.access === "edit");
   // The title is the page's title; the rest shows when filled in.
   const filled = $derived(card?.record.fields.filter((f) => !f.title && showValue(f, f.value)) ?? []);

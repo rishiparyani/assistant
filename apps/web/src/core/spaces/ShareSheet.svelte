@@ -77,12 +77,20 @@
     include = [];
     access = "view";
     // Money stays private unless the owner chooses otherwise.
-    hide = collection.fields.filter((f) => f.type === "money").map((f) => f.name);
+    hide = moneyOf(collection);
     making = true;
   }
 
   const toggle = (list: string[], v: string) =>
     list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+  const moneyOf = (c: CollectionView | undefined) =>
+    c?.fields.filter((f) => f.type === "money").map((f) => f.name) ?? [];
+  /** Including a part hides its money fields too, unless the owner shows them. */
+  function togglePart(p: { ref: string; collectionId: string | null }) {
+    const on = !include.includes(p.ref);
+    include = toggle(include, p.ref);
+    if (on) hide = [...new Set([...hide, ...moneyOf(all.find((c) => c.id === p.collectionId))])];
+  }
 
   async function create() {
     busy = true;
@@ -207,7 +215,7 @@
                 class="chip"
                 class:on={include.includes(p.ref)}
                 aria-pressed={include.includes(p.ref)}
-                onclick={() => (include = toggle(include, p.ref))}>{p.label}</button
+                onclick={() => togglePart(p)}>{p.label}</button
               >
             {/each}
           </div>

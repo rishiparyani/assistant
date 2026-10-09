@@ -20,9 +20,18 @@ const PREFIX = "shr";
 const TOKEN_RE = /^shr_([0-9A-HJKMNP-TV-Z]{26})_[A-Za-z0-9_-]{43}$/;
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 
-function newShareToken(spaceId: string) {
-  return `${PREFIX}_${spaceId}_${newToken("x").slice(2)}`;
+/**
+ * A share's link token. With an idempotency key it's derived from the key (and who asked), so
+ * a retried request gives the same link and the space keeps the same hash; without one it's
+ * random. Either way only the hash is stored.
+ */
+async function shareToken(ctx: OpUserCtx, spaceId: string, purpose: string) {
+  const secret = ctx.idempotencyKey
+    ? await ctx.sealer.derive(`share:${ctx.user.id}:${spaceId}:${purpose}:${ctx.idempotencyKey}`)
+    : newToken("x").slice(2);
+  return `${PREFIX}_${spaceId}_${secret}`;
 }
+
 /** The link people open; the token is in the part after #, so it never reaches server logs. */
 const linkFor = (ctx: OpUserCtx, token: string) => `${ctx.baseUrl}/join#${token}`;
 
@@ -32,32 +41,23 @@ export async function createShare(
   i: z.output<typeof CreateShareInput>,
 ): Promise<CreatedShare> {
   const { space, stub, actor } = await spaceOf(ctx, i.space);
-  const token = newShareToken(space.id);
-  const tokenHash = await hashToken(token);
+  const token = await shareToken(ctx, space.id, "create");
   const made = await stub.createShare(actor, ctx.idempotencyKey, {
     recordId: i.record_id,
     include: i.include ?? [],
     access: i.access,
     hide: i.hide_fields ?? [],
     expiresInDays: i.expires_in_days ?? null,
-    tokenHash,
+    tokenHash: await hashToken(token),
   });
-  // A repeated request returns the share made the first time, whose link we no longer have:
-  // give it a new one so the link shown always works.
-  if (made.token_hash !== tokenHash) {
-    const reset = await stub.resetShareLink(actor, null, made.share.id, tokenHash);
-    return { share: reset.share, link: linkFor(ctx, token) };
-  }
   return { share: made.share, link: linkFor(ctx, token) };
 }
 
 /** A new link for a share; the old one stops working. */
 export async function resetShareLink(ctx: OpUserCtx, spaceRef: string | undefined, shareId: string) {
   const { space, stub, actor } = await spaceOf(ctx, spaceRef);
-  const token = newShareToken(space.id);
-  const tokenHash = await hashToken(token);
-  let made = await stub.resetShareLink(actor, ctx.idempotencyKey, shareId, tokenHash);
-  if (made.token_hash !== tokenHash) made = await stub.resetShareLink(actor, null, shareId, tokenHash);
+  const token = await shareToken(ctx, space.id, `reset:${shareId}`);
+  const made = await stub.resetShareLink(actor, ctx.idempotencyKey, shareId, await hashToken(token));
   return { share: made.share, link: linkFor(ctx, token) } satisfies CreatedShare;
 }
 
@@ -115,6 +115,26 @@ async function shareStub(ctx: OpUserCtx, shareId: string) {
     .first<{ space_id: string }>();
   if (!row) throw new ObjectError("not_found", "Share not found");
   return { stub: ctx.objects.SPACES.getByName(spaceName(row.space_id)), spaceId: row.space_id };
+}
+
+/** Whether a collaborator's write touches money (MCP confirms first); false when not shared. */
+export async function sharedTouchesMoney(
+  ctx: OpUserCtx,
+  shareId: string,
+  target: { recordId?: string; section?: string },
+  keys: string[],
+): Promise<boolean> {
+  const row = await ctx.d1
+    .prepare(`select space_id from shared_with where user_id = ? and share_id = ?`)
+    .bind(ctx.user.id, shareId)
+    .first<{ space_id: string }>();
+  if (!row) return false;
+  return ctx.objects.SPACES.getByName(spaceName(row.space_id)).sharedTouchesMoney(
+    actorOf(ctx),
+    shareId,
+    target,
+    keys,
+  );
 }
 
 export async function openShare(ctx: OpUserCtx, shareId: string) {

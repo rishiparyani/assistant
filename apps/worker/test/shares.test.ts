@@ -153,6 +153,21 @@ describe("sharing a card", () => {
     expect((await api(friend)(`/cards/${share.id}`)).status).toBe(404);
   });
 
+  it("gives the same working link when a request is repeated", async () => {
+    const { owner, show } = await setUp();
+    const body = { record_id: show.id };
+    const first = await json<CreatedShare>(
+      await call("/api/shares", { cookie: owner.cookie, body, idempotencyKey: "test-share-key" }),
+    );
+    const again = await json<CreatedShare>(
+      await call("/api/shares", { cookie: owner.cookie, body, idempotencyKey: "test-share-key" }),
+    );
+    expect(again.link).toBe(first.link);
+    expect(again.share.id).toBe(first.share.id);
+    const friend = await signUp("Test Friend");
+    expect((await api(friend)("/cards/join", { body: { token: tokenOf(first.link) } })).status).toBe(200);
+  });
+
   it("rejects made-up links and unknown parts", async () => {
     const { owner, show } = await setUp();
     const friend = await signUp("Test Friend");
