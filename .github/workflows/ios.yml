@@ -184,6 +184,12 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # Each fresh runner makes a new Apple Development certificate and Apple caps how many
+      # an account may have; revoke the ones earlier builds made (scripts/apple-dev-certs.mjs).
+      - name: Revoke development certificates from earlier builds
+        if: steps.ready.outputs.ok
+        run: node scripts/apple-dev-certs.mjs
+
       - name: Build and upload to TestFlight
         if: steps.ready.outputs.ok
         run: |
