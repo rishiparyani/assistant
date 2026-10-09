@@ -376,3 +376,7 @@ Following design §10. Choices made while building it:
 - **Level 3 (Claude Sonnet 5.5) stays off for now:** it will be called through AI Gateway with the official Anthropic SDK once credit exists; adding that dependency gets its own decision then.
 - **Tests and local dev never call Workers AI:** `remoteBindings: false` in the test pool and the Vite plugin, and a scripted test model (`fake-model.ts`, `AI_FAKE=1`) that answers fixed test sentences. The app itself never reads messages with patterns (owner's rule).
 - **Not yet:** streaming replies (answers arrive whole, with a typing indicator), the model test against real models (needs the paid route for levels 2–3; the free level can be tried on dev), Hinglish and handover quality measurement.
+
+## 2026-10-10: Revoke CI's own development certificates before each TestFlight build
+
+Each GitHub Mac runner is fresh, so automatic signing makes a new Apple Development certificate every build, and Apple stops at its limit (uploads failed until the owner revoked 10). Chosen fix: before archiving, revoke the Development certificates named "Created via API" with the App Store Connect key the job already has (`scripts/apple-dev-certs.mjs`). No new secrets, Distribution certificates and anyone's Xcode certificates are untouched, and a failure only skips the cleanup. Rejected: storing a signing certificate as a secret (more secrets and owner steps); archiving unsigned (would lose the passkey entitlement).
