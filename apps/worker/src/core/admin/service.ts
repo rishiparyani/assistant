@@ -4,6 +4,8 @@
 import { ulid } from "@assistant/shared";
 import type { AdminCtx, AdminSection, ModuleDefinition } from "../module.ts";
 import { AppError } from "../errors.ts";
+import { formatINR } from "@assistant/shared";
+import { FREE_NEURONS_PER_DAY, type AiSettings } from "../assistant/models.ts";
 
 export const ownerEmails = (env: Env) =>
   (env.ADMIN_EMAILS ?? "")
@@ -52,8 +54,46 @@ async function peopleSection(d1: D1Database): Promise<AdminSection> {
   };
 }
 
-export async function overview(ctx: AdminCtx, modules: readonly ModuleDefinition[]) {
+/** The assistant's spending this month and today's free allowance (design §10). */
+async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSection> {
+  const budget = ctx.objects.BUDGET.get(ctx.objects.BUDGET.idFromName("budget:global"));
+  const v = await budget.view(settings.capPaise);
+  const used = v.spent_paise + v.reserved_paise;
+  const pct = v.cap_paise ? Math.round((used / v.cap_paise) * 100) : 0;
+  return {
+    title: "Assistant (AI)",
+    stats: [
+      {
+        label: `Spent in ${v.month}`,
+        value: formatINR(used),
+        hint: `of ${formatINR(v.cap_paise)} (calls stop at 90%)`,
+        tone: pct >= 80 ? "bad" : pct >= 50 ? "warn" : "ok",
+      },
+      {
+        label: "Free allowance today",
+        value: `${Math.round((v.neurons_today / FREE_NEURONS_PER_DAY) * 100)}%`,
+        hint: `${v.neurons_today.toLocaleString("en-IN")} of ${FREE_NEURONS_PER_DAY.toLocaleString("en-IN")} neurons (resets 5:30 AM IST)`,
+      },
+      { label: "Model calls today", value: v.calls_today },
+      {
+        label: "Smart model",
+        value: settings.paidGateway ? "On" : "Off",
+        hint: settings.paidGateway ? "prepaid credit route" : "needs prepaid AI credit (docs/setup.md)",
+        tone: settings.paidGateway ? "ok" : "warn",
+      },
+    ],
+  };
+}
+
+export async function overview(ctx: AdminCtx, modules: readonly ModuleDefinition[], settings?: AiSettings) {
   const sections = [await peopleSection(ctx.d1)];
+  if (settings) {
+    try {
+      sections.push(await aiSection(ctx, settings));
+    } catch (err) {
+      console.error("admin: AI section failed", err);
+    }
+  }
   for (const m of modules) {
     if (!m.admin?.sections) continue;
     try {

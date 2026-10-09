@@ -3,7 +3,7 @@
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { ModuleDefinition } from "../module.ts";
-import { objectBindings, requireUser, type AppEnv } from "../context.ts";
+import { aiSettings, objectBindings, requireUser, type AppEnv } from "../context.ts";
 import { AppError } from "../errors.ts";
 import * as admin from "./service.ts";
 import { operationStats } from "../metrics.ts";
@@ -38,7 +38,9 @@ export function adminRoutes(modules: readonly ModuleDefinition[]) {
   );
 
   r.use("/api/admin/*", requireUser, requireAdmin);
-  r.get("/api/admin/overview", async (c) => c.json(await admin.overview(ctxOf(c.env), modules)));
+  r.get("/api/admin/overview", async (c) =>
+    c.json(await admin.overview(ctxOf(c.env), modules, aiSettings(c.env))),
+  );
   r.get("/api/admin/admins", async (c) => c.json(await admin.listAdmins(c.env)));
   r.post("/api/admin/admins", async (c) => {
     const body = await c.req.json<{ email?: string }>().catch(() => ({}) as { email?: string });

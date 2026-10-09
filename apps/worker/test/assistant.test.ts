@@ -1,0 +1,112 @@
+// The in-app assistant (docs/design/universal.md §10) with the scripted test model
+// (src/core/assistant/fake-model.ts): tools run through the operations, money and setups
+// wait for a tap, level 1 hands setups over, and the budget keeps the cap. Fake data only.
+import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
+import type { ChatView, FindResult } from "@assistant/shared";
+import { call, json, signUp } from "./http.ts";
+
+type User = Awaited<ReturnType<typeof signUp>>;
+const say = (u: User, text: string, key?: string) =>
+  call("/api/chat", { cookie: u.cookie, body: { text }, ...(key ? { idempotencyKey: key } : {}) }).then((r) =>
+    json<ChatView>(r),
+  );
+const find = (u: User, collection: string) =>
+  call(`/api/collections/${collection}/find`, { cookie: u.cookie, body: {} }).then((r) =>
+    json<FindResult>(r),
+  );
+
+describe("chat", () => {
+  it("runs everyday tools at once and shows the answer", async () => {
+    const me = await signUp("Test Owner");
+    const empty = await json<ChatView>(await call("/api/chat", { cookie: me.cookie }));
+    expect(empty).toMatchObject({ items: [], setup_in_progress: false, smart_available: false });
+
+    const view = await say(me, "Test: note the PA needs two DI boxes");
+    expect(view.items.map((i) => [i.role, i.text])).toEqual([
+      ["user", "Test: note the PA needs two DI boxes"],
+      ["assistant", "Done."],
+    ]);
+    expect((await find(me, "Notes")).items.map((i) => i.title)).toEqual(["Test PA needs two DI boxes"]);
+  });
+
+  it("shows money as a card that runs only on Confirm, once", async () => {
+    const me = await signUp("Test Owner");
+    const view = await say(me, "Test: spent 450 on groceries");
+    const card = view.items.find((i) => i.role === "card")!;
+    expect(card.card).toMatchObject({ title: "Add to Expenses", status: "waiting" });
+    expect(card.card!.details).toContain("Amount: 450");
+    expect((await find(me, "Expenses")).items).toEqual([]);
+
+    const done = await json<ChatView>(
+      await call(`/api/chat/actions/${card.card!.action_id}/confirm`, { cookie: me.cookie, body: {} }),
+    );
+    expect(done.items.find((i) => i.role === "card")!.card!.status).toBe("done");
+    expect(done.items.at(-1)!.text).toBe("Done: Add to Expenses.");
+    const expenses = await find(me, "Expenses");
+    expect(expenses.items.map((i) => i.named.Amount)).toEqual(["₹450"]);
+    // A second tap can't add it again.
+    const again = await call(`/api/chat/actions/${card.card!.action_id}/confirm`, {
+      cookie: me.cookie,
+      body: {},
+    });
+    expect(again.status).toBe(409);
+  });
+
+  it("cancels a card without running it", async () => {
+    const me = await signUp("Test Owner");
+    const card = (await say(me, "Test: spent 450 on groceries")).items.find((i) => i.role === "card")!;
+    const view = await json<ChatView>(
+      await call(`/api/chat/actions/${card.card!.action_id}/cancel`, { cookie: me.cookie, body: {} }),
+    );
+    expect(view.items.find((i) => i.role === "card")!.card!.status).toBe("cancelled");
+    expect((await find(me, "Expenses")).items).toEqual([]);
+  });
+
+  it("hands setups over, and says so when the smart model is off", async () => {
+    const me = await signUp("Test Owner");
+    const view = await say(me, "Test: make a collection for fam jam sign-ups");
+    expect(view.items.at(-1)!.text).toMatch(/needs the smart model.*Collections → New/);
+    expect(view.setup_in_progress).toBe(false);
+    const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
+    expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");
+  });
+
+  it("answers a repeated send once, and keeps chats private", async () => {
+    const me = await signUp("Test Owner");
+    await say(me, "Hello", "k-1");
+    const again = await say(me, "Hello", "k-1");
+    expect(again.items.filter((i) => i.role === "user")).toHaveLength(1);
+    const card = (await say(me, "Test: spent 450 on groceries")).items.find((i) => i.role === "card")!;
+    const other = await signUp("Test Other");
+    expect((await json<ChatView>(await call("/api/chat", { cookie: other.cookie }))).items).toEqual([]);
+    const steal = await call(`/api/chat/actions/${card.card!.action_id}/confirm`, {
+      cookie: other.cookie,
+      body: {},
+    });
+    expect(steal.status).toBe(404);
+    // Not an MCP tool or API-token action.
+    expect((await call("/api/chat", { body: { text: "hi" } })).status).toBe(401);
+    const cleared = await json<ChatView>(await call("/api/chat", { cookie: me.cookie, method: "DELETE" }));
+    expect(cleared.items).toEqual([]);
+  });
+});
+
+describe("budget", () => {
+  it("refuses a paid call that would pass the cap less 10%, and settles to the real cost", async () => {
+    const budget = env.BUDGET.get(env.BUDGET.idFromName(`budget:test-${crypto.randomUUID()}`));
+    const cap = 200_000; // ₹2,000
+    const a = await budget.reserve("u1", 100_000, cap, cap);
+    expect(a.ok).toBe(true);
+    // 100,000 reserved + 90,000 would pass 180,000 (cap less 10%).
+    expect((await budget.reserve("u2", 90_000, cap, cap)).ok).toBe(false);
+    if (a.ok) await budget.settle(a.id, 1_000);
+    const b = await budget.reserve("u2", 90_000, cap, cap);
+    expect(b.ok).toBe(true);
+    // Per person: u2 has 90,000 reserved of a ₹1,000 personal cap.
+    expect(await budget.reserve("u2", 1_000, cap, 100_000)).toEqual({ ok: false, reason: "person_cap" });
+    const v = await budget.view(cap);
+    expect(v).toMatchObject({ spent_paise: 1_000, reserved_paise: 90_000, cap_paise: cap });
+    expect(await budget.neurons(120)).toBe(120);
+  });
+});

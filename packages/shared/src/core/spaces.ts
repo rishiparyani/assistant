@@ -555,3 +555,38 @@ export function periodRange(
     to: period === "past" ? nowIso : instant(b),
   };
 }
+
+// --- Chat with the assistant (design §10) -------------------------------------------------
+
+/** One thing on the chat screen. Tool calls and their raw results stay inside the chat object. */
+export interface ChatItem {
+  id: string;
+  role: "user" | "assistant" | "card" | "note";
+  text: string;
+  /** A confirm card: what the assistant wants to do, waiting for a tap. */
+  card?: {
+    action_id: string;
+    tool: string;
+    title: string;
+    details: string[];
+    status: "waiting" | "done" | "cancelled" | "failed" | "expired";
+    result?: string;
+  };
+  /** Which level answered (1 everyday, 2 smart, 3 best). */
+  level?: number;
+  created_at: string;
+}
+
+export interface ChatView {
+  items: ChatItem[];
+  /** A setup is being built: the smart model answers until it's saved. */
+  setup_in_progress: boolean;
+  /** Whether the smart model can be used now (prepaid credit set up and budget left). */
+  smart_available: boolean;
+}
+
+export const ChatSendInput = z.object({
+  text: z.string().trim().min(1).max(2000),
+  think_harder: z.boolean().optional(),
+});
+export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });

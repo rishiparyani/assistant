@@ -8,6 +8,7 @@ import { AppError } from "./errors.ts";
 import { decryptSecret, encryptSecret } from "./crypto.ts";
 import { hashToken } from "./tokens.ts";
 import type { UserCreatedHook } from "./module.ts";
+import type { AiSettings } from "./assistant/models.ts";
 
 export interface CtxUser {
   id: string;
@@ -45,6 +46,8 @@ export interface UserCtx {
   sealer: Sealer;
   /** What an API token may do; null for a signed-in session (everything). */
   scopes: readonly TokenScope[] | null;
+  /** The in-app assistant's models and limits (docs/design/universal.md §10). */
+  ai: { binding?: Ai; settings: AiSettings };
 }
 
 export type TokenScope = "read" | "write";
@@ -116,6 +119,20 @@ export function userCtxFor(
     baseUrl: env.BASE_URL,
     sealer: sealerFor(env),
     scopes,
+    ai: { binding: env.AI, settings: aiSettings(env) },
+  };
+}
+
+/** The assistant's settings from the Worker's vars (no secrets). */
+export function aiSettings(env: Env): AiSettings {
+  const vars = env as unknown as Record<string, string | undefined>;
+  const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v)) ? Number(v) : d);
+  return {
+    paidGateway: vars.AI_PAID_GATEWAY?.trim() || null,
+    capPaise: Math.round(num(vars.AI_MONTHLY_CAP_INR, 2000) * 100),
+    personCapPaise: Math.round(num(vars.AI_PERSON_CAP_INR, 2000) * 100),
+    usdInr: num(vars.USD_INR, 90),
+    fake: vars.AI_FAKE === "1",
   };
 }
 

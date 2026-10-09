@@ -38,6 +38,8 @@
       { "name": "INBOX", "class_name": "InboxObject" },
       { "name": "LIBRARIES", "class_name": "LibraryObject" },
       { "name": "SPACES", "class_name": "SpaceObject" },
+      { "name": "CHATS", "class_name": "ChatObject" },
+      { "name": "BUDGET", "class_name": "BudgetObject" },
     ],
   },
   "migrations": [
@@ -56,6 +58,10 @@
     {
       "tag": "v4",
       "new_sqlite_classes": ["SpaceObject"],
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["ChatObject", "BudgetObject"],
     },
   ],
   // Outbox notes travel here; the deploy workflow creates the queues if missing.
@@ -77,9 +83,18 @@
   "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "assistant_dev_metrics" }],
   // Health checks and alerts every 15 minutes, plus nightly jobs (core/scheduled.ts).
   "triggers": { "crons": ["*/15 * * * *"] },
+  // The in-app assistant (docs/design/universal.md §10): Workers AI through AI Gateway.
+  // The free route is the auto-created "default" gateway (Standard billing: the daily free
+  // allowance, then it stops). AI_PAID_GATEWAY names a Unified-billing gateway with prepaid
+  // credit; empty means paid models stay off. The cap is enforced by the app.
+  "ai": { "binding": "AI" },
   "vars": {
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://dev.gigspree.in",
+    "AI_PAID_GATEWAY": "",
+    "AI_MONTHLY_CAP_INR": "2000",
+    "AI_PERSON_CAP_INR": "2000",
+    "USD_INR": "90",
   },
   "env": {
     "production": {
@@ -107,6 +122,8 @@
           { "name": "INBOX", "class_name": "InboxObject" },
           { "name": "LIBRARIES", "class_name": "LibraryObject" },
           { "name": "SPACES", "class_name": "SpaceObject" },
+          { "name": "CHATS", "class_name": "ChatObject" },
+          { "name": "BUDGET", "class_name": "BudgetObject" },
         ],
       },
       "migrations": [
@@ -126,6 +143,10 @@
           "tag": "v4",
           "new_sqlite_classes": ["SpaceObject"],
         },
+        {
+          "tag": "v5",
+          "new_sqlite_classes": ["ChatObject", "BudgetObject"],
+        },
       ],
       // Outbox notes travel here; the deploy workflow creates the queues if missing.
       "queues": {
@@ -143,9 +164,14 @@
       },
       "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "assistant_metrics" }],
       "triggers": { "crons": ["*/15 * * * *"] },
+      "ai": { "binding": "AI" },
       "vars": {
         "ENVIRONMENT": "production",
         "BASE_URL": "https://gigspree.in",
+        "AI_PAID_GATEWAY": "",
+        "AI_MONTHLY_CAP_INR": "2000",
+        "AI_PERSON_CAP_INR": "2000",
+        "USD_INR": "90",
       },
     },
   },

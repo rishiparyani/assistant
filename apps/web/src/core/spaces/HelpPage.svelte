@@ -4,7 +4,7 @@
   import { Card, PageHeader } from "../ui/index.ts";
 
   // How to use Gigspree: a few examples for the assistant, and how to do things by tapping
-  // (everything works by tapping too). Examples become tappable once the chat is here.
+  // (everything works by tapping too). Examples open the chat with the text filled in.
   const ASK: { title: string; items: string[] }[] = [
     {
       title: "Everyday",
@@ -71,8 +71,8 @@
     <div class="intro">
       <span class="icon"><MessageCircle size={20} /></span>
       <p>
-        Soon you can just say what you want in the chat, in English or Hinglish. Until then, everything below
-        works by tapping.
+        Say what you want in the chat, in English or Hinglish: tap an example to try it. Everything also works
+        by tapping, and new setups (like a new collection) use the smart model once AI credit is added.
       </p>
     </div>
   </Card>
@@ -81,7 +81,9 @@
     <section>
       <h2>Ask: {group.title.toLowerCase()}</h2>
       <ul class="card">
-        {#each group.items as item (item)}<li class="ask">“{item}”</li>{/each}
+        {#each group.items as item (item)}
+          <li><a class="ask" href="/?ask={encodeURIComponent(item)}">“{item}”</a></li>
+        {/each}
       </ul>
     </section>
   {/each}
@@ -124,8 +126,14 @@
     border-top: 1px solid var(--separator);
   }
   .ask {
+    display: block;
     padding: var(--space-3) var(--space-4);
     min-height: 44px;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .ask:hover {
+    background: var(--surface-hover);
   }
   .tap {
     display: flex;

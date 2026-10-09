@@ -20,3 +20,6 @@ TELEGRAM_BOT_TOKEN=
 # Optional: the Apple developer Team ID, so passkeys work in the iPhone app
 # (/.well-known/apple-app-site-association). Not secret, but set like the others.
 APPLE_TEAM_ID=
+
+# The in-app assistant uses a scripted model locally (no Workers AI, no cost).
+AI_FAKE=1

@@ -12,6 +12,7 @@
   import RecordPage from "./spaces/RecordPage.svelte";
   import SetupPage from "./spaces/SetupPage.svelte";
   import HelpPage from "./spaces/HelpPage.svelte";
+  import ChatPage from "./assistant/ChatPage.svelte";
   import SongsPage from "../modules/music/SongsPage.svelte";
   import SongPage from "../modules/music/SongPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
@@ -79,6 +80,8 @@
       {:else if route.name === "admin"}
         <Admin />
       {:else if route.name === "root"}
+        <ChatPage />
+      {:else if route.name === "overview"}
         <Home />
       {:else if route.name === "my_gigs"}
         <MyGigs />
