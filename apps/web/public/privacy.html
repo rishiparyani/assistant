@@ -69,8 +69,11 @@
         font-size: 14px;
       }
       .home {
-        display: inline-block;
-        margin-bottom: 16px;
+        display: inline-flex;
+        align-items: center;
+        min-height: 44px;
+        padding-right: 12px;
+        margin-bottom: 8px;
         font-weight: 600;
         text-decoration: none;
       }
@@ -99,8 +102,9 @@
             notes and songs.
           </li>
           <li>
-            <strong>To run the app:</strong> a sign-in cookie, a history of changes on each gig (who changed
-            what and when), and, if you turn them on, the details your browser needs to send you
+            <strong>To run the app:</strong> a sign-in cookie (with each signed-in session we also keep the
+            device's IP address and browser type, to keep sessions secure), a history of changes on each gig
+            (who changed what and when), and, if you turn them on, the details your browser needs to send you
             notifications.
           </li>
         </ul>
@@ -136,16 +140,20 @@
 
         <h2>Where it's kept</h2>
         <p>
-          Data is stored with Cloudflare, which encrypts it on disk, and always travels over HTTPS. Secrets
-          such as connection keys are encrypted again by the app, and access tokens are stored only as one-way
-          hashes. The app saves upcoming gigs on your device so it works offline; signing out removes them.
+          Data is stored with Cloudflare, which encrypts it on disk, and always travels over HTTPS. Some
+          secrets, such as the Google Drive connection, are encrypted again by the app. The links and tokens
+          the app gives out (Siri Shortcuts, calendar feeds, guest list links) are stored only as one-way
+          hashes. Sign-in connections (Google, AI assistants) are kept by the sign-in system on the same
+          encrypted storage. The app saves upcoming gigs on your device so it works offline; signing out
+          removes them.
         </p>
 
         <h2>Keeping and deleting</h2>
         <p>
           Your data stays until you or a gig's manager delete it. Deleted items are hidden at once, but stay
-          in the gig's records and history until we erase them on request. Nightly backups are kept for up to
-          60 days. To have your account and data deleted, or to ask what we hold about you, write to
+          in the gig's records and history until we erase them on request. The newest 60 nightly backups are
+          kept in the owner's private Google Drive. To have your account and data deleted, or to ask what we
+          hold about you, write to
           <a href="mailto:privacy@gigspree.in">privacy@gigspree.in</a>.
         </p>
 
