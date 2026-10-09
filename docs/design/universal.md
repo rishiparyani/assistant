@@ -197,7 +197,7 @@ All AI goes through one **router**: our own code in the Worker (in the chat's ob
 
 1. Level: "setup in progress" in this chat, or the user pressed **Think harder** → level 2; otherwise level 1.
 2. Model within the level: the first enabled model with budget left (free allowance, person's limit, monthly cap, credit) that hasn't failed in the last few minutes.
-3. Call through **Cloudflare AI Gateway** with only that level's tools.
+3. Call through **Cloudflare AI Gateway** on the model's **billing route** (below) with only that level's tools, after reserving its maximum cost in the budget.
 4. The model answers, proposes actions, or calls **hand to the smart model** (with a reason).
    - Actions are **checked by the app** (fields exist, formulas parse, permissions, visibility); valid ones run or wait for confirmation (deletes, money, setups); results go back to the model (bounded steps).
    - **Hand over** → the chat is marked "setup in progress" and continues on level 2 with a short summary; level 2 calls **hand back** when the setup is approved and saved.
@@ -231,10 +231,11 @@ Tools take plain names; one resolver inside the space object turns them into ids
 ### AI cost and limits
 
 - **Cloudflare stays on the Free plan** (decision 2026-10-09): it stops at its free limits and can never bill. Paid AI is used only through **prepaid AI Gateway credit** (5% fee on purchases), with **auto top-up off**.
-- **Budget: ₹2,000 a month** for all AI (owner, 2026-10-09). Enforced three ways: Cloudflare **spend limits** on the gateway (overall and per person, set a little below the loaded credit), the app's own monthly cap with a warning at 80%, and per-person limits. After the cap, everyday chat uses the free allowance only; setup work waits.
+- **Two billing routes.** Cloudflare bills a gateway's Workers AI requests one way or the other: **Standard** (uses the free 10,000 neurons a day, then stops on the Free plan) or **Unified** (every request deducts prepaid credit, even for free-tier models). So there are two gateways: a **free route** (Standard) for GLM 4.7 Flash and other free-plan models, and a **paid route** (Unified) for Kimi, Claude and other paid models. Each model in the settings table names its route.
+- **Budget: ₹2,000 a month** for all AI (owner, 2026-10-09), enforced **by the app**: before every paid call the router **reserves** that call's maximum cost (its token limits × the model's price) in a budget counter, atomically; it settles to the real cost after the call. A call is refused if spent + reserved would pass the cap less a **10% headroom**. Per-person limits work the same way. A warning goes out at 80%; after the cap, everyday chat uses the free route only and setup work waits.
+- **Cloudflare's limits are backups, not the cap.** Gateway spend limits (set at the cap) and the prepaid balance catch app bugs, but Cloudflare's docs say spend limits are eventually consistent and a balance can briefly go negative (charged to the card later), so the app's reservation is what keeps spending under ₹2,000. The counter lives in a small budget object; AI calls are low-volume (hundreds a day), so one writer per call is acceptable here.
 - **Free allowance first:** 10,000 neurons a day on Workers AI (resets 5:30 AM IST). On GLM 4.7 Flash that's roughly 110 typical messages a day, about 8–10 daily AI users; search embeddings cost almost nothing.
 - **Expected spend:** about ₹300–800 a month for the owner, family and a few bandmates.
-- **To confirm at setup:** that on the Free plan, usage beyond the free allowance is charged to the credit rather than blocked (the docs suggest so).
 - **OpenRouter and other providers:** not needed now; the router can add them later as table entries.
 - **Collaborators** never use AI. Anyone can still connect their own Claude or ChatGPT through `/mcp` at no cost to the owner.
 
@@ -295,7 +296,7 @@ Same stack: Cloudflare Workers, Durable Objects, D1, Svelte, Capacitor for iPhon
 - **One Durable Object per person** for "my things across spaces": calendar, reminders, notifications, AI allowance, and for collaborators their "Shared with me" list.
 - **Shares** are checked inside the space object on every read and write: a collaborator's request only reaches the shared record, its included linked records, the rows their visibility rules allow and the allowed fields; anything else is 404. Personal answers are stored per person (`responses`) and returned only to that person and the owner.
 - **Reports** are views rendered by the space object and delivered by the queue (Telegram bot, email), with the same field limits as shares.
-- **Search:** Cloudflare Vectorize for meaning (embeddings from Workers AI, tagged with space, place and date so results are filtered to what the person can see), plus word indexes in each space. Indexing goes through the outbox and queue.
+- **Search:** Cloudflare Vectorize for meaning (embeddings from Workers AI, tagged with space, place and date to narrow the search), plus word indexes in each space. Indexing goes through the outbox and queue. **Vectorize returns candidate ids only:** every candidate is loaded and **authorized by its owning space object** (role, share, included records, row visibility, field limits) before any content reaches the results or the model; candidates that are deleted, revoked or no longer visible are dropped and their vectors removed.
 - **Why Durable Objects and not a wide-column store like Cassandra:** this app needs transactions across a record, its links and its totals, ad-hoc filters and reports, all of which SQLite does well inside one object per space; flexible fields come from values stored by field id plus the typed index table. Cassandra suits huge write volumes across many servers but is poor at ad-hoc queries and joins, and isn't on Cloudflare.
 - **Automations** run after the write commits, through the outbox and queue, with a depth limit (an automation can't trigger itself forever) and a per-space daily limit.
 - **Formulas** are parsed into a small expression tree and evaluated in the space object; no `eval`, no network, bounded time.
