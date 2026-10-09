@@ -1491,7 +1491,15 @@ export class SpaceObject extends DurableObject<Env> {
     if (!withData) return out;
     // The current state of each thing that changed (once each; deleted ones stay out).
     const ids = (kind: string) => [...new Set(page.filter((r) => r.kind === kind).map((r) => r.entity_id))];
-    out.records = ids("record").flatMap((id) => {
+    // Records that link to a changed (or deleted) record show its title, so they come too.
+    const changed = ids("record");
+    const linking = changed.flatMap((id) =>
+      this.sql
+        .exec<{ from_id: string }>(`select distinct from_id from links where to_id = ?`, id)
+        .toArray()
+        .map((l) => l.from_id),
+    );
+    out.records = [...new Set([...changed, ...linking])].flatMap((id) => {
       const r = this.sql
         .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
         .toArray()[0];

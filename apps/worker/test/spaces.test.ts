@@ -413,4 +413,31 @@ describe("access and sync", () => {
     expect(after.changes).toEqual([expect.objectContaining({ id: r.id, op: "delete" })]);
     expect(after.records).toEqual([]);
   });
+
+  it("sends records that link to a renamed record, so their link titles stay right", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", { body: { name: "Venues", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections", {
+      body: {
+        name: "Shows",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Venue", type: "link", options: { target: "Venues" } },
+        ],
+      },
+    });
+    const venue = await json<RecordView>(
+      await api(me)("/collections/Venues/records", { body: { values: { Title: "Test Hall" } } }),
+    );
+    const show = await json<RecordView>(
+      await api(me)("/collections/Shows/records", {
+        body: { values: { Title: "Test Show", Venue: venue.id } },
+      }),
+    );
+    const base = await json<ChangesView>(await api(me)("/space-changes?since=0"));
+    await api(me)(`/records/${venue.id}`, { method: "PATCH", body: { values: { Title: "Test Arena" } } });
+    const next = await json<ChangesView>(await api(me)(`/space-changes?since=${base.seq}&data=1`));
+    const sent = next.records!.find((x) => x.id === show.id);
+    expect(sent?.named.Venue).toEqual(["Test Arena"]);
+  });
 });
