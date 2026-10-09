@@ -6,6 +6,12 @@
   import { startSync } from "./outbox.svelte.ts";
   import { saveGigsAhead } from "../modules/gigs/offline.ts";
   import { saveSongsAhead } from "../modules/music/music-api.ts";
+  import { saveSpacesAhead } from "./spaces/spaces-api.ts";
+  import CollectionsPage from "./spaces/CollectionsPage.svelte";
+  import CollectionPage from "./spaces/CollectionPage.svelte";
+  import RecordPage from "./spaces/RecordPage.svelte";
+  import SetupPage from "./spaces/SetupPage.svelte";
+  import HelpPage from "./spaces/HelpPage.svelte";
   import SongsPage from "../modules/music/SongsPage.svelte";
   import SongPage from "../modules/music/SongPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
@@ -35,6 +41,7 @@
   // Offline first (docs/design/offline.md): save upcoming gigs and lists ahead.
   saveAheadWith(saveGigsAhead);
   saveAheadWith(saveSongsAhead);
+  saveAheadWith(saveSpacesAhead);
   const signedIn = startOffline(() => !!session.me);
   $effect(() => signedIn(!!session.me));
   // Send changes made offline whenever there's a chance.
@@ -94,6 +101,22 @@
         <Reports />
       {:else if route.name === "contacts"}
         <Contacts />
+      {:else if route.name === "collections"}
+        <CollectionsPage />
+      {:else if route.name === "collection"}
+        {#key route.params.collectionId}
+          <CollectionPage collectionId={route.params.collectionId!} />
+        {/key}
+      {:else if route.name === "collection_setup"}
+        {#key route.params.collectionId}
+          <SetupPage collectionId={route.params.collectionId!} />
+        {/key}
+      {:else if route.name === "record"}
+        {#key route.params.recordId}
+          <RecordPage collectionId={route.params.collectionId!} recordId={route.params.recordId!} />
+        {/key}
+      {:else if route.name === "help"}
+        <HelpPage />
       {:else if route.name === "songs"}
         <SongsPage />
       {:else if route.name === "song"}
