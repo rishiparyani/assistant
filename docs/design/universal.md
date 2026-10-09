@@ -199,6 +199,23 @@ All AI goes through one **router**: our own code in the Worker (in the chat's ob
 
 **Language:** English screens; the assistant understands English and Hinglish (mixed Hindi-English as typed on WhatsApp).
 
+### Keeping the AI's context small
+
+- **Few, generic tools.** Level 1 has about 10 (find, add, update, link, search, remind, show a view, describe a collection, hand over); level 2 adds about 10–12 setup tools only during a setup. Collections and fields are data, not tools, so the tool list doesn't grow with features (today's gig app needs 56 tools).
+- **Only the relevant setup.** A one-line summary per collection (`Guests: Name (text), Plus-ones (number), Heads (formula), Host (person), Gig (link → Gigs), Arrived (counter, max Heads)`), only for the few collections closest to the message by meaning (embeddings, not patterns) plus recently used ones. Anything else via **describe collection**.
+- **One filter language** (field, condition, value; "this week", "is me"), explained once.
+- **Short results** (requested fields, top matches); recent messages plus a running summary; component and app tool details loaded only when used; the stable prefix cached.
+- **Rough sizes:** about 3,000 tokens for an everyday request, 5,000–8,000 during a setup. The model test measures real sizes.
+
+### Names to internal ids
+
+Tools take plain names; one resolver inside the space object turns them into ids before anything runs:
+
+- **Collections and fields:** names are unique (per space, per collection); matching ignores case and extra spaces; fields can have **aliases**. No match → an error listing the real names; the app never picks.
+- **Records** ("the Sunburn gig", "Rahul"): search the collection's title index with the given context; exactly one → used; several → candidates returned and the assistant asks; none → error. Tool results include ids, so later turns pass ids directly.
+- **Choices** must match an option; **people** match members and contacts by name or email (several → candidates); **dates** are made exact by the model (today's date and India time are in its instructions) and validated by the app.
+- Rule 10 holds: no silent fuzzy matching on writes.
+
 ### AI cost and limits
 
 - **Cloudflare stays on the Free plan** (decision 2026-10-09): it stops at its free limits and can never bill. Paid AI is used only through **prepaid AI Gateway credit** (5% fee on purchases), with **auto top-up off**.
@@ -273,9 +290,20 @@ Same stack: Cloudflare Workers, Durable Objects, D1, Svelte, Capacitor for iPhon
 - **Kept from today:** sign-in and passkeys, the operation registry (one definition → screen API, MCP tool and assistant tool), idempotency and audit, the outbox, offline outbox and appliers, live updates, the UI kit (sheets, tabs, swipe), notifications, backups, the iPhone shell, deploys.
 - **Removed once the Gigs template passes:** the gigs and music modules' own objects and screens.
 
-### Offline
+### Offline and sync
 
-The app opens offline; pinned views and upcoming records are saved ahead. Record changes go through the offline outbox and sync later. Chat with the assistant needs a connection; comments queue and sync later.
+Offline-first stays (rule 17), now for every collection:
+
+- **On the device:** all setups (collections, fields, rules, views, screens); all records for normal-sized spaces, or pinned views, upcoming, recent and opened records for very large ones; things shared with you; Songbook charts for any set list you have. On the iPhone this is **one on-device database shared by the app, its widgets and the on-device AI** (App Group); on the web, IndexedDB.
+- **Pull:** each space keeps a numbered change log; the device asks for changes since its last number.
+- **Push:** changes are saved and shown at once, get their ULID on the device, and go through the outbox in order when online.
+- **Rules on the device:** checks and formulas run with the same shared code for instant feedback; the server is final, and a change that's no longer valid shows under "Couldn't sync" with the reason.
+- **Conflicts:** merged per field; the later change to the same field wins and history keeps the earlier one.
+- **Offline:** browsing, views, screens, adding and editing, checks, the guest counter, stage mode, word search, and the on-device AI on supported iPhones. **Online only:** search by meaning, cloud AI, new share links, connectors, automations and reports.
+
+### On-device AI (iPhone)
+
+On iPhones with Apple Intelligence (the owner's iPhone 16 Pro qualifies), Apple's on-device model (Foundation Models framework, iOS 26+) handles easy requests first: free, private, offline, with tool use and structured answers over the local data ("mark Rahul's group arrived", "add ₹450 for food", "who's still not in?"). It hands anything harder to the cloud levels; offline, it does what it can and queues the rest. Limits: small model, short context, iPhone only; Hinglish quality to be checked in the model test.
 
 ## 13. Rules that change (AGENTS.md)
 
@@ -292,7 +320,7 @@ Each stage ships something usable.
 
 1. **Core with chat.** Chat home with the assistant (model router, free allowance first, model test), the starter setup, spaces, collections and fields, records, links, list/table/card views, pop-up and pinned views. The assistant creates and finds things for you.
 2. **Sharing.** Cards, views and forms; join links; field and row visibility; personal answers; the collaborators' "Shared with me" screen; comments.
-3. **iPhone widgets and App Intents.** Any pinned view as a home-screen or lock-screen widget (chosen in iOS's widget settings, keeps its filters; interactive: tick, mark done, count arrivals). App Intents expose actions to Siri, Shortcuts, Spotlight and the Action button ("Add expense", "Ask Gigspree…", "Show [view]", "Add to [list]"). Native Swift in `apps/ios`: the app saves view snapshots in shared App Group storage and widgets refresh from the server when iOS allows; views map to native widget layouts (list, number, progress, next item, mini calendar).
+3. **iPhone: widgets, App Intents and on-device AI.** Any pinned view as a home-screen or lock-screen widget (chosen in iOS's widget settings, keeps its filters; interactive: tick, mark done, count arrivals). App Intents expose actions to Siri, Shortcuts, Spotlight and the Action button ("Add expense", "Ask Gigspree…", "Show [view]", "Add to [list]"). Native Swift in `apps/ios`: the app saves view snapshots in shared App Group storage and widgets refresh from the server when iOS allows; views map to native widget layouts (list, number, progress, next item, mini calendar). The on-device database shared by app and widgets, and Apple's on-device model as the first level for easy requests on supported iPhones.
 4. **Search.** By words and by meaning across records, chats and comments.
 5. **Calculated fields and rules.** Formulas, rollups, checks (including uniqueness), status flows, permissions, protected money; the pick board. Fam jam test passes.
 6. **Screens and the Songbook app.** Record pages with linked sections, field display formats (counter, toggle, rich text, chord chart), ordered links with dividers, the screen builder with the starting components, print/PDF; the Songbook app (from the music module) with set lists linking to it. Guest list test passes.
@@ -309,7 +337,8 @@ Decided by the owner (2026-10-09):
 - Starter setup plus setups built by chat; collaborators get only what's shared with them; reports by chat to Telegram or email.
 - **AI:** Cloudflare only (Workers AI and AI Gateway); Free plan; prepaid credit; **₹2,000 a month** cap; router with three levels and no rule-based message parsing; Kimi K2.6 for setups, Claude Sonnet 5.5 as backup, everyday on the free model unless the test favours Haiku 5.5.
 - Connectors instead of "email in". English and Hinglish.
-- iPhone widgets for any pinned view and App Intents (Siri, Shortcuts, Spotlight, Action button), right after core and sharing.
+- iPhone widgets for any pinned view, App Intents (Siri, Shortcuts, Spotlight, Action button) and the on-device AI (owner has an iPhone 16 Pro), right after core and sharing.
+- Offline-first for every collection: local copy, numbered change log, outbox, per-field merge.
 - Test cases the engine must pass: fam jam sign-ups and the gig guest list, both built by chat.
 - A **screen builder** from components (the chat arranges them; new components are added in code) and **apps** for deep features, built in code; **Songbook** is the first app.
 - No privacy rule for AI providers while only the owner uses AI. No WhatsApp automation (against WhatsApp's terms). In-app group chats later.
