@@ -52,6 +52,37 @@ export async function replaceAll(scope: string, records: { id: string }[]): Prom
   await done(tx);
 }
 
+/** Saves or replaces these records under `scope` (others stay). */
+export async function putMany<T extends { id: string }>(scope: string, records: T[]): Promise<void> {
+  if (!records.length) return;
+  const tx = (await open()).transaction(STORE, "readwrite");
+  const store = tx.objectStore(STORE);
+  for (const r of records) store.put(r, `${scope}:${r.id}`);
+  await done(tx);
+}
+
+/** Removes these ids under `scope`. */
+export async function deleteMany(scope: string, ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const tx = (await open()).transaction(STORE, "readwrite");
+  const store = tx.objectStore(STORE);
+  for (const id of ids) store.delete(`${scope}:${id}`);
+  await done(tx);
+}
+
+/** Everything saved under `scope` ([] when nothing is, or the device can't store anything). */
+export async function getAll<T>(scope: string): Promise<T[]> {
+  try {
+    const req = (await open()).transaction(STORE).objectStore(STORE).getAll(range(scope));
+    return await new Promise<T[]>((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result as T[]);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return [];
+  }
+}
+
 /** One saved record, or undefined (also when the device can't store anything). */
 export async function getOne<T>(scope: string, id: string): Promise<T | undefined> {
   try {

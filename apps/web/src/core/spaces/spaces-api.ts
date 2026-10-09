@@ -24,6 +24,7 @@ import {
 import { request } from "../api.ts";
 import { applyWith, send, type Change } from "../outbox.svelte.ts";
 import { readCache, writeCache } from "../query.svelte.ts";
+import { findLocal, localCollections, localRecord, localViews, orLocal, syncSpace } from "./local-copy.ts";
 
 const enc = encodeURIComponent;
 
@@ -107,13 +108,32 @@ export function filterLabel(c: CollectionView, f: Filter): string {
 }
 
 export const spacesApi = {
+  // Reads fall back to the offline copy (local-copy.ts) when there's no connection.
   spaces: () => request<SpaceView[]>("GET", "/api/spaces"),
-  collections: () => request<CollectionView[]>("GET", "/api/collections"),
-  collection: (ref: string) => request<CollectionView>("GET", `/api/collections/${enc(ref)}`),
-  record: (id: string) => request<RecordView>("GET", `/api/records/${enc(id)}`),
-  // online-only: a read sent as POST (filters are JSON); offline, the saved results show.
+  collections: () =>
+    orLocal(
+      () => request<CollectionView[]>("GET", "/api/collections"),
+      async () => {
+        const local = await localCollections();
+        return local.length ? local : undefined;
+      },
+    ),
+  collection: (ref: string) =>
+    orLocal(
+      () => request<CollectionView>("GET", `/api/collections/${enc(ref)}`),
+      async () => (await localCollections()).find((c) => c.id === ref || c.name === ref),
+    ),
+  record: (id: string) =>
+    orLocal(
+      () => request<RecordView>("GET", `/api/records/${enc(id)}`),
+      () => localRecord(id),
+    ),
+  // online-only: a read sent as POST (filters are JSON); offline, the offline copy answers.
   find: (collection: string, q: FindQuery = {}, quiet = false) =>
-    request<FindResult>("POST", `/api/collections/${enc(collection)}/find`, q, { quiet }),
+    orLocal(
+      () => request<FindResult>("POST", `/api/collections/${enc(collection)}/find`, q, { quiet }),
+      () => findLocal(collection, q),
+    ),
 
   // Setups are made at home; records (below) work offline.
   // online-only: a new setup needs the server (names are checked across the space).
@@ -132,9 +152,26 @@ export const spacesApi = {
   removeField: (ref: string, field: string) =>
     request<CollectionView>("DELETE", `/api/collections/${enc(ref)}/fields/${enc(field)}`),
 
-  views: () => request<SavedView[]>("GET", "/api/views"),
+  views: () =>
+    orLocal(
+      () => request<SavedView[]>("GET", "/api/views"),
+      async () => {
+        const local = await localViews();
+        return local.length
+          ? local.sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.position - b.position)
+          : undefined;
+      },
+    ),
   openView: (id: string, quiet = false) =>
-    request<OpenedView>("GET", `/api/views/${enc(id)}`, undefined, { quiet }),
+    orLocal(
+      () => request<OpenedView>("GET", `/api/views/${enc(id)}`, undefined, { quiet }),
+      async () => {
+        const view = (await localViews()).find((v) => v.id === id);
+        const collection = view && (await localCollections()).find((c) => c.id === view.collection_id);
+        const result = view && (await findLocal(view.collection_id, viewQuery(view)));
+        return view && collection && result ? { view, collection, result } : undefined;
+      },
+    ),
   // online-only: a saved view is part of the setup (names are checked across the space).
   saveView: (body: ViewBody & { name: string; collection: string; pinned?: boolean }) =>
     request<SavedView>("POST", "/api/views", body),
@@ -179,6 +216,8 @@ export const savedCollections = () => readCache<CollectionView[]>(COLLECTIONS_KE
 
 /** Saves setups and each collection's first page ahead, so they open offline. */
 export async function saveSpacesAhead() {
+  // The whole space on the device first (records, setups, views), then the screens' caches.
+  await syncSpace();
   const cols = await spacesApi.collections();
   writeCache(COLLECTIONS_KEY, cols);
   for (const c of cols.slice(0, 30)) {

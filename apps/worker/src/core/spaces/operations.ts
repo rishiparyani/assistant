@@ -330,7 +330,7 @@ export const spaceOperations = [
     input: ChangesInput,
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
-      return stub.changes(actor, i.since, i.limit);
+      return stub.changes(actor, i.since, i.limit, i.data === "1");
     },
   }),
 ];

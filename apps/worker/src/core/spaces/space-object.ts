@@ -1467,13 +1467,13 @@ export class SpaceObject extends DurableObject<Env> {
 
   // --- Sync ---------------------------------------------------------------------------------
 
-  async changes(actor: Actor, since: number, limit: number): Promise<ChangesView> {
+  async changes(actor: Actor, since: number, limit: number, withData = false): Promise<ChangesView> {
     this.role(actor);
     const rows = this.sql
       .exec<{
         seq: number;
         at: string;
-        kind: "collection" | "record" | "space";
+        kind: "collection" | "record" | "space" | "view";
         entity_id: string;
         op: "upsert" | "delete";
       }>(
@@ -1483,11 +1483,37 @@ export class SpaceObject extends DurableObject<Env> {
       )
       .toArray();
     const page = rows.slice(0, limit);
-    return {
+    const out: ChangesView = {
       changes: page.map((r) => ({ seq: r.seq, at: r.at, kind: r.kind, id: r.entity_id, op: r.op })),
       seq: page.at(-1)?.seq ?? since,
       more: rows.length > limit,
     };
+    if (!withData) return out;
+    // The current state of each thing that changed (once each; deleted ones stay out).
+    const ids = (kind: string) => [...new Set(page.filter((r) => r.kind === kind).map((r) => r.entity_id))];
+    out.records = ids("record").flatMap((id) => {
+      const r = this.sql
+        .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
+        .toArray()[0];
+      return r ? [this.recordView(r)] : [];
+    });
+    out.collections = ids("collection").flatMap((id) => {
+      const c = this.sql
+        .exec<CollectionRow>(
+          `select id, name, description, title_field_id, position, updated_at from collections where id = ? and deleted_at is null`,
+          id,
+        )
+        .toArray()[0];
+      return c ? [this.collectionView(c)] : [];
+    });
+    out.views = ids("view").flatMap((id) => {
+      const v = this.sql
+        .exec<ViewRow>(`select * from views where id = ? and deleted_at is null`, id)
+        .toArray()[0];
+      const view = v ? this.viewOf(v) : null;
+      return view ? [view] : [];
+    });
+    return out;
   }
 
   // --- Name resolution (design §10: plain names in, ids out; never a guess) ---------------

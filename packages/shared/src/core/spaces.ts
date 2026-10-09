@@ -125,6 +125,10 @@ export interface ChangesView {
   changes: ChangeView[];
   /** The newest seq; pass it back as `since` next time. */
   seq: number;
+  /** With `data=1`: the current state of what changed in this page (deleted ones are left out). */
+  records?: RecordView[];
+  collections?: CollectionView[];
+  views?: SavedView[];
   /** More changes are waiting (call again with `since` = `seq`). */
   more: boolean;
 }
@@ -292,6 +296,8 @@ export const FindRecordsInput = CollectionRef.extend({
 export const ChangesInput = SpaceRef.extend({
   since: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(1000).default(500),
+  /** "1": include the current data of what changed (the app's offline copy). */
+  data: z.enum(["0", "1"]).optional(),
 });
 
 // --- Saved views (design §10: pop-up and pinned views) -----------------------------------
