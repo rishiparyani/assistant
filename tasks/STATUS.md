@@ -4,6 +4,8 @@ _Updated: 2026-10-03_
 
 ## Last done
 
+- **New direction approved: a universal, chat-centric assistant** (2026-10-09, `docs/design/universal.md`, decision 2026-10-09). The owner wants one assistant for everything, with workflows built by chat. AGENTS.md updated (spaces, in-app assistant through the router, Cloudflare Free plan with prepaid AI, no pattern parsing of messages, apps contract). Backlog: Phase 2 tasks P2-1a (data engine), P2-1b (app shell), P2-1c (router and model test). Also live today: privacy and terms pages ([rishiparyani/assistant#55](https://github.com/rishiparyani/assistant/pull/55)); Google sign-in app published by the owner.
+
 - **Privacy policy and terms pages** (2026-10-09, needed to publish the Google sign-in app): static `apps/web/public/privacy.html` and `terms.html` (served at `/privacy`, `/terms`, light/dark, phone width), linked from the sign-in page. Contact address `privacy@gigspree.in` (owner: forward it to their inbox with Cloudflare Email Routing). Google Auth Platform → Branding takes `https://gigspree.in/privacy` and `https://gigspree.in/terms`.
 
 - **Tabs that own their content** (decision 2026-10-03, owner: "it becomes very difficult to know this content is part of the details tab or the money tab"): the gig page (Details · Money · People) and Guest list · Lists · Notes now use `core/ui/Tabs.svelte` instead of the pill switch: an underline slides to the open tab, and the bar sticks under the top bar (top of the page on desktop) while that tab's content scrolls, so the open tab is always on screen. Tapping a tab from far down opens the new tab at its top (`revealTabs` knows sticky tabs); arrow keys move between tabs. `Segmented` stays for choices and filters (Upcoming · Past, All · Clients, sheets). Swipe animation is clipped by a `.clip` wrapper so the bar can reach the screen edges. Browser: 6 tab checks (pinned at 52 px, tap from far down, keys, dark, 1280/820, Together page) + 7 swipe checks re-run.
@@ -149,10 +151,9 @@ _Updated: 2026-10-03_
 
 ## Next
 
-1. All planned tasks (T08–T12, address book) are live on prod (T09 + T10 + T11 merged in [rishiparyani/assistant#27](https://github.com/rishiparyani/assistant/pull/27) with the owner's OK, 2026-09-29; prod migrations 8). Next: owner feedback. Owner to try: notifications "Send a test" on the iPhone Home Screen app (never tested on a real device), connect Claude to `/mcp`. Owner steps still open: `TELEGRAM_BOT_TOKEN` + message the bot; Drive API + redirect URIs + Connect in the admin panel; publish the Google app; optional `ANALYTICS_TOKEN`.
-2. (done) **R1 step 2, gigs** (design section 12): create/edit gigs with events and people via the API, permissions, version checks.
-3. Paused: the rest of T06 (collective views), replaced by R1.
-4. Owner, before inviting bandmates: publish the Google app (Google Cloud → Google Auth Platform → Audience → Publish app).
+1. **Phase 2, stage 1** (`tasks/backlog.md`): P2-1a data engine → P2-1b app shell (replaces the gig app at gigspree.in as it becomes usable) → P2-1c model router and model test.
+2. Owner steps still open: `ADMIN_EMAILS` GitHub secret = the owner's email (then a redeploy), then Admin panel → Backups → Connect Google Drive (Drive API and redirect URIs done); GitHub safety switches (secret scanning, push protection, Dependabot, fork approvals); `privacy@gigspree.in` via Cloudflare Email Routing; optional `TELEGRAM_BOT_TOKEN`; verify the Google Cloud account (console banner). For P2-1c: prepaid AI credit and spend limits in Cloudflare AI Gateway (instructions to come).
+3. Owner to try: notifications "Send a test" on the iPhone app.
 
 ## Gotchas (for any agent)
 
@@ -180,7 +181,7 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 - [x] Cloudflare account created (workers.dev subdomain: `rishiparyani.workers.dev`)
 - [x] GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added (owner reported 2026-09-26; first deploy will verify)
 - [x] Google OAuth client created; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` added as GitHub secrets (owner reported 2026-09-26)
-- [ ] Google app published (needed before bandmates can sign in with Google). Branding filled 2026-10-09; needs the privacy/terms links, then Audience → Publish app.
+- [x] Google app published (2026-10-09)
 - [x] Claude connector points at the real app (`/mcp` tools seen 2026-10-09)
 - [x] Apple secrets set; TestFlight uploads run on every push to `main`
 - [ ] Email Routing: `privacy@gigspree.in` → owner's inbox (Cloudflare → gigspree.in → Email → Email Routing)
