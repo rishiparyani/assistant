@@ -92,7 +92,8 @@ export function clearOutbox() {
 }
 
 // --- Showing waiting changes on screen ----------------------------------------------------
-type Applier = (data: unknown, change: Change) => unknown;
+/** Shows a change on one screen's data; `key` is that screen's cache key. */
+type Applier = (data: unknown, change: Change, key: string) => unknown;
 // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping, not rendered
 const appliers = new Map<string, Applier>();
 const OVERLAID = Symbol("overlaid");
@@ -116,7 +117,7 @@ export function overlay<T>(scope: string, base: T | undefined): T | undefined {
     const fn = appliers.get(c.kind);
     if (!fn) continue;
     try {
-      data = fn(data, c);
+      data = fn(data, c, scope);
       changed = true;
     } catch {
       // Can't show this one (e.g. its list is gone): it still syncs.

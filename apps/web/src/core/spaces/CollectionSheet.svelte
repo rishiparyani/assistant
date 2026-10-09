@@ -15,6 +15,9 @@
   let name = $state("");
   let description = $state("");
   let fields = $state<FieldSpec[]>([]);
+  // A stable key per field row, so removing one doesn't hand its editor to the next.
+  let keys = $state<number[]>([]);
+  let nextKey = 0;
   let busy = $state(false);
 
   $effect(() => {
@@ -23,6 +26,7 @@
       name = "";
       description = "";
       fields = [{ name: "Title", type: "text", required: true }];
+      keys = [nextKey++];
     });
   });
 
@@ -66,7 +70,7 @@
     <div class="fields">
       <h3>Fields</h3>
       <p class="fine">The first text field is each record's title.</p>
-      {#each fields as f, i (i)}
+      {#each fields as f, i (keys[i])}
         <div class="field">
           <FieldEditor bind:field={fields[i]!} collections={others} />
           {#if i > 0}
@@ -74,12 +78,21 @@
               type="button"
               class="remove"
               aria-label="Remove {f.name || 'field'}"
-              onclick={() => (fields = fields.filter((_, j) => j !== i))}><Trash size={16} /></button
+              onclick={() => {
+                fields = fields.filter((_, j) => j !== i);
+                keys = keys.filter((_, j) => j !== i);
+              }}><Trash size={16} /></button
             >
           {/if}
         </div>
       {/each}
-      <Button variant="tinted" onclick={() => (fields = [...fields, blank()])}>
+      <Button
+        variant="tinted"
+        onclick={() => {
+          fields = [...fields, blank()];
+          keys = [...keys, nextKey++];
+        }}
+      >
         {#snippet icon()}<Plus />{/snippet}
         Add a field
       </Button>

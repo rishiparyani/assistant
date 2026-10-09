@@ -79,7 +79,9 @@
   // One field in a sheet: a new one, or changes to an existing one (its type stays).
   let editing = $state<{ field: FieldSpec; existing: FieldView | null } | null>(null);
   let sheetOpen = $state(false);
+  let opened = $state(0);
   function open(f: FieldView | null) {
+    opened++;
     editing = {
       existing: f,
       field: f
@@ -177,7 +179,9 @@
   <Sheet bind:open={sheetOpen} title={editing?.existing ? `Field: ${editing.existing.name}` : "New field"}>
     {#if editing}
       <form id="field-form" class="form" onsubmit={saveField}>
-        <FieldEditor bind:field={editing.field} collections={others} lockType={!!editing.existing} />
+        {#key opened}
+          <FieldEditor bind:field={editing.field} collections={others} lockType={!!editing.existing} />
+        {/key}
         {#if editing.existing}<p class="fine">A field's type can't change; add a new field instead.</p>{/if}
       </form>
     {/if}

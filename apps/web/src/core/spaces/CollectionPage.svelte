@@ -107,6 +107,11 @@
       loadingMore = false;
     }
   }
+  /** A new record that hasn't synced yet has no page to open. */
+  const unsynced = (r: RecordView) => isPending(r) && !r.version;
+  function open(r: RecordView) {
+    if (collection && !unsynced(r)) navigate(`/c/${collection.id}/${r.id}`);
+  }
   const items = $derived(records.data ? [...records.data.items, ...more] : null);
   const tableFields = $derived(collection?.fields.filter((f) => f.type !== "long_text").slice(0, 8) ?? []);
 
@@ -207,7 +212,7 @@
         <ListRow
           title={r.title}
           subtitle={summaryOf(collection, r) || undefined}
-          href={isPending(r) && !r.version ? undefined : `/c/${collection.id}/${r.id}`}
+          href={unsynced(r) ? undefined : `/c/${collection.id}/${r.id}`}
           chevron
         >
           {#snippet trailing()}{#if isPending(r)}<Pill tone="amber">Waiting to sync</Pill>{/if}{/snippet}
@@ -226,9 +231,9 @@
           {#each items as r (r.id)}
             <tr
               class:pending={isPending(r)}
-              onclick={() => navigate(`/c/${collection.id}/${r.id}`)}
+              onclick={() => open(r)}
               tabindex="0"
-              onkeydown={(e) => e.key === "Enter" && navigate(`/c/${collection.id}/${r.id}`)}
+              onkeydown={(e) => e.key === "Enter" && open(r)}
             >
               {#each tableFields as f (f.id)}
                 <td class:num={f.type === "money" || f.type === "number"}>

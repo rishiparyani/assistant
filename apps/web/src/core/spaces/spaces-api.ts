@@ -265,9 +265,23 @@ function changed(r: RecordView, a: Args, c: Change): RecordView {
   } as RecordView;
 }
 
-applyWith("spaces.add_record", (data, c) => {
+/** A list screen showing the whole collection (no filters or search): new records belong there. */
+function wholeList(key: string): boolean {
+  const q = key.split("|list|")[1];
+  if (q === undefined) return false;
+  try {
+    const query = JSON.parse(q) as FindQuery;
+    return !query.filters?.length && !query.search;
+  } catch {
+    return false;
+  }
+}
+
+// A new record shows only on unfiltered lists (it may not match a filter; it appears
+// everywhere it belongs once synced).
+applyWith("spaces.add_record", (data, c, key) => {
   const a = c.args as unknown as Args;
-  if (!isList(data) || data.items.some((r) => r.id === a.id)) return data;
+  if (!isList(data) || !wholeList(key) || data.items.some((r) => r.id === a.id)) return data;
   const at = new Date(c.at).toISOString();
   const blank: RecordView = {
     id: a.id,
