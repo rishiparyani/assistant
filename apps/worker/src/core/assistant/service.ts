@@ -148,7 +148,11 @@ function systemPrompt(ctx: OpUserCtx, level: Level, cols: CollectionView[]): str
 }
 
 /** What a confirm card says, from the tool and its arguments. */
-function describe(tool: string, args: Record<string, unknown>): { title: string; details: string[] } {
+function describe(
+  tool: string,
+  args: Record<string, unknown>,
+  target: string | null = null,
+): { title: string; details: string[] } {
   const col = typeof args.collection === "string" ? args.collection : null;
   const values = (args.values && typeof args.values === "object" ? args.values : {}) as Record<
     string,
@@ -161,9 +165,9 @@ function describe(tool: string, args: Record<string, unknown>): { title: string;
     case "add_record":
       return { title: `Add to ${col ?? "a collection"}`, details: pairs };
     case "update_record":
-      return { title: "Change a record", details: pairs };
+      return { title: target ? `Change ${target}` : "Change a record", details: pairs };
     case "delete_record":
-      return { title: "Delete a record", details: [] };
+      return { title: target ? `Delete ${target}` : "Delete a record", details: [] };
     case "create_collection": {
       const fields = Array.isArray(args.fields) ? (args.fields as { name?: string; type?: string }[]) : [];
       return {
@@ -176,10 +180,22 @@ function describe(tool: string, args: Record<string, unknown>): { title: string;
         .filter(([k]) => k !== "values")
         .map(([k, v]) => `${k.replace(/_/g, " ")}: ${show(v)}`);
       return {
-        title: tool.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+        title: tool.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) + (target ? `: ${target}` : ""),
         details: [...rest, ...pairs],
       };
     }
+  }
+}
+
+/** “Test groceries” (Expenses), for a card; the tool's own check reports a bad id. */
+async function recordLabel(ctx: OpUserCtx, recordId: string): Promise<string | null> {
+  try {
+    const { stub, actor } = await spaceOf(ctx, undefined);
+    const r = await stub.getRecord(actor, recordId);
+    const col = (await stub.collections(actor)).find((c) => c.id === r.collection_id);
+    return `“${r.title}”${col ? ` (${col.name})` : ""}`;
+  } catch {
+    return null;
   }
 }
 
@@ -212,7 +228,29 @@ export async function sendMessage(
 ): Promise<ChatView> {
   const chat = chatOf(ctx);
   const uid = ctx.user.id;
-  if (ctx.idempotencyKey && (await chat.forKey(uid, ctx.idempotencyKey))) return chatView(ctx);
+  // Claim the key first, so an overlapping retry can't run tools a second time.
+  const key = ctx.idempotencyKey ?? `chat-send:${crypto.randomUUID()}`;
+  const claim = await chat.claim(uid, key);
+  if (claim === "done") return chatView(ctx);
+  if (claim === "running") throw new AppError("conflict", "Still answering your last message");
+  try {
+    const view = await answerMessage(ctx, ops, input, key);
+    await chat.release(uid, key, true);
+    return view;
+  } catch (e) {
+    await chat.release(uid, key, false);
+    throw e;
+  }
+}
+
+async function answerMessage(
+  ctx: OpUserCtx,
+  ops: readonly AnyOperation[],
+  input: { text: string; think_harder?: boolean },
+  requestKey: string,
+): Promise<ChatView> {
+  const chat = chatOf(ctx);
+  const uid = ctx.user.id;
   const s = ctx.ai.settings;
   let level: Level = (await chat.setupInProgress(uid)) || input.think_harder ? 2 : 1;
   if (level === 2 && !modelsFor(2, s).length) level = 1;
@@ -252,8 +290,9 @@ export async function sendMessage(
     const callMsg: ChatMessage = { role: "assistant", content, tool_calls };
     turn.push(callMsg);
     rows.push({ ...callMsg, shown: null });
-    for (const call of tool_calls) {
-      const result = await runTool(ctx, ops, call, allowed, level);
+    for (const [i, call] of tool_calls.entries()) {
+      // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
+      const result = await runTool(ctx, ops, call, allowed, level, `${requestKey}:${step}:${i}`);
       if (result.kind === "hand_over") {
         // Start this request again at level 2, without the handover call.
         turn.pop();
@@ -299,7 +338,7 @@ export async function sendMessage(
     }
     if (step === MAX_STEPS - 1) reply("I stopped here to keep things safe. Check what's done above.");
   }
-  await chat.append(uid, rows, ctx.idempotencyKey);
+  await chat.append(uid, rows, requestKey);
   return chatView(ctx);
 }
 
@@ -318,6 +357,7 @@ async function runTool(
   call: ToolCall,
   allowed: Set<string>,
   level: Level,
+  writeKey: string,
 ): Promise<ToolResult> {
   const name = call.function.name;
   if (name === "hand_over" && level === 1) return { kind: "hand_over", text: "{}" };
@@ -338,7 +378,11 @@ async function runTool(
       SETUP.includes(name) ||
       (op.confirmWhen ? await op.confirmWhen(operationContext(op, ctx), input) : false);
     if (confirmFirst && op.kind === "write") {
-      const card = { tool: name, args, ...describe(name, args) };
+      // Name the record a change or delete is about, so the card says exactly what it does.
+      const target = typeof args.record_id === "string" ? await recordLabel(ctx, args.record_id) : null;
+      if (typeof args.record_id === "string" && !target)
+        return { kind: "error", text: JSON.stringify({ error: "Record not found" }) };
+      const card = { tool: name, args, ...describe(name, args, target) };
       return {
         kind: "card",
         card,
@@ -348,8 +392,7 @@ async function runTool(
         }),
       };
     }
-    const key = op.kind === "write" ? `chat:${crypto.randomUUID()}` : null;
-    const result = await op.handler(operationContext(op, ctx, key), input);
+    const result = await op.handler(operationContext(op, ctx, op.kind === "write" ? writeKey : null), input);
     const text = JSON.stringify(result ?? null);
     return { kind: "ran", text: text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}…(cut)` : text };
   } catch (e) {

@@ -27,6 +27,9 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   }
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   const has = (name: string) => tools.some((t) => t.function.name === name);
+  // "Test: delete record <id>": a delete card for that record.
+  if (lastUser.startsWith("Test: delete record "))
+    return call("delete_record", { record_id: lastUser.slice("Test: delete record ".length) });
   switch (lastUser) {
     case "Test: spent 450 on groceries":
       return call("add_record", {

@@ -92,6 +92,34 @@ describe("chat", () => {
   });
 });
 
+describe("cards and repeats", () => {
+  it("names the record a delete is about, and refuses unknown ones", async () => {
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const note = (await find(me, "Notes")).items[0]!;
+    const view = await say(me, `Test: delete record ${note.id}`);
+    const card = view.items.find((i) => i.role === "card")!;
+    expect(card.card!.title).toBe("Delete “Test PA needs two DI boxes” (Notes)");
+    const bad = await say(me, "Test: delete record 01J0000000000000000000NOPE");
+    expect(bad.items.filter((i) => i.role === "card")).toHaveLength(1);
+    expect(bad.items.at(-1)!.text).toMatch(/Record not found/);
+  });
+
+  it("runs overlapping sends with one key once", async () => {
+    const me = await signUp("Test Owner");
+    const send = () =>
+      call("/api/chat", {
+        cookie: me.cookie,
+        body: { text: "Test: note the PA needs two DI boxes" },
+        idempotencyKey: "same-key",
+      });
+    const [a, b] = await Promise.all([send(), send()]);
+    expect([a.status, b.status].sort()).toEqual(expect.arrayContaining([200]));
+    for (const r of [a, b]) expect([200, 409]).toContain(r.status);
+    expect((await find(me, "Notes")).items).toHaveLength(1);
+  });
+});
+
 describe("budget", () => {
   it("refuses a paid call that would pass the cap less 10%, and settles to the real cost", async () => {
     const budget = env.BUDGET.get(env.BUDGET.idFromName(`budget:test-${crypto.randomUUID()}`));

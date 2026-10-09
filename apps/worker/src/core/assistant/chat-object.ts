@@ -35,6 +35,15 @@ const MIGRATIONS: Migrations = [
     created_at text not null
   );
   `,
+  // One row per send's Idempotency-Key, claimed before any model or tool runs.
+  `
+  create table requests (
+    key text primary key,
+    status text not null,
+    created_at text not null
+  );
+  create index requests_created_idx on requests (created_at);
+  `,
 ];
 
 export interface StoredMessage extends ChatMessage {
@@ -115,6 +124,31 @@ export class ChatObject extends DurableObject<Env> {
       ...(r.tool_calls_json ? { tool_calls: JSON.parse(r.tool_calls_json) as ToolCall[] } : {}),
       ...(r.tool_call_id ? { tool_call_id: r.tool_call_id } : {}),
     }));
+  }
+
+  /**
+   * Claims a send's key before anything runs: "new" (go ahead), "done" (answered already)
+   * or "running" (another copy of this send is still being answered). Kept 24 hours.
+   */
+  async claim(userId: string, key: string): Promise<"new" | "done" | "running"> {
+    this.own(userId);
+    this.sql.exec(
+      `delete from requests where created_at < ?`,
+      new Date(Date.now() - 86400_000).toISOString(),
+    );
+    const row = this.sql
+      .exec<{ status: string }>(`select status from requests where key = ?`, key)
+      .toArray()[0];
+    if (row) return row.status === "done" ? "done" : "running";
+    this.sql.exec(`insert into requests (key, status, created_at) values (?, 'running', ?)`, key, nowIso());
+    return "new";
+  }
+
+  /** The send finished (or failed: the key is released so a retry can run). */
+  async release(userId: string, key: string, done: boolean) {
+    this.own(userId);
+    if (done) this.sql.exec(`update requests set status = 'done' where key = ?`, key);
+    else this.sql.exec(`delete from requests where key = ?`, key);
   }
 
   /** Items already made for this request key (a repeated send gets the same answer). */
