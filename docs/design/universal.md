@@ -1,6 +1,6 @@
 # Design: a universal assistant (spaces, collections, rules, chat)
 
-_Status: **draft for the owner's review** (2026-10-09; revised the same day: collaborators get only what's shared with them, plus reports; then: chat-centric, starter setup, model router, how setups are stored, search, per-person visibility and the fam jam test case). Nothing is built until the owner approves. Replaces the gig-specific app: nobody uses it yet, so there is no data to move (owner, 2026-10-09)._
+_Status: **draft for the owner's review** (2026-10-09, complete version for approval; revised the same day: collaborators get only what's shared with them, plus reports; then: chat-centric, starter setup, model router, how setups are stored, search, per-person visibility and the fam jam test case). Nothing is built until the owner approves. Replaces the gig-specific app: nobody uses it yet, so there is no data to move (owner, 2026-10-09)._
 
 ## 1. Why change
 
@@ -127,18 +127,57 @@ The template is checked against the current app's tests: if a behaviour can't be
 - **Starter setup first.** Simple requests ("remind me at 6", "note that…", "spent ₹450 on groceries") use the starter setup. Complex ones make the assistant propose a new setup in plain words; it's created only after you approve.
 - **Only full users chat with the assistant.** Collaborators work on shared cards and see comments; they never see the chat.
 
-### AI providers and cost
+### Model router
 
-AI is only for full users. At first that's only the owner, so the free tiers below are plenty. Later a collaborator can become a full user (monthly or prepaid credits; needs a payment gateway such as Razorpay), and anyone can connect their own Claude or ChatGPT (as today, through `/mcp`) at no cost to the owner.
+All AI goes through one **router**: our own code in the Worker (in the chat's object). It is not an AI and never interprets the user's words with patterns or rules (no regex "level 0"). It decides only facts: which level, which model, budgets, retries.
 
-The app talks to AI through a **model router** with a daily budget per person:
+**Levels (models are a settings table, swapped without code changes):**
 
-- **Sort each request first.** Quick everyday requests go to a fast free model; **setup work** (designing collections, rules, views) goes to the strongest model available.
-- **Check, then step up.** Everything the AI proposes is validated by the app (fields exist, formulas parse, rules are allowed). If validation fails, the router retries on a stronger model before showing anything.
-- **Providers, free first:** OpenRouter free models (about 1,000 requests a day after a one-time 10-credit purchase, roughly ₹850), Cloudflare Workers AI (10,000 neurons a day; also search embeddings) and Groq (free daily token caps per model), with automatic fallback when one is busy.
-- **Free only to start.** A paid model can be switched on later in settings, for setup work only and with a monthly cap; no code change.
+| Level       | For                                                                           | Initial model                                                                                           | Cost                   |
+| ----------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------- |
+| 1. Everyday | Every message starts here: questions, add/find/update, reminders, small edits | GLM 4.7 Flash on Workers AI (free allowance); Claude Haiku 5.5 if it tests better and the budget allows | ₹0 to ~₹0.09 a message |
+| 2. Smart    | Building or changing setups; tricky requests                                  | Kimi K2.6 on Workers AI                                                                                 | ~₹6 a big setup        |
+| 3. Best     | When level 2's work fails the checks                                          | Claude Sonnet 5.5 (through AI Gateway)                                                                  | ~₹13 a big setup       |
 
-When the day's allowance is used up, the assistant says so and the normal screens keep working. Limits come from providers' current published terms and change often; they are checked again before building.
+**How a request is routed**
+
+1. Level: "setup in progress" in this chat, or the user pressed **Think harder** → level 2; otherwise level 1.
+2. Model within the level: the first enabled model with budget left (free allowance, person's limit, monthly cap, credit) that hasn't failed in the last few minutes.
+3. Call through **Cloudflare AI Gateway** with only that level's tools.
+4. The model answers, proposes actions, or calls **hand to the smart model** (with a reason).
+   - Actions are **checked by the app** (fields exist, formulas parse, permissions, visibility); valid ones run or wait for confirmation (deletes, money, setups); results go back to the model (bounded steps).
+   - **Hand over** → the chat is marked "setup in progress" and continues on level 2 with a short summary; level 2 calls **hand back** when the setup is approved and saved.
+   - Provider error or timeout → next model at the same level.
+5. **Automatic escalation:** two failed checks → next level up; failing at level 3 → the assistant says it couldn't, instead of doing it wrong.
+6. Every call is logged: person, level, model, tokens, cost in ₹, time, escalations.
+
+**How the line between everyday and setup is drawn:** by tools, not by guessing. Level 1 has only everyday tools (find, add, update, link, remind, search, show view) and the handover tool; it has no tools to create collections, fields, rules, automations, forms or shares, so those requests must be handed over. If level 1 answers "I can't" instead, the reply offers **Try with the smart model**. The model test measures how often level 1 hands over correctly; if it's poor, level 1 moves to a stronger model or gets a small sorting step.
+
+**Keeping requests small:** short instructions; only the level's tools; recent messages plus a running summary; search results fetched on demand; cached repeated instructions where the provider discounts them.
+
+**Language:** English screens; the assistant understands English and Hinglish (mixed Hindi-English as typed on WhatsApp).
+
+### AI cost and limits
+
+- **Cloudflare stays on the Free plan** (decision 2026-10-09): it stops at its free limits and can never bill. Paid AI is used only through **prepaid AI Gateway credit** (5% fee on purchases), with **auto top-up off**.
+- **Budget: ₹2,000 a month** for all AI (owner, 2026-10-09). Enforced three ways: Cloudflare **spend limits** on the gateway (overall and per person, set a little below the loaded credit), the app's own monthly cap with a warning at 80%, and per-person limits. After the cap, everyday chat uses the free allowance only; setup work waits.
+- **Free allowance first:** 10,000 neurons a day on Workers AI (resets 5:30 AM IST). On GLM 4.7 Flash that's roughly 110 typical messages a day, about 8–10 daily AI users; search embeddings cost almost nothing.
+- **Expected spend:** about ₹300–800 a month for the owner, family and a few bandmates.
+- **To confirm at setup:** that on the Free plan, usage beyond the free allowance is charged to the credit rather than blocked (the docs suggest so).
+- **OpenRouter and other providers:** not needed now; the router can add them later as table entries.
+- **Collaborators** never use AI. Anyone can still connect their own Claude or ChatGPT through `/mcp` at no cost to the owner.
+
+### Model test
+
+Before the router is final, run the test set through the candidate models and keep the results in the repo: the **fam jam setup**, the **gig workflow**, small setup changes, and a script of everyday and Hinglish requests. Measure: correct setups (pass the app's checks and do what was asked), correct handovers by level 1, cost per request, time. Re-run when prices or models change.
+
+### Connectors
+
+Like Claude's and ChatGPT's connectors: a **Connectors** page where a full user connects outside services (Gmail, Google Calendar, Drive, later others) with a one-time sign-in. Built on **MCP** where a service offers it; small built-in connectors otherwise (email forwarding, Telegram, calendar feeds). **Read-only by default**; anything that acts (sending an email, creating an event) is shown first and needs approval. Data from connectors is untrusted data, never instructions. Example: "check my bank emails this week and log the UPI payments" → the assistant proposes records → you confirm. Payments themselves are never made by the app; it can prepare a UPI pay link.
+
+### Safeguards against runaway use
+
+Per-person and per-link rate limits; a CPU limit per request; automation depth and daily limits; capped retries; a usage watchdog in the 15-minute health check that switches to **safe mode** (pause automations and background jobs) and alerts on Telegram; a kill switch. DDoS traffic is not billed by Cloudflare, and on the Free plan nothing is billed at all.
 
 ## 8. Collaborators and sharing
 
@@ -209,16 +248,23 @@ These need the owner's OK and a decision entry:
 
 Each stage ships something usable.
 
-1. **Core with chat.** Chat home with the assistant (model router on free tiers), the starter setup, spaces, collections and fields, records, links, list/table/card views, pop-up and pinned views. The assistant creates and finds things for you.
+1. **Core with chat.** Chat home with the assistant (model router, free allowance first, model test), the starter setup, spaces, collections and fields, records, links, list/table/card views, pop-up and pinned views. The assistant creates and finds things for you.
 2. **Sharing.** Cards, views and forms; join links; field and row visibility; personal answers; the collaborators' "Shared with me" screen; comments.
 3. **Search.** By words and by meaning across records, chats and comments.
 4. **Calculated fields and rules.** Formulas, rollups, checks (including uniqueness), status flows, permissions, protected money; the pick board. Fam jam test passes.
-5. **Automations and reports.** Notifications, reminders, scheduled reports to Telegram, email and live links, set up by chat.
+5. **Automations, reports and connectors.** Notifications, reminders, scheduled reports to Telegram, email and live links, set up by chat; the Connectors page (Gmail, Calendar, Drive).
 6. **The Gigs template.** Rebuild gigs from blocks, pass the current behaviour checks, then remove the old gig code.
-7. **Full users beyond the owner.** Upgrading collaborators; later, paid plans. Telegram as a second way to chat (nice to have).
+7. **Full users beyond the owner.** Upgrading collaborators; later, paid plans.
+8. **Later, if wanted:** in-app group chats (Band, Family) with the assistant on mention; Telegram as a second way to chat; iPhone widgets for pinned views.
 
 ## 12. Decided and open
 
-Decided by the owner (2026-10-09): chat-centric; starter setup plus setups built by chat; free models first with a router; AI providers raise no extra privacy rule while only the owner uses AI; reports configured by chat (Telegram or email); Telegram chat is nice to have, after the main app; no WhatsApp automation (against WhatsApp's terms).
+Decided by the owner (2026-10-09):
+
+- A universal, **chat-centric** assistant; the gig-specific app is replaced **in place** at gigspree.in as the new one becomes usable (nobody uses it yet). The name stays **Gigspree** for now.
+- Starter setup plus setups built by chat; collaborators get only what's shared with them; reports by chat to Telegram or email.
+- **AI:** Cloudflare only (Workers AI and AI Gateway); Free plan; prepaid credit; **₹2,000 a month** cap; router with three levels and no rule-based message parsing; Kimi K2.6 for setups, Claude Sonnet 5.5 as backup, everyday on the free model unless the test favours Haiku 5.5.
+- Connectors instead of "email in". English and Hinglish.
+- No privacy rule for AI providers while only the owner uses AI. No WhatsApp automation (against WhatsApp's terms). In-app group chats later.
 
 Open: sharing templates between full users (later).
