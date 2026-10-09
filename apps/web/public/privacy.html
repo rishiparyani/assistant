@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy · Gigspree</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f4f4f6;
+        --surface: #ffffff;
+        --text: #16161d;
+        --text-2: #55555f;
+        --border: #e4e4ea;
+        --accent: #3f37c9;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0c0c10;
+          --surface: #17171d;
+          --text: #f4f4f6;
+          --text-2: #a1a1ab;
+          --border: #2a2a33;
+          --accent: #a5a5ff;
+        }
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font:
+          16px/1.6 -apple-system,
+          BlinkMacSystemFont,
+          "Inter",
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 32px 16px 64px;
+      }
+      article {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 24px 20px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 28px;
+        line-height: 1.2;
+      }
+      h2 {
+        margin: 28px 0 8px;
+        font-size: 18px;
+      }
+      p,
+      li {
+        color: var(--text-2);
+      }
+      a {
+        color: var(--accent);
+      }
+      .updated {
+        margin-top: 0;
+        font-size: 14px;
+      }
+      .home {
+        display: inline-block;
+        margin-bottom: 16px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <a class="home" href="/">← Gigspree</a>
+      <article>
+        <h1>Privacy policy</h1>
+        <p class="updated">Last updated: 9 October 2026</p>
+        <p>
+          Gigspree is a small, free app for musicians to keep their gigs, bandmates, money, guest lists and
+          setlists in one place. This page explains what it stores, who can see it and how to have it deleted.
+        </p>
+
+        <h2>What we collect</h2>
+        <ul>
+          <li>
+            <strong>Your account:</strong> when you sign in with Google we receive your name, email address
+            and profile photo. With a passkey we keep only its public key. We never see or store a password.
+          </li>
+          <li>
+            <strong>What you enter:</strong> gigs and events, the people on them (names, and phone numbers or
+            emails if you add them), clients and venues, payments, payouts and expenses, guest lists, lists,
+            notes and songs.
+          </li>
+          <li>
+            <strong>To run the app:</strong> a sign-in cookie, a history of changes on each gig (who changed
+            what and when), and, if you turn them on, the details your browser needs to send you
+            notifications.
+          </li>
+        </ul>
+        <p>We don't use advertising, tracking cookies or third-party analytics.</p>
+
+        <h2>Who can see it</h2>
+        <ul>
+          <li>
+            The people on a gig see that gig, as far as their role and the gig's settings allow (for example,
+            managers choose whether players see the fee). People not on a gig can't see it at all.
+          </li>
+          <li>
+            If a manager shares a guest list link with a venue, the venue sees the gig's name, date and place
+            and the guests' names. No money or phone numbers.
+          </li>
+          <li>
+            If you connect an AI assistant (such as Claude or ChatGPT) or a Siri Shortcut, it can read and
+            change your gigs as you, until you disconnect it in Settings.
+          </li>
+        </ul>
+        <p>We never sell your data or share it with anyone else.</p>
+
+        <h2>Google user data</h2>
+        <p>
+          Gigspree uses your Google account only to sign you in (name, email and photo). The app's owner can
+          also connect their own Google Drive for nightly backups; this uses the
+          <code>drive.file</code> permission, which only reaches files the app itself creates. Gigspree's use
+          and transfer of information received from Google APIs adheres to the
+          <a href="https://developers.google.com/terms/api-services-user-data-policy"
+            >Google API Services User Data Policy</a
+          >, including the Limited Use requirements.
+        </p>
+
+        <h2>Where it's kept</h2>
+        <p>
+          Data is stored with Cloudflare, which encrypts it on disk, and always travels over HTTPS. Secrets
+          such as connection keys are encrypted again by the app, and access tokens are stored only as one-way
+          hashes. The app saves upcoming gigs on your device so it works offline; signing out removes them.
+        </p>
+
+        <h2>Keeping and deleting</h2>
+        <p>
+          Your data stays until you or a gig's manager delete it. Deleted items are hidden at once, but stay
+          in the gig's records and history until we erase them on request. Nightly backups are kept for up to
+          60 days. To have your account and data deleted, or to ask what we hold about you, write to
+          <a href="mailto:privacy@gigspree.in">privacy@gigspree.in</a>.
+        </p>
+
+        <h2>Changes</h2>
+        <p>
+          If this policy changes, the date at the top changes too. Big changes will be announced in the app.
+        </p>
+      </article>
+    </main>
+  </body>
+</html>

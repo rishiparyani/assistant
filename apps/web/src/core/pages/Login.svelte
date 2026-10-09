@@ -135,9 +135,28 @@
       </form>
     </Card>
   {/if}
+
+  <!-- Static pages (apps/web/public), opened outside the app's router. -->
+  <p class="legal">
+    <a href="/privacy" target="_blank" rel="noopener">Privacy</a> ·
+    <a href="/terms" target="_blank" rel="noopener">Terms</a>
+  </p>
 </Centered>
 
 <style>
+  .legal {
+    margin: 0;
+    text-align: center;
+    font-size: var(--text-sm);
+    color: var(--text-3);
+  }
+  .legal a {
+    color: var(--text-2);
+    display: inline-block;
+    min-height: 44px;
+    line-height: 44px;
+    padding: 0 var(--space-2);
+  }
   .stack {
     display: grid;
     gap: var(--space-3);
