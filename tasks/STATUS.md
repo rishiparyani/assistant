@@ -4,6 +4,8 @@ _Updated: 2026-10-03_
 
 ## Last done
 
+- **Privacy policy and terms pages** (2026-10-09, needed to publish the Google sign-in app): static `apps/web/public/privacy.html` and `terms.html` (served at `/privacy`, `/terms`, light/dark, phone width), linked from the sign-in page. Contact address `privacy@gigspree.in` (owner: forward it to their inbox with Cloudflare Email Routing). Google Auth Platform → Branding takes `https://gigspree.in/privacy` and `https://gigspree.in/terms`.
+
 - **Tabs that own their content** (decision 2026-10-03, owner: "it becomes very difficult to know this content is part of the details tab or the money tab"): the gig page (Details · Money · People) and Guest list · Lists · Notes now use `core/ui/Tabs.svelte` instead of the pill switch: an underline slides to the open tab, and the bar sticks under the top bar (top of the page on desktop) while that tab's content scrolls, so the open tab is always on screen. Tapping a tab from far down opens the new tab at its top (`revealTabs` knows sticky tabs); arrow keys move between tabs. `Segmented` stays for choices and filters (Upcoming · Past, All · Clients, sheets). Swipe animation is clipped by a `.clip` wrapper so the bar can reach the screen edges. Browser: 6 tab checks (pinned at 52 px, tap from far down, keys, dark, 1280/820, Together page) + 7 swipe checks re-run.
 
 - **Breaks in lists** (decision 2026-10-03, owner: "we sometimes take a 10 or 15 minute break… make it generic"): any list can have breaks, dividers with a name (Break by default; Interval, Set 2, Cables) and an optional length. A list's add row has **Break** (and Songs). The sheet has quick lengths (10/15/20/30 min) and a note. Breaks aren't numbered or ticked; the count says "3 items · 1 break". Tap a break to rename it, change its length, move it or remove it. Stage mode shows "Break · 15 min" between songs. Booking migration 13 (`list_items.kind`, `minutes`); `add_list_items`/`create_gig_list` items take `kind`/`minutes`, `update_list_item` takes `minutes` (REST + MCP). History: "Added a break to “Set 1”", "Length: 15 min → 10 min". Offline appliers and `withDefaults` know about breaks. Tests: `list-breaks.test.ts`; 6 browser checks (add with length, numbering and count, move and change, stage mode, dark, history).
@@ -178,7 +180,10 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 - [x] Cloudflare account created (workers.dev subdomain: `rishiparyani.workers.dev`)
 - [x] GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` added (owner reported 2026-09-26; first deploy will verify)
 - [x] Google OAuth client created; `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` added as GitHub secrets (owner reported 2026-09-26)
-- [ ] Google app published (needed before bandmates can sign in with Google)
+- [ ] Google app published (needed before bandmates can sign in with Google). Branding filled 2026-10-09; needs the privacy/terms links, then Audience → Publish app.
+- [x] Claude connector points at the real app (`/mcp` tools seen 2026-10-09)
+- [x] Apple secrets set; TestFlight uploads run on every push to `main`
+- [ ] Email Routing: `privacy@gigspree.in` → owner's inbox (Cloudflare → gigspree.in → Email → Email Routing)
 - [ ] GitHub secret scanning, push protection, Dependabot alerts enabled; fork PR workflows require approval
 - [x] `main` created (2026-09-26)
 - [x] `main` set as default branch; ruleset `main` active (pull request required, no deletion, no force-push); verified via API 2026-09-26
