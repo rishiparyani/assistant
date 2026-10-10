@@ -34,11 +34,14 @@
   let errors = $state<Record<string, string>>({});
   let busy = $state(false);
 
+  // Calculated fields (formulas, rollups) are shown on the record, never typed in.
+  const editable = $derived(collection.fields.filter((f) => !f.options.formula && !f.options.rollup));
+
   $effect(() => {
     if (!open) return;
     untrack(() => {
       const next: Record<string, unknown> = {};
-      for (const f of collection.fields)
+      for (const f of editable)
         next[f.id] =
           f.type === "link"
             ? [...(record?.links[f.id] ?? prefill[f.id] ?? [])]
@@ -52,7 +55,7 @@
     ev.preventDefault();
     const e: Record<string, string> = {};
     let values: Record<string, StoredValue> = {};
-    const fields = collection.fields;
+    const fields = editable;
     // Check each field on its own so every problem shows at once.
     for (const f of fields) {
       if (f.type === "link") continue;
@@ -107,7 +110,7 @@
 
 <Sheet bind:open title={record ? `Edit ${record.title}` : `New in ${collection.name}`}>
   <form id="record-form-{uid}" class="form" onsubmit={save} novalidate>
-    {#each collection.fields as f (f.id)}
+    {#each editable as f (f.id)}
       {#if f.id in form}<ValueField field={f} bind:value={form[f.id]} error={errors[f.id]} />{/if}
     {/each}
   </form>

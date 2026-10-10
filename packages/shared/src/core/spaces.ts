@@ -52,7 +52,18 @@ export interface FieldOptions {
   on_delete?: LinkOnDelete;
   /** Each person fills in their own answer ("Going?"); not for links or the title. */
   personal?: boolean;
+  /** number / money / date: calculated from other fields, e.g. "{Fee} - {Paid}" (read-only). */
+  formula?: string;
+  /**
+   * number / money / date: calculated over linked records (read-only): count them, or the
+   * sum, smallest or largest of one of their fields. `via` is a link field of this record, or
+   * a link field elsewhere that points here.
+   */
+  rollup?: { via: string; dir?: "out" | "in"; fn: RollupFn; of?: string | null };
 }
+
+export const ROLLUP_FNS = ["count", "sum", "min", "max"] as const;
+export type RollupFn = (typeof ROLLUP_FNS)[number];
 
 export interface FieldView {
   id: string;
@@ -181,6 +192,34 @@ export const FieldOptionsInput = z
       .describe(
         "Each person fills in their own answer (e.g. Going?); not for links, the title or required fields",
       ),
+    formula: z
+      .string()
+      .trim()
+      .min(1)
+      .max(300)
+      .optional()
+      .describe(
+        'number / money / date: a calculated value, fields in braces, e.g. "{Fee} - {Paid}" or "{Date} + 7"',
+      ),
+    rollup: z
+      .object({
+        via: z
+          .string()
+          .trim()
+          .min(1)
+          .max(160)
+          .describe('A link field of this collection, or a collection that links here (e.g. "Payments")'),
+        fn: z.enum(["count", "sum", "min", "max"]),
+        of: z
+          .string()
+          .trim()
+          .min(1)
+          .max(80)
+          .optional()
+          .describe("sum / min / max: the field of the linked records"),
+      })
+      .optional()
+      .describe("number / money / date: a total over linked records, e.g. sum of Amount over Payments"),
   })
   .strict();
 

@@ -32,6 +32,10 @@ import {
   type ShareInclude,
   type Person,
   type QuestionView,
+  type FormulaNode,
+  type FormulaValue,
+  evalFormula,
+  parseFormula,
   type RuleKind,
   type RuleView,
   ruleWords,
@@ -812,7 +816,9 @@ export class SpaceObject extends DurableObject<Env> {
   private insertField(collectionId: string, f: FieldSpec, position: number, ts: string): string {
     const nk = nameKey(f.name);
     this.checkFieldNames(collectionId, null, f.name, f.aliases ?? []);
-    const options = this.checkOptions(f.type, f.options ?? {});
+    const options = this.checkOptions(f.type, f.options ?? {}, collectionId, null);
+    if ((options.formula || options.rollup) && f.required)
+      throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be required`);
     if (options.personal && f.required)
       throw new ObjectError("validation_failed", `${f.name}: a personal answer can't be required`);
     const id = this.newId("fields", f.id);
@@ -835,11 +841,251 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** Keeps only the options that fit the type; a link's target name becomes its id. */
-  private checkOptions(type: FieldType, o: FieldOptions & { target?: string | null }): FieldOptions {
+  private checkOptions(
+    type: FieldType,
+    o: FieldOptions & { target?: string | null },
+    collectionId: string,
+    selfId: string | null,
+  ): FieldOptions {
     if (o.personal && type === "link")
       throw new ObjectError("validation_failed", "Links can't be personal answers");
     const personal = o.personal && type !== "link" ? { personal: true } : {};
-    return { ...this.typeOptions(type, o), ...personal };
+    const computed = this.computedOptions(type, o, collectionId, selfId);
+    if (computed && o.personal)
+      throw new ObjectError("validation_failed", "A calculated field can't be a personal answer");
+    return { ...this.typeOptions(type, o), ...personal, ...computed };
+  }
+
+  /**
+   * A formula or rollup, checked now: every field it names exists and has a type it can use,
+   * and its result has the field's type. Formulas can't use other formulas (no loops).
+   */
+  private computedOptions(
+    type: FieldType,
+    o: FieldOptions,
+    collectionId: string,
+    selfId: string | null,
+  ): Pick<FieldOptions, "formula" | "rollup"> | null {
+    if (!o.formula && !o.rollup) return null;
+    if (o.formula && o.rollup)
+      throw new ObjectError("validation_failed", "A field is a formula or a rollup, not both");
+    if (type !== "number" && type !== "money" && type !== "date")
+      throw new ObjectError("validation_failed", "Calculated fields are number, money or date fields");
+    const fields = this.fieldRows(collectionId).filter((f) => f.id !== selfId);
+    if (o.formula) {
+      let tree: FormulaNode;
+      try {
+        tree = parseFormula(o.formula);
+      } catch (e) {
+        throw new ObjectError("validation_failed", (e as Error).message);
+      }
+      const sample = (name: string): FormulaValue => {
+        const f = this.matchField(fields, name);
+        if (toField(f).options.formula)
+          throw new ObjectError(
+            "validation_failed",
+            `${f.name} is a formula itself; use the fields it's made of`,
+          );
+        if (f.type === "number") return { t: "num", v: 1 };
+        if (f.type === "money") return { t: "money", v: 100 };
+        if (f.type === "date" || f.type === "datetime") return { t: "date", v: 0 };
+        throw new ObjectError("validation_failed", `${f.name} isn't a number, money or date field`);
+      };
+      let out: FormulaValue;
+      try {
+        out = evalFormula(tree, sample);
+      } catch (e) {
+        if (e instanceof ObjectError) throw e;
+        throw new ObjectError("validation_failed", (e as Error).message);
+      }
+      const want = type === "number" ? "num" : type;
+      if (out && out.t !== want)
+        throw new ObjectError(
+          "validation_failed",
+          `That formula gives ${out.t === "num" ? "a number" : out.t}, but the field is ${type}`,
+        );
+      return { formula: o.formula.trim() };
+    }
+    const r = o.rollup!;
+    // The link: one of this collection's link fields, or a link elsewhere that points here.
+    const own = fields.find((f) => f.type === "link" && (f.id === r.via || f.name_key === nameKey(r.via)));
+    let via: FieldRow;
+    let dir: "out" | "in";
+    if (own) {
+      via = own;
+      dir = "out";
+    } else {
+      const incoming = this.sql
+        .exec<FieldRow & { collection_name: string }>(
+          `select f.*, c.name as collection_name from fields f join collections c on c.id = f.collection_id
+           where f.type = 'link' and f.deleted_at is null and c.deleted_at is null`,
+        )
+        .toArray()
+        .filter((f) => toField(f).options.target === collectionId)
+        .filter(
+          (f) =>
+            f.id === r.via ||
+            nameKey(f.collection_name) === nameKey(r.via) ||
+            nameKey(`${f.collection_name} ${f.name}`) === nameKey(r.via.replace(/[.:]/g, " ")),
+        );
+      if (incoming.length > 1)
+        throw new ObjectError("ambiguous", `More than one link from ${r.via}; which one?`, {
+          candidates: incoming.map((f) => ({ id: f.id, name: `${f.collection_name}: ${f.name}` })),
+        });
+      if (!incoming.length)
+        throw new ObjectError(
+          "validation_failed",
+          `"${r.via}" isn't a link field here or a collection that links here`,
+        );
+      via = incoming[0]!;
+      dir = "in";
+    }
+    const linkedCollection = dir === "out" ? toField(via).options.target : via.collection_id;
+    let of: string | null = null;
+    if (r.fn === "count") {
+      if (type !== "number") throw new ObjectError("validation_failed", "A count is a number field");
+    } else {
+      if (!r.of) throw new ObjectError("validation_failed", `Say which field to ${r.fn}`);
+      if (!linkedCollection)
+        throw new ObjectError(
+          "validation_failed",
+          "That link can point anywhere; pick a link to one collection",
+        );
+      const f = this.matchField(this.fieldRows(linkedCollection), r.of);
+      const t = f.type === "datetime" ? "date" : f.type;
+      if (r.fn === "sum" ? t !== "number" && t !== "money" : t !== "number" && t !== "money" && t !== "date")
+        throw new ObjectError("validation_failed", `Can't ${r.fn} ${f.name}`);
+      if (t !== type)
+        throw new ObjectError("validation_failed", `${f.name} is ${t}, but this field is ${type}`);
+      of = f.id;
+    }
+    return { rollup: { via: via.id, dir, fn: r.fn, of } };
+  }
+
+  /** The calculated fields of a collection (none for most). */
+  private computedFields(collectionId: string): FieldRow[] {
+    return this.fieldRows(collectionId).filter((f) => {
+      const o = toField(f).options;
+      return !!(o.formula || o.rollup);
+    });
+  }
+
+  /** A record's stored values right now. */
+  private currentValues(recordId: string): Record<string, StoredValue> {
+    const r = this.liveRecord(recordId);
+    return r ? (JSON.parse(r.values_json) as Record<string, StoredValue>) : {};
+  }
+
+  /**
+   * Recalculates a record's rollups, then its formulas, and saves them when they changed
+   * (values and index, no new version). Called inside the write, so they're always current.
+   */
+  private recompute(recordId: string): boolean {
+    const r = this.liveRecord(recordId);
+    if (!r) return false;
+    const computed = this.computedFields(r.collection_id);
+    if (!computed.length) return false;
+    const fields = this.fieldRows(r.collection_id);
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const next: Record<string, StoredValue> = { ...values };
+    for (const f of computed) {
+      const ru = toField(f).options.rollup;
+      if (!ru) continue;
+      const ids = this.sql
+        .exec<{ id: string }>(
+          ru.dir === "in"
+            ? `select l.from_id as id from links l join records x on x.id = l.from_id
+               where l.field_id = ? and l.to_id = ? and x.deleted_at is null`
+            : `select l.to_id as id from links l join records x on x.id = l.to_id
+               where l.field_id = ? and l.from_id = ? and x.deleted_at is null`,
+          ru.via,
+          r.id,
+        )
+        .toArray()
+        .map((x) => x.id);
+      if (ru.fn === "count") {
+        next[f.id] = ids.length;
+        continue;
+      }
+      const vals = ids
+        .map((id) => this.currentValues(id)[ru.of!])
+        .filter((v): v is string | number => typeof v === "number" || typeof v === "string");
+      if (!vals.length) next[f.id] = ru.fn === "sum" ? 0 : null;
+      else if (ru.fn === "sum") next[f.id] = (vals as number[]).reduce((a, b) => a + b, 0);
+      else {
+        const sorted = [...vals].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+        const v = ru.fn === "min" ? sorted[0]! : sorted[sorted.length - 1]!;
+        next[f.id] = f.type === "date" && typeof v === "string" ? v.slice(0, 10) : v;
+      }
+    }
+    const asValue = (f: FieldRow): FormulaValue => {
+      const v = next[f.id];
+      if (v === null || v === undefined) return null;
+      if (f.type === "number" && typeof v === "number") return { t: "num", v };
+      if (f.type === "money" && typeof v === "number") return { t: "money", v };
+      if ((f.type === "date" || f.type === "datetime") && typeof v === "string") {
+        const ms = Date.parse(`${v.slice(0, 10)}T00:00:00Z`);
+        return Number.isNaN(ms) ? null : { t: "date", v: ms };
+      }
+      return null;
+    };
+    for (const f of computed) {
+      const formula = toField(f).options.formula;
+      if (!formula) continue;
+      try {
+        const out = evalFormula(parseFormula(formula), (name) => {
+          const g = fields.find((x) => x.name_key === nameKey(name));
+          return g ? asValue(g) : null;
+        });
+        next[f.id] =
+          out === null
+            ? null
+            : out.t === "date"
+              ? new Date(out.v).toISOString().slice(0, 10)
+              : out.t === "money"
+                ? Math.round(out.v)
+                : Math.round(out.v * 1000) / 1000;
+      } catch {
+        next[f.id] = null;
+      }
+    }
+    if (computed.every((f) => JSON.stringify(next[f.id] ?? null) === JSON.stringify(values[f.id] ?? null)))
+      return false;
+    for (const [k, v] of Object.entries(next)) if (v === null) delete next[k];
+    this.sql.exec(`update records set values_json = ? where id = ?`, JSON.stringify(next), r.id);
+    for (const f of computed) {
+      this.sql.exec(`delete from record_values where record_id = ? and field_id = ?`, r.id, f.id);
+      const v = next[f.id];
+      if (v === undefined || v === null) continue;
+      for (const [num, txt] of this.indexOf(f.type, v))
+        this.sql.exec(
+          `insert into record_values (record_id, field_id, num, txt) values (?, ?, ?, ?)`,
+          r.id,
+          f.id,
+          num,
+          txt,
+        );
+    }
+    return true;
+  }
+
+  /** Records whose links a write just removed (their rollups change too). */
+  private leftLinks: string[] = [];
+
+  /** After a record changed: itself, then every record linked to or from it (and ones it left). */
+  private recomputeAround(recordId: string, alsoIds: Iterable<string> = []) {
+    this.recompute(recordId);
+    const near = new Set<string>(alsoIds);
+    for (const row of this.sql
+      .exec<{ id: string }>(
+        `select to_id as id from links where from_id = ? union select from_id as id from links where to_id = ?`,
+        recordId,
+        recordId,
+      )
+      .toArray())
+      near.add(row.id);
+    near.delete(recordId);
+    for (const id of near) if (this.recompute(id)) this.logChange("record", id, "upsert", nowIso());
   }
 
   private typeOptions(type: FieldType, o: FieldOptions & { target?: string | null }): FieldOptions {
@@ -942,7 +1188,7 @@ export class SpaceObject extends DurableObject<Env> {
       this.checkFieldNames(c.id, f.id, input.name ?? f.name, input.aliases ?? before.aliases);
       let options = before.options;
       if (input.options !== undefined) {
-        options = this.checkOptions(f.type, { ...before.options, ...input.options });
+        options = this.checkOptions(f.type, { ...before.options, ...input.options }, c.id, f.id);
         // Removing a choice that's in use would leave values nobody can pick again.
         if (f.type === "choice" || f.type === "multi_choice") {
           const kept = new Set(options.choices);
@@ -1136,7 +1382,8 @@ export class SpaceObject extends DurableObject<Env> {
         ids,
         ts,
       );
-    this.enforceRules(c, id, null, values);
+    this.recomputeAround(id, this.leftLinks.splice(0));
+    this.enforceRules(c, id, null, this.currentValues(id));
     this.logChange("record", id, "upsert", ts);
     this.queueWorkflows(c.id, id, null, values);
     audit(this.sql, actor, {
@@ -1231,7 +1478,8 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
       );
     const answered = this.saveAnswers(actor, r.id, answers, ts);
-    this.enforceRules(c, r.id, before, merged);
+    this.recomputeAround(r.id, this.leftLinks.splice(0));
+    this.enforceRules(c, r.id, before, this.currentValues(r.id));
     this.logChange("record", r.id, "upsert", ts);
     // Links and personal answers live apart from the values; they count as a change too.
     this.queueWorkflows(c.id, r.id, before, merged, links.size > 0 || answers.size > 0);
@@ -1273,6 +1521,14 @@ export class SpaceObject extends DurableObject<Env> {
       if (rule === "block")
         throw new ObjectError("conflict", `"${r.title}" is still linked from ${l.name}; unlink it first`);
     }
+    // Records it linked to, or that link to it: their rollups change once it's gone.
+    const near = [
+      ...incoming.map((l) => l.from_id),
+      ...this.sql
+        .exec<{ to_id: string }>(`select to_id from links where from_id = ?`, r.id)
+        .toArray()
+        .map((x) => x.to_id),
+    ];
     this.sql.exec(`update records set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, r.id);
     this.sql.exec(`delete from record_values where record_id = ?`, r.id);
     this.sql.exec(`delete from record_words where record_id = ?`, r.id);
@@ -1302,6 +1558,8 @@ export class SpaceObject extends DurableObject<Env> {
       }
     }
     this.sql.exec(`delete from links where from_id = ?`, r.id);
+    for (const id of new Set(near))
+      if (!deleted.includes(id) && this.recompute(id)) this.logChange("record", id, "upsert", ts);
   }
 
   async linkRecords(
@@ -1342,7 +1600,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
       }
       this.touchRecord(r.id, ts);
-      this.enforceLinkRules(r);
+      this.enforceLinkRules(this.requireRecord(r.id));
       audit(this.sql, actor, {
         action: "link_records",
         entityType: "record",
@@ -1366,8 +1624,8 @@ export class SpaceObject extends DurableObject<Env> {
       if (f.type !== "link") throw new ObjectError("validation_failed", `${f.name} isn't a link field`);
       for (const id of to)
         this.sql.exec(`delete from links where field_id = ? and from_id = ? and to_id = ?`, f.id, r.id, id);
-      this.touchRecord(r.id, ts);
-      this.enforceLinkRules(r);
+      this.touchRecord(r.id, ts, to);
+      this.enforceLinkRules(this.requireRecord(r.id));
       audit(this.sql, actor, {
         action: "unlink_records",
         entityType: "record",
@@ -1378,9 +1636,10 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
-  private touchRecord(id: string, ts: string) {
+  private touchRecord(id: string, ts: string, unlinked: string[] = []) {
     this.sql.exec(`update records set updated_at = ?, version = version + 1 where id = ?`, ts, id);
     this.logChange("record", id, "upsert", ts);
+    this.recomputeAround(id, unlinked);
   }
 
   /** Splits input values (by field name, alias or id) into stored values and link targets. */
@@ -1407,6 +1666,8 @@ export class SpaceObject extends DurableObject<Env> {
       } else if (toField(f).options.personal) {
         answers.set(f.id, normalizeValue(toField(f), raw));
       } else {
+        if (toField(f).options.formula || toField(f).options.rollup)
+          throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be set`);
         values[f.id] = normalizeValue(toField(f), raw);
       }
     }
@@ -1546,6 +1807,9 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   private setLinks(f: FieldRow, fromId: string, ids: string[], ts: string) {
+    // Records it stops linking to need their rollups recalculated.
+    for (const row of this.linkRows(f.id, fromId))
+      if (!ids.includes(row.to_id)) this.leftLinks.push(row.to_id);
     this.sql.exec(`delete from links where field_id = ? and from_id = ?`, f.id, fromId);
     [...new Set(ids)].forEach((to, i) =>
       this.sql.exec(
@@ -3789,7 +4053,9 @@ export class SpaceObject extends DurableObject<Env> {
         name: g.name,
         type: g.type,
         options: toField(g).options,
-        editable: personal ? !!actor.userId : editable,
+        editable: personal
+          ? !!actor.userId
+          : editable && !toField(g).options.formula && !toField(g).options.rollup,
         required: !!g.required,
         personal,
       };
@@ -3825,7 +4091,9 @@ export class SpaceObject extends DurableObject<Env> {
           options: toField(f).options,
           value: v,
           display: displayValue(f.type, v),
-          editable: personal ? !!actor.userId : editable,
+          editable: personal
+            ? !!actor.userId
+            : editable && !toField(f).options.formula && !toField(f).options.rollup,
           title: f.id === titleId,
           personal,
         };
