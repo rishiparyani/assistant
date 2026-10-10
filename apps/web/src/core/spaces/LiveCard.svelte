@@ -19,7 +19,6 @@
   import { createQuery, publish } from "../query.svelte.ts";
   import { navigate } from "../router.svelte.ts";
   import {
-    COLLECTIONS_KEY,
     VIEWS_KEY,
     isPending,
     listKey,
@@ -35,10 +34,9 @@
   // A live card in the chat (docs/design/chat-first.md step 2): a record, a list or a saved
   // view the assistant worked with, loaded fresh (and from the offline copy), so a change made
   // anywhere shows here. Tick, edit, open full screen or pin, without asking again.
-  let { live }: { live: LiveRef } = $props();
-
-  const collections = createQuery<CollectionView[]>(() => COLLECTIONS_KEY, spacesApi.collections);
-  const collectionOf = (id: string) => collections.data?.find((c) => c.id === id) ?? null;
+  // The chat passes its collections (one request for all cards, not one each).
+  let { live, collections }: { live: LiveRef; collections: CollectionView[] | undefined } = $props();
+  const collectionOf = (id: string) => collections?.find((c) => c.id === id) ?? null;
 
   const record = createQuery<RecordView | null>(
     () => (live.kind === "record" ? recordKey(live.collection_id, live.record_id) : "live:none"),
@@ -82,10 +80,13 @@
     live.kind === "record" ? !!record.error : live.kind === "list" ? !!list.error : !!view.error,
   );
 
-  const moneyField = $derived(collection?.fields.find((f) => f.type === "money") ?? null);
+  // A headline amount or total only when the collection has exactly one money field, so it can
+  // never show the wrong one (e.g. Total vs Paid); with several, each shows as a labelled row.
+  const moneyFields = $derived(collection?.fields.filter((f) => f.type === "money") ?? []);
+  const moneyField = $derived(moneyFields.length === 1 ? moneyFields[0]! : null);
   const tickField = $derived(collection?.fields.find((f) => f.type === "boolean") ?? null);
   /** Money cards are green, lists and notes amber (design §3). */
-  const kind = $derived(moneyField ? "money" : "note");
+  const kind = $derived(moneyFields.length ? "money" : "note");
   const total = $derived(
     moneyField
       ? rows.reduce(
@@ -213,6 +214,7 @@
     {/if}
   {:else if collection && (live.kind === "list" ? list.data : view.data)}
     {#if moneyField && rows.length}
+      <p class="col">{moneyField.name} total</p>
       <div class="amount">
         {formatINR(total)}{#if more}<small> in the first {rows.length}</small>{/if}
       </div>

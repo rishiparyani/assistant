@@ -149,7 +149,9 @@
           {/if}
         </li>
       {:else if m.role === "live" && m.live}
-        <li class="live" in:fly={calm(fromThem)}><LiveCard live={m.live} /></li>
+        <li class="live" in:fly={calm(fromThem)}>
+          <LiveCard live={m.live} collections={collections.data} />
+        </li>
       {:else if m.role === "note"}
         <li class="note" in:fly={calm({ y: 8, duration: 250 })}>{m.text}</li>
       {:else}
