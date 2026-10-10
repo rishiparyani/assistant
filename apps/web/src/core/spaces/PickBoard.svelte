@@ -37,7 +37,7 @@
   }
   $effect(() => {
     if (!open) return;
-    let saved: Settings | null = null;
+    let saved: Settings | null;
     try {
       saved = JSON.parse(localStorage.getItem(storeKey()) ?? "null") as Settings | null;
     } catch {
@@ -81,6 +81,8 @@
   };
   type Cell = { key: string; group: string; then: string; items: RecordView[] };
   const cells = $derived.by(() => {
+    // A plain map, built fresh on each run (not state).
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
     const out = new Map<string, Cell>();
     for (const r of list.data?.items ?? []) {
       const group = labelOf(r, s.group);
