@@ -4,6 +4,8 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import CircleHelp from "@lucide/svelte/icons/circle-help";
+  import { fly } from "svelte/transition";
+  import { backOut } from "svelte/easing";
   import { Button, PageHeader, Pill, confirm, toast } from "../ui/index.ts";
   import { createQuery, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
@@ -21,6 +23,9 @@
   let list = $state<HTMLElement | null>(null);
 
   const items = $derived<ChatItem[]>(chat.data?.items ?? []);
+  // New messages float up from the side they come from.
+  const fromMe = { y: 12, x: 12, duration: 320, easing: backOut };
+  const fromThem = { y: 12, x: -12, duration: 320, easing: backOut };
 
   // Keep the newest message in view.
   $effect(() => {
@@ -121,9 +126,9 @@
   <ol class="messages" bind:this={list} aria-live="polite">
     {#each items as m (m.id)}
       {#if m.role === "user"}
-        <li class="msg mine">{m.text}</li>
+        <li class="msg mine" in:fly={fromMe}>{m.text}</li>
       {:else if m.role === "card" && m.card}
-        <li class="card" class:closed={m.card.status !== "waiting"}>
+        <li class="card" class:closed={m.card.status !== "waiting"} in:fly={fromThem}>
           <div class="card-title">{m.card.title}</div>
           {#if m.card.details.length}
             <ul class="details">
@@ -155,14 +160,14 @@
           {/if}
         </li>
       {:else if m.role === "note"}
-        <li class="note">{m.text}</li>
+        <li class="note" in:fly={{ y: 8, duration: 250 }}>{m.text}</li>
       {:else}
-        <li class="msg theirs">{m.text}</li>
+        <li class="msg theirs" in:fly={fromThem}>{m.text}</li>
       {/if}
     {/each}
     {#if sending}
-      <li class="msg mine">{sending}</li>
-      <li class="msg theirs typing" aria-label="The assistant is thinking">
+      <li class="msg mine" in:fly={fromMe}>{sending}</li>
+      <li class="msg theirs typing" aria-label="The assistant is thinking" in:fly={fromThem}>
         <span></span><span></span><span></span>
       </li>
     {/if}
@@ -232,8 +237,39 @@
     text-align: left;
     cursor: pointer;
   }
+  .suggestion {
+    animation: pop-in var(--dur) var(--ease-spring) backwards;
+    transition:
+      background var(--dur-fast),
+      transform var(--dur) var(--ease-spring);
+  }
+  .suggestion:nth-child(2) {
+    animation-delay: 50ms;
+  }
+  .suggestion:nth-child(3) {
+    animation-delay: 100ms;
+  }
+  .suggestion:nth-child(n + 4) {
+    animation-delay: 150ms;
+  }
   .suggestion:hover {
     background: var(--surface-hover);
+    transform: translateY(-2px);
+  }
+  .suggestion:active {
+    transform: scale(0.97);
+  }
+  .hello,
+  .sub {
+    animation: rise-in var(--dur) var(--ease) backwards;
+  }
+  .card:not(.closed) {
+    animation: glow 2.4s ease-in-out infinite;
+  }
+  @keyframes glow {
+    50% {
+      box-shadow: 0 0 0 4px var(--accent-soft);
+    }
   }
   .messages {
     list-style: none;
@@ -395,9 +431,22 @@
     justify-content: center;
     cursor: pointer;
   }
+  .send {
+    transition:
+      opacity var(--dur-fast),
+      transform var(--dur) var(--ease-spring);
+  }
+  .send:not(:disabled):hover {
+    transform: scale(1.06);
+  }
+  .send:not(:disabled):active {
+    transform: scale(0.9);
+    transition-duration: 0.08s;
+  }
   .send:disabled {
     opacity: 0.4;
     cursor: default;
+    transform: scale(0.92);
   }
   .think,
   .mode {

@@ -1,8 +1,10 @@
 # Status
 
-_Updated: 2026-10-09_
+_Updated: 2026-10-10_
 
 ## Last done
+
+- **Animations** (owner: "the feel of the app is very bland"): motion tokens in `theme.css` (`--ease-spring`, `--dur-fast/--dur/--dur-slow`, `--stagger`) and shared keyframes (`rise-in`, `fade-in`, `pop-in`). Built into the shared pieces, so every screen gets them: pages fade in on navigation (opacity only, so fixed bars like the chat composer don't jump); rows in a `ListGroup` rise in one after another; cards and page titles rise in; buttons squeeze on press and spring back; the phone tab bar's active icon gets a pill that springs in and a little bounce; sheets slide up with their content following; empty states pop in; toasts fly in, fade out and slide aside (`svelte/transition`, part of Svelte, no new dependency); chat bubbles float in from their side, suggestion chips pop in, a waiting confirm card glows softly. Reduced motion is honoured (theme.css rule; the page fade checks it). Also fixed: page titles broke mid-word on phones when the header had several buttons ("Collecti / ons"); the buttons now move under the title. Browser-checked at 390/820/1280, light and dark.
 
 - **Siri, Shortcuts and the Action button** (stage 3, first part, docs/design/ios-app.md): App Intents in the iPhone app: "Ask Gigspree", "Add to Gigspree" (text from Siri, the clipboard or a share-sheet shortcut) and "Show a Gigspree view" (by name), with Siri phrases; they open the app on `/?ask=…` (the chat fills in the message; you tap Send, so a link alone never acts) or `/open-view?name=…` (new page: opens a saved view by name). Built and screenshot-tested on the Mac runner only (Swift can't build here). Owner: in the Shortcuts app, "Add to Gigspree" can go on the Action button or in a share-sheet shortcut.
   - Next in stage 3: widgets + App Group database, the Share extension, on-device model.

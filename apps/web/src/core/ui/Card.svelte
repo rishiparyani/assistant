@@ -12,6 +12,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-sm);
+    animation: rise-in var(--dur) var(--ease) backwards;
   }
   .padded {
     padding: var(--space-4);

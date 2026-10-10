@@ -404,3 +404,7 @@ Following design §11. Choices made while building it:
 ## 2026-10-10: Personal answers are their own table
 
 Design §11 "personal answers: fields each person fills in for themselves on shared rows, private to them and the owner". A field marked `personal` keeps no value on the record; each person's answer is a row in `answers (record_id, field_id, user_id)` in the space's object. Reason: one record, many answers (the fam jam's "Going?"), and the record's own values, index and change log stay as they are. Each person sees their own answer as the field's value; the space's people also see everyone's; collaborators never see others'. Answering doesn't need edit access (it changes nothing shared). Not yet: filtering, sorting and totals on answers (they come with formulas and rollups, stage 5); switching an existing field to or from personal once it has values (make a new field).
+
+## 2026-10-10: Motion
+
+The owner found the app bland. Motion lives in the shared UI pieces and theme tokens, not per screen: tokens `--ease`, `--ease-spring`, `--dur-fast`/`--dur`/`--dur-slow`, `--stagger` and global keyframes `rise-in`, `fade-in`, `pop-in` in `theme.css`; Svelte's own `svelte/transition` and `svelte/animate` for things that leave (toasts) or arrive in a live list (chat). No animation library. Rules: short (≤ 0.45 s), entrances only (nothing blocks a tap), `backwards` fill so nothing keeps a transform afterwards, never a transform on a page wrapper (it would move position: fixed bars), and `prefers-reduced-motion` turns it all off.

@@ -73,6 +73,12 @@
     cursor: pointer;
     transition: background 0.12s;
   }
+  .interactive .chev {
+    transition: transform var(--dur) var(--ease-spring);
+  }
+  .interactive:hover .chev {
+    transform: translateX(3px);
+  }
   .interactive:hover {
     background: var(--surface-hover);
   }

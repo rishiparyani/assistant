@@ -29,6 +29,21 @@
     background: var(--accent-soft);
     color: var(--accent-text);
     margin-bottom: var(--space-2);
+    animation: pop-in var(--dur-slow) var(--ease-spring) backwards;
+  }
+  h3,
+  p,
+  .action {
+    animation: rise-in var(--dur) var(--ease) backwards;
+  }
+  h3 {
+    animation-delay: 60ms;
+  }
+  p {
+    animation-delay: 110ms;
+  }
+  .action {
+    animation-delay: 160ms;
   }
   h3 {
     font-size: var(--text-md);
