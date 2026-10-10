@@ -9,6 +9,7 @@
   import RecordSheet from "../spaces/RecordSheet.svelte";
   import LiveCard from "../spaces/LiveCard.svelte";
   import QuestionCard from "../spaces/QuestionCard.svelte";
+  import WorkflowCard from "../workflows/WorkflowCard.svelte";
   import AskSheet from "../spaces/AskSheet.svelte";
   import { COLLECTIONS_KEY, spacesApi } from "../spaces/spaces-api.ts";
   import { fly } from "svelte/transition";
@@ -182,6 +183,8 @@
         <li class="live" in:fly={calm(fromThem)}>
           {#if m.live.kind === "question"}
             <QuestionCard id={m.live.question_id} />
+          {:else if m.live.kind === "workflow"}
+            <WorkflowCard id={m.live.workflow_id} />
           {:else}
             <LiveCard live={m.live} collections={collections.data} />
           {/if}

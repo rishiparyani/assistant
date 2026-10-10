@@ -11,6 +11,9 @@ const PATTERNS: [string, RegExp][] = [
   ["chat", /^\/chat\/(?<chatId>[^/]+)$/],
   // What the assistant remembers.
   ["memory", /^\/memory$/],
+  // Workflows (chat-first step 5).
+  ["workflows", /^\/workflows$/],
+  ["workflow", /^\/workflows\/(?<workflowId>[^/]+)$/],
   ["login", /^\/login$/],
   ["consent", /^\/consent$/],
   ["settings", /^\/settings$/],

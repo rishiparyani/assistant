@@ -17,6 +17,7 @@ import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
 import { spaceOperations } from "./spaces/operations.ts";
 import { shareOperations } from "./spaces/share-operations.ts";
+import { workflowOperations } from "./spaces/workflow-operations.ts";
 import { openPublicShare, submitPublicForm } from "./spaces/shares.ts";
 import { PublicShareInput, PublicSubmitInput } from "@assistant/shared";
 import { assistantOperations } from "./assistant/operations.ts";
@@ -38,6 +39,7 @@ export function createApp({ modules }: AppOptions) {
     ...coreOperations,
     ...spaceOperations,
     ...shareOperations,
+    ...workflowOperations,
     ...modules.flatMap((m) => m.operations ?? []),
   ];
   // The assistant's tools are the operations above.

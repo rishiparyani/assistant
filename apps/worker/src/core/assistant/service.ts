@@ -7,6 +7,9 @@ import { z } from "zod";
 import {
   nameKey,
   ulid,
+  workflowWords,
+  type FilterOp,
+  type WorkflowEvent,
   type ChatSummary,
   type ChatView,
   type CollectionView,
@@ -56,6 +59,9 @@ const EVERYDAY = [
   "add_share_people",
   "ask_people",
   "get_question",
+  "list_workflows",
+  "get_workflow",
+  "set_workflow_enabled",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -67,6 +73,9 @@ const SETUP = [
   "save_view",
   "update_view",
   "delete_view",
+  // Workflows (chat-first step 5): saved off; the person turns them on from the card.
+  "create_workflow",
+  "delete_workflow",
 ];
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
@@ -208,6 +217,50 @@ function describe(
         ],
       };
     }
+    case "create_workflow": {
+      const when = (args.when ?? {}) as {
+        event?: string;
+        collection?: string;
+        field?: string;
+        offset_minutes?: number;
+      };
+      const then = Array.isArray(args.then) ? (args.then as Record<string, unknown>[]) : [];
+      const words = workflowWords({
+        when: {
+          event: (when.event as WorkflowEvent) ?? "added",
+          collection_id: "",
+          collection: String(when.collection ?? "?"),
+          field_id: null,
+          field: when.field ?? null,
+          offset_minutes: Number(when.offset_minutes ?? 0),
+        },
+        check: (Array.isArray(args.check)
+          ? (args.check as { field: string; op: FilterOp; value?: unknown }[])
+          : []
+        ).map((f) => ({ field_id: "", field: f.field, op: f.op, value: f.value })),
+        wait_minutes: Number(args.wait_minutes ?? 0),
+        then: then.map((a) =>
+          a.do === "notify"
+            ? {
+                do: "notify" as const,
+                text: String(a.text ?? ""),
+                to: (Array.isArray(a.to) ? (a.to as string[]) : ["me"]).map((n) => ({
+                  user_id: "",
+                  name: n,
+                })),
+              }
+            : a.do === "set"
+              ? { do: "set" as const, field_id: "", field: String(a.field ?? ""), value: a.value }
+              : {
+                  do: "add" as const,
+                  collection_id: "",
+                  collection: String(a.collection ?? ""),
+                  values: (a.values ?? {}) as Record<string, unknown>,
+                },
+        ),
+      });
+      return { title: `Make a workflow “${String(args.name ?? "")}” (saved off)`, details: words };
+    }
     case "ask_people":
       return {
         title: `Ask ${show(args.people)}`,
@@ -269,6 +322,12 @@ function liveFrom(
       return { kind: "record", collection_id: r.collection_id, record_id: r.id };
     return null;
   }
+  if (tool === "create_workflow" || tool === "set_workflow_enabled")
+    return typeof r.id === "string" ? { kind: "workflow", workflow_id: r.id } : null;
+  if (tool === "get_workflow") {
+    const w = r.workflow as { id?: unknown } | undefined;
+    return typeof w?.id === "string" ? { kind: "workflow", workflow_id: w.id } : null;
+  }
   if (tool === "ask_people" || tool === "get_question")
     return typeof r.id === "string" ? { kind: "question", question_id: r.id } : null;
   if (tool === "show_view") {
@@ -311,7 +370,9 @@ const liveKey = (l: LiveRef) =>
       ? `v:${l.view_id}`
       : l.kind === "question"
         ? `q:${l.question_id}`
-        : `l:${JSON.stringify(l)}`;
+        : l.kind === "workflow"
+          ? `w:${l.workflow_id}`
+          : `l:${JSON.stringify(l)}`;
 
 /** The person's chats: "main" (their first, which also keeps the list and memory) or another. */
 const MAIN = "main";
@@ -536,6 +597,8 @@ async function runTool(
     return { kind: "error", text: JSON.stringify({ error: "The arguments weren't valid JSON" }) };
   }
   try {
+    // Nothing an assistant makes runs before the person turns it on from its card.
+    if (name === "create_workflow") args = { ...args, enabled: false };
     const input = parse(op.input, args);
     const confirmFirst =
       op.confirm ||

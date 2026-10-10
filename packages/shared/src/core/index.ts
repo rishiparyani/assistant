@@ -10,3 +10,4 @@ export * from "./notifications.ts";
 export * from "./fields.ts";
 export * from "./spaces.ts";
 export * from "./space-query.ts";
+export * from "./workflows.ts";

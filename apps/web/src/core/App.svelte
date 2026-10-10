@@ -15,6 +15,8 @@
   import PublicSharePage from "./spaces/PublicSharePage.svelte";
   import ChatPage from "./assistant/ChatPage.svelte";
   import MemoryPage from "./assistant/MemoryPage.svelte";
+  import WorkflowsPage from "./workflows/WorkflowsPage.svelte";
+  import WorkflowPage from "./workflows/WorkflowPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress, toast } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
@@ -84,6 +86,12 @@
         {/key}
       {:else if route.name === "memory"}
         <MemoryPage />
+      {:else if route.name === "workflows"}
+        <WorkflowsPage />
+      {:else if route.name === "workflow"}
+        {#key route.params.workflowId}
+          <WorkflowPage id={route.params.workflowId!} />
+        {/key}
       {:else if route.name === "record"}
         {#key route.params.recordId}
           <RecordPage collectionId={route.params.collectionId!} recordId={route.params.recordId!} />
