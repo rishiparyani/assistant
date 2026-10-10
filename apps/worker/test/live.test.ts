@@ -1,4 +1,5 @@
-// Live updates: a signed-in app's WebSocket hears when a gig it's on changes. Fake data only.
+// Live updates: a signed-in app's WebSocket hears when a gig it's on, or a space it can see,
+// changes. Fake data only.
 import { describe, expect, it } from "vitest";
 import { exports } from "cloudflare:workers";
 import { call, signUp } from "./http.ts";
@@ -36,6 +37,65 @@ describe("live updates", () => {
       gig_id: id,
     });
     ws.close(1000);
+  });
+
+  it("tells everyone in a space, and people it's shared with, when it changes", async () => {
+    const owner = await signUp("Test Owner");
+    const friend = await signUp("Test Friend");
+    const api = (u: typeof owner, path: string, init: Parameters<typeof call>[1] = {}) =>
+      call(`/api${path}`, { cookie: u.cookie, ...init });
+    const note = (await (
+      await api(owner, "/collections/Notes/records", { body: { values: { Title: "Test Live Note" } } })
+    ).json()) as { id: string };
+    const { share, link } = (await (
+      await api(owner, "/shares", { body: { record_id: note.id, access: "edit" } })
+    ).json()) as { share: { id: string }; link: string };
+    await api(friend, "/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+
+    const listen = async (cookie: string) => {
+      const ws = (await open(cookie)).webSocket!;
+      ws.accept();
+      const got: string[] = [];
+      ws.addEventListener("message", (e) => got.push(String(e.data)));
+      return { ws, got };
+    };
+    const heard = async (got: string[]) => {
+      const until = Date.now() + 8000;
+      while (!got.some((m) => m.includes("space_changed")) && Date.now() < until)
+        await new Promise((r) => setTimeout(r, 100));
+      return got.map((m) => JSON.parse(m) as { type: string }).some((m) => m.type === "space_changed");
+    };
+
+    // The friend edits the shared card: the owner's open app hears it.
+    const mine = await listen(owner.cookie);
+    await api(friend, `/cards/${share.id}/records/${note.id}`, {
+      method: "PATCH",
+      body: { values: { Title: "Test Live Note 2" } },
+    });
+    expect(await heard(mine.got)).toBe(true);
+    mine.ws.close(1000);
+
+    // The owner edits it: the friend's open app hears it too.
+    const theirs = await listen(friend.cookie);
+    await api(owner, `/records/${note.id}`, {
+      method: "PATCH",
+      body: { values: { Title: "Test Live Note 3" } },
+    });
+    expect(await heard(theirs.got)).toBe(true);
+    theirs.ws.close(1000);
+
+    // Someone new joins: the owner's open share sheet hears it.
+    const again = await listen(owner.cookie);
+    const other = await signUp("Test Other");
+    await api(other, "/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    expect(await heard(again.got)).toBe(true);
+    again.ws.close(1000);
+
+    // The owner takes the friend out: the friend's open app still hears it, once.
+    const gone = await listen(friend.cookie);
+    await api(owner, `/shares/${share.id}/people/${friend.id}`, { method: "DELETE" });
+    expect(await heard(gone.got)).toBe(true);
+    gone.ws.close(1000);
   });
 
   it("refuses strangers, other sites and plain requests", async () => {

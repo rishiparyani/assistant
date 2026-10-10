@@ -49,7 +49,15 @@ import {
   nowIso,
   type Actor,
   type Migrations,
+  bumpAndNote,
+  clearOutbox,
+  outboxFailed,
+  outboxNote,
 } from "../objects/storage.ts";
+import { liveOf } from "../live/live-object.ts";
+
+/** A burst of writes waits this long, then pings everyone once. */
+const LIVE_DELAY_MS = 500;
 import { ObjectError } from "../objects/errors.ts";
 import { STARTER_COLLECTIONS } from "./starter.ts";
 
@@ -242,6 +250,10 @@ const MIGRATIONS: Migrations = [
     primary key (share_id, user_id)
   ) without rowid;
   `,
+  // Live updates: people who just lost access still hear about it once (then they're dropped).
+  `
+  create table live_extra (user_id text primary key) without rowid;
+  `,
 ];
 
 type ViewQuery = {
@@ -422,11 +434,58 @@ export class SpaceObject extends DurableObject<Env> {
     check();
     const hash = await hashOf(request);
     try {
-      return idempotent(this.ctx.storage, key, hash, () => run(nowIso()));
+      return idempotent(this.ctx.storage, key, hash, () => {
+        const out = run(nowIso());
+        this.changed();
+        return out;
+      });
     } catch (e) {
       if (e instanceof ValueError) throw new ObjectError("validation_failed", e.message);
       throw e;
     }
+  }
+
+  // --- Live updates (chat-first step 4) ---------------------------------------------------
+  // A write leaves one outbox note (in its own transaction); shortly after, the alarm pings
+  // the live object of everyone in the space or in one of its shares. A ping carries no data
+  // (their apps fetch again, so nobody sees more than they may), and repeats are harmless.
+
+  private changed() {
+    bumpAndNote(this.sql);
+    // Bursts of writes (a few rows at once) become one ping.
+    void this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+  }
+
+  override async alarm(): Promise<void> {
+    const note = outboxNote(this.sql);
+    if (!note) return;
+    const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id;
+    const people = this.sql
+      .exec<{ user_id: string }>(
+        `select user_id from members union select user_id from share_people where user_id is not null
+         union select user_id from live_extra`,
+      )
+      .toArray()
+      .map((r) => r.user_id);
+    try {
+      await Promise.all(
+        people.map((u) =>
+          liveOf(this.env, u).ping({ type: "space_changed", space_id: spaceId ?? "", seq: note.seq }),
+        ),
+      );
+    } catch (e) {
+      console.warn("live ping failed", e);
+      await this.ctx.storage.setAlarm(Date.now() + outboxFailed(this.sql));
+      return;
+    }
+    // Only those pinged now leave the list; anyone added meanwhile waits for the next alarm.
+    for (const u of people) this.sql.exec(`delete from live_extra where user_id = ?`, u);
+    if (!clearOutbox(this.sql, note.seq)) await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+  }
+
+  /** Someone losing access to a share still gets one ping, so their open app drops it. */
+  private alsoTell(userId: string) {
+    this.sql.exec(`insert or ignore into live_extra (user_id) values (?)`, userId);
   }
 
   private logChange(
@@ -1878,6 +1937,7 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["remove_share_person", shareId, userId], () => {
       const s = this.requireShare(shareId);
       this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, s.id, userId);
+      this.alsoTell(userId);
       audit(this.sql, actor, {
         action: "remove_share_person",
         entityType: "share",
@@ -1909,6 +1969,8 @@ export class SpaceObject extends DurableObject<Env> {
         nowIso(),
       );
       audit(this.sql, actor, { action: "join_share", entityType: "share", entityId: s.id });
+      // The owner's open share sheet (and others in it) hear about the new person.
+      this.changed();
     }
     return { share_id: s.id, title: this.shareTitle(s) };
   }
@@ -2163,6 +2225,8 @@ export class SpaceObject extends DurableObject<Env> {
       ["leave_share", shareId],
       () => {
         this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, shareId, actor.userId);
+        // Their other devices drop it too.
+        if (actor.userId) this.alsoTell(actor.userId);
         audit(this.sql, actor, { action: "leave_share", entityType: "share", entityId: shareId });
         return { left: shareId };
       },

@@ -1,6 +1,6 @@
 // Live updates (decision 2026-09-28): while the app is open and visible it keeps one
-// WebSocket to the server, which says when a gig I'm on changes; the screens on show
-// then refresh. Closed while the app is in the background (saves battery), reopened with
+// WebSocket to the server, which says when something I can see changes (a space I'm in or
+// one shared with me; old gigs); the screens on show then refresh. Messages carry no data. Closed while the app is in the background (saves battery), reopened with
 // back-off when it drops, and every change also still works without it (pull to refresh).
 import { refreshAll } from "./query.svelte.ts";
 import { saveSoon } from "./offline.svelte.ts";
@@ -29,7 +29,7 @@ function connect() {
     // Several changes often arrive together (one per recipient row); refresh once.
     clearTimeout(bunch);
     bunch = setTimeout(refreshAll, 300);
-    // A gig changed (maybe a new one): keep the offline copy up to date.
+    // Something changed: keep the offline copy up to date too.
     saveSoon();
   };
   socket.onclose = () => {

@@ -40,6 +40,7 @@
       { "name": "SPACES", "class_name": "SpaceObject" },
       { "name": "CHATS", "class_name": "ChatObject" },
       { "name": "BUDGET", "class_name": "BudgetObject" },
+      { "name": "LIVE", "class_name": "LiveObject" },
     ],
   },
   "migrations": [
@@ -62,6 +63,11 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["ChatObject", "BudgetObject"],
+    },
+    // Live updates for everything, one per person (chat-first step 4).
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["LiveObject"],
     },
   ],
   // Outbox notes travel here; the deploy workflow creates the queues if missing.
@@ -124,6 +130,7 @@
           { "name": "SPACES", "class_name": "SpaceObject" },
           { "name": "CHATS", "class_name": "ChatObject" },
           { "name": "BUDGET", "class_name": "BudgetObject" },
+          { "name": "LIVE", "class_name": "LiveObject" },
         ],
       },
       "migrations": [
@@ -146,6 +153,10 @@
         {
           "tag": "v5",
           "new_sqlite_classes": ["ChatObject", "BudgetObject"],
+        },
+        {
+          "tag": "v6",
+          "new_sqlite_classes": ["LiveObject"],
         },
       ],
       // Outbox notes travel here; the deploy workflow creates the queues if missing.
