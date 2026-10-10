@@ -4,6 +4,14 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
+**Order now follows [docs/design/chat-first.md](../docs/design/chat-first.md) §5 (approved 2026-10-10).** Next: step 1, the new look and the chat-first shell (old screens removed).
+
+## C1 New look and the chat-first shell
+
+Colour tokens per kind of card (lists amber, money green, people indigo, workflows violet, forms rose), the gradient assistant mark, a top bar with a side menu (chats, pinned, what it remembers, workflows, settings, help), the chat full screen. Remove the tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports and their pages); keep shared-with-you, join/link pages, settings, help, admin.
+
+- AC: 390/820/1280 px, light and dark; no route left that points at a removed screen; offline rule test passes.
+
 Stages 1–10 are in design §14. Stage 1 is split into these tasks.
 
 ## P2-1a Data engine
