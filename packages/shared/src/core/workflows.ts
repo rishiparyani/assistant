@@ -46,7 +46,9 @@ export const WorkflowActionInput = z.discriminatedUnion("do", [
       .min(1)
       .max(10)
       .default(["me"])
-      .describe('"me", or people you know (names or ids)'),
+      .describe(
+        '"me", people you know (names or ids), or {Field} for the person in that person field of the record',
+      ),
   }),
   z.object({
     do: z.literal("set"),

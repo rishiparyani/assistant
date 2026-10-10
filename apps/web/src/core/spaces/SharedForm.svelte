@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ValueError, type SharedFieldInfo, type StoredValue } from "@assistant/shared";
-  import { Button, toast } from "../ui/index.ts";
+  import { Button, SelectField, toast } from "../ui/index.ts";
   import ValueField from "./ValueField.svelte";
   import { formValue, readForm, sendValues } from "./spaces-api.ts";
 
@@ -22,8 +22,18 @@
   let errors = $state<Record<string, string>>({});
   let busy = $state(false);
 
+  // Fields with a list to pick from (a form's links, "Me" for a person) are a plain select.
+  const picks = $derived(fields.filter((f) => f.pick));
+  const typed = $derived(full.filter((f) => !f.pick));
+
   function reset() {
-    form = Object.fromEntries(fields.map((f) => [f.id, formValue(f.type, null)]));
+    form = Object.fromEntries(
+      // A required person defaults to "me"; an optional one starts empty.
+      fields.map((f) => [
+        f.id,
+        f.pick ? (f.type === "person" && f.required ? "me" : "") : formValue(f.type, null),
+      ]),
+    );
     errors = {};
   }
   $effect(() => {
@@ -34,7 +44,12 @@
     ev.preventDefault();
     const e: Record<string, string> = {};
     let values: Record<string, StoredValue> = {};
-    for (const f of full) {
+    for (const f of picks) {
+      const v = String(form[f.id] ?? "");
+      if (v) values = { ...values, [f.id]: v };
+      else if (f.required) e[f.id] = "Needed";
+    }
+    for (const f of typed) {
       try {
         values = { ...values, ...readForm([f], { [f.id]: form[f.id] }) };
       } catch (err) {
@@ -60,7 +75,24 @@
 
 <form id="shared-form-{uid}" class="form" onsubmit={submit} novalidate>
   {#each full as f (f.id)}
-    {#if f.id in form}<ValueField field={f} bind:value={form[f.id]} error={errors[f.id]} />{/if}
+    {#if f.id in form}
+      {#if f.pick}
+        <SelectField
+          label={f.required ? `${f.name} *` : f.name}
+          id="pick-{uid}-{f.id}"
+          bind:value={form[f.id] as string}
+          options={[
+            ...(f.type === "person" && f.required
+              ? []
+              : [{ value: "", label: f.type === "person" ? "Nobody" : "Pick one" }]),
+            ...f.pick.map((p) => ({ value: p.id, label: p.title })),
+          ]}
+          error={errors[f.id]}
+        />
+      {:else}
+        <ValueField field={f} bind:value={form[f.id]} error={errors[f.id]} />
+      {/if}
+    {/if}
   {/each}
   <div><Button variant="primary" type="submit" loading={busy}>Send</Button></div>
 </form>

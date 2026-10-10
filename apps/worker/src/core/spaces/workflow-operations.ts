@@ -26,7 +26,19 @@ export async function createWorkflow(ctx: OpUserCtx, i: z.output<typeof CreateWo
     check: i.check,
     wait_minutes: i.wait_minutes,
     then: await Promise.all(
-      i.then.map(async (a) => (a.do === "notify" ? { ...a, to: await recipients(ctx, a.to) } : a)),
+      i.then.map(async (a) => {
+        if (a.do !== "notify") return a;
+        // "{Who}" means the person in that field of the record; everything else is someone known.
+        const field = (r: string) => /^\{(.+)\}$/.exec(r.trim())?.[1]?.trim();
+        return {
+          ...a,
+          to: await recipients(
+            ctx,
+            a.to.filter((r) => !field(r)),
+          ),
+          to_fields: a.to.map(field).filter((f): f is string => !!f),
+        };
+      }),
     ),
     // Outside assistants can't turn one on by themselves.
     enabled: ctx.source === "mcp" ? false : i.enabled,

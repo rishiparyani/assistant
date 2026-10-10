@@ -833,6 +833,11 @@ export interface SharedFieldInfo {
   editable: boolean;
   required: boolean;
   personal: boolean;
+  /**
+   * Forms: what this person may pick. A link lists the records they can see through their
+   * shares; a person field offers "me" (whoever is signed in).
+   */
+  pick?: { id: string; title: string }[];
 }
 type SharedHead<K extends ShareKind> = {
   id: string;
