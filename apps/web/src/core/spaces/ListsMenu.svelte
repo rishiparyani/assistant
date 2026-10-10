@@ -25,6 +25,12 @@
     { kind: "events", label: "Events" },
     { kind: "expenses", label: "Expenses" },
   ];
+  // The everyday lists not started yet (by name, as the server matches them).
+  const missing = $derived(
+    KINDS.filter(
+      (k) => !(collections.data ?? []).some((c) => c.name.toLowerCase() === k.label.toLowerCase()),
+    ),
+  );
   // online-only: a new list is made on the server.
   async function start(kind: StarterKind) {
     if (!connection.online) {
@@ -61,15 +67,24 @@
   </ul>
 {/if}
 
-{#if collections.data && !collections.data.length}
-  <div class="empty">
-    <p>No lists yet. Just ask: “remind me to call Rahul at 6”, “spent ₹450 on groceries”.</p>
-    <button type="button" class="by-hand" onclick={() => (starting = true)}>Start one by hand</button>
-  </div>
+{#if collections.data}
+  <!-- By hand stays reachable for the lists not started yet (offline, or no AI budget). -->
+  {#if !collections.data.length || missing.length}
+    <div class="empty">
+      {#if !collections.data.length}
+        <p>No lists yet. Just ask: “remind me to call Rahul at 6”, “spent ₹450 on groceries”.</p>
+      {/if}
+      {#if missing.length}
+        <button type="button" class="by-hand" onclick={() => (starting = true)}>
+          {collections.data.length ? "Start another by hand" : "Start one by hand"}
+        </button>
+      {/if}
+    </div>
+  {/if}
   <ActionSheet
     bind:open={starting}
     title="Start a list"
-    actions={KINDS.map((k) => ({ label: k.label, onclick: () => void start(k.kind) }))}
+    actions={missing.map((k) => ({ label: k.label, onclick: () => void start(k.kind) }))}
   />
 {/if}
 
