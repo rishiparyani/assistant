@@ -3,7 +3,9 @@
 // space object resolves them and never guesses.
 import { z } from "zod";
 import {
+  AddCommentInput,
   AddFieldInput,
+  CommentRef,
   AddRecordInput,
   ChangesInput,
   CollectionRef,
@@ -331,6 +333,46 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.changes(actor, i.since, i.limit, i.data === "1");
+    },
+  }),
+  defineOperation({
+    id: "core.list_comments",
+    tool: "list_comments",
+    description: "Comments on a record (by the space's people and anyone it's shared with).",
+    kind: "read",
+    http: { method: "GET", path: "/records/:record_id/comments" },
+    input: RecordRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.comments(actor, i.record_id);
+    },
+  }),
+  defineOperation({
+    id: "core.add_comment",
+    tool: "add_comment",
+    description: "Comment on a record.",
+    kind: "write",
+    http: { method: "POST", path: "/records/:record_id/comments", status: 201 },
+    input: AddCommentInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.addComment(actor, ctx.idempotencyKey, ctx.user.name, i.record_id, {
+        id: i.id ?? null,
+        body: i.body,
+      });
+    },
+  }),
+  defineOperation({
+    id: "core.delete_comment",
+    tool: "delete_comment",
+    description: "Delete a comment (your own, or any as the space's owner).",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/comments/:comment_id" },
+    input: CommentRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.deleteComment(actor, ctx.idempotencyKey, i.comment_id);
     },
   }),
 ];

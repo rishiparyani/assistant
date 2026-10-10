@@ -28,6 +28,7 @@
   import { showValue } from "./spaces-api.ts";
   import SharedRecordSheet from "./SharedRecordSheet.svelte";
   import SharedForm from "./SharedForm.svelte";
+  import Comments from "./Comments.svelte";
 
   // Something shared with me: a card (its fields and the linked parts included), a view (its
   // records, live) or a form (fill it in; what I sent shows below). With edit access I can
@@ -253,6 +254,13 @@
         </ListGroup>
       </section>
     {/each}
+    {#if card}
+      <Comments
+        cacheKey={`${sharedCardKey(shareId)}:comments`}
+        load={() => sharesApi.comments(shareId, card.record.id)}
+        post={(id, body) => sharesApi.comment(shareId, card.record.id, id, body)}
+      />
+    {/if}
     {#if cursor}
       <div><Button onclick={more} loading={loadingMore}>Show more</Button></div>
     {/if}

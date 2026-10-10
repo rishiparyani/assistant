@@ -2,6 +2,7 @@
 // fields, and that nothing else in the owner's space is reachable. Fake data only.
 import { describe, expect, it } from "vitest";
 import type {
+  CommentView,
   CreatedShare,
   FindResult,
   RecordView,
@@ -321,5 +322,44 @@ describe("sharing views and forms", () => {
     expect(
       (await api(owner)("/shares", { body: { record_id: guests.items[0]!.id, public: true } })).status,
     ).toBe(400);
+  });
+});
+
+describe("comments", () => {
+  it("lets the owner and people in a share comment on what's shared, and nothing else", async () => {
+    const { owner, show } = await setUp();
+    const mine = await api(owner)(`/records/${show.id}/comments`, { body: { body: "Test owner note" } });
+    expect(mine.status).toBe(201);
+    const { share, link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { record_id: show.id, include: ["Guests"] } }),
+    );
+    const friend = await signUp("Test Friend");
+    // Not joined yet: nothing.
+    expect((await api(friend)(`/cards/${share.id}/records/${show.id}/comments`)).status).toBe(404);
+    await api(friend)("/cards/join", { body: { token: tokenOf(link) } });
+    // View-only people can comment.
+    const said = await api(friend)(`/cards/${share.id}/records/${show.id}/comments`, {
+      body: { body: "Test which gate?" },
+    });
+    expect(said.status).toBe(201);
+    const thread = await json<CommentView[]>(await api(owner)(`/records/${show.id}/comments`));
+    expect(thread.map((c) => [c.author.name, c.body, c.mine])).toEqual([
+      ["Test Owner", "Test owner note", true],
+      ["Test Friend", "Test which gate?", false],
+    ]);
+    // A record outside the share can't be commented on through it.
+    const other = await json<RecordView>(
+      await api(owner)("/collections/Shows/records", { body: { values: { Title: "Test Other" } } }),
+    );
+    expect(
+      (await api(friend)(`/cards/${share.id}/records/${other.id}/comments`, { body: { body: "Test x" } }))
+        .status,
+    ).toBe(404);
+    // Only the writer (or the owner) deletes a comment.
+    const friendComment = thread[1]!;
+    expect((await api(owner)(`/comments/${friendComment.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(
+      await json<CommentView[]>(await api(friend)(`/cards/${share.id}/records/${show.id}/comments`)),
+    ).toHaveLength(1);
   });
 });
