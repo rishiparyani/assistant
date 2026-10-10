@@ -4,6 +4,9 @@
 import { z } from "zod";
 import {
   AddSharePeopleInput,
+  AnswerQuestionInput,
+  AskPeopleInput,
+  QuestionRef,
   AddSharedCommentInput,
   AddSharedRecordInput,
   SharedCommentRef,
@@ -23,6 +26,8 @@ import { defineOperation } from "../operations.ts";
 import { spaceOf } from "./service.ts";
 import {
   addSharePeople,
+  answerQuestion,
+  askPeople,
   addSharedComment,
   addSharedRecord,
   knownPeople,
@@ -130,6 +135,53 @@ export const shareOperations = [
     http: { method: "POST", path: "/shares/:share_id/people" },
     input: AddSharePeopleInput,
     handler: (ctx, i) => addSharePeople(ctx, i.space, i.share_id, i.people),
+  }),
+
+  // --- Questions (chat-first step 4) ---
+  defineOperation({
+    id: "core.ask_people",
+    tool: "ask_people",
+    description:
+      'Ask people I know (by name) a question, with choices to tap ("Yes", "No") or a free answer. It shows under their Shared with you; answers arrive live on the card.',
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/questions", status: 201 },
+    input: AskPeopleInput,
+    handler: (ctx, i) => askPeople(ctx, i),
+  }),
+  defineOperation({
+    id: "core.get_question",
+    tool: "get_question",
+    description: "A question I asked: who answered what, and who hasn't yet.",
+    kind: "read",
+    http: { method: "GET", path: "/questions/:question_id" },
+    input: QuestionRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.question(actor, i.question_id);
+    },
+  }),
+  defineOperation({
+    id: "core.close_question",
+    tool: "close_question",
+    description: "Stop taking answers to a question I asked (or open it again with closed: false).",
+    kind: "write",
+    http: { method: "POST", path: "/questions/:question_id/close" },
+    input: QuestionRef.extend({ closed: z.boolean().default(true) }),
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.closeQuestion(actor, ctx.idempotencyKey, i.question_id, i.closed);
+    },
+  }),
+  defineOperation({
+    id: "core.answer_question",
+    tool: "answer_question",
+    description:
+      "Answer a question someone asked me (one of its choices, or a short answer); I can change it.",
+    kind: "write",
+    http: { method: "POST", path: "/cards/:share_id/answer" },
+    input: AnswerQuestionInput,
+    handler: (ctx, i) => answerQuestion(ctx, i.share_id, i.answer),
   }),
 
   defineOperation({

@@ -6,6 +6,8 @@ import type { z } from "zod";
 import { nameKey } from "@assistant/shared";
 import type {
   AddSharedRecordInput,
+  AskPeopleInput,
+  QuestionView,
   CreateShareInput,
   CreatedShare,
   Person,
@@ -185,6 +187,35 @@ export async function shareWith(ctx: OpUserCtx, i: z.output<typeof ShareWithInpu
     tokenHash: await hashToken(token),
   });
   return addPeople(ctx, space.id, made.share.id, people);
+}
+
+// --- Questions (chat-first step 4) -----------------------------------------------------------
+
+/** Asks people I know a question; it shows under their "Shared with you" and pings their app. */
+export async function askPeople(ctx: OpUserCtx, i: z.output<typeof AskPeopleInput>): Promise<QuestionView> {
+  const people = await resolvePeople(ctx, i.people);
+  const { space, stub, actor } = await spaceOf(ctx, i.space);
+  const token = await shareToken(ctx, space.id, `ask:${i.id ?? ""}`);
+  const q = await stub.askPeople(actor, ctx.idempotencyKey, {
+    id: i.id ?? null,
+    text: i.text,
+    choices: i.choices ?? null,
+    people,
+    tokenHash: await hashToken(token),
+  });
+  await ctx.d1.batch(
+    q.people.map((p) =>
+      ctx.d1
+        .prepare(`insert or ignore into shared_with (user_id, share_id, space_id) values (?, ?, ?)`)
+        .bind(p.user_id, q.share_id, space.id),
+    ),
+  );
+  return q;
+}
+
+export async function answerQuestion(ctx: OpUserCtx, shareId: string, answer: string) {
+  const { stub } = await shareStub(ctx, shareId);
+  return stub.answerQuestion(actorOf(ctx), ctx.idempotencyKey, shareId, answer);
 }
 
 // --- The collaborator's side ---------------------------------------------------------------

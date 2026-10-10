@@ -1,6 +1,6 @@
 // The chats with the in-app assistant and what it remembers (docs/design/chat-first.md).
 // No logic here. "main" is the person's first chat.
-import { ulid, type ChatSummary, type ChatView, type Memory } from "@assistant/shared";
+import { ulid, type ChatSummary, type ChatView, type LiveRef, type Memory } from "@assistant/shared";
 import { request } from "../api.ts";
 import { publish } from "../query.svelte.ts";
 import { navigate } from "../router.svelte.ts";
@@ -32,6 +32,9 @@ export const chatApi = {
     request<ChatView>("POST", `/api/chats/${enc(id)}/actions/${enc(actionId)}/cancel`, {}),
   // online-only: a chat lives on the server (the assistant answers there).
   create: (id: string) => request<ChatView>("POST", "/api/chats", { id }),
+  // online-only: a chat lives on the server; this puts a card in it (a question from +).
+  show: (chatId: string, live: LiveRef) =>
+    request<ChatView>("POST", `/api/chats/${enc(chatId)}/live`, { live }),
   // online-only: deletes the chat on the server.
   remove: (id: string) => request<{ deleted: string }>("DELETE", `/api/chats/${enc(id)}`),
   memories: () => request<Memory[]>("GET", "/api/memories"),

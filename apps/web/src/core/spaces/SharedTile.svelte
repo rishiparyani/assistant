@@ -1,5 +1,7 @@
 <script lang="ts">
-  import type { SharedOpened, SharedWithMe } from "@assistant/shared";
+  import type { SharedOpened, SharedQuestionView, SharedWithMe } from "@assistant/shared";
+  import MessageCircleQuestion from "@lucide/svelte/icons/message-circle-question";
+  import QuestionAnswer from "./QuestionAnswer.svelte";
   import ClipboardList from "@lucide/svelte/icons/clipboard-list";
   import Rows from "@lucide/svelte/icons/rows-3";
   import StickyNote from "@lucide/svelte/icons/sticky-note";
@@ -16,7 +18,16 @@
     () => sharesApi.open(share.share_id),
   );
 
-  const kindLabel = $derived(share.kind === "form" ? "Form" : share.kind === "view" ? "List" : "Card");
+  const kindLabel = $derived(
+    share.kind === "form"
+      ? "Form"
+      : share.kind === "view"
+        ? "List"
+        : share.kind === "question"
+          ? "Question"
+          : "Card",
+  );
+  const question = $derived(q.data?.share.kind === "question" ? (q.data as SharedQuestionView) : undefined);
   const peek = $derived.by((): string[] => {
     const o = q.data;
     if (!o) return [];
@@ -26,7 +37,7 @@
         .slice(0, 3)
         .map((f) => `${f.name}: ${Array.isArray(f.display) ? f.display.join(", ") : f.display}`);
     if (o.share.kind === "view" && "records" in o) return o.records.slice(0, 3).map((r) => r.title);
-    if (o.share.kind === "form" && "mine" in o)
+    if (o.share.kind === "form" && "mine" in o && Array.isArray(o.mine))
       return [o.mine.length ? `You sent ${o.mine.length}` : "Tap to fill it in"];
     return [];
   });
@@ -39,30 +50,46 @@
   );
 </script>
 
-<a class="tile {share.kind}" href="/shared/{share.share_id}">
-  <header>
-    <span class="kind" aria-hidden="true">
-      {#if share.kind === "form"}<ClipboardList size={18} />{:else if share.kind === "view"}<Rows
-          size={18}
-        />{:else}<StickyNote size={18} />{/if}
-    </span>
-    <span class="head">
-      <span class="title">{share.title}</span>
-      <span class="from">{kindLabel} from {share.owner}</span>
-    </span>
-    <Pill tone={share.access === "edit" ? "green" : "grey"}
-      >{share.access === "edit" ? (share.kind === "form" ? "Fill in" : "Can edit") : "View"}</Pill
-    >
-  </header>
-  {#if peek.length}
-    <ul>
-      {#each peek as line, i (i)}<li>{line}</li>{/each}
-    </ul>
-  {/if}
-  {#if count !== null && (count > 3 || morePages)}<p class="more">
-      {morePages ? "and more" : `and ${count - 3} more`}
-    </p>{/if}
-</a>
+{#if share.kind === "question"}
+  <!-- A question: answer right here (buttons can't sit inside a link). -->
+  <article class="tile question">
+    <a class="head-link" href="/shared/{share.share_id}">
+      <header>
+        <span class="kind" aria-hidden="true"><MessageCircleQuestion size={18} /></span>
+        <span class="head">
+          <span class="title wrap">{share.title}</span>
+          <span class="from">Question from {share.owner}</span>
+        </span>
+      </header>
+    </a>
+    {#if question}<QuestionAnswer view={question} compact />{/if}
+  </article>
+{:else}
+  <a class="tile {share.kind}" href="/shared/{share.share_id}">
+    <header>
+      <span class="kind" aria-hidden="true">
+        {#if share.kind === "form"}<ClipboardList size={18} />{:else if share.kind === "view"}<Rows
+            size={18}
+          />{:else}<StickyNote size={18} />{/if}
+      </span>
+      <span class="head">
+        <span class="title">{share.title}</span>
+        <span class="from">{kindLabel} from {share.owner}</span>
+      </span>
+      <Pill tone={share.access === "edit" ? "green" : "grey"}
+        >{share.access === "edit" ? (share.kind === "form" ? "Fill in" : "Can edit") : "View"}</Pill
+      >
+    </header>
+    {#if peek.length}
+      <ul>
+        {#each peek as line, i (i)}<li>{line}</li>{/each}
+      </ul>
+    {/if}
+    {#if count !== null && (count > 3 || morePages)}<p class="more">
+        {morePages ? "and more" : `and ${count - 3} more`}
+      </p>{/if}
+  </a>
+{/if}
 
 <style>
   .tile {
@@ -84,6 +111,19 @@
   .tile.form {
     --k: var(--kind-form);
     --k-soft: var(--kind-form-soft);
+  }
+  .tile.question {
+    --k: var(--kind-people);
+    --k-soft: var(--kind-people-soft);
+  }
+  .head-link {
+    color: inherit;
+    text-decoration: none;
+    min-height: 44px;
+    display: block;
+  }
+  .title.wrap {
+    white-space: normal;
   }
   .tile.card {
     --k: var(--kind-people);

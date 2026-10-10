@@ -53,6 +53,8 @@ const EVERYDAY = [
   "list_people",
   "share_with",
   "add_share_people",
+  "ask_people",
+  "get_question",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -205,6 +207,16 @@ function describe(
         ],
       };
     }
+    case "ask_people":
+      return {
+        title: `Ask ${show(args.people)}`,
+        details: [
+          String(args.text ?? ""),
+          Array.isArray(args.choices) && args.choices.length
+            ? `Answers: ${show(args.choices)}`
+            : "They write an answer",
+        ],
+      };
     case "create_collection": {
       const fields = Array.isArray(args.fields) ? (args.fields as { name?: string; type?: string }[]) : [];
       return {
@@ -256,6 +268,8 @@ function liveFrom(
       return { kind: "record", collection_id: r.collection_id, record_id: r.id };
     return null;
   }
+  if (tool === "ask_people" || tool === "get_question")
+    return typeof r.id === "string" ? { kind: "question", question_id: r.id } : null;
   if (tool === "show_view") {
     const view = r.view as { id?: unknown } | undefined;
     return typeof view?.id === "string" ? { kind: "view", view_id: view.id } : null;
@@ -290,7 +304,13 @@ function liveFrom(
 }
 
 const liveKey = (l: LiveRef) =>
-  l.kind === "record" ? `r:${l.record_id}` : l.kind === "view" ? `v:${l.view_id}` : `l:${JSON.stringify(l)}`;
+  l.kind === "record"
+    ? `r:${l.record_id}`
+    : l.kind === "view"
+      ? `v:${l.view_id}`
+      : l.kind === "question"
+        ? `q:${l.question_id}`
+        : `l:${JSON.stringify(l)}`;
 
 /** The person's chats: "main" (their first, which also keeps the list and memory) or another. */
 const MAIN = "main";
@@ -527,7 +547,7 @@ async function runTool(
       // model (candidates) instead of failing after the tap.
       // The card keeps the resolved ids (names can repeat) and shows the names.
       let shown = args;
-      if (name === "share_with" || name === "add_share_people") {
+      if (name === "share_with" || name === "add_share_people" || name === "ask_people") {
         const people = await resolvePeople(ctx, (input as { people: string[] }).people);
         args = { ...args, people: people.map((p) => p.user_id) };
         shown = { ...args, people: people.map((p) => p.name) };
@@ -687,6 +707,15 @@ export async function newChat(ctx: OpUserCtx, id = ulid()): Promise<ChatView> {
 }
 
 /** Deletes a chat (the main chat is cleared instead: it keeps the list and memory). */
+/** A live card added to a chat by the app itself (no model, no cost). */
+export async function showInChat(ctx: OpUserCtx, chatId: string, live: LiveRef): Promise<ChatView> {
+  const chat = await useChat(ctx, chatId);
+  const uid = ctx.user.id;
+  if (!ctx.idempotencyKey || !(await chat.forKey(uid, ctx.idempotencyKey)))
+    await chat.append(uid, [{ role: "assistant", content: "", shown: "live", live }], ctx.idempotencyKey);
+  return chatView(ctx, chatId);
+}
+
 export async function deleteChat(ctx: OpUserCtx, chatId: string): Promise<{ deleted: string }> {
   if (chatId === MAIN) {
     await chatOf(ctx).clear(ctx.user.id);

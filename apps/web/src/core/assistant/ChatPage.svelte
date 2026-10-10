@@ -8,6 +8,8 @@
   import ActionSheet from "../ui/ActionSheet.svelte";
   import RecordSheet from "../spaces/RecordSheet.svelte";
   import LiveCard from "../spaces/LiveCard.svelte";
+  import QuestionCard from "../spaces/QuestionCard.svelte";
+  import AskSheet from "../spaces/AskSheet.svelte";
   import { COLLECTIONS_KEY, spacesApi } from "../spaces/spaces-api.ts";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
@@ -37,15 +39,25 @@
   let picking = $state(false);
   let adding = $state(false);
   let addTo = $state<CollectionView | null>(null);
-  const addActions = $derived(
-    (collections.data ?? []).map((c) => ({
+  // Ask people a question (step 4); its card goes into this chat.
+  let asking = $state(false);
+  async function asked(q: { id: string }) {
+    try {
+      chat.set(await chatApi.show(chatId, { kind: "question", question_id: q.id }));
+    } catch (e) {
+      toast.error(e);
+    }
+  }
+  const addActions = $derived([
+    { label: "Ask people…", onclick: () => (asking = true) },
+    ...(collections.data ?? []).map((c) => ({
       label: c.name,
       onclick: () => {
         addTo = c;
         adding = true;
       },
     })),
-  );
+  ]);
   // New messages float up from the side they come from.
   const fromMe = { y: 12, x: 12, duration: 320, easing: backOut };
   const fromThem = { y: 12, x: -12, duration: 320, easing: backOut };
@@ -164,7 +176,11 @@
         </li>
       {:else if m.role === "live" && m.live}
         <li class="live" in:fly={calm(fromThem)}>
-          <LiveCard live={m.live} collections={collections.data} />
+          {#if m.live.kind === "question"}
+            <QuestionCard id={m.live.question_id} />
+          {:else}
+            <LiveCard live={m.live} collections={collections.data} />
+          {/if}
         </li>
       {:else if m.role === "note"}
         <li class="note" in:fly={calm({ y: 8, duration: 250 })}>{m.text}</li>
@@ -203,7 +219,12 @@
       </label>
     {/if}
     <div class="box">
-      <button type="button" class="plus" aria-label="Add to a list" onclick={() => (picking = true)}>
+      <button
+        type="button"
+        class="plus"
+        aria-label="Add to a list or ask people"
+        onclick={() => (picking = true)}
+      >
         <Plus size={20} />
       </button>
       <textarea
@@ -220,7 +241,8 @@
   </form>
 </div>
 
-<ActionSheet bind:open={picking} title="Add to…" actions={addActions} />
+<ActionSheet bind:open={picking} title="Add or ask" actions={addActions} />
+<AskSheet bind:open={asking} onasked={asked} />
 {#if addTo}
   {#key addTo.id}
     <RecordSheet
