@@ -394,3 +394,9 @@ Following design §11. Choices made while building it:
 - **Edit access** changes shared fields and adds records to sections that link to the card (a guest, a song); never link fields or hidden fields.
 - **Making or resetting a link is app-only** (not MCP or the in-app assistant): a link is a key to the owner's data. Revoking and removing people are MCP tools with confirmation.
 - **Online only for now:** collaborators' edits go straight to the owner's space (marked `online-only`); shared cards are saved ahead so they open offline. Comments, views and forms, row rules and personal answers come in 2b/2c.
+
+## 2026-10-10: Sharing views and forms, and link-only access (stage 2b)
+
+- A share is now a card, a **view** (a saved view's records, live; edits only reach records the view shows) or a **form** (people add records to a collection and see only the ones they made). Same table, same hash-only link, same checks in the space's object (migration 4: `kind`, `target_id`, `public`).
+- **Link-only** (`public`) is for views and forms only, never cards: views are read-only that way, forms take answers. Link-only pages live at `/s#…` and send the token in the request body. Each link-only form takes at most 500 answers a day (`share_counts`), so a leaked link can't flood a space; turning the share off stops it at once.
+- Answers through a link-only form have no person attached (the audit says "web" with no user); signed-in form answers are by that person and they can see (and, with edit access, fix) only their own.

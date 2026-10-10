@@ -7,6 +7,7 @@ import {
   CreateShareInput,
   JoinShareInput,
   ListSharesInput,
+  OpenSharedInput,
   SharePersonRef,
   ShareRef,
   SharedRef,
@@ -32,7 +33,7 @@ export const shareOperations = [
     id: "core.create_share",
     tool: "create_share",
     description:
-      "Share one record (a card) with others by a join link, with the linked parts you include; view or edit; hide fields.",
+      "Share by a join link: one record as a card (with linked parts you include), a saved view (live), or a collection as a form people fill in; view or edit; hide fields; views and forms can be link-only.",
     kind: "write",
     sessionOnly: true,
     http: { method: "POST", path: "/shares", status: 201 },
@@ -42,13 +43,14 @@ export const shareOperations = [
   defineOperation({
     id: "core.list_shares",
     tool: "list_shares",
-    description: "The cards I've shared (optionally for one record), with who joined.",
+    description:
+      "What I've shared (cards, views, forms; optionally for one record, view or collection), with who joined.",
     kind: "read",
     http: { method: "GET", path: "/shares" },
     input: ListSharesInput,
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
-      return stub.listShares(actor, i.record_id);
+      return stub.listShares(actor, i.target_id ?? i.record_id);
     },
   }),
   defineOperation({
@@ -108,11 +110,12 @@ export const shareOperations = [
   defineOperation({
     id: "core.open_shared_card",
     tool: "open_shared_card",
-    description: "Open a card shared with me: its fields and the linked parts shared with it.",
+    description:
+      "Open something shared with me: a card (fields and linked parts), a view (its records) or a form (fields to fill in and what I sent).",
     kind: "read",
     http: { method: "GET", path: "/cards/:share_id" },
-    input: SharedRef,
-    handler: (ctx, i) => openShare(ctx, i.share_id),
+    input: OpenSharedInput,
+    handler: (ctx, i) => openShare(ctx, i.share_id, i.cursor),
   }),
   defineOperation({
     id: "core.update_shared_record",
@@ -128,7 +131,8 @@ export const shareOperations = [
   defineOperation({
     id: "core.add_shared_record",
     tool: "add_shared_record",
-    description: "Add a record to a section of a card shared with me (e.g. a guest), linked to the card.",
+    description:
+      'Add a record to something shared with me: a card\'s section (e.g. a guest, linked to the card), a view ("view", edit access) or a form ("form").',
     kind: "write",
     http: { method: "POST", path: "/cards/:share_id/records", status: 201 },
     input: AddSharedRecordInput,

@@ -6,6 +6,7 @@
   import Settings2 from "@lucide/svelte/icons/settings-2";
   import X from "@lucide/svelte/icons/x";
   import Bookmark from "@lucide/svelte/icons/bookmark";
+  import Share2 from "@lucide/svelte/icons/share-2";
   import {
     Button,
     EmptyState,
@@ -36,6 +37,7 @@
   } from "./spaces-api.ts";
   import RecordSheet from "./RecordSheet.svelte";
   import FilterSheet from "./FilterSheet.svelte";
+  import ShareSheet from "./ShareSheet.svelte";
 
   // One collection's records as a list or a table, with search, filters and sorting.
   let { collectionId, viewId = null }: { collectionId: string; viewId?: string | null } = $props();
@@ -135,6 +137,8 @@
     }
   }
   let adding = $state(false);
+  // Share the open view (live), or the collection as a form.
+  let sharing = $state(false);
 
   const query = $derived<FindQuery>({
     ...(filters.length ? { filters } : {}),
@@ -204,6 +208,13 @@
     backLabel="Collections"
   >
     {#snippet actions()}
+      <Button
+        variant="ghost"
+        onclick={() => (sharing = true)}
+        aria-label={view ? `Share “${view.name}”` : "Share as a form"}
+      >
+        {#snippet icon()}<Share2 />{/snippet}
+      </Button>
       <Button variant="ghost" href="/c/{collection.id}/setup" aria-label="Fields and settings">
         {#snippet icon()}<Settings2 />{/snippet}
       </Button>
@@ -334,6 +345,7 @@
   {/if}
 
   <RecordSheet bind:open={adding} {collection} onsaved={() => void records.refresh()} />
+  <ShareSheet bind:open={sharing} {collection} target={view ? { kind: "view", view } : { kind: "form" }} />
   <FilterSheet bind:open={filtering} {collection} onadd={(f) => (filters = [...filters, f])} />
   <Sheet bind:open={saving} title="Save this view">
     <form id="save-view-{collection.id}" class="form" onsubmit={saveView}>

@@ -24,7 +24,11 @@
   <div class="wrap">
     <ListGroup>
       {#each list.data as s (s.share_id)}
-        <ListRow title={s.title} subtitle="From {s.owner}" href="/shared/{s.share_id}">
+        <ListRow
+          title={s.title}
+          subtitle="{s.kind === 'form' ? 'Form' : s.kind === 'view' ? 'List' : 'Card'} from {s.owner}"
+          href="/shared/{s.share_id}"
+        >
           {#snippet trailing()}
             <Pill tone={s.access === "edit" ? "green" : "grey"}
               >{s.access === "edit" ? "Can edit" : "View"}</Pill

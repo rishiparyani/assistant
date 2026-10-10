@@ -8,6 +8,7 @@ const STATUS = {
   validation_failed: 400,
   conflict: 409,
   ambiguous: 409,
+  rate_limited: 429,
   internal: 500,
 } as const satisfies Record<string, ContentfulStatusCode>;
 

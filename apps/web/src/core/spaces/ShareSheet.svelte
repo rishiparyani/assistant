@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { CollectionView, CreatedShare, RecordView, ShareAccess, ShareView } from "@assistant/shared";
+  import type {
+    CollectionView,
+    CreatedShare,
+    RecordView,
+    SavedView,
+    ShareAccess,
+    ShareView,
+  } from "@assistant/shared";
   import Copy from "@lucide/svelte/icons/copy";
   import Share from "@lucide/svelte/icons/share";
   import Link from "@lucide/svelte/icons/link";
@@ -7,13 +14,27 @@
   import { savedCollections } from "./spaces-api.ts";
   import { sharesApi } from "./shares-api.ts";
 
-  // Share one record as a card (design §11): pick the linked parts to include, view or edit,
-  // fields to hide; get a join link. Others sign in once and see only this card.
+  // Share (design §11) one record as a card (with the linked parts to include), a saved view
+  // (live), or the collection as a form people fill in. View or edit, fields to hide; views and
+  // forms can be link-only (no sign-in). Others see only what's shared.
+  type Target = { kind: "card"; record: RecordView } | { kind: "view"; view: SavedView } | { kind: "form" };
   let {
     open = $bindable(false),
     collection,
-    record,
-  }: { open?: boolean; collection: CollectionView; record: RecordView } = $props();
+    target,
+  }: { open?: boolean; collection: CollectionView; target: Target } = $props();
+
+  const title = $derived(
+    target.kind === "card"
+      ? target.record.title
+      : target.kind === "view"
+        ? target.view.name
+        : collection.name,
+  );
+  const targetId = $derived(
+    target.kind === "card" ? target.record.id : target.kind === "view" ? target.view.id : collection.id,
+  );
+  const sheetTitle = $derived(target.kind === "form" ? `Share “${title}” as a form` : `Share “${title}”`);
 
   let shares = $state<ShareView[] | null>(null);
   let made = $state<CreatedShare | null>(null);
@@ -24,21 +45,26 @@
   let include = $state<string[]>([]);
   let access = $state<ShareAccess>("view");
   let hide = $state<string[]>([]);
+  let linkOnly = $state(false);
 
   // Parts to include: the record's link fields, and collections that link to it.
-  const parts = $derived([
-    ...collection.fields
-      .filter((f) => f.type === "link")
-      .map((f) => ({ ref: f.id, label: f.name, collectionId: f.options.target ?? null })),
-    ...collection.linked_from.map((l) => ({
-      ref: l.field_id,
-      label:
-        collection.linked_from.filter((x) => x.collection_id === l.collection_id).length > 1
-          ? `${l.collection} (${l.field})`
-          : l.collection,
-      collectionId: l.collection_id,
-    })),
-  ]);
+  const parts = $derived(
+    target.kind !== "card"
+      ? []
+      : [
+          ...collection.fields
+            .filter((f) => f.type === "link")
+            .map((f) => ({ ref: f.id, label: f.name, collectionId: f.options.target ?? null })),
+          ...collection.linked_from.map((l) => ({
+            ref: l.field_id,
+            label:
+              collection.linked_from.filter((x) => x.collection_id === l.collection_id).length > 1
+                ? `${l.collection} (${l.field})`
+                : l.collection,
+            collectionId: l.collection_id,
+          })),
+        ],
+  );
   const all = $derived(savedCollections() ?? []);
   // Fields that may be hidden: in this collection and in the parts included (not titles, not links).
   const hideable = $derived.by(() => {
@@ -65,7 +91,7 @@
 
   async function load() {
     try {
-      shares = await sharesApi.list(record.id);
+      shares = await sharesApi.list(targetId);
       if (!shares.length) startNew();
     } catch (e) {
       toast.error(e);
@@ -78,6 +104,7 @@
     access = "view";
     // Money stays private unless the owner chooses otherwise.
     hide = moneyOf(collection);
+    linkOnly = false;
     making = true;
   }
 
@@ -96,13 +123,18 @@
     busy = true;
     try {
       made = await sharesApi.create({
-        record_id: record.id,
+        ...(target.kind === "card"
+          ? { record_id: target.record.id }
+          : target.kind === "view"
+            ? { view: target.view.id }
+            : { form: collection.id }),
         include,
         access,
+        public: target.kind !== "card" && linkOnly,
         hide_fields: hide.filter((h) => hideable.includes(h)),
       });
       making = false;
-      shares = await sharesApi.list(record.id);
+      shares = await sharesApi.list(targetId);
     } catch (e) {
       toast.error(e);
     } finally {
@@ -120,7 +152,7 @@
   }
   async function shareLink(url: string) {
     try {
-      await navigator.share({ title: record.title, url });
+      await navigator.share({ title, url });
     } catch {
       // cancelled
     }
@@ -151,7 +183,7 @@
     try {
       await sharesApi.revoke(s.id);
       made = null;
-      shares = await sharesApi.list(record.id);
+      shares = await sharesApi.list(targetId);
       toast.success("Stopped sharing");
     } catch (e) {
       toast.error(e);
@@ -168,17 +200,21 @@
     if (!ok) return;
     try {
       await sharesApi.removePerson(s.id, p.user_id);
-      shares = await sharesApi.list(record.id);
+      shares = await sharesApi.list(targetId);
     } catch (e) {
       toast.error(e);
     }
   }
 </script>
 
-<Sheet bind:open title="Share “{record.title}”">
+<Sheet bind:open title={sheetTitle}>
   <div class="body">
     {#if made}
-      <p>Send this link. People sign in once, then see this card in Shared with me.</p>
+      <p>
+        {made.share.public
+          ? "Send this link. Anyone who has it can open it, without signing in."
+          : "Send this link. People sign in once, then find it in Shared with me."}
+      </p>
       <input
         class="url"
         readonly
@@ -221,17 +257,36 @@
           </div>
         </fieldset>
       {/if}
-      <div class="group">
-        <span class="legend">They can</span>
-        <Segmented
-          label="Access"
-          bind:value={access}
-          options={[
-            { value: "view", label: "View" },
-            { value: "edit", label: "Edit" },
-          ]}
-        />
-      </div>
+      {#if target.kind !== "card"}
+        <label class="toggle">
+          <span class="toggle-text"
+            ><span>Anyone with the link</span><span class="muted"
+              >{target.kind === "view"
+                ? "No sign-in; they can only look."
+                : "No sign-in; they fill it in and that's it."}</span
+            ></span
+          >
+          <input type="checkbox" role="switch" bind:checked={linkOnly} />
+        </label>
+      {/if}
+      {#if !(linkOnly && target.kind !== "card")}
+        <div class="group">
+          <span class="legend">They can</span>
+          <Segmented
+            label="Access"
+            bind:value={access}
+            options={target.kind === "form"
+              ? [
+                  { value: "view", label: "Fill in" },
+                  { value: "edit", label: "Fill in and fix" },
+                ]
+              : [
+                  { value: "view", label: "View" },
+                  { value: "edit", label: "Edit" },
+                ]}
+          />
+        </div>
+      {/if}
       {#if hideable.length}
         <fieldset class="group">
           <legend>Hide these fields</legend>
@@ -258,7 +313,8 @@
     {:else}
       {#each shares as s (s.id)}
         <ListGroup
-          title="{s.access === 'edit' ? 'Can edit' : 'View only'}{s.include.length
+          title="{s.public ? 'Anyone with the link' : s.access === 'edit' ? 'Can edit' : 'View only'}{s
+            .include.length
             ? ` · with ${s.include.map((i) => i.title).join(', ')}`
             : ''}"
         >
@@ -358,6 +414,49 @@
     font: inherit;
     font-size: var(--text-base);
     cursor: pointer;
+  }
+  .toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-height: 52px;
+    cursor: pointer;
+  }
+  .toggle-text {
+    display: grid;
+    gap: 2px;
+  }
+  .toggle input {
+    appearance: none;
+    flex-shrink: 0;
+    position: relative;
+    width: 50px;
+    height: 30px;
+    border-radius: var(--radius-full);
+    background: var(--grey-soft);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .toggle input::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s;
+  }
+  .toggle input:checked {
+    background: var(--green);
+    border-color: var(--green);
+  }
+  .toggle input:checked::after {
+    transform: translateX(20px);
   }
   .chip.on {
     background: var(--accent-soft);

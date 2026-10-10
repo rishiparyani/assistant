@@ -25,6 +25,8 @@ const PATTERNS: [string, RegExp][] = [
   ["help", /^\/help$/],
   // Cards others shared with me; /join#<token> joins one.
   ["join", /^\/join$/],
+  // A view or form shared by link: no sign-in (/s#<token>).
+  ["public_share", /^\/s$/],
   ["shared", /^\/shared$/],
   ["shared_card", /^\/shared\/(?<shareId>[^/]+)$/],
   ["songs", /^\/songs$/],
