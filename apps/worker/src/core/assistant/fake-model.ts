@@ -30,6 +30,9 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // "Test: delete record <id>": a delete card for that record.
   if (lastUser.startsWith("Test: delete record "))
     return call("delete_record", { record_id: lastUser.slice("Test: delete record ".length) });
+  // "Test: share <record id> with <name>": a share card for that record.
+  const share = /^Test: share (\S+) with (.+)$/.exec(lastUser);
+  if (share) return call("share_with", { record_id: share[1], people: [share[2]], access: "edit" });
   switch (lastUser) {
     case "Test: spent 450 on groceries":
       return call("add_record", {

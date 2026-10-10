@@ -5,7 +5,7 @@
   import { formValue, readForm, sendValues } from "./spaces-api.ts";
 
   // A shared form (design §11): the fields the owner shared, filled in and sent. Used in the
-  // app (Shared with me) and on the link-only page; `send` does the sending.
+  // app (Shared with you) and on the link-only page; `send` does the sending.
   let {
     fields,
     send,

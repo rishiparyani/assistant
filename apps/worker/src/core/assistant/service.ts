@@ -19,6 +19,7 @@ import { toAppError } from "../objects/errors.ts";
 import { operationContext, type AnyOperation, type OpUserCtx } from "../operations.ts";
 import { parse } from "../validation.ts";
 import { spaceOf } from "../spaces/service.ts";
+import { resolvePeople } from "../spaces/shares.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
 import type { MemoryRow, StoredMessage } from "./chat-object.ts";
 import {
@@ -48,6 +49,10 @@ const EVERYDAY = [
   "remember",
   "forget_memory",
   "list_memories",
+  // Bringing people in (chat-first step 4): share with people the person already knows.
+  "list_people",
+  "share_with",
+  "add_share_people",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -184,6 +189,22 @@ function describe(
       return { title: target ? `Change ${target}` : "Change a record", details: pairs };
     case "delete_record":
       return { title: target ? `Delete ${target}` : "Delete a record", details: [] };
+    case "share_with": {
+      const what = target ?? (args.view ? `“${show(args.view)}”` : `“${show(args.form)}” as a form`);
+      const hidden = Array.isArray(args.hide_fields) ? args.hide_fields : null;
+      return {
+        title: `Share ${what} with ${show(args.people)}`,
+        details: [
+          args.access === "edit" ? "They can edit" : "They can look",
+          ...(Array.isArray(args.include) && args.include.length ? [`With ${show(args.include)}`] : []),
+          hidden === null
+            ? "Money stays hidden"
+            : hidden.length
+              ? `Hidden: ${show(hidden)}`
+              : "Nothing hidden",
+        ],
+      };
+    }
     case "create_collection": {
       const fields = Array.isArray(args.fields) ? (args.fields as { name?: string; type?: string }[]) : [];
       return {
@@ -502,7 +523,16 @@ async function runTool(
       const target = typeof args.record_id === "string" ? await recordLabel(ctx, args.record_id) : null;
       if (typeof args.record_id === "string" && !target)
         return { kind: "error", text: JSON.stringify({ error: "Record not found" }) };
-      const card = { tool: name, args, ...describe(name, args, target) };
+      // Sharing names people: check them now, so a wrong or shared name comes back to the
+      // model (candidates) instead of failing after the tap.
+      // The card keeps the resolved ids (names can repeat) and shows the names.
+      let shown = args;
+      if (name === "share_with" || name === "add_share_people") {
+        const people = await resolvePeople(ctx, (input as { people: string[] }).people);
+        args = { ...args, people: people.map((p) => p.user_id) };
+        shown = { ...args, people: people.map((p) => p.name) };
+      }
+      const card = { tool: name, args, ...describe(name, shown, target) };
       return {
         kind: "card",
         card,

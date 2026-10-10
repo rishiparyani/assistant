@@ -811,7 +811,8 @@ export interface SharedWithMe {
 
 const fieldRefs = z.array(z.string().trim().min(1).max(80)).max(100);
 
-export const CreateShareInput = SpaceRef.extend({
+/** What to share: one record as a card, a saved view, or a collection as a form. */
+const ShareTarget = SpaceRef.extend({
   record_id: z.string().trim().min(1).max(40).optional().describe("A record to share as a card"),
   view: z.string().trim().min(1).max(80).optional().describe("Or a saved view to share (name or id)"),
   form: z
@@ -830,16 +831,44 @@ export const CreateShareInput = SpaceRef.extend({
     ),
   access: z.enum(SHARE_ACCESS).default("view"),
   hide_fields: fieldRefs.optional().describe("Fields the collaborator doesn't see"),
+});
+const oneTarget = {
+  check: (i: { record_id?: string; view?: string; form?: string }) =>
+    [i.record_id, i.view, i.form].filter(Boolean).length === 1,
+  message: "Share one thing: record_id, view or form",
+};
+
+export const CreateShareInput = ShareTarget.extend({
   public: z
     .boolean()
     .default(false)
     .describe("Views and forms: anyone with the link, without signing in (views stay read-only)"),
   expires_in_days: z.coerce.number().int().min(1).max(365).optional(),
-}).refine((i) => [i.record_id, i.view, i.form].filter(Boolean).length === 1, {
-  message: "Share one thing: record_id, view or form",
-});
+}).refine(oneTarget.check, { message: oneTarget.message });
+
+/** People I know: names ("Rahul", "Priya Test") or ids, from list_people. */
+const peopleRefs = z
+  .array(z.string().trim().min(1).max(80))
+  .min(1)
+  .max(20)
+  .describe("People you know (from list_people): their names or ids");
+
+/** Share straight with people I know: no link, they find it under "Shared with you". */
+export const ShareWithInput = ShareTarget.extend({
+  people: peopleRefs,
+  hide_fields: fieldRefs
+    .optional()
+    .describe("Fields they don't see; left out, money fields stay hidden ([] shows everything)"),
+}).refine(oneTarget.check, { message: oneTarget.message });
+
+/** Someone I know: they joined one of my shares or are in one of my spaces. */
+export type Person = {
+  user_id: string;
+  name: string;
+};
 export const ShareRef = SpaceRef.extend({ share_id: z.string().trim().min(1).max(40) });
 export const SharePersonRef = ShareRef.extend({ user_id: z.string().trim().min(1).max(60) });
+export const AddSharePeopleInput = ShareRef.extend({ people: peopleRefs });
 export const SetShareRuleInput = ShareRef.extend({
   user_id: z
     .string()

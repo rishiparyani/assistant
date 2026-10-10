@@ -21,7 +21,7 @@
 <PageHeader title="Shared with you" />
 {#if error}
   <EmptyState title="Can't open this link" text={error}>
-    {#snippet action()}<Button href="/shared">Shared with me</Button>{/snippet}
+    {#snippet action()}<Button href="/shared">Shared with you</Button>{/snippet}
   </EmptyState>
 {:else}
   <div class="wait"><Spinner size={22} label="Opening…" /></div>
