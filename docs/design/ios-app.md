@@ -17,6 +17,12 @@ Owner, 2026-09-29: bought the Apple Developer Program. "You start." The plan agr
 - **Simulator (every PR touching the app or web):** builds a debug app, starts a local Worker with fake data (`apps/ios/test/seed.mjs`), and screenshots login, Home, Gigs, a gig, its lists and guests, and Settings on a large and a small iPhone in light and dark. Screenshots are an artifact (fake data only). Debug builds accept `-testCookie`/`-testPath` launch arguments for this, only against `localhost` and compiled out of release builds.
 - **TestFlight (push to `main`, or run by hand on main):** archives a release build pointing at prod, signs it automatically with the App Store Connect API key (`-allowProvisioningUpdates`), and uploads it (`ExportOptions.plist`: internal testing only). Build number = 1000 + the workflow's run number. Skipped until the Apple secrets exist. The owner's phone updates itself (TestFlight → Automatic Updates).
 
+## Siri, Shortcuts and the Action button (stage 3, first part)
+
+`App/AppIntents.swift` (main app target, iOS 16+): **Ask Gigspree** (a question or something to save), **Add to Gigspree** (text from Siri, the clipboard, or another app's share sheet through a shortcut) and **Show a Gigspree view** (a saved view by name), with Siri phrases ("Ask Gigspree", "Add to Gigspree", "Show my Gigspree view"). Each opens the app on the page that does the work (`/?ask=…`, `/open-view?name=…`): the chat opens with the text filled in and the person taps Send (a link never makes the assistant act by itself; money and deletes still wait for a tap on their card), so sign-in, checks and history stay where they are and the intents need no data of their own. `AppRoute` keeps a path asked for before the web view is ready and opens it once it is, on the app's own site only.
+
+Next: widgets and the shared on-device database (a widget extension and an App Group), the Share extension (WhatsApp → Share → Gigspree), and Apple's on-device model as the first level for easy requests.
+
 ## Stages
 
 1. **Now:** the shell, passkey sign-in, simulator screenshots, TestFlight pipeline.

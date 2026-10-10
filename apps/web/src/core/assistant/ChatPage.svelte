@@ -51,6 +51,10 @@
     }
   }
 
+  // Siri, Shortcuts and the Action button open "/?ask=…" (the iPhone app's intents): the
+  // message waits in the box for a tap on Send. A link never sends anything by itself.
+  if (router.route.query.get("ask")) history.replaceState(null, "", "/");
+
   async function answer(actionId: string, yes: boolean) {
     busyCard = actionId;
     try {
