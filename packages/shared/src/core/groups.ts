@@ -10,13 +10,7 @@ const people = z
   .describe("People you know (from list_people): their names or ids");
 
 export const CreateGroupInput = z.object({
-  id: z
-    .string()
-    .trim()
-    .min(1)
-    .max(40)
-    .optional()
-    .describe("Made on the device (ULID), so a retry makes one group"),
+  id: z.string().trim().min(1).max(40).describe("Made on the device (ULID), so a retry makes one group"),
   name: z.string().trim().min(1).max(60).describe("e.g. Band, Family"),
   people: people.default([]),
 });

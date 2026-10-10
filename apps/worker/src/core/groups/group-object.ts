@@ -68,9 +68,19 @@ export class GroupObject extends DurableObject<Env> {
     ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
   }
 
-  /** Sets the group up once (a repeat with the same id is harmless). */
-  async init(input: { id: string; name: string; owner: GroupMember; members: GroupMember[] }): Promise<void> {
-    if (this.sql.exec(`select 1 from grp`).toArray().length) return;
+  /**
+   * Sets the group up once. A repeat by the same owner with the same name is harmless (a
+   * retry); anything else with an id that's taken is refused.
+   */
+  async init(
+    actor: Actor & { userId: string },
+    input: { id: string; name: string; owner: GroupMember; members: GroupMember[] },
+  ): Promise<void> {
+    const have = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
+    if (have) {
+      if (have.owner_user_id === input.owner.user_id && have.name === input.name.trim()) return;
+      throw new ObjectError("conflict", "That group id is already taken");
+    }
     const ts = nowIso();
     this.ctx.storage.transactionSync(() => {
       this.sql.exec(
@@ -90,6 +100,14 @@ export class GroupObject extends DurableObject<Env> {
           ts,
         );
       this.note("note", null, "Group", `${input.owner.name} made the group`, ts);
+      audit(this.sql, actor, {
+        action: "create_group",
+        entityType: "group",
+        entityId: input.id,
+        after: { name: input.name, members: input.members.map((m) => m.user_id) },
+      });
+      // Everyone in it hears about the new group (their open apps add it to the list).
+      this.changed();
     });
   }
 
@@ -271,6 +289,7 @@ export class GroupObject extends DurableObject<Env> {
       this.sql.exec(`update members set left_at = ? where user_id = ?`, ts, actor.userId);
       this.sql.exec(`insert or ignore into live_extra (user_id) values (?)`, actor.userId);
       this.note("note", null, "Group", `${me.name} left`, ts);
+      audit(this.sql, actor, { action: "leave_group", entityType: "group", entityId: this.group().id });
       return { left: this.group().id };
     });
   }

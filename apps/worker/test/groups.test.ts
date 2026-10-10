@@ -1,7 +1,13 @@
 // Group chats (chat-first step 7): people I know talk together; the assistant answers only
 // when someone with assistant access writes @assistant. Fake data only.
 import { describe, expect, it } from "vitest";
-import type { CreatedShare, GroupSummary, GroupView, RecordView } from "@assistant/shared";
+import {
+  ulid,
+  type CreatedShare,
+  type GroupSummary,
+  type GroupView,
+  type RecordView,
+} from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -27,13 +33,22 @@ async function setUp() {
 describe("group chats", () => {
   it("lets members talk, and keeps everyone else out", async () => {
     const { owner, dev, outsider } = await setUp();
-    const made = await api(owner)("/groups", { body: { name: "Test Band", people: ["Test Dev"] } });
+    const made = await api(owner)("/groups", {
+      body: { id: ulid(), name: "Test Band", people: ["Test Dev"] },
+    });
     expect(made.status).toBe(201);
     const g = await json<GroupView>(made);
     expect(g.members.map((m) => [m.name, m.role])).toEqual([
       ["Test Owner", "owner"],
       ["Test Dev", "member"],
     ]);
+    // A retry makes no second group; a different group can't take the same id.
+    const again = await api(owner)("/groups", {
+      body: { id: g.id, name: "Test Band", people: ["Test Dev"] },
+    });
+    expect((await json<GroupView>(again)).id).toBe(g.id);
+    expect((await api(owner)("/groups", { body: { id: g.id, name: "Test Other" } })).status).toBe(409);
+    expect(await json<GroupSummary[]>(await api(owner)("/groups"))).toHaveLength(1);
     // Dev sees it in their list and writes.
     const list = await json<GroupSummary[]>(await api(dev)("/groups"));
     expect(list.map((x) => x.name)).toEqual(["Test Band"]);
@@ -61,7 +76,7 @@ describe("group chats", () => {
   it("answers @assistant for people who have it, and refuses others", async () => {
     const { owner, dev } = await setUp();
     const g = await json<GroupView>(
-      await api(owner)("/groups", { body: { name: "Test Band", people: ["Test Dev"] } }),
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Band", people: ["Test Dev"] } }),
     );
     // Dev has no assistant: the message isn't sent, and says why.
     const no = await api(dev)(`/groups/${g.id}/messages`, { body: { text: "@assistant what's on?" } });

@@ -443,7 +443,7 @@ Checks, uniqueness and status flows (universal.md §2) are saved rules on a coll
 
 ## 2026-10-10: Group chats: one object per group, @assistant as the asker
 
-Each group chat is its own Durable Object (rule 1: per chat) with its members and messages; D1 keeps only who is in which group, for the list. Writing @assistant (a fixed word, like a command) asks the assistant; only people with assistant access may send it. It runs as the asker, with their own data and from their allowance, in a chat of theirs for that group, reading the group's recent messages as data (never instructions), and its reply is posted to the group for everyone. Confirm cards and live cards stay in the asker's chat. People are added only from those the owner already knows (their shares).
+Each group chat is its own Durable Object (rule 1: per chat) with its members and messages; D1 keeps only who is in which group, for the list. Writing @assistant (a fixed word, like a command) asks the assistant; only people with assistant access may send it. It runs as the asker, with their own data and from their allowance, in a chat of theirs for that group, and sees only the asker's own words: other members' messages and the group's name never reach a model that can read and change the asker's data (they could steer it). Its reply is posted to the group for everyone; if it fails, the group gets only "I couldn't answer that just now". Confirm cards and live cards stay in the asker's chat. People are added only from those the owner already knows (their shares).
 Reason: the design's group chats (band, family) without giving anyone access to data or AI spend that isn't theirs.
 
 ## 2026-10-10: Assistant first
