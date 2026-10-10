@@ -441,7 +441,7 @@ type WorkflowDef = {
   check: Filter[];
   wait_minutes: number;
   then: (
-    | { do: "notify"; text: string; to: Person[] }
+    | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
     | { do: "set"; field_id: string; value: unknown }
     | { do: "add"; collection_id: string; values: Record<string, unknown> }
   )[];
@@ -474,7 +474,7 @@ export type WorkflowSpec = {
   check: Filter[];
   wait_minutes: number;
   then: (
-    | { do: "notify"; text: string; to: Person[] }
+    | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
     | { do: "set"; field: string; value: unknown }
     | { do: "add"; collection: string; values: Record<string, unknown> }
   )[];
@@ -1466,7 +1466,7 @@ export class SpaceObject extends DurableObject<Env> {
     input: { id?: string | null; values: Record<string, unknown> },
   ): RecordView {
     const fields = this.fieldRows(c.id);
-    const { values, links, answers } = this.readValues(fields, input.values);
+    const { values, links, answers } = this.readValues(fields, input.values, actor);
     for (const f of fields)
       if (
         f.required &&
@@ -1572,7 +1572,7 @@ export class SpaceObject extends DurableObject<Env> {
     const c = this.requireCollection(r.collection_id);
     const fields = this.fieldRows(c.id);
     const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
-    const { values, links, answers } = this.readValues(fields, input.values);
+    const { values, links, answers } = this.readValues(fields, input.values, actor);
     const merged = { ...before, ...values };
     for (const f of fields)
       if (
@@ -1755,7 +1755,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** Splits input values (by field name, alias or id) into stored values and link targets. */
-  private readValues(fields: FieldRow[], input: Record<string, unknown>) {
+  private readValues(fields: FieldRow[], input: Record<string, unknown>, actor: Actor | null = null) {
     const values: Record<string, StoredValue> = {};
     const links = new Map<string, string[]>();
     const answers = new Map<string, StoredValue>();
@@ -1780,7 +1780,8 @@ export class SpaceObject extends DurableObject<Env> {
       } else {
         if (toField(f).options.formula || toField(f).options.rollup)
           throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be set`);
-        values[f.id] = normalizeValue(toField(f), raw);
+        values[f.id] =
+          f.type === "person" ? this.personValue(f, raw, actor) : normalizeValue(toField(f), raw);
       }
     }
     return { values, links, answers };
@@ -1825,6 +1826,24 @@ export class SpaceObject extends DurableObject<Env> {
         );
     }
     return before;
+  }
+
+  /** Someone in the space or in one of its shares (the only people a record can point at). */
+  private knownPerson(userId: string): boolean {
+    return (
+      this.sql.exec(`select 1 from members where user_id = ?`, userId).toArray().length > 0 ||
+      this.sql.exec(`select 1 from share_people where user_id = ? limit 1`, userId).toArray().length > 0
+    );
+  }
+
+  /** A person value: "me" is whoever writes; an account id only counts if the space knows them. */
+  private personValue(f: FieldRow, raw: unknown, actor: Actor | null): StoredValue {
+    if (typeof raw === "string" && nameKey(raw) === "me" && actor?.userId)
+      return { user_id: actor.userId, name: this.personNames([actor.userId]).get(actor.userId) ?? "me" };
+    const v = normalizeValue(toField(f), raw);
+    if (v && typeof v === "object" && !Array.isArray(v) && v.user_id && !this.knownPerson(v.user_id))
+      return { user_id: null, name: v.name };
+    return v;
   }
 
   /** Names of these people: from the space's people, else from the shares they joined. */
@@ -3012,8 +3031,15 @@ export class SpaceObject extends DurableObject<Env> {
     };
     const then = spec.then.map((a): WorkflowDef["then"][number] => {
       if (a.do === "notify") {
-        if (!a.to.length) throw new ObjectError("validation_failed", "Say who to tell");
-        return { do: "notify", text: a.text, to: a.to };
+        // {Who}: the person named in that field of the record (someone in the space or its shares).
+        const to_fields = (a.to_fields ?? []).map((ref) => {
+          const f = this.matchField(fields, ref);
+          if (f.type !== "person" || toField(f).options.personal)
+            throw new ObjectError("validation_failed", `${f.name} isn't a person field`);
+          return f.id;
+        });
+        if (!a.to.length && !to_fields.length) throw new ObjectError("validation_failed", "Say who to tell");
+        return { do: "notify", text: a.text, to: a.to, ...(to_fields.length ? { to_fields } : {}) };
       }
       if (a.do === "set") {
         const f = this.matchField(fields, a.field);
@@ -3080,7 +3106,14 @@ export class SpaceObject extends DurableObject<Env> {
       wait_minutes: def.wait_minutes,
       then: def.then.map((a): WorkflowView["then"][number] =>
         a.do === "notify"
-          ? { do: "notify", text: a.text, to: a.to }
+          ? {
+              do: "notify",
+              text: a.text,
+              to: [
+                ...a.to,
+                ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
+              ],
+            }
           : a.do === "set"
             ? { do: "set", field_id: a.field_id, field: fieldName(a.field_id), value: a.value }
             : {
@@ -3310,14 +3343,26 @@ export class SpaceObject extends DurableObject<Env> {
     const did: string[] = [];
     for (const a of def.then) {
       if (a.do === "notify") {
-        const body = this.fillTemplate(a.text, this.requireRecord(r.id));
-        for (const p of a.to)
+        const current = this.requireRecord(r.id);
+        const body = this.fillTemplate(a.text, current);
+        // The people named in the record's person fields, if the space knows them.
+        const named = (a.to_fields ?? []).flatMap((fid) => {
+          const v = (JSON.parse(current.values_json) as Record<string, StoredValue>)[fid];
+          const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
+          return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
+        });
+        const people = [...a.to, ...named];
+        for (const p of people)
           if (p.user_id)
             tell.push({
               userId: p.user_id,
               n: { kind: "workflow", title: w.name, body, url: `/c/${r.collection_id}/${r.id}` },
             });
-        did.push(`Told ${a.to.map((p) => p.name).join(", ")}: “${body}”`);
+        did.push(
+          people.length
+            ? `Told ${people.map((p) => p.name).join(", ")}: “${body}”`
+            : "Nobody to tell: the record names nobody in the space",
+        );
       } else if (a.do === "set") {
         this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });
         did.push(`Set ${this.liveField(a.field_id)?.name ?? "a field"}`);
@@ -3682,7 +3727,7 @@ export class SpaceObject extends DurableObject<Env> {
         const c = this.requireCollection(s.target_id);
         const r = this.insertRecord(actor, ts, c, {
           id: input.id ?? null,
-          values: this.sharedValues(s, c.id, input.values),
+          values: this.sharedValues(s, c.id, input.values, actor),
         });
         return { id: r.id };
       },
@@ -3706,7 +3751,7 @@ export class SpaceObject extends DurableObject<Env> {
         if (!this.sharedRecordIds(s, actor, [recordId]).length)
           throw new ObjectError("not_found", "Record not found");
         const r = this.requireRecord(recordId);
-        const shared = this.sharedValues(s, r.collection_id, values);
+        const shared = this.sharedValues(s, r.collection_id, values, actor);
         // Without edit access, people may still give their own personal answers.
         if (s.access !== "edit") {
           const fields = this.fieldRows(r.collection_id);
@@ -3744,14 +3789,14 @@ export class SpaceObject extends DurableObject<Env> {
           const c = this.requireCollection(f.collection_id);
           this.insertRecord(actor, ts, c, {
             id: input.id ?? null,
-            values: { ...this.sharedValues(s, c.id, input.values), [f.id]: [s.target_id] },
+            values: { ...this.sharedValues(s, c.id, input.values, actor), [f.id]: [s.target_id] },
           });
         } else {
           if (section !== s.kind) throw new ObjectError("not_found", "You can't add records there");
           const c = this.shareCollection(s);
           this.insertRecord(actor, ts, c, {
             id: input.id ?? null,
-            values: this.sharedValues(s, c.id, input.values),
+            values: this.sharedValues(s, c.id, input.values, actor),
           });
         }
         return this.opened(s, actor);
@@ -3994,18 +4039,40 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
-  /** Values a collaborator may set: only fields shared with them, never links. */
-  private sharedValues(s: ShareRow, collectionId: string, input: Record<string, unknown>) {
+  /**
+   * Values a collaborator may set: only fields shared with them. A link may only point at
+   * records they can already see through one of their shares (a sign-up picks a song from the
+   * songs shared with them), by id.
+   */
+  private sharedValues(s: ShareRow, collectionId: string, input: Record<string, unknown>, actor: Actor) {
     const hidden = new Set(JSON.parse(s.hidden_json) as string[]);
     const fields = this.fieldRows(collectionId);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(input)) {
       const f = this.matchField(fields, k);
-      if (hidden.has(f.id) || f.type === "link")
-        throw new ObjectError("forbidden", `You can't change ${f.name} here`);
+      if (hidden.has(f.id)) throw new ObjectError("forbidden", `You can't change ${f.name} here`);
+      if (f.type === "link") {
+        const ids = v === null || v === "" ? [] : Array.isArray(v) ? v : [v];
+        for (const id of ids)
+          if (typeof id !== "string" || !this.reachable(actor, id))
+            throw new ObjectError("forbidden", `You can't link ${f.name} to that here`);
+      }
       out[f.id] = v;
     }
     return out;
+  }
+
+  /** A record this person sees through any share of this space they joined. */
+  private reachable(actor: Actor, recordId: string): boolean {
+    if (!actor.userId || !this.liveRecord(recordId)) return false;
+    return this.sql
+      .exec<ShareRow>(
+        `select s.* from share_people p join shares s on s.id = p.share_id
+         where p.user_id = ? and s.revoked_at is null`,
+        actor.userId,
+      )
+      .toArray()
+      .some((sh) => this.alive(sh) && this.sharedRecordIds(sh, actor, [recordId]).length > 0);
   }
 
   /** What the owner picked to include, as stored ids (a link field, or one that links here). */
@@ -4146,6 +4213,40 @@ export class SpaceObject extends DurableObject<Env> {
     return this.fieldRows(collectionId).filter((f) => f.type !== "link" && !hidden.has(f.id));
   }
 
+  /**
+   * A form's link fields (one record, one target list), for signed-in people: each lists the
+   * records they can already see through their shares (a sign-up picks one of its songs).
+   */
+  private formPicks(s: ShareRow, collectionId: string, actor: Actor): SharedFieldInfo[] {
+    if (!actor.userId) return [];
+    const hidden = new Set(JSON.parse(s.hidden_json) as string[]);
+    return this.fieldRows(collectionId).flatMap((f) => {
+      const o = toField(f).options;
+      if (f.type !== "link" || hidden.has(f.id) || o.many || !o.target) return [];
+      const pick = this.sql
+        .exec<{ id: string; title: string }>(
+          `select id, title from records where collection_id = ? and deleted_at is null order by title limit 500`,
+          o.target,
+        )
+        .toArray()
+        .filter((r) => this.reachable(actor, r.id))
+        .map((r) => ({ id: r.id, title: r.title }));
+      if (!pick.length) return [];
+      return [
+        {
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          options: o,
+          editable: true,
+          required: !!f.required,
+          personal: false,
+          pick,
+        },
+      ];
+    });
+  }
+
   /** Personal answers are everyone's own to give, whatever the share's access (signed in only). */
   private fieldInfo(fields: FieldRow[], editable: boolean, actor: Actor): SharedFieldInfo[] {
     return fields.map((g) => {
@@ -4265,7 +4366,9 @@ export class SpaceObject extends DurableObject<Env> {
       share: { ...head, kind: "form" },
       collection: c.name,
       description: c.description,
-      fields: this.fieldInfo(fields, true, actor),
+      fields: [...this.fieldInfo(fields, true, actor), ...this.formPicks(s, c.id, actor)].map((f) =>
+        f.type === "person" && actor.userId ? { ...f, pick: [{ id: "me", title: "Me" }] } : f,
+      ),
       mine: mine.map((r) => this.sharedRecord(r, fields, s.access === "edit", actor)),
     };
   }

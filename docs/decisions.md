@@ -441,6 +441,11 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-10: Collaborators link only to what they can see
+
+Through a share, a collaborator may set a link field (a sign-up picks its song), but only to a record they can already see through one of their shares in the same space, by id; a form lists those records to pick from. A person field takes "me" for whoever writes, and keeps an account id only for someone in the space or its shares; workflows can tell "{Field}", the person in a person field, if the space knows them.
+Reason: the fam jam needs sign-ups that point at songs and a "you're in" message to each person, without letting anyone reach records or people the space hasn't shared with them.
+
 ## 2026-10-10: A setup is one card and one write
 
 Setups by chat (chat-first step 6) are proposed as one card (`make_setup`) listing every list, link, calculated field, rule and view in words made from the definition, and made in one space-object transaction on **Make it**: all of it or nothing. Links inside the setup may point at each other, so links are added after the plain fields and calculated fields after the links. The single-piece tools (`create_collection`, `add_field`, `add_rule`, …) stay for small changes.
