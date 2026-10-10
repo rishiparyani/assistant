@@ -168,8 +168,16 @@ export class GroupObject extends DurableObject<Env> {
   }> {
     this.member(userId);
     const g = this.group();
-    const messages = this.sql
-      .exec<GroupMessage>(
+    type MessageRow = {
+      id: string;
+      kind: GroupMessage["kind"];
+      author_id: string | null;
+      author: string;
+      text: string;
+      created_at: string;
+    };
+    const messages: GroupMessage[] = this.sql
+      .exec<MessageRow>(
         `select id, kind, author_id, author, text, created_at from
            (select * from messages order by created_at desc, id desc limit ?) order by created_at, id`,
         PAGE,

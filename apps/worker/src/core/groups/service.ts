@@ -53,7 +53,7 @@ export async function myGroups(ctx: OpUserCtx): Promise<GroupSummary[]> {
   const out = await Promise.all(
     rows.results.map(async (r) => {
       try {
-        return await groupOf(ctx, r.group_id).summary(ctx.user.id);
+        return (await groupOf(ctx, r.group_id).summary(ctx.user.id)) as GroupSummary;
       } catch {
         return null; // left the group since
       }
@@ -136,7 +136,12 @@ export async function postGroupMessage(
       answer = await chatView(ctx, id);
       console.warn("group assistant failed", e);
     }
-    const mine = answer.items.slice(answer.items.findLastIndex((i) => i.role === "user") + 1);
+    // What came after the asker's message: the assistant's reply, cards and notes.
+    let from = 0;
+    answer.items.forEach((item, n) => {
+      if (item.role === "user") from = n + 1;
+    });
+    const mine = answer.items.slice(from);
     const said = mine.filter((i) => i.role === "assistant" && i.text).map((i) => i.text);
     const extra = mine.some((i) => i.role === "card" || i.role === "live")
       ? " (Details are in your chat with the assistant.)"
