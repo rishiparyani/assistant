@@ -441,6 +441,11 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-10: Group chats: one object per group, @assistant as the asker
+
+Each group chat is its own Durable Object (rule 1: per chat) with its members and messages; D1 keeps only who is in which group, for the list. Writing @assistant (a fixed word, like a command) asks the assistant; only people with assistant access may send it. It runs as the asker, with their own data and from their allowance, in a chat of theirs for that group, reading the group's recent messages as data (never instructions), and its reply is posted to the group for everyone. Confirm cards and live cards stay in the asker's chat. People are added only from those the owner already knows (their shares).
+Reason: the design's group chats (band, family) without giving anyone access to data or AI spend that isn't theirs.
+
 ## 2026-10-10: Assistant first
 
 Owner's decision. Nobody starts with preset lists any more: the first time someone says "remind me…", "note that…" or "spent ₹450…", the everyday assistant starts that list on the spot (`start_list`: notes, reminders with their alarm, events or expenses; no confirm card, since the shapes are fixed and known) and shows it as a card; anything else is a setup card on the smart model. Chat is how lists, fields, rules and workflows are made and changed; cards still edit what's there. The by-hand builders (Add, Rules, the workflow form, starting a list) stay, behind small **Edit by hand** / **By hand** links, for offline and no-AI days. Existing people keep their lists.

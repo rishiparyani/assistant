@@ -16,6 +16,7 @@
   import ChatPage from "./assistant/ChatPage.svelte";
   import MemoryPage from "./assistant/MemoryPage.svelte";
   import WorkflowsPage from "./workflows/WorkflowsPage.svelte";
+  import GroupPage from "./groups/GroupPage.svelte";
   import WorkflowPage from "./workflows/WorkflowPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress, toast } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
@@ -83,6 +84,10 @@
       {:else if route.name === "chat"}
         {#key route.params.chatId}
           <ChatPage chatId={route.params.chatId!} />
+        {/key}
+      {:else if route.name === "group"}
+        {#key route.params.groupId}
+          <GroupPage id={route.params.groupId!} />
         {/key}
       {:else if route.name === "memory"}
         <MemoryPage />

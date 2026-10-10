@@ -9,6 +9,8 @@ const PATTERNS: [string, RegExp][] = [
   ["root", /^\/$/],
   // Another chat with the assistant (the first one is the home page).
   ["chat", /^\/chat\/(?<chatId>[^/]+)$/],
+  // A group chat (chat-first step 7).
+  ["group", /^\/g\/(?<groupId>[^/]+)$/],
   // What the assistant remembers.
   ["memory", /^\/memory$/],
   // Workflows (chat-first step 5).
