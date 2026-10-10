@@ -250,6 +250,10 @@ const MIGRATIONS: Migrations = [
     primary key (share_id, user_id)
   ) without rowid;
   `,
+  // Live updates: people who just lost access still hear about it once (then they're dropped).
+  `
+  create table live_extra (user_id text primary key) without rowid;
+  `,
 ];
 
 type ViewQuery = {
@@ -458,7 +462,8 @@ export class SpaceObject extends DurableObject<Env> {
     const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id;
     const people = this.sql
       .exec<{ user_id: string }>(
-        `select user_id from members union select user_id from share_people where user_id is not null`,
+        `select user_id from members union select user_id from share_people where user_id is not null
+         union select user_id from live_extra`,
       )
       .toArray()
       .map((r) => r.user_id);
@@ -473,7 +478,14 @@ export class SpaceObject extends DurableObject<Env> {
       await this.ctx.storage.setAlarm(Date.now() + outboxFailed(this.sql));
       return;
     }
+    // Only those pinged now leave the list; anyone added meanwhile waits for the next alarm.
+    for (const u of people) this.sql.exec(`delete from live_extra where user_id = ?`, u);
     if (!clearOutbox(this.sql, note.seq)) await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+  }
+
+  /** Someone losing access to a share still gets one ping, so their open app drops it. */
+  private alsoTell(userId: string) {
+    this.sql.exec(`insert or ignore into live_extra (user_id) values (?)`, userId);
   }
 
   private logChange(
@@ -1925,6 +1937,7 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["remove_share_person", shareId, userId], () => {
       const s = this.requireShare(shareId);
       this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, s.id, userId);
+      this.alsoTell(userId);
       audit(this.sql, actor, {
         action: "remove_share_person",
         entityType: "share",
@@ -1956,6 +1969,8 @@ export class SpaceObject extends DurableObject<Env> {
         nowIso(),
       );
       audit(this.sql, actor, { action: "join_share", entityType: "share", entityId: s.id });
+      // The owner's open share sheet (and others in it) hear about the new person.
+      this.changed();
     }
     return { share_id: s.id, title: this.shareTitle(s) };
   }
@@ -2210,6 +2225,8 @@ export class SpaceObject extends DurableObject<Env> {
       ["leave_share", shareId],
       () => {
         this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, shareId, actor.userId);
+        // Their other devices drop it too.
+        if (actor.userId) this.alsoTell(actor.userId);
         audit(this.sql, actor, { action: "leave_share", entityType: "share", entityId: shareId });
         return { left: shareId };
       },

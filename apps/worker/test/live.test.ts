@@ -83,6 +83,19 @@ describe("live updates", () => {
     });
     expect(await heard(theirs.got)).toBe(true);
     theirs.ws.close(1000);
+
+    // Someone new joins: the owner's open share sheet hears it.
+    const again = await listen(owner.cookie);
+    const other = await signUp("Test Other");
+    await api(other, "/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    expect(await heard(again.got)).toBe(true);
+    again.ws.close(1000);
+
+    // The owner takes the friend out: the friend's open app still hears it, once.
+    const gone = await listen(friend.cookie);
+    await api(owner, `/shares/${share.id}/people/${friend.id}`, { method: "DELETE" });
+    expect(await heard(gone.got)).toBe(true);
+    gone.ws.close(1000);
   });
 
   it("refuses strangers, other sites and plain requests", async () => {
