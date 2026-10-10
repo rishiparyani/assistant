@@ -42,6 +42,8 @@ import {
 const EVERYDAY = [
   "list_collections",
   "describe_collection",
+  // Assistant first: the everyday lists start on the spot, on the free model.
+  "start_list",
   "find_records",
   "get_record",
   "add_record",
@@ -167,6 +169,7 @@ function systemPrompt(ctx: OpUserCtx, level: Level, cols: CollectionView[], memo
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
     "Their collections:",
     setupSummary(cols) || "(none yet)",
+    "- If they ask for a note, a reminder, an event or an expense and that list isn't there yet, start it with start_list (it's made at once and shown to them), then add the record.",
     "Rules:",
     '- Money in rupees ("450" or "₹450"). Dates as YYYY-MM-DD; date and time as YYYY-MM-DDTHH:MM in India time.',
     "- Records can be named by exact title; if several match you get candidates: ask which one. Never guess.",
@@ -335,6 +338,10 @@ function liveFrom(
     if (typeof r.id === "string" && typeof r.collection_id === "string")
       return { kind: "record", collection_id: r.collection_id, record_id: r.id };
     return null;
+  }
+  if (tool === "start_list") {
+    const c = r as unknown as CollectionView;
+    return typeof c.id === "string" ? { kind: "list", collection_id: c.id, title: c.name, query: {} } : null;
   }
   if (tool === "make_setup") {
     const first = (r.collections as CollectionView[] | undefined)?.[0];

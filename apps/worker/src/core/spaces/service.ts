@@ -21,7 +21,7 @@ async function rows(ctx: OpUserCtx): Promise<SpaceRow[]> {
   return res.results;
 }
 
-/** The caller's personal space, made (with the starter setup) the first time. */
+/** The caller's personal space, made (empty) the first time. */
 async function ensurePersonal(ctx: OpUserCtx): Promise<void> {
   const id = ulid();
   await ctx.d1.batch([
@@ -47,7 +47,8 @@ async function ensurePersonal(ctx: OpUserCtx): Promise<void> {
     name: "Personal",
     kind: "personal",
     owner: { user_id: ctx.user.id, name: ctx.user.name },
-    starter: true,
+    // New people start empty; the assistant starts lists as they're needed.
+    starter: false,
   });
 }
 

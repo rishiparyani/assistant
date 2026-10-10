@@ -21,6 +21,13 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // After a tool ran: a short reply that quotes what it got back.
   if (last.role === "tool") {
     const result = last.content ?? "";
+    // "Test: remind me to call the venue": the list was just started; now the reminder itself.
+    const asked = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    if (asked === "Test: remind me to call the venue" && result.includes('"name":"Reminders"'))
+      return call("add_record", {
+        collection: "Reminders",
+        values: { Title: "Test call the venue", Due: "2030-01-01T18:00" },
+      });
     if (result.includes('"needs_confirmation"')) return say("Please confirm the card above.");
     if (result.includes('"error"')) return say("That didn't work: " + result.slice(0, 120));
     return say("Done.");
@@ -60,6 +67,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Vocals", "Keys"] } },
         ],
       });
+    case "Test: remind me to call the venue":
+      return call("start_list", { kind: "reminders" });
     case "Test: remember weddings are 25000":
       return call("remember", { text: "Test weddings are ₹25,000 for the band." });
     case "Test: what do you remember":

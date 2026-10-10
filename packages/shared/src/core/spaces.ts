@@ -243,6 +243,15 @@ export const CreateCollectionInput = SpaceRef.extend({
     .describe("Fields; the first text field is the title (a Title field is added if there is none)"),
 });
 
+/** The everyday lists the assistant starts on the spot, the first time they're needed. */
+export const STARTER_KINDS = ["notes", "reminders", "events", "expenses"] as const;
+export type StarterKind = (typeof STARTER_KINDS)[number];
+export const StartListInput = SpaceRef.extend({
+  kind: z
+    .enum(STARTER_KINDS)
+    .describe("notes, reminders (with an alarm at Due), events (things at a time) or expenses"),
+});
+
 export const CollectionRef = SpaceRef.extend({ collection: nameOrId("Collection") });
 
 export const AddFieldInput = CollectionRef.extend({ field: FieldInput });

@@ -23,6 +23,7 @@ import {
   UpdateCollectionInput,
   UpdateFieldInput,
   UpdateRecordInput,
+  StartListInput,
   UpdateRecordsInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
@@ -61,6 +62,19 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.describe(actor, i.collection);
+    },
+  }),
+  defineOperation({
+    id: "core.start_list",
+    tool: "start_list",
+    description:
+      "Start an everyday list the first time it's needed: notes, reminders (with an alarm at Due), events or expenses. If it's already there, it's returned as it is.",
+    kind: "write",
+    http: { method: "POST", path: "/lists/start", status: 201 },
+    input: StartListInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.startList(actor, ctx.idempotencyKey, i.kind);
     },
   }),
   defineOperation({
