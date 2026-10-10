@@ -62,6 +62,7 @@ const EVERYDAY = [
   "list_workflows",
   "get_workflow",
   "set_workflow_enabled",
+  "list_rules",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -76,6 +77,9 @@ const SETUP = [
   // Workflows (chat-first step 5): saved off; the person turns them on from the card.
   "create_workflow",
   "delete_workflow",
+  // Rules (chat-first step 6).
+  "add_rule",
+  "delete_rule",
 ];
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;

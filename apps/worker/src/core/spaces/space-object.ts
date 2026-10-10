@@ -32,6 +32,9 @@ import {
   type ShareInclude,
   type Person,
   type QuestionView,
+  type RuleKind,
+  type RuleView,
+  ruleWords,
   type WorkflowDetail,
   type WorkflowEvent,
   type WorkflowRun,
@@ -333,6 +336,20 @@ const MIGRATIONS: Migrations = [
   );
   create index workflow_notes_next_idx on workflow_notes (next_at);
   `,
+  // Rules on a collection (chat-first step 6): checks, uniqueness and status flows.
+  `
+  create table rules (
+    id text primary key,
+    collection_id text not null,
+    kind text not null check (kind in ('check', 'unique', 'flow')),
+    def_json text not null,
+    message text,
+    created_by text,
+    created_at text not null,
+    deleted_at text
+  );
+  create index rules_collection_idx on rules (collection_id) where deleted_at is null;
+  `,
 ];
 
 type ViewQuery = {
@@ -461,6 +478,24 @@ export type WorkflowSpec = {
 const MAX_WORKFLOWS = 100;
 const MAX_WORKFLOW_DEPTH = 3;
 const DAY_TIME_IST = "09:00:00+05:30";
+
+type RuleDef = {
+  require: Filter[];
+  fields: string[];
+  only_if: Filter[];
+  field: string | null;
+  moves: Record<string, string[]>;
+};
+type RuleRow = {
+  id: string;
+  collection_id: string;
+  kind: RuleKind;
+  def_json: string;
+  message: string | null;
+  created_by: string | null;
+  created_at: string;
+  deleted_at: string | null;
+};
 
 type QuestionRow = {
   id: string;
@@ -684,7 +719,8 @@ export class SpaceObject extends DurableObject<Env> {
 
   async describe(actor: Actor, collection: string): Promise<CollectionView> {
     this.role(actor);
-    return this.collectionView(this.requireCollection(collection));
+    const c = this.requireCollection(collection);
+    return { ...this.collectionView(c), rules: this.ruleRows(c.id).map((r) => this.ruleView(r)) };
   }
 
   async createCollection(
@@ -1002,6 +1038,21 @@ export class SpaceObject extends DurableObject<Env> {
       const f = this.requireField(c.id, field);
       if (f.id === c.title_field_id)
         throw new ObjectError("conflict", "The title field can't be removed; rename it instead");
+      // A rule that uses it would stop every write here: the rule goes first.
+      const user = this.ruleRows(c.id).find((r) => {
+        const d = JSON.parse(r.def_json) as RuleDef;
+        return (
+          d.field === f.id ||
+          d.fields.includes(f.id) ||
+          [...d.require, ...d.only_if].some((x) => x.field === f.id)
+        );
+      });
+      if (user)
+        throw new ObjectError(
+          "conflict",
+          `${f.name} is used by a rule (${this.ruleView(user).words}); remove the rule first`,
+          { reason: "rule", rule_id: user.id },
+        );
       this.sql.exec(`update fields set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, f.id);
       this.sql.exec(`delete from record_values where field_id = ?`, f.id);
       this.touchCollection(c.id, ts);
@@ -1085,6 +1136,7 @@ export class SpaceObject extends DurableObject<Env> {
         ids,
         ts,
       );
+    this.enforceRules(c, id, null, values);
     this.logChange("record", id, "upsert", ts);
     this.queueWorkflows(c.id, id, null, values);
     audit(this.sql, actor, {
@@ -1179,6 +1231,7 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
       );
     const answered = this.saveAnswers(actor, r.id, answers, ts);
+    this.enforceRules(c, r.id, before, merged);
     this.logChange("record", r.id, "upsert", ts);
     // Links and personal answers live apart from the values; they count as a change too.
     this.queueWorkflows(c.id, r.id, before, merged, links.size > 0 || answers.size > 0);
@@ -1289,6 +1342,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
       }
       this.touchRecord(r.id, ts);
+      this.enforceLinkRules(r);
       audit(this.sql, actor, {
         action: "link_records",
         entityType: "record",
@@ -1313,6 +1367,7 @@ export class SpaceObject extends DurableObject<Env> {
       for (const id of to)
         this.sql.exec(`delete from links where field_id = ? and from_id = ? and to_id = ?`, f.id, r.id, id);
       this.touchRecord(r.id, ts);
+      this.enforceLinkRules(r);
       audit(this.sql, actor, {
         action: "unlink_records",
         entityType: "record",
@@ -2176,6 +2231,267 @@ export class SpaceObject extends DurableObject<Env> {
       });
       return this.shareView(s);
     });
+  }
+
+  // --- Rules (chat-first step 6) ----------------------------------------------------------
+  // Checked inside every record write, after the values and links are saved and before the
+  // transaction commits, so a broken rule leaves nothing behind. A uniqueness clash answers
+  // 409 with the record already holding the place, so the app can offer to replace it.
+
+  async listRules(actor: Actor, collection: string): Promise<RuleView[]> {
+    this.role(actor);
+    return this.ruleRows(this.requireCollection(collection).id).map((r) => this.ruleView(r));
+  }
+
+  async addRule(
+    actor: Actor,
+    key: string | null,
+    collection: string,
+    input: {
+      kind: RuleKind;
+      require?: Filter[];
+      fields?: string[];
+      only_if?: Filter[];
+      field?: string;
+      moves?: Record<string, string[]>;
+      message?: string;
+    },
+  ): Promise<RuleView> {
+    return this.write(actor, key, ["add_rule", collection, input], (ts) => {
+      const c = this.requireCollection(collection);
+      const fields = this.fieldRows(c.id);
+      const only_if = this.checkViewQuery(c, { filters: input.only_if ?? [] }).filters;
+      let def: RuleDef;
+      if (input.kind === "check") {
+        if (!input.require?.length) throw new ObjectError("validation_failed", "Say what records must meet");
+        def = {
+          require: this.checkViewQuery(c, { filters: input.require }).filters,
+          fields: [],
+          only_if,
+          field: null,
+          moves: {},
+        };
+      } else if (input.kind === "unique") {
+        if (!input.fields?.length)
+          throw new ObjectError("validation_failed", "Say which fields may not repeat");
+        const ids = input.fields.map((ref) => {
+          const f = this.matchField(fields, ref);
+          if (
+            f.type === "money" ||
+            f.type === "long_text" ||
+            f.type === "multi_choice" ||
+            toField(f).options.personal
+          )
+            throw new ObjectError("validation_failed", `${f.name} can't be part of a uniqueness rule`);
+          return f.id;
+        });
+        def = { require: [], fields: [...new Set(ids)], only_if, field: null, moves: {} };
+      } else {
+        if (!input.field || !input.moves)
+          throw new ObjectError("validation_failed", "Say the field and its moves");
+        const f = this.matchField(fields, input.field);
+        if (f.type !== "choice") throw new ObjectError("validation_failed", `${f.name} isn't a choice field`);
+        const choices = toField(f).options.choices ?? [];
+        const pick = (v: string) => {
+          const hit = choices.find((x) => nameKey(x) === nameKey(v));
+          if (!hit)
+            throw new ObjectError(
+              "validation_failed",
+              `${f.name} has no choice "${v}". Choices: ${choices.join(", ")}`,
+            );
+          return hit;
+        };
+        const given = new Map(
+          Object.entries(input.moves).map(([from, to]) => [pick(from), [...new Set(to.map(pick))]]),
+        );
+        // Every choice is listed, so the words show the values that can't move at all.
+        const moves = Object.fromEntries(choices.map((ch) => [ch, given.get(ch) ?? []]));
+        def = { require: [], fields: [], only_if: [], field: f.id, moves };
+      }
+      const count = this.sql
+        .exec<{ n: number }>(
+          `select count(*) as n from rules where collection_id = ? and deleted_at is null`,
+          c.id,
+        )
+        .one().n;
+      if (count >= 30) throw new ObjectError("conflict", "A collection can have at most 30 rules");
+      const id = ulid();
+      this.sql.exec(
+        `insert into rules (id, collection_id, kind, def_json, message, created_by, created_at) values (?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        c.id,
+        input.kind,
+        JSON.stringify(def),
+        input.message?.trim() || null,
+        actor.userId,
+        ts,
+      );
+      // Records already there must meet it (a rule that's broken from the start says so now).
+      const r = this.sql.exec<RuleRow>(`select * from rules where id = ?`, id).one();
+      // Every record, in batches (a rule over broken data would be a promise it can't keep).
+      for (let after = ""; ;) {
+        const batch = this.sql
+          .exec<{ id: string; values_json: string }>(
+            `select id, values_json from records where collection_id = ? and deleted_at is null and id > ? order by id limit 500`,
+            c.id,
+            after,
+          )
+          .toArray();
+        for (const rec of batch)
+          this.checkRule(
+            r,
+            c,
+            rec.id,
+            null,
+            JSON.parse(rec.values_json) as Record<string, StoredValue>,
+            true,
+          );
+        if (batch.length < 500) break;
+        after = batch[batch.length - 1]!.id;
+      }
+      audit(this.sql, actor, { action: "add_rule", entityType: "rule", entityId: id, after: input });
+      this.logChange("collection", c.id, "upsert", ts);
+      return this.ruleView(r);
+    });
+  }
+
+  async deleteRule(actor: Actor, key: string | null, id: string): Promise<{ deleted: string }> {
+    return this.write(actor, key, ["delete_rule", id], (ts) => {
+      const r = this.sql
+        .exec<RuleRow>(`select * from rules where id = ? and deleted_at is null`, id)
+        .toArray()[0];
+      if (!r) throw new ObjectError("not_found", "Rule not found");
+      this.sql.exec(`update rules set deleted_at = ? where id = ?`, ts, r.id);
+      audit(this.sql, actor, { action: "delete_rule", entityType: "rule", entityId: r.id });
+      this.logChange("collection", r.collection_id, "upsert", ts);
+      return { deleted: r.id };
+    });
+  }
+
+  private ruleRows(collectionId: string): RuleRow[] {
+    return this.sql
+      .exec<RuleRow>(
+        `select * from rules where collection_id = ? and deleted_at is null order by created_at`,
+        collectionId,
+      )
+      .toArray();
+  }
+
+  private ruleView(r: RuleRow): RuleView {
+    const def = JSON.parse(r.def_json) as RuleDef;
+    const name = (id: string) => this.liveField(id)?.name ?? "(removed field)";
+    const cond = (f: Filter) => ({
+      field_id: f.field,
+      field: name(f.field),
+      op: f.op,
+      value: (f.value ?? null) as RuleView["require"][number]["value"],
+    });
+    const collection =
+      this.sql
+        .exec<{ name: string }>(`select name from collections where id = ?`, r.collection_id)
+        .toArray()[0]?.name ?? "";
+    const base = {
+      kind: r.kind,
+      collection,
+      require: def.require.map(cond),
+      fields: def.fields.map((id) => ({ id, name: name(id) })),
+      only_if: def.only_if.map(cond),
+      field: def.field ? { id: def.field, name: name(def.field) } : null,
+      moves: def.moves,
+    };
+    return {
+      id: r.id,
+      collection_id: r.collection_id,
+      ...base,
+      message: r.message,
+      words: ruleWords(base),
+      created_at: r.created_at,
+    };
+  }
+
+  /** Every rule of the collection, for one record just written (throws to roll it back). */
+  private enforceRules(
+    c: CollectionRow,
+    recordId: string,
+    before: Record<string, StoredValue> | null,
+    after: Record<string, StoredValue>,
+  ) {
+    for (const r of this.ruleRows(c.id)) this.checkRule(r, c, recordId, before, after, false);
+  }
+
+  /** A record's links changed on their own: its rules must still hold (values didn't move). */
+  private enforceLinkRules(r: RecordRow) {
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    this.enforceRules(this.requireCollection(r.collection_id), r.id, values, values);
+  }
+
+  private checkRule(
+    r: RuleRow,
+    c: CollectionRow,
+    recordId: string,
+    before: Record<string, StoredValue> | null,
+    after: Record<string, StoredValue>,
+    existing: boolean,
+  ) {
+    const def = JSON.parse(r.def_json) as RuleDef;
+    const system: Actor = { userId: null, source: "system" };
+    const matches = (filters: Filter[]) =>
+      !filters.length || this.findRows(system, c, { filters, ids: [recordId], limit: 1 }).rows.length > 0;
+    const title = () => this.liveRecord(recordId)?.title ?? "A record";
+    const say = (fallback: string) => r.message ?? fallback;
+    if (r.kind === "check") {
+      if (matches(def.only_if) && !matches(def.require))
+        throw new ObjectError(
+          "validation_failed",
+          say(`${existing ? `“${title()}” already breaks this rule. ` : ""}Rule: ${this.ruleView(r).words}`),
+          { reason: "rule", rule_id: r.id },
+        );
+      return;
+    }
+    if (r.kind === "unique") {
+      if (!matches(def.only_if)) return;
+      const same: Filter[] = def.fields.map((fid) => {
+        const f = this.liveField(fid);
+        const v =
+          f?.type === "link"
+            ? (this.sql
+                .exec<{ to_id: string }>(
+                  `select to_id from links where field_id = ? and from_id = ? order by position limit 1`,
+                  fid,
+                  recordId,
+                )
+                .toArray()[0]?.to_id ?? null)
+            : (after[fid] ?? null);
+        return v === null ? { field: fid, op: "empty" } : { field: fid, op: "eq", value: v };
+      });
+      const others = this.findRows(system, c, { filters: [...def.only_if, ...same], limit: 6 }).rows.filter(
+        (x) => x.id !== recordId,
+      );
+      if (others.length)
+        throw new ObjectError(
+          "conflict",
+          say(
+            `Only one at a time here: “${others[0]!.title}” already has this place. ${this.ruleView(r).words}.`,
+          ),
+          { reason: "unique", rule_id: r.id, existing: others.map((x) => ({ id: x.id, title: x.title })) },
+        );
+      return;
+    }
+    // A status flow: only listed moves (new records may start anywhere).
+    if (existing || before === null || !def.field) return;
+    const from = before[def.field];
+    const to = after[def.field];
+    if (JSON.stringify(from ?? null) === JSON.stringify(to ?? null) || typeof from !== "string") return;
+    // A value the rule doesn't list can't move anywhere (the words say "moves only …").
+    const allowed = def.moves[from] ?? [];
+    if (!allowed.includes(String(to ?? "")))
+      throw new ObjectError(
+        "validation_failed",
+        say(
+          `${this.liveField(def.field)?.name ?? "It"} can't go from ${from} to ${to ?? "empty"}${allowed.length ? `; from ${from} it can go to ${allowed.join(" or ")}` : ""}`,
+        ),
+        { reason: "flow", rule_id: r.id },
+      );
   }
 
   // --- Workflows (chat-first step 5) ------------------------------------------------------

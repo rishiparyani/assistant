@@ -3,6 +3,7 @@
 // server and (later) the device apply the same rules.
 import { z } from "zod";
 import { clientId, optionalText } from "./fields.ts";
+import type { RuleView } from "./rules.ts";
 import { isDateOnly, toUtcIso } from "./dates.ts";
 import { formatINR, parseINR } from "./money.ts";
 
@@ -72,6 +73,8 @@ export interface CollectionView {
   /** Links from other collections that point here (shown as sections on a record). */
   linked_from: { collection_id: string; collection: string; field_id: string; field: string }[];
   updated_at: string;
+  /** Its rules (checks, uniqueness, status flows); only from describe_collection. */
+  rules?: RuleView[];
 }
 
 export interface SpaceView {
