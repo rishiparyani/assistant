@@ -1548,6 +1548,17 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
+  /** Several changes in one write: if any is refused (a rule, a flow), none is kept. */
+  async updateRecords(
+    actor: Actor,
+    key: string | null,
+    changes: { record_id: string; values: Record<string, unknown> }[],
+  ): Promise<RecordView[]> {
+    return this.write(actor, key, ["update_records", changes], (ts) =>
+      changes.map((c) => this.changeRecord(actor, ts, this.requireRecord(c.record_id), { values: c.values })),
+    );
+  }
+
   private changeRecord(
     actor: Actor,
     ts: string,

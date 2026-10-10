@@ -277,6 +277,19 @@ export const UpdateRecordInput = RecordRef.extend({
   version: z.number().int().optional().describe("The record's version when it was read (optional)"),
 });
 
+/** Several record changes in one write: all of them, or none (a pick-board "Replace"). */
+export const UpdateRecordsInput = SpaceRef.extend({
+  changes: z
+    .array(
+      z.object({
+        record_id: z.string().trim().min(1).max(40),
+        values: valuesSchema.describe("Only the fields to change; null clears a field"),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
 export const LinkRecordsInput = RecordRef.extend({
   field: nameOrId("Link field"),
   to: z

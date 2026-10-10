@@ -17,12 +17,14 @@
   import { isPending, listKey, spacesApi, summaryOf } from "./spaces-api.ts";
   import RecordSheet from "./RecordSheet.svelte";
   import RulesSheet from "./RulesSheet.svelte";
+  import PickBoard from "./PickBoard.svelte";
 
   // One list (collection) as a pop-up from the side menu: search, its records page by page, a
   // tap opens one as a card, Add makes one. Works offline and without the assistant.
   let { open = $bindable(false), collection }: { open?: boolean; collection: CollectionView } = $props();
 
   let showRules = $state(false);
+  let showBoard = $state(false);
   let typed = $state("");
   let search = $state("");
   $effect(() => {
@@ -100,9 +102,11 @@
       {#snippet icon()}<Plus />{/snippet}
       Add
     </Button>
+    <Button variant="ghost" onclick={() => (showBoard = true)}>Pick</Button>
     <Button variant="ghost" onclick={() => (showRules = true)}>Rules</Button>
   {/snippet}
 </Sheet>
 
 <RecordSheet bind:open={adding} {collection} onsaved={() => void list.refresh()} />
 <RulesSheet bind:open={showRules} {collection} />
+{#if showBoard}<PickBoard bind:open={showBoard} {collection} />{/if}

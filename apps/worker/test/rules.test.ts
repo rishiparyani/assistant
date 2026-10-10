@@ -186,4 +186,43 @@ describe("rules", () => {
     expect(rule.id).toBeTruthy();
     expect((await remove()).status).toBe(200);
   });
+
+  it("replaces whoever holds a place in one write, or changes nothing", async () => {
+    const me = await signUp("Test Organiser");
+    const { signUpFor } = await famJam(me);
+    await api(me)("/collections/Sign-ups/rules", {
+      body: {
+        kind: "unique",
+        fields: ["Song", "Instrument"],
+        only_if: [{ field: "Status", op: "eq", value: "Selected" }],
+      },
+    });
+    const rahul = await signUpFor("Test Rahul");
+    const dev = await signUpFor("Test Dev");
+    expect((await set(me, rahul.id, { Status: "Selected" })).status).toBe(200);
+    const status = async (id: string) =>
+      (await json<RecordView>(await api(me)(`/records/${id}`))).named.Status;
+    // Selecting Dev before moving Rahul clashes: neither change is kept.
+    const wrong = await api(me)("/records/batch", {
+      body: {
+        changes: [
+          { record_id: dev.id, values: { Status: "Selected" } },
+          { record_id: rahul.id, values: { Status: "Not this time" } },
+        ],
+      },
+    });
+    expect(wrong.status).toBe(409);
+    expect([await status(rahul.id), await status(dev.id)]).toEqual(["Selected", "Requested"]);
+    // Rahul first, then Dev: both, together.
+    const right = await api(me)("/records/batch", {
+      body: {
+        changes: [
+          { record_id: rahul.id, values: { Status: "Not this time" } },
+          { record_id: dev.id, values: { Status: "Selected" } },
+        ],
+      },
+    });
+    expect(right.status).toBe(200);
+    expect([await status(rahul.id), await status(dev.id)]).toEqual(["Not this time", "Selected"]);
+  });
 });

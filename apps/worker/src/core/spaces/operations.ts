@@ -23,6 +23,7 @@ import {
   UpdateCollectionInput,
   UpdateFieldInput,
   UpdateRecordInput,
+  UpdateRecordsInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import { mySpaces, spaceOf } from "./service.ts";
@@ -204,6 +205,25 @@ export const spaceOperations = [
         values: i.values,
         version: i.version,
       });
+    },
+  }),
+  defineOperation({
+    id: "core.update_records",
+    tool: "update_records",
+    description:
+      "Change several records at once, all or nothing (e.g. move the person holding a place to Not this time and select another).",
+    kind: "write",
+    http: { method: "POST", path: "/records/batch" },
+    input: UpdateRecordsInput,
+    confirmWhen: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      for (const c of i.changes)
+        if (await stub.touchesMoney(actor, { recordId: c.record_id }, Object.keys(c.values))) return true;
+      return false;
+    },
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return { records: await stub.updateRecords(actor, ctx.idempotencyKey, i.changes) };
     },
   }),
   defineOperation({
