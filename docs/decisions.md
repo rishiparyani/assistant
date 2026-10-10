@@ -379,7 +379,7 @@ Following design §10. Choices made while building it:
 
 ## 2026-10-10: Revoke CI's own development certificates before each TestFlight build
 
-Each GitHub Mac runner is fresh, so automatic signing makes a new Apple Development certificate every build, and Apple stops at its limit (uploads failed until the owner revoked 10). Chosen fix: before archiving, revoke the Development certificates named "Created via API" with the App Store Connect key the job already has (`scripts/apple-dev-certs.mjs`). No new secrets, Distribution certificates and anyone's Xcode certificates are untouched, and a failure only skips the cleanup. Rejected: storing a signing certificate as a secret (more secrets and owner steps); archiving unsigned (would lose the passkey entitlement).
+Each GitHub Mac runner is fresh, so automatic signing makes a new Apple Development certificate every build, and Apple stops at its limit (uploads failed until the owner revoked 10). Chosen fix: with the App Store Connect key the job already has (`scripts/apple-dev-certs.mjs`), note the Development certificates before archiving and, after the upload, revoke only certificates that are new and named "Created via API", so each build removes the one it made and nothing another tool made earlier (updated 2026-10-10 after a Codex review). No new secrets, Distribution certificates and anyone's Xcode certificates are untouched, and a failure only skips the cleanup. Rejected: storing a signing certificate as a secret (more secrets and owner steps); archiving unsigned (would lose the passkey entitlement).
 
 ## 2026-10-10: Sharing cards (stage 2a), as built
 
