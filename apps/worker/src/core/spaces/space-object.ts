@@ -2489,10 +2489,15 @@ export class SpaceObject extends DurableObject<Env> {
           for (const f of this.fieldRows(id))
             if (f.type === "money" && f.id !== titleId && !hidden.includes(f.id)) hidden.push(f.id);
         }
-      // A form must be fillable: every required field shown, and none of them a link.
+      // A form must be fillable: every required field shown. A required link works only as a
+      // pick list for signed-in people (one record, one target list), never on link-only forms.
       if (input.kind === "form") {
+        const pickable = (f: FieldRow) => {
+          const o = toField(f).options;
+          return !input.public && !o.many && !!o.target;
+        };
         const blocked = this.fieldRows(c.id).filter(
-          (f) => f.required && (f.type === "link" || hidden.includes(f.id)),
+          (f) => f.required && ((f.type === "link" && !pickable(f)) || hidden.includes(f.id)),
         );
         if (blocked.length)
           throw new ObjectError(

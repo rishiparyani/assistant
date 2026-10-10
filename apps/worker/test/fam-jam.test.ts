@@ -42,7 +42,7 @@ describe("fam jam sign-ups", () => {
             name: "Sign-ups",
             fields: [
               { name: "Note", type: "text" },
-              { name: "Song", type: "link", options: { target: "Songs" } },
+              { name: "Song", type: "link", required: true, options: { target: "Songs" } },
               { name: "Who", type: "person" },
               { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Keys", "Vocals"] } },
               {
@@ -93,6 +93,11 @@ describe("fam jam sign-ups", () => {
     const form = await json<CreatedShare>(
       await api(organizer)("/shares", { body: { form: "Sign-ups", hide_fields: ["Status"] } }),
     );
+    // A link-only form can't fill in the required Song (nobody to pick as); a signed-in one can.
+    expect(
+      (await api(organizer)("/shares", { body: { form: "Sign-ups", public: true, hide_fields: ["Status"] } }))
+        .status,
+    ).toBe(400);
     const [rahul, dev, asha] = [
       await signUp("Test Rahul"),
       await signUp("Test Dev"),

@@ -28,7 +28,11 @@
 
   function reset() {
     form = Object.fromEntries(
-      fields.map((f) => [f.id, f.pick ? (f.type === "person" ? "me" : "") : formValue(f.type, null)]),
+      // A required person defaults to "me"; an optional one starts empty.
+      fields.map((f) => [
+        f.id,
+        f.pick ? (f.type === "person" && f.required ? "me" : "") : formValue(f.type, null),
+      ]),
     );
     errors = {};
   }
@@ -78,7 +82,9 @@
           id="pick-{uid}-{f.id}"
           bind:value={form[f.id] as string}
           options={[
-            ...(f.type === "person" ? [] : [{ value: "", label: "Pick one" }]),
+            ...(f.type === "person" && f.required
+              ? []
+              : [{ value: "", label: f.type === "person" ? "Nobody" : "Pick one" }]),
             ...f.pick.map((p) => ({ value: p.id, label: p.title })),
           ]}
           error={errors[f.id]}
