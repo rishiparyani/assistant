@@ -3,7 +3,10 @@
 // collaborator's actions see only the cards they joined.
 import { z } from "zod";
 import {
+  AddSharedCommentInput,
   AddSharedRecordInput,
+  SharedCommentRef,
+  SharedRecordRef,
   CreateShareInput,
   JoinShareInput,
   ListSharesInput,
@@ -16,7 +19,10 @@ import {
 import { defineOperation } from "../operations.ts";
 import { spaceOf } from "./service.ts";
 import {
+  addSharedComment,
   addSharedRecord,
+  deleteSharedComment,
+  sharedComments,
   createShare,
   joinShare,
   leaveShare,
@@ -149,5 +155,33 @@ export const shareOperations = [
     http: { method: "DELETE", path: "/cards/:share_id" },
     input: SharedRef,
     handler: (ctx, i) => leaveShare(ctx, i.share_id),
+  }),
+  defineOperation({
+    id: "core.shared_comments",
+    tool: "list_shared_comments",
+    description: "Comments on a record shared with me.",
+    kind: "read",
+    http: { method: "GET", path: "/cards/:share_id/records/:record_id/comments" },
+    input: SharedRecordRef,
+    handler: (ctx, i) => sharedComments(ctx, i.share_id, i.record_id),
+  }),
+  defineOperation({
+    id: "core.add_shared_comment",
+    tool: "add_shared_comment",
+    description: "Comment on a record shared with me (the owner and others in the share see it).",
+    kind: "write",
+    http: { method: "POST", path: "/cards/:share_id/records/:record_id/comments", status: 201 },
+    input: AddSharedCommentInput,
+    handler: (ctx, i) => addSharedComment(ctx, i),
+  }),
+  defineOperation({
+    id: "core.delete_shared_comment",
+    tool: "delete_shared_comment",
+    description: "Delete my own comment on something shared with me.",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/cards/:share_id/comments/:comment_id" },
+    input: SharedCommentRef,
+    handler: (ctx, i) => deleteSharedComment(ctx, i.share_id, i.comment_id),
   }),
 ];

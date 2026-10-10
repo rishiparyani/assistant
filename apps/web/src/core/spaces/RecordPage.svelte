@@ -29,6 +29,8 @@
   import RecordSheet from "./RecordSheet.svelte";
   import LinkedSection from "./LinkedSection.svelte";
   import ShareSheet from "./ShareSheet.svelte";
+  import Comments from "./Comments.svelte";
+  import { commentsApi, commentsKey } from "./shares-api.ts";
 
   // One record: its values, what it links to, and what links to it (each with + Add).
   let { collectionId, recordId }: { collectionId: string; recordId: string } = $props();
@@ -167,6 +169,15 @@
     {/each}
   </div>
 
+  <div class="after">
+    <Comments
+      cacheKey={commentsKey(record.id)}
+      load={() => commentsApi.list(record.id)}
+      post={(id, body) => commentsApi.add(record.id, id, body)}
+      remove={commentsApi.remove}
+    />
+  </div>
+
   <RecordSheet bind:open={editing} {collection} {record} onsaved={() => void rec.refresh()} />
   <ShareSheet bind:open={sharing} {collection} target={{ kind: "card", record }} />
   {#if addTo}
@@ -179,6 +190,9 @@
     display: grid;
     gap: var(--space-6);
     max-width: var(--content-max);
+  }
+  .after {
+    margin-top: var(--space-6);
   }
   .value {
     color: var(--text-2);

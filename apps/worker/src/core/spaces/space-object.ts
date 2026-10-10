@@ -15,6 +15,7 @@ import {
   periodRange,
   ulid,
   type ChangesView,
+  type CommentView,
   type CollectionView,
   type FieldOptions,
   type FieldType,
@@ -206,6 +207,19 @@ const MIGRATIONS: Migrations = [
   `
   create index records_creator_idx on records (collection_id, created_by, deleted_at, created_at);
   `,
+  // Comments on records, by members and by people a record is shared with.
+  `
+  create table comments (
+    id text primary key,
+    record_id text not null,
+    author_id text,
+    author_name text not null,
+    body text not null,
+    created_at text not null,
+    deleted_at text
+  );
+  create index comments_record_idx on comments (record_id, deleted_at, created_at);
+  `,
 ];
 
 type ViewQuery = {
@@ -259,6 +273,15 @@ type RecordRow = {
   version: number;
 };
 type Role = "owner" | "editor" | "viewer";
+type CommentRow = {
+  id: string;
+  record_id: string;
+  author_id: string | null;
+  author_name: string;
+  body: string;
+  created_at: string;
+  deleted_at: string | null;
+};
 /** Answers a link-only form takes a day, so a leaked link can't flood a space. */
 const PUBLIC_FORM_DAILY = 500;
 type ShareRow = {
@@ -2324,6 +2347,184 @@ export class SpaceObject extends DurableObject<Env> {
       share: { id: s.id, kind: "card", title: card.title, access: s.access, owner: this.ownerName() },
       record: this.sharedRecord(card, cardFields, edit),
       sections,
+    };
+  }
+
+  // --- Comments --------------------------------------------------------------------------------
+
+  async comments(actor: Actor, recordId: string): Promise<CommentView[]> {
+    this.role(actor);
+    return this.commentList(this.requireRecord(recordId).id, actor);
+  }
+
+  async addComment(
+    actor: Actor,
+    key: string | null,
+    name: string,
+    recordId: string,
+    input: { id?: string | null; body: string },
+  ): Promise<CommentView> {
+    // Viewers may comment too: a comment doesn't change the record.
+    return this.write(
+      actor,
+      key,
+      ["add_comment", recordId, input],
+      (ts) => this.insertComment(actor, name, this.requireRecord(recordId).id, input, ts),
+      () => this.role(actor),
+    );
+  }
+
+  async deleteComment(actor: Actor, key: string | null, commentId: string): Promise<{ deleted: string }> {
+    return this.write(
+      actor,
+      key,
+      ["delete_comment", commentId],
+      (ts) => {
+        const c = this.sql
+          .exec<CommentRow>(`select * from comments where id = ? and deleted_at is null`, commentId)
+          .toArray()[0];
+        if (!c) throw new ObjectError("not_found", "Comment not found");
+        if (c.author_id !== actor.userId && this.role(actor) !== "owner")
+          throw new ObjectError("forbidden", "Only its writer or the space's owner can delete a comment");
+        this.sql.exec(`update comments set deleted_at = ? where id = ?`, ts, c.id);
+        audit(this.sql, actor, {
+          action: "delete_comment",
+          entityType: "comment",
+          entityId: c.id,
+          before: { body: c.body },
+        });
+        return { deleted: c.id };
+      },
+      () => this.role(actor),
+    );
+  }
+
+  /** Comments on a record shared with the person (any share that reaches it). */
+  async sharedComments(actor: Actor, shareId: string, recordId: string): Promise<CommentView[]> {
+    const s = this.joinedShare(actor, shareId);
+    if (!this.sharedRecordIds(s, actor, [recordId]).length)
+      throw new ObjectError("not_found", "Record not found");
+    return this.commentList(recordId, actor);
+  }
+
+  async addSharedComment(
+    actor: Actor,
+    key: string | null,
+    name: string,
+    shareId: string,
+    recordId: string,
+    input: { id?: string | null; body: string },
+  ): Promise<CommentView> {
+    return this.write(
+      actor,
+      key,
+      ["add_shared_comment", shareId, recordId, input],
+      (ts) => this.insertComment(actor, name, recordId, input, ts),
+      () => {
+        const s = this.joinedShare(actor, shareId);
+        if (!this.sharedRecordIds(s, actor, [recordId]).length)
+          throw new ObjectError("not_found", "Record not found");
+      },
+    );
+  }
+
+  /** People in a share delete their own comments on what it reaches. */
+  async deleteSharedComment(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    commentId: string,
+  ): Promise<{ deleted: string }> {
+    let c!: CommentRow;
+    return this.write(
+      actor,
+      key,
+      ["delete_shared_comment", shareId, commentId],
+      (ts) => {
+        this.sql.exec(`update comments set deleted_at = ? where id = ?`, ts, c.id);
+        audit(this.sql, actor, {
+          action: "delete_comment",
+          entityType: "comment",
+          entityId: c.id,
+          before: { body: c.body },
+        });
+        return { deleted: c.id };
+      },
+      () => {
+        const s = this.joinedShare(actor, shareId);
+        const row = this.sql
+          .exec<CommentRow>(`select * from comments where id = ? and deleted_at is null`, commentId)
+          .toArray()[0];
+        if (!row || !this.sharedRecordIds(s, actor, [row.record_id]).length)
+          throw new ObjectError("not_found", "Comment not found");
+        if (row.author_id !== actor.userId)
+          throw new ObjectError("forbidden", "You can delete only your own comments");
+        c = row;
+      },
+    );
+  }
+
+  private insertComment(
+    actor: Actor,
+    name: string,
+    recordId: string,
+    input: { id?: string | null; body: string },
+    ts: string,
+  ): CommentView {
+    const id = input.id && isUlid(input.id) ? input.id : ulid();
+    if (this.sql.exec(`select 1 from comments where id = ?`, id).toArray().length)
+      throw new ObjectError("conflict", "That comment id is taken");
+    this.sql.exec(
+      `insert into comments (id, record_id, author_id, author_name, body, created_at) values (?, ?, ?, ?, ?, ?)`,
+      id,
+      recordId,
+      actor.userId,
+      name,
+      input.body,
+      ts,
+    );
+    audit(this.sql, actor, {
+      action: "add_comment",
+      entityType: "comment",
+      entityId: id,
+      after: { record_id: recordId },
+    });
+    return this.commentView(
+      this.sql.exec<CommentRow>(`select * from comments where id = ?`, id).toArray()[0]!,
+      actor,
+    );
+  }
+
+  /** The newest 500 comments, oldest first. */
+  private commentList(recordId: string, actor: Actor, owner = this.isOwner(actor)): CommentView[] {
+    return this.sql
+      .exec<CommentRow>(
+        `select * from comments where record_id = ? and deleted_at is null order by created_at desc, id desc limit 500`,
+        recordId,
+      )
+      .toArray()
+      .reverse()
+      .map((c) => this.commentView(c, actor, owner));
+  }
+
+  private isOwner(actor: Actor): boolean {
+    return (
+      !!actor.userId &&
+      this.sql.exec<{ role: Role }>(`select role from members where user_id = ?`, actor.userId).toArray()[0]
+        ?.role === "owner"
+    );
+  }
+
+  private commentView(c: CommentRow, actor: Actor, owner = this.isOwner(actor)): CommentView {
+    const mine = !!actor.userId && c.author_id === actor.userId;
+    return {
+      can_delete: mine || owner,
+      id: c.id,
+      record_id: c.record_id,
+      author: { user_id: c.author_id, name: c.author_name },
+      body: c.body,
+      created_at: c.created_at,
+      mine,
     };
   }
 

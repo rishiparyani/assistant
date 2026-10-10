@@ -1,6 +1,7 @@
 // Sharing cards (docs/design/universal.md §11): the owner's share links and the cards others
 // shared with me.
 import type {
+  CommentView,
   CreatedShare,
   ShareAccess,
   ShareView,
@@ -47,6 +48,17 @@ export const sharesApi = {
     request<SharedOpened>("POST", `/api/cards/${enc(shareId)}/records`, { section, id, values }),
   leave: (shareId: string) => request<{ left: string }>("DELETE", `/api/cards/${enc(shareId)}`),
 
+  comments: (shareId: string, recordId: string) =>
+    request<CommentView[]>("GET", `/api/cards/${enc(shareId)}/records/${enc(recordId)}/comments`),
+  comment: (shareId: string, recordId: string, id: string, body: string) =>
+    request<CommentView>("POST", `/api/cards/${enc(shareId)}/records/${enc(recordId)}/comments`, {
+      id,
+      body,
+    }),
+
+  uncomment: (shareId: string, commentId: string) =>
+    request<{ deleted: string }>("DELETE", `/api/cards/${enc(shareId)}/comments/${enc(commentId)}`),
+
   // Link-only views and forms (no sign-in): the token goes in the body, never the address.
   openLink: (token: string, cursor?: string) =>
     request<SharedListView | SharedFormView>("POST", "/api/link/open", { token, cursor }),
@@ -65,3 +77,12 @@ export async function saveSharedAhead() {
   writeCache(SHARED_KEY, list);
   for (const s of list.slice(0, 30)) writeCache(sharedCardKey(s.share_id), await sharesApi.open(s.share_id));
 }
+
+// online-only: comments are checked by the space that holds the record.
+export const commentsApi = {
+  list: (recordId: string) => request<CommentView[]>("GET", `/api/records/${enc(recordId)}/comments`),
+  add: (recordId: string, id: string, body: string) =>
+    request<CommentView>("POST", `/api/records/${enc(recordId)}/comments`, { id, body }),
+  remove: (commentId: string) => request<{ deleted: string }>("DELETE", `/api/comments/${enc(commentId)}`),
+};
+export const commentsKey = (recordId: string) => `spaces:comments:${recordId}`;

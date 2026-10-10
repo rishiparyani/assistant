@@ -197,3 +197,24 @@ export async function leaveShare(ctx: OpUserCtx, shareId: string) {
     .run();
   return { left: shareId };
 }
+
+export async function sharedComments(ctx: OpUserCtx, shareId: string, recordId: string) {
+  const { stub } = await shareStub(ctx, shareId);
+  return stub.sharedComments(actorOf(ctx), shareId, recordId);
+}
+
+export async function addSharedComment(
+  ctx: OpUserCtx,
+  i: { share_id: string; record_id: string; id?: string; body: string },
+) {
+  const { stub } = await shareStub(ctx, i.share_id);
+  return stub.addSharedComment(actorOf(ctx), ctx.idempotencyKey, ctx.user.name, i.share_id, i.record_id, {
+    id: i.id ?? null,
+    body: i.body,
+  });
+}
+
+export async function deleteSharedComment(ctx: OpUserCtx, shareId: string, commentId: string) {
+  const { stub } = await shareStub(ctx, shareId);
+  return stub.deleteSharedComment(actorOf(ctx), ctx.idempotencyKey, shareId, commentId);
+}
