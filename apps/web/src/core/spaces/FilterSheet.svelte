@@ -48,7 +48,7 @@
   $effect(() => {
     if (!open) return;
     untrack(() => {
-      fieldId = collection.fields[0]?.id ?? "";
+      fieldId = collection.fields.find((f) => !f.options.personal)?.id ?? "";
       value = "";
     });
   });
@@ -77,7 +77,9 @@
       label="Field"
       id="{uid}-field"
       bind:value={fieldId}
-      options={collection.fields.map((f) => ({ value: f.id, label: f.name }))}
+      options={collection.fields
+        .filter((f) => !f.options.personal)
+        .map((f) => ({ value: f.id, label: f.name }))}
     />
     <SelectField label="Show records where it" id="{uid}-op" bind:value={op} options={ops} />
     {#if needsValue && field}

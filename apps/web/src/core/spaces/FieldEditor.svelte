@@ -9,6 +9,8 @@
     collections,
     lockType = false,
   }: { field: FieldSpec; collections: CollectionView[]; lockType?: boolean } = $props();
+  // Answers and values are kept apart, so an existing field keeps its kind.
+  const lockPersonal = $derived(lockType);
 
   const uid = $props.id();
 
@@ -70,14 +72,34 @@
       />
     </div>
   {/if}
-  <label class="check">
-    <input
-      type="checkbox"
-      checked={!!field.required}
-      onchange={(e) => (field = { ...field, required: (e.target as HTMLInputElement).checked })}
-    />
-    Must be filled in
-  </label>
+  {#if field.type !== "link"}
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={!!field.options?.personal}
+        disabled={lockPersonal}
+        onchange={(e) => {
+          const on = (e.target as HTMLInputElement).checked;
+          field = {
+            ...field,
+            required: on ? false : field.required,
+            options: { ...field.options, personal: on },
+          };
+        }}
+      />
+      Each person answers for themselves (like “Going?”)
+    </label>
+  {/if}
+  {#if !field.options?.personal}
+    <label class="check">
+      <input
+        type="checkbox"
+        checked={!!field.required}
+        onchange={(e) => (field = { ...field, required: (e.target as HTMLInputElement).checked })}
+      />
+      Must be filled in
+    </label>
+  {/if}
 </div>
 
 <style>

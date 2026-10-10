@@ -58,11 +58,17 @@
   const filled = $derived(
     collection && record
       ? collection.fields.filter(
-          (f) => f.id !== collection.title_field_id && f.type !== "link" && showValue(f, record.values[f.id]),
+          (f) =>
+            f.id !== collection.title_field_id &&
+            f.type !== "link" &&
+            !f.options.personal &&
+            showValue(f, record.values[f.id]),
         )
       : [],
   );
   const linkFields = $derived(collection?.fields.filter((f) => f.type === "link") ?? []);
+  // Fields each person answers for themselves: everyone's answers, mine first.
+  const personalFields = $derived(collection?.fields.filter((f) => f.options.personal) ?? []);
 
   async function remove() {
     if (!collection || !record) return;
@@ -141,6 +147,21 @@
     {:else}
       <Card><p class="empty">Nothing filled in yet. Tap Edit to add details.</p></Card>
     {/if}
+
+    {#each personalFields as f (f.id)}
+      {@const answers = record.answers?.[f.id] ?? []}
+      <ListGroup title="{f.name} · {answers.length} {answers.length === 1 ? 'answer' : 'answers'}">
+        {#each answers as a (a.user_id)}
+          <ListRow title={a.name} chevron={false}>
+            {#snippet trailing()}<span class="value"
+                >{Array.isArray(a.display) ? a.display.join(", ") : (a.display ?? "")}</span
+              >{/snippet}
+          </ListRow>
+        {:else}
+          <ListRow title="No answers yet" subtitle="Tap Edit to give yours" chevron={false} />
+        {/each}
+      </ListGroup>
+    {/each}
 
     {#each linkFields as f (f.id)}
       {@const linked = record.links[f.id] ?? []}

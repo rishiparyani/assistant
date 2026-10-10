@@ -185,7 +185,10 @@
   const sortOptions = $derived([
     { value: "", label: "Newest first" },
     ...(collection?.fields ?? [])
-      .filter((f) => f.type !== "link" && f.type !== "long_text" && f.type !== "multi_choice")
+      .filter(
+        (f) =>
+          f.type !== "link" && f.type !== "long_text" && f.type !== "multi_choice" && !f.options.personal,
+      )
       .flatMap((f) => [
         { value: `+${f.id}`, label: `${f.name} ↑` },
         { value: `-${f.id}`, label: `${f.name} ↓` },

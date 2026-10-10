@@ -378,3 +378,112 @@ describe("comments", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("personal answers", () => {
+  it("lets each person give their own answer; the owner sees everyone's", async () => {
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Jams",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Going", type: "choice", options: { choices: ["Yes", "No", "Maybe"], personal: true } },
+          { name: "Bringing", type: "text", options: { personal: true } },
+        ],
+      },
+    });
+    const jam = await json<RecordView>(
+      await api(owner)("/collections/Jams/records", {
+        body: { values: { Title: "Test Jam", Going: "Yes" } },
+      }),
+    );
+    expect(jam.named.Going).toBe("Yes");
+    const { share, link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { record_id: jam.id } }),
+    );
+    const a = await signUp("Test Asha");
+    const b = await signUp("Test Ben");
+    for (const u of [a, b]) await api(u)("/cards/join", { body: { token: tokenOf(link) } });
+
+    // View-only, yet each answers for themselves.
+    const said = await api(a)(`/cards/${share.id}/records/${jam.id}`, {
+      method: "PATCH",
+      body: { values: { Going: "No", Bringing: "Test cajon" } },
+    });
+    expect(said.status).toBe(200);
+    // …but can't change the record itself.
+    expect(
+      (
+        await api(a)(`/cards/${share.id}/records/${jam.id}`, {
+          method: "PATCH",
+          body: { values: { Title: "Test renamed" } },
+        })
+      ).status,
+    ).toBe(403);
+
+    // Ben sees only his own (empty) answers, never Asha's.
+    const benCard = await json<SharedCardView>(await api(b)(`/cards/${share.id}`));
+    const going = benCard.record.fields.find((f) => f.name === "Going")!;
+    expect(going).toMatchObject({ personal: true, editable: true, value: null });
+    expect(JSON.stringify(benCard)).not.toContain("Test cajon");
+
+    // The owner sees their own answer in values, and everyone's in answers.
+    const seen = await json<RecordView>(await api(owner)(`/records/${jam.id}`));
+    expect(seen.named.Going).toBe("Yes");
+    const goingId = Object.keys(seen.answers!).find((id) =>
+      seen.answers![id]!.some((x) => x.display === "No"),
+    )!;
+    expect(seen.answers![goingId]!.map((x) => [x.name, x.display])).toEqual([
+      ["Test Owner", "Yes"],
+      ["Test Asha", "No"],
+    ]);
+
+    // A link-only form leaves personal fields out (no account to answer as).
+    const form = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { form: "Jams", public: true } }),
+    );
+    const anon = await json<SharedFormView>(
+      await call("/api/link/open", { body: { token: tokenOf(form.link) } }),
+    );
+    expect(anon.fields.map((f) => f.name)).toEqual(["Title"]);
+    expect(
+      (
+        await call("/api/link/submit", {
+          body: { token: tokenOf(form.link), values: { Title: "Test walk-in jam" } },
+        })
+      ).status,
+    ).toBe(201);
+
+    // A collection whose only text field is personal still gets a title.
+    const polls = await json<{ title_field_id: string; fields: { id: string; name: string }[] }>(
+      await api(owner)("/collections", {
+        body: { name: "Polls", fields: [{ name: "Thoughts", type: "text", options: { personal: true } }] },
+      }),
+    );
+    expect(polls.fields.find((f) => f.id === polls.title_field_id)?.name).toBe("Title");
+
+    // Personal answers can't be required, filtered or switched once used.
+    expect(
+      (
+        await api(owner)("/collections/Jams/fields", {
+          body: { name: "RSVP", type: "boolean", required: true, options: { personal: true } },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await api(owner)("/collections/Jams/find", {
+          body: { filters: [{ field: "Going", op: "eq", value: "Yes" }] },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await api(owner)(`/collections/Jams/fields/Going`, {
+          method: "PATCH",
+          body: { options: { personal: false } },
+        })
+      ).status,
+    ).toBe(409);
+  });
+});
