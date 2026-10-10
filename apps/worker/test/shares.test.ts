@@ -487,3 +487,93 @@ describe("personal answers", () => {
     ).toBe(409);
   });
 });
+
+describe("row rules", () => {
+  it("limits which rows of a shared view everyone, or one person, sees", async () => {
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Songs",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Set", type: "choice", options: { choices: ["A", "B", "C"] } },
+        ],
+      },
+    });
+    for (const [t, set] of [
+      ["Test One", "A"],
+      ["Test Two", "B"],
+      ["Test Three", "C"],
+    ])
+      await api(owner)("/collections/Songs/records", { body: { values: { Title: t, Set: set } } });
+    await api(owner)("/views", { body: { name: "All songs", collection: "Songs" } });
+    const { share, link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { view: "All songs", access: "edit" } }),
+    );
+    const rahul = await signUp("Test Rahul");
+    const ben = await signUp("Test Ben");
+    for (const u of [rahul, ben]) await api(u)("/cards/join", { body: { token: tokenOf(link) } });
+    const titles = async (u: User) =>
+      (await json<SharedListView>(await api(u)(`/cards/${share.id}`))).records.map((r) => r.title).sort();
+
+    // Everyone: not set C.
+    const all = await api(owner)(`/shares/${share.id}/rules/*`, {
+      method: "PUT",
+      body: { filters: [{ field: "Set", op: "ne", value: "C" }] },
+    });
+    expect(all.status).toBe(200);
+    expect((await json<ShareView>(all)).rule_all).toHaveLength(1);
+    // Rahul also: only set A.
+    const rahulId = (
+      await json<ShareView[]>(await api(owner)(`/shares?target_id=${share.target_id}`))
+    )[0]!.people.find((p) => p.name === "Test Rahul")!.user_id;
+    await api(owner)(`/shares/${share.id}/rules/${rahulId}`, {
+      method: "PUT",
+      body: { filters: [{ field: "Set", op: "eq", value: "A" }] },
+    });
+    expect(await titles(rahul)).toEqual(["Test One"]);
+    expect(await titles(ben)).toEqual(["Test One", "Test Two"]);
+
+    // Hidden rows can't be changed through the share either.
+    const all3 = await json<FindResult>(await api(owner)("/collections/Songs/find", { body: {} }));
+    const two = all3.items.find((r) => r.title === "Test Two")!;
+    expect(
+      (
+        await api(rahul)(`/cards/${share.id}/records/${two.id}`, {
+          method: "PATCH",
+          body: { values: { Title: "Test x" } },
+        })
+      ).status,
+    ).toBe(404);
+
+    // Hiding a field a rule uses shows that person nothing, without breaking the list.
+    await api(owner)(`/collections/Songs/fields/Set`, { method: "DELETE" });
+    const after = await api(rahul)(`/cards/${share.id}`);
+    expect(after.status).toBe(200);
+    expect((await json<SharedListView>(after)).records).toEqual([]);
+    await api(owner)("/collections/Songs/fields", {
+      body: { name: "Set", type: "choice", options: { choices: ["A", "B", "C"] } },
+    });
+
+    // Removing a rule shows the rows again; strangers and bad filters are refused.
+    await api(owner)(`/shares/${share.id}/rules/${rahulId}`, { method: "PUT", body: { filters: [] } });
+    await api(owner)(`/shares/${share.id}/rules/*`, { method: "PUT", body: { filters: [] } });
+    expect(await titles(rahul)).toEqual(["Test One", "Test Three", "Test Two"]);
+    expect(
+      (
+        await api(owner)(`/shares/${share.id}/rules/someone-else`, {
+          method: "PUT",
+          body: { filters: [] },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(owner)(`/shares/${share.id}/rules/*`, {
+          method: "PUT",
+          body: { filters: [{ field: "Nope", op: "eq", value: "x" }] },
+        })
+      ).status,
+    ).toBe(400);
+  });
+});

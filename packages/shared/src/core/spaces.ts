@@ -624,6 +624,13 @@ export type ShareAccess = (typeof SHARE_ACCESS)[number];
 /** What a share includes besides its record: a link field of the record, or records linking to it. */
 export type ShareInclude = { field: string } | { from_field: string };
 
+/** A row rule's filter as stored (field by id). */
+export interface RuleFilter {
+  field: string;
+  op: FilterOp;
+  value?: string | number | boolean | null | (string | number)[];
+}
+
 /**
  * What's shared: a card (one record and parts linked to it), a view (its records, live), or a
  * form (people add records to a collection and see only their own).
@@ -645,7 +652,9 @@ export interface ShareView {
   /** The linked parts included, by name ("Set list", "Rehearsals"). */
   include: { key: string; title: string }[];
   hidden_fields: { id: string; name: string }[];
-  people: { user_id: string; name: string; joined_at: string }[];
+  people: { user_id: string; name: string; joined_at: string; rule: RuleFilter[] }[];
+  /** Views: rows everyone in the share sees (filters on top of the view's own). */
+  rule_all: RuleFilter[];
   expires_at: string | null;
   created_at: string;
 }
@@ -765,6 +774,18 @@ export const CreateShareInput = SpaceRef.extend({
 });
 export const ShareRef = SpaceRef.extend({ share_id: z.string().trim().min(1).max(40) });
 export const SharePersonRef = ShareRef.extend({ user_id: z.string().trim().min(1).max(60) });
+export const SetShareRuleInput = ShareRef.extend({
+  user_id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(60)
+    .describe('Whose rows to limit: a person in the share, or "*" for everyone in it'),
+  filters: z
+    .array(FilterInput)
+    .max(10)
+    .describe('Rows they see, on top of the view\'s filters ("Assigned to" eq "me"); [] removes the rule'),
+});
 export const ListSharesInput = SpaceRef.extend({
   target_id: z.string().trim().min(1).max(40).optional().describe("A record, view or collection id"),
   record_id: z.string().trim().min(1).max(40).optional(),

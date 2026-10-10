@@ -4,6 +4,9 @@ _Updated: 2026-10-09_
 
 ## Last done
 
+- **Row rules on shared lists** (stage 2c, part 3, design §11 "which rows they see"): the owner limits which rows of a shared view everyone ("Rows everyone sees") or one person ("Limit their rows", from the person in the share sheet) sees, with filters on top of the view's own ("Set is A", "Assigned to is me"). Space object migration 8 (`share_rules`); `set_share_rule` (`PUT /api/shares/:id/rules/:user_id|*`); views and edits through the share both honour it; link-only views get the everyone rule. Web: `RuleSheet`, the share sheet's rows. Tests: `shares.test.ts` row rules. Browser-checked: Rahul limited to set A sees only that row. **Stage 2 (sharing) is complete** apart from reports sent to Telegram/email (stage 7).
+  - Next: stage 3 (iPhone: widgets, App Intents, on-device AI, capture from anywhere).
+
 - **Personal answers** (stage 2c, part 2, design §11): a field can be marked "Each person answers for themselves" (`options.personal`; not links, the title or required fields; can't be switched once it has values). Each person's answer is kept apart (space object migration 7, `answers`): `values` shows the asking person's own answer, `answers` lists everyone's with names for the space's people; collaborators see and give only their own, even on view-only shares (an Answer button). Personal fields can't be filtered or sorted yet. Tests: `shares.test.ts` personal answers. Browser-checked: a friend answers "Maybe" on a view-only shared jam; the owner's record shows "Going · 2 answers".
   - Also checked: the first TestFlight run after #65 logged "Development certificates: 8; made by this build: 1; revoked 1" (the 7 older ones from before the fix stay until they expire or the owner revokes them).
   - Next in 2c: row rules (who sees which rows of a shared view).
