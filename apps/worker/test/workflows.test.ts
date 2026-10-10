@@ -145,4 +145,45 @@ describe("workflows", () => {
     expect((await api(me)(`/workflows/${remind!.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await json<WorkflowView[]>(await api(me)("/workflows"))).toEqual([]);
   });
+
+  it("counts a link change as a change, refuses to watch a link alone, and a repeated turn-on changes nothing", async () => {
+    const me = await signUp("Test Owner");
+    expect(
+      (
+        await api(me)("/workflows", {
+          body: {
+            name: "Watch For",
+            when: { event: "changed", collection: "Expenses", field: "For" },
+            then: [{ do: "notify", text: "x" }],
+          },
+        })
+      ).status,
+    ).toBe(400);
+    const wf = await json<WorkflowView>(
+      await api(me)("/workflows", {
+        body: {
+          name: "Expense changed",
+          when: { event: "changed", collection: "Expenses" },
+          then: [{ do: "notify", text: "Changed: {What}" }],
+          enabled: true,
+        },
+      }),
+    );
+    // Turning on again changes nothing.
+    const again = await api(me)(`/workflows/${wf.id}/enabled`, { method: "PUT", body: { enabled: true } });
+    expect((await json<WorkflowView>(again)).enabled).toBe(true);
+
+    const exp = await json<RecordView>(
+      await api(me)("/collections/Expenses/records", {
+        body: { values: { What: "Test strings", Amount: "300" } },
+      }),
+    );
+    const note = await json<RecordView>(
+      await api(me)("/collections/Notes/records", { body: { values: { Title: "Test gig note" } } }),
+    );
+    await api(me)(`/records/${exp.id}`, { method: "PATCH", body: { values: { For: note.id } } });
+    expect(await until(async () => (await inbox(me)).some((n) => n.body === "Changed: Test strings"))).toBe(
+      true,
+    );
+  });
 });

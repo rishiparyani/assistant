@@ -64,7 +64,7 @@ import {
   outboxNote,
 } from "../objects/storage.ts";
 import { liveOf } from "../live/live-object.ts";
-import { notify } from "../push/notify.ts";
+import { inboxName } from "../push/notify.ts";
 import type { NewNotification } from "../push/inbox.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
@@ -322,6 +322,17 @@ const MIGRATIONS: Migrations = [
   );
   create index workflow_runs_idx on workflow_runs (workflow_id, at);
   `,
+  // Workflow notifications waiting to reach people's inboxes (tried again until they do).
+  `
+  create table workflow_notes (
+    id text primary key,
+    user_id text not null,
+    note_json text not null,
+    attempts integer not null default 0,
+    next_at text not null
+  );
+  create index workflow_notes_next_idx on workflow_notes (next_at);
+  `,
 ];
 
 type ViewQuery = {
@@ -516,11 +527,20 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** Makes sure the alarm comes for the next workflow job (after a restart or a new job). */
   private async wakeForJobs() {
-    const job = this.sql
-      .exec<{ due_at: string }>(`select due_at from workflow_jobs order by due_at limit 1`)
+    const next = this.nextWorkflowTime();
+    if (next !== null && (await this.ctx.storage.getAlarm()) === null)
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, next));
+  }
+
+  /** When the next workflow job is due or a notification is to be tried again (ms), or null. */
+  private nextWorkflowTime(): number | null {
+    const row = this.sql
+      .exec<{ at: string | null }>(
+        `select min(at) as at from (select min(due_at) as at from workflow_jobs
+         union all select min(next_at) as at from workflow_notes)`,
+      )
       .toArray()[0];
-    if (job && (await this.ctx.storage.getAlarm()) === null)
-      await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, Date.parse(job.due_at)));
+    return row?.at ? Date.parse(row.at) : null;
   }
 
   // --- Space and members ---------------------------------------------------------------
@@ -603,13 +623,8 @@ export class SpaceObject extends DurableObject<Env> {
     await this.runDueJobs();
     const liveIn = await this.pingLive();
     // Next: the live ping still owed, or the next workflow job, whichever is sooner.
-    const job = this.sql
-      .exec<{ due_at: string }>(`select due_at from workflow_jobs order by due_at limit 1`)
-      .toArray()[0];
-    const times = [
-      ...(liveIn === null ? [] : [Date.now() + liveIn]),
-      ...(job ? [Date.parse(job.due_at)] : []),
-    ];
+    const next = this.nextWorkflowTime();
+    const times = [...(liveIn === null ? [] : [Date.now() + liveIn]), ...(next === null ? [] : [next])];
     if (times.length) await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, Math.min(...times)));
   }
 
@@ -1165,7 +1180,8 @@ export class SpaceObject extends DurableObject<Env> {
       );
     const answered = this.saveAnswers(actor, r.id, answers, ts);
     this.logChange("record", r.id, "upsert", ts);
-    this.queueWorkflows(c.id, r.id, before, merged);
+    // Links and personal answers live apart from the values; they count as a change too.
+    this.queueWorkflows(c.id, r.id, before, merged, links.size > 0 || answers.size > 0);
     audit(this.sql, actor, {
       action: "update_record",
       entityType: "record",
@@ -2242,6 +2258,8 @@ export class SpaceObject extends DurableObject<Env> {
   ): Promise<WorkflowView> {
     return this.write(actor, key, ["set_workflow_enabled", id, enabled], (ts) => {
       const w = this.requireWorkflow(id);
+      // Already so: change nothing (jobs waiting to run stay).
+      if (!!w.enabled === enabled) return this.workflowView(w);
       this.sql.exec(
         `update workflows set enabled = ?, updated_at = ? where id = ?`,
         enabled ? 1 : 0,
@@ -2292,7 +2310,13 @@ export class SpaceObject extends DurableObject<Env> {
     } else if (spec.when.field) {
       if (spec.when.event === "added")
         throw new ObjectError("validation_failed", "Pick a field only for “changed” or “date”");
-      fieldId = this.matchField(fields, spec.when.field).id;
+      const f = this.matchField(fields, spec.when.field);
+      if (f.type === "link" || toField(f).options.personal)
+        throw new ObjectError(
+          "validation_failed",
+          `Workflows can't watch ${f.name} by itself yet (links and personal answers); watch the whole record instead`,
+        );
+      fieldId = f.id;
     }
     const check = this.checkViewQuery(c, { filters: spec.check }).filters;
     const noLinks = (f: FieldRow) => {
@@ -2411,6 +2435,7 @@ export class SpaceObject extends DurableObject<Env> {
     recordId: string,
     before: Record<string, StoredValue> | null,
     after: Record<string, StoredValue>,
+    otherChange = false,
   ) {
     if (this.wfDepth >= MAX_WORKFLOW_DEPTH) return;
     const rows = this.sql
@@ -2434,7 +2459,8 @@ export class SpaceObject extends DurableObject<Env> {
           : before !== null &&
             (f
               ? !same(before[f], after[f])
-              : [...new Set([...Object.keys(before), ...Object.keys(after)])].some(
+              : otherChange ||
+                [...new Set([...Object.keys(before), ...Object.keys(after)])].some(
                   (k) => !same(before[k], after[k]),
                 ));
       if (fire) this.addJob(w.id, recordId, "event", now + def.wait_minutes * 60_000);
@@ -2463,17 +2489,31 @@ export class SpaceObject extends DurableObject<Env> {
     if (due > now) this.addJob(workflowId, recordId, "date", due);
   }
 
-  /** A date workflow just turned on: schedules the records that already have a date. */
+  /** A date workflow just turned on: schedules every record that already has a date. */
   private scheduleExisting(workflowId: string, collectionId: string, def: WorkflowDef) {
     if (def.when.event !== "date") return;
     const now = Date.now();
-    for (const r of this.sql
-      .exec<{ id: string; values_json: string }>(
-        `select id, values_json from records where collection_id = ? and deleted_at is null limit 2000`,
-        collectionId,
-      )
-      .toArray())
-      this.scheduleDate(workflowId, def, r.id, JSON.parse(r.values_json) as Record<string, StoredValue>, now);
+    let after = "";
+    for (;;) {
+      const batch = this.sql
+        .exec<{ id: string; values_json: string }>(
+          `select id, values_json from records where collection_id = ? and deleted_at is null and id > ?
+           order by id limit 500`,
+          collectionId,
+          after,
+        )
+        .toArray();
+      for (const r of batch)
+        this.scheduleDate(
+          workflowId,
+          def,
+          r.id,
+          JSON.parse(r.values_json) as Record<string, StoredValue>,
+          now,
+        );
+      if (batch.length < 500) return;
+      after = batch[batch.length - 1]!.id;
+    }
   }
 
   private addJob(workflowId: string, recordId: string, kind: "event" | "date", dueMs: number) {
@@ -2496,10 +2536,19 @@ export class SpaceObject extends DurableObject<Env> {
         nowIso(),
       )
       .toArray();
-    const tell: { userId: string; n: NewNotification }[] = [];
     for (const j of jobs) {
       try {
-        tell.push(...this.ctx.storage.transactionSync(() => this.runJob(j)));
+        // The steps and the notifications to send are saved together.
+        this.ctx.storage.transactionSync(() => {
+          for (const t of this.runJob(j))
+            this.sql.exec(
+              `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+              ulid(),
+              t.userId,
+              JSON.stringify(t.n),
+              nowIso(),
+            );
+        });
       } catch (e) {
         // The steps rolled back; note why, so the history says what happened.
         this.ctx.storage.transactionSync(() => {
@@ -2510,7 +2559,37 @@ export class SpaceObject extends DurableObject<Env> {
         this.wfDepth = 0;
       }
     }
-    for (const t of tell) await notify(this.env, t.userId, t.n);
+    await this.sendNotes();
+  }
+
+  /**
+   * Delivers saved notifications to people's inboxes; one that fails stays and is tried again
+   * later (backing off, for about a day), so a run's message isn't lost.
+   */
+  private async sendNotes(): Promise<void> {
+    const notes = this.sql
+      .exec<{ id: string; user_id: string; note_json: string; attempts: number }>(
+        `select id, user_id, note_json, attempts from workflow_notes where next_at <= ? order by next_at limit 50`,
+        nowIso(),
+      )
+      .toArray();
+    for (const n of notes) {
+      try {
+        await this.env.INBOX.getByName(inboxName(n.user_id)).notify(
+          JSON.parse(n.note_json) as NewNotification,
+        );
+        this.sql.exec(`delete from workflow_notes where id = ?`, n.id);
+      } catch (e) {
+        console.warn("workflow notification failed", e instanceof Error ? e.message : String(e));
+        if (n.attempts >= 12) this.sql.exec(`delete from workflow_notes where id = ?`, n.id);
+        else
+          this.sql.exec(
+            `update workflow_notes set attempts = attempts + 1, next_at = ? where id = ?`,
+            new Date(Date.now() + Math.min(86_400_000, 30_000 * 2 ** n.attempts)).toISOString(),
+            n.id,
+          );
+      }
+    }
   }
 
   /** One job, inside a transaction: check, then every step; who to tell afterwards. */
