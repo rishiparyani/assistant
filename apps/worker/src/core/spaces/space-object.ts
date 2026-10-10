@@ -49,7 +49,15 @@ import {
   nowIso,
   type Actor,
   type Migrations,
+  bumpAndNote,
+  clearOutbox,
+  outboxFailed,
+  outboxNote,
 } from "../objects/storage.ts";
+import { liveOf } from "../live/live-object.ts";
+
+/** A burst of writes waits this long, then pings everyone once. */
+const LIVE_DELAY_MS = 500;
 import { ObjectError } from "../objects/errors.ts";
 import { STARTER_COLLECTIONS } from "./starter.ts";
 
@@ -422,11 +430,50 @@ export class SpaceObject extends DurableObject<Env> {
     check();
     const hash = await hashOf(request);
     try {
-      return idempotent(this.ctx.storage, key, hash, () => run(nowIso()));
+      return idempotent(this.ctx.storage, key, hash, () => {
+        const out = run(nowIso());
+        this.changed();
+        return out;
+      });
     } catch (e) {
       if (e instanceof ValueError) throw new ObjectError("validation_failed", e.message);
       throw e;
     }
+  }
+
+  // --- Live updates (chat-first step 4) ---------------------------------------------------
+  // A write leaves one outbox note (in its own transaction); shortly after, the alarm pings
+  // the live object of everyone in the space or in one of its shares. A ping carries no data
+  // (their apps fetch again, so nobody sees more than they may), and repeats are harmless.
+
+  private changed() {
+    bumpAndNote(this.sql);
+    // Bursts of writes (a few rows at once) become one ping.
+    void this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+  }
+
+  override async alarm(): Promise<void> {
+    const note = outboxNote(this.sql);
+    if (!note) return;
+    const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id;
+    const people = this.sql
+      .exec<{ user_id: string }>(
+        `select user_id from members union select user_id from share_people where user_id is not null`,
+      )
+      .toArray()
+      .map((r) => r.user_id);
+    try {
+      await Promise.all(
+        people.map((u) =>
+          liveOf(this.env, u).ping({ type: "space_changed", space_id: spaceId ?? "", seq: note.seq }),
+        ),
+      );
+    } catch (e) {
+      console.warn("live ping failed", e);
+      await this.ctx.storage.setAlarm(Date.now() + outboxFailed(this.sql));
+      return;
+    }
+    if (!clearOutbox(this.sql, note.seq)) await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
   }
 
   private logChange(

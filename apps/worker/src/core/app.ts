@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { HealthResponse } from "@assistant/shared";
 import type { ModuleDefinition } from "./module.ts";
 import type { AppEnv } from "./context.ts";
+import { liveOf } from "./live/live-object.ts";
 import { AppError } from "./errors.ts";
 import { requireUser, userCtxFor } from "./context.ts";
 import { getAuth } from "./auth/auth.ts";
@@ -85,17 +86,15 @@ export function createApp({ modules }: AppOptions) {
     }
   });
 
-  // Live updates (decision 2026-09-28): one WebSocket per open app, handed to the module
-  // that owns them. Cookies ride along on cross-site WebSocket requests, so the origin
-  // must be ours (no cross-site hijacking).
-  const live = modules.find((m) => m.live)?.live;
+  // Live updates (decision 2026-09-28): one WebSocket per open app, kept by the person's
+  // live object (core/live). Cookies ride along on cross-site WebSocket requests, so the
+  // origin must be ours (no cross-site hijacking).
   app.get("/api/live", requireUser, async (c) => {
-    if (!live) throw new AppError("not_found", "Live updates aren't available");
     if (c.req.header("origin") !== new URL(c.env.BASE_URL).origin)
       throw new AppError("forbidden", "Live updates only from the app itself");
     if (c.req.header("upgrade")?.toLowerCase() !== "websocket")
       return c.json({ error: { code: "upgrade_required", message: "Use a WebSocket" } }, 426);
-    return live(c.env, c.get("userCtx").user.id, c.req.raw);
+    return liveOf(c.env, c.get("userCtx").user.id).fetch(c.req.raw);
   });
 
   // Private calendar feed (T08): no sign-in, the secret link is the key. 404 for

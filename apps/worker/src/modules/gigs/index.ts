@@ -7,7 +7,6 @@ import { GUEST_LINK_PREFIX, sharedGuestAction, sharedGuestList } from "./service
 import { consumeSummaries, recordDeadLetters } from "./objects/delivery.ts";
 import { gigsAdmin } from "./admin.ts";
 import { attachPendingPeople } from "./services/tags.ts";
-import { personName } from "./objects/names.ts";
 import { exportGigs, importGigs } from "./backup.ts";
 import { gigsCalendar } from "./calendar.ts";
 
@@ -33,7 +32,6 @@ export const gigsModule = defineModule({
   backup: { export: (ctx) => exportGigs(ctx), import: importGigs },
   // Each person's object holds their open apps' WebSockets and tells them when a gig
   // they're on changes.
-  live: (env, userId, request) => env.PEOPLE.getByName(personName(userId)).fetch(request),
   // My gigs in my private calendar feed.
   calendar: gigsCalendar,
 });

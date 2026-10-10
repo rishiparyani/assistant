@@ -19,6 +19,7 @@ import {
 } from "../../../core/objects/storage.ts";
 import type { LearnedContact, PersonEventSummary, PersonGigSummary } from "./types.ts";
 import { notify } from "../../../core/push/notify.ts";
+import { liveOf } from "../../../core/live/live-object.ts";
 import type { NewNotification } from "../../../core/push/inbox.ts";
 
 const MIGRATIONS: Migrations = [
@@ -202,8 +203,6 @@ type ContactRow = { [K in keyof Omit<ContactView, "gigs">]: ContactView[K] } & {
 };
 const CONTACT_COLUMNS = `c.id, c.kind, c.name, c.phone, c.email, c.city, c.notes, c.user_id, c.last_used_at`;
 
-const MAX_SOCKETS = 8;
-
 /** A my_gigs row as stored (tags and flags are shaped on the way out). */
 type GigRow = {
   gig_id: string;
@@ -240,52 +239,19 @@ export class PersonObject extends DurableObject<Env> {
         for (const { id } of this.sql.exec<{ id: string }>(`select id from contacts`).toArray())
           this.reindex(id);
     });
-    // Keep-alive pings are answered without waking the object (hibernation).
-    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
   // --- Live updates ------------------------------------------------------------------
-  // The person's open apps connect here (via /api/live). Connections hibernate while idle,
-  // so they cost nothing until something changes.
-
-  override async fetch(request: Request): Promise<Response> {
-    if (request.headers.get("upgrade")?.toLowerCase() !== "websocket")
-      return new Response("Expected a WebSocket", { status: 426 });
-    // A few devices at most; drop the oldest beyond that.
-    const open = this.ctx.getWebSockets();
-    for (const old of open.slice(0, Math.max(0, open.length - (MAX_SOCKETS - 1)))) {
-      try {
-        old.close(1000, "Too many connections");
-      } catch {
-        // already closed
-      }
-    }
-    const { 0: client, 1: server } = new WebSocketPair();
-    this.ctx.acceptWebSocket(server);
-    return new Response(null, { status: 101, webSocket: client });
-  }
-
-  override async webSocketMessage(): Promise<void> {
-    // Clients only send pings (answered automatically); nothing else is accepted.
-  }
-
-  override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
-    try {
-      ws.close(code === 1005 ? 1000 : code, "Closed");
-    } catch {
-      // already closed
-    }
-  }
+  // The person's open apps connect to their live object (core/live); a gig change pings it.
 
   /** Tells this person's open apps that a gig changed (they refresh what's on screen). */
-  private notify(gigId: string) {
-    const message = JSON.stringify({ type: "gig_changed", gig_id: gigId });
-    for (const ws of this.ctx.getWebSockets()) {
-      try {
-        ws.send(message);
-      } catch {
-        // closed in the meantime
-      }
+  private async notify(gigId: string) {
+    if (!this.userId) return;
+    try {
+      await liveOf(this.env, this.userId).ping({ type: "gig_changed", gig_id: gigId });
+    } catch (e) {
+      // A missed ping only means a later refresh (pull to refresh, coming back to the app).
+      console.warn("live ping failed", e);
     }
   }
 
@@ -467,7 +433,7 @@ export class PersonObject extends DurableObject<Env> {
       );
       return true;
     });
-    if (applied) this.notify(gigId);
+    if (applied) await this.notify(gigId);
     // Tell me what changed, unless I changed it (best effort; never blocks the update).
     if (applied && this.userId) for (const n of notices) await notify(this.env, this.userId, n);
     return applied;

@@ -91,11 +91,6 @@ export interface ModuleDefinition {
     import: (ctx: AdminCtx, data: unknown) => Promise<number>;
   };
   /**
-   * Live updates: takes a signed-in user's WebSocket upgrade (from `/api/live`, already
-   * authenticated and origin-checked by core) and returns the 101 response. One module.
-   */
-  live?: (env: Env, userId: string, request: Request) => Promise<Response>;
-  /**
    * Secret links opened without signing in (e.g. a gig's guest list for its venue), for
    * tokens starting with `<prefix>_`. `read` and `act` return null for a link that isn't
    * valid (or no longer is); core answers 404 without saying why.
