@@ -156,3 +156,73 @@ describe("budget", () => {
     expect(await budget.neurons(120)).toBe(120);
   });
 });
+
+describe("several chats and memory", () => {
+  const ulidOf = (n: number) => `01K${String(n).padStart(23, "0")}`;
+
+  it("keeps several chats, names each by its first message, and keeps them private", async () => {
+    const me = await signUp("Test Owner");
+    const id = ulidOf(1);
+    const made = await json<ChatView>(await call("/api/chats", { cookie: me.cookie, body: { id } }));
+    expect(made).toMatchObject({ id, title: "New chat", items: [] });
+    // A retry with the same id makes no second chat.
+    await call("/api/chats", { cookie: me.cookie, body: { id } });
+
+    const sent = await json<ChatView>(
+      await call(`/api/chats/${id}`, {
+        cookie: me.cookie,
+        body: { text: "Test: note the PA needs two DI boxes" },
+      }),
+    );
+    expect(sent.title).toBe("Test: note the PA needs two DI boxes");
+    // The main chat didn't get that message.
+    expect((await json<ChatView>(await call("/api/chat", { cookie: me.cookie }))).items).toEqual([]);
+
+    const list = await json<{ id: string; title: string }[]>(await call("/api/chats", { cookie: me.cookie }));
+    expect(list.map((c) => c.id)).toEqual(["main", id]);
+
+    const other = await signUp("Test Other");
+    expect((await call(`/api/chats/${id}`, { cookie: other.cookie })).status).toBe(404);
+    expect((await call(`/api/chats/${ulidOf(2)}`, { cookie: me.cookie })).status).toBe(404);
+
+    // Deleting is soft, and a retry with the same key gets the same answer.
+    const del = () =>
+      call(`/api/chats/${id}`, { cookie: me.cookie, method: "DELETE", idempotencyKey: "test-delete-chat" });
+    expect(await json(await del())).toEqual({ deleted: id });
+    expect(await json(await del())).toEqual({ deleted: id });
+    expect((await call(`/api/chats/${id}`, { cookie: me.cookie })).status).toBe(404);
+    const after = await json<{ id: string }[]>(await call("/api/chats", { cookie: me.cookie }));
+    expect(after.map((c) => c.id)).toEqual(["main"]);
+  });
+
+  it("remembers what it's asked to, in every chat, until forgotten", async () => {
+    const me = await signUp("Test Owner");
+    const view = await say(me, "Test: remember weddings are 25000");
+    expect(view.items.map((i) => i.text)).toContain("Remembered: Test weddings are ₹25,000 for the band.");
+    const mems = await json<{ id: string; text: string; source: string }[]>(
+      await call("/api/memories", { cookie: me.cookie }),
+    );
+    expect(mems).toHaveLength(1);
+    expect(mems[0]).toMatchObject({ text: "Test weddings are ₹25,000 for the band." });
+    expect(mems[0]!.source).toMatch(/^From a chat, /);
+
+    // Another chat sees it too.
+    const id = ulidOf(3);
+    await call("/api/chats", { cookie: me.cookie, body: { id } });
+    const other = await json<ChatView>(
+      await call(`/api/chats/${id}`, { cookie: me.cookie, body: { text: "Test: what do you remember" } }),
+    );
+    expect(other.items.at(-1)!.text).toBe("I remember.");
+
+    // Someone else's assistant doesn't.
+    const stranger = await signUp("Test Stranger");
+    expect((await say(stranger, "Test: what do you remember")).items.at(-1)!.text).toBe("Nothing yet.");
+    expect(
+      (await call(`/api/memories/${mems[0]!.id}`, { cookie: stranger.cookie, method: "DELETE" })).status,
+    ).toBe(404);
+
+    await call(`/api/memories/${mems[0]!.id}`, { cookie: me.cookie, method: "DELETE" });
+    expect(await json(await call("/api/memories", { cookie: me.cookie }))).toEqual([]);
+    expect((await say(me, "Test: what do you remember")).items.at(-1)!.text).toBe("Nothing yet.");
+  });
+});

@@ -49,6 +49,13 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Vocals", "Keys"] } },
         ],
       });
+    case "Test: remember weddings are 25000":
+      return call("remember", { text: "Test weddings are ₹25,000 for the band." });
+    case "Test: what do you remember":
+      // Says whether the remembered fact reached the instructions (they're in the system message).
+      return say(
+        String(messages[0]?.content ?? "").includes("Test weddings") ? "I remember." : "Nothing yet.",
+      );
     case "Test: show my notes":
       return call("find_records", { collection: "Notes", search: "Test" });
     case "Test: bad tool":

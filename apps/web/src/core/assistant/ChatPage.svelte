@@ -12,14 +12,18 @@
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
   import { AssistantMark, Button, Pill, calm, toast } from "../ui/index.ts";
-  import { createQuery, refreshAll } from "../query.svelte.ts";
+  import { createQuery, publish, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
   import { router } from "../router.svelte.ts";
-  import { CHAT_KEY, chatApi, SUGGESTIONS } from "./chat-api.ts";
+  import { CHATS_KEY, MAIN_CHAT, chatApi, chatKey, SUGGESTIONS } from "./chat-api.ts";
 
   // The app's home: the chat with the assistant (docs/design/chat-first.md). Pinned views are
   // in the side menu.
-  const chat = createQuery<ChatView>(() => CHAT_KEY, chatApi.get);
+  let { chatId = MAIN_CHAT }: { chatId?: string } = $props();
+  const chat = createQuery<ChatView>(
+    () => chatKey(chatId),
+    () => chatApi.get(chatId),
+  );
   let text = $state(router.route.query.get("ask") ?? "");
   let thinkHarder = $state(false);
   let sending = $state<string | null>(null);
@@ -63,7 +67,17 @@
     sending = t;
     text = "";
     try {
-      chat.set(await chatApi.send(t, thinkHarder));
+      chat.set(await chatApi.send(chatId, t, thinkHarder));
+      // A chat is named by its first message; the menu's list catches up a moment later.
+      if (chatId !== MAIN_CHAT)
+        setTimeout(
+          () =>
+            void chatApi.list().then(
+              (l) => publish(CHATS_KEY, l),
+              () => {},
+            ),
+          1500,
+        );
       thinkHarder = false;
       // Records it added show up on the other screens.
       refreshAll();
@@ -77,12 +91,12 @@
 
   // Siri, Shortcuts and the Action button open "/?ask=…" (the iPhone app's intents): the
   // message waits in the box for a tap on Send. A link never sends anything by itself.
-  if (router.route.query.get("ask")) history.replaceState(null, "", "/");
+  if (router.route.query.get("ask")) history.replaceState(null, "", window.location.pathname);
 
   async function answer(actionId: string, yes: boolean) {
     busyCard = actionId;
     try {
-      chat.set(yes ? await chatApi.confirm(actionId) : await chatApi.cancel(actionId));
+      chat.set(yes ? await chatApi.confirm(chatId, actionId) : await chatApi.cancel(chatId, actionId));
       if (yes) refreshAll();
     } catch (e) {
       toast.error(e);

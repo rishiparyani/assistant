@@ -624,6 +624,9 @@ export interface ChatItem {
 }
 
 export interface ChatView {
+  /** "main" for the person's first chat, else the chat's id. */
+  id: string;
+  title: string;
   items: ChatItem[];
   /** A setup is being built: the smart model answers until it's saved. */
   setup_in_progress: boolean;
@@ -631,11 +634,53 @@ export interface ChatView {
   smart_available: boolean;
 }
 
+/** One of the person's chats, for the side menu. */
+export interface ChatSummary {
+  id: string;
+  title: string;
+  updated_at: string | null;
+}
+
+/** Something the assistant remembers for the person (chat-first step 3). */
+export interface Memory {
+  id: string;
+  text: string;
+  /** Where it came from, e.g. "From a chat, 10 Oct 2026". */
+  source: string;
+  created_at: string;
+}
+
+/** "main" or a chat's ULID. */
+export const ChatId = z
+  .string()
+  .trim()
+  .regex(/^(main|[0-9A-HJKMNP-TV-Z]{26})$/, "Not a chat id");
+export const ChatRef = z.object({ chat_id: ChatId });
+export const NewChatInput = z.object({
+  id: z
+    .string()
+    .trim()
+    .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/)
+    .optional()
+    .describe("Made on the device, so a retry can't make two chats"),
+});
+export const RememberInput = z.object({
+  text: z
+    .string()
+    .trim()
+    .min(3)
+    .max(300)
+    .describe('One fact or preference, in a short sentence: "Weddings are ₹25,000 for the band."'),
+});
+export const MemoryRef = z.object({ memory_id: z.string().trim().min(1).max(60) });
+
 export const ChatSendInput = z.object({
   text: z.string().trim().min(1).max(2000),
   think_harder: z.boolean().optional(),
 });
 export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });
+export const ChatSendTo = ChatRef.extend(ChatSendInput.shape);
+export const ChatActionIn = ChatRef.extend(ChatActionRef.shape);
 
 // --- Sharing (design §11) -------------------------------------------------------------------
 

@@ -3,7 +3,22 @@
 // waiting for a tap, and whether a setup is in progress. Only its owner can read it.
 import { DurableObject } from "cloudflare:workers";
 import { ulid, type ChatItem, type LiveRef } from "@assistant/shared";
-import { BASE_TABLES, getMeta, migrate, nowIso, setMeta, type Migrations } from "../objects/storage.ts";
+import {
+  BASE_TABLES,
+  audit,
+  bumpAndNote,
+  clearOutbox,
+  getMeta,
+  hashOf,
+  idempotent,
+  migrate,
+  nowIso,
+  outboxFailed,
+  outboxNote,
+  setMeta,
+  type Actor,
+  type Migrations,
+} from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import type { ChatMessage, ToolCall } from "./client.ts";
 
@@ -46,7 +61,45 @@ const MIGRATIONS: Migrations = [
   `,
   // Live cards (chat-first step 2): what a "live" message points at.
   `alter table messages add column live_json text;`,
+  // Several chats and memory (chat-first step 3). Kept in the person's main chat only:
+  // the list of their other chats, and what the assistant remembers for them.
+  `
+  create table chats (
+    id text primary key,
+    title text not null,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create index chats_updated_idx on chats (deleted_at, updated_at);
+  create table memories (
+    id text primary key,
+    text text not null,
+    source text not null,
+    created_at text not null,
+    deleted_at text
+  );
+  create index memories_created_idx on memories (deleted_at, created_at);
+  `,
 ];
+
+/** What the assistant remembers for a person (chat-first step 3). */
+export type MemoryRow = {
+  id: string;
+  text: string;
+  source: string;
+  created_at: string;
+};
+
+export type ChatRow = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+const MAX_MEMORIES = 200;
+const MAX_CHATS = 200;
 
 export interface StoredMessage extends ChatMessage {
   /** Shown on screen as this role (null: for the model only). */
@@ -256,6 +309,190 @@ export class ChatObject extends DurableObject<Env> {
   async finishAction(userId: string, id: string, status: ActionRow["status"], result: string | null) {
     this.own(userId);
     this.sql.exec(`update actions set status = ?, result = ? where id = ?`, status, result, id);
+  }
+
+  // --- The person's chats (main chat only) ---------------------------------------------
+
+  async chats(userId: string): Promise<ChatRow[]> {
+    this.own(userId);
+    return this.sql
+      .exec<ChatRow>(
+        `select id, title, created_at, updated_at from chats where deleted_at is null order by updated_at desc limit ?`,
+        MAX_CHATS,
+      )
+      .toArray();
+  }
+
+  async addChat(userId: string, id: string): Promise<ChatRow> {
+    this.own(userId);
+    const n = this.sql
+      .exec<{ n: number }>(`select count(*) as n from chats where deleted_at is null`)
+      .one().n;
+    if (n >= MAX_CHATS)
+      throw new ObjectError("conflict", `Up to ${MAX_CHATS} chats; delete an old one first`);
+    const now = nowIso();
+    this.sql.exec(
+      `insert into chats (id, title, created_at, updated_at) values (?, 'New chat', ?, ?) on conflict (id) do nothing`,
+      id,
+      now,
+      now,
+    );
+    return this.chatRow(id);
+  }
+
+  /** A chat got a message: it moves to the top; its first message names it. */
+  async touchChat(userId: string, id: string, firstText: string | null): Promise<void> {
+    this.own(userId);
+    const row = this.sql.exec<{ title: string }>(`select title from chats where id = ?`, id).toArray()[0];
+    if (!row) return;
+    const title =
+      row.title === "New chat" && firstText ? firstText.trim().replace(/\s+/g, " ").slice(0, 60) : row.title;
+    this.sql.exec(`update chats set title = ?, updated_at = ? where id = ?`, title, nowIso(), id);
+  }
+
+  async hasChat(userId: string, id: string): Promise<boolean> {
+    this.own(userId);
+    return this.sql.exec(`select 1 from chats where id = ? and deleted_at is null`, id).toArray().length > 0;
+  }
+
+  /**
+   * Hides a chat from the list (soft delete: its messages stay in its own object). A retry
+   * with the same key gets the same answer (rule 8).
+   */
+  async deleteChat(
+    actor: Actor & { userId: string },
+    key: string | null,
+    id: string,
+  ): Promise<{ deleted: string }> {
+    this.own(actor.userId);
+    const hash = await hashOf(["delete_chat", id]);
+    return idempotent(this.ctx.storage, key, hash, () => {
+      const row = this.sql
+        .exec<{ title: string }>(`select title from chats where id = ? and deleted_at is null`, id)
+        .toArray()[0];
+      if (!row) throw new ObjectError("not_found", "Chat not found");
+      this.sql.exec(`update chats set deleted_at = ? where id = ?`, nowIso(), id);
+      audit(this.sql, actor, {
+        action: "delete_chat",
+        entityType: "chat",
+        entityId: id,
+        before: { title: row.title },
+      });
+      return { deleted: id };
+    });
+  }
+
+  // --- One chat's own title and its place in the list (any chat but main) -----------------
+  // The list lives in the main chat. A chat records its first message as its title here, and
+  // an outbox note; the alarm then updates the list (rule 16: a failure there can't touch
+  // the send that caused it, and it's retried until it lands).
+
+  async touched(userId: string, text: string): Promise<void> {
+    this.own(userId);
+    if (!getMeta(this.sql, "title"))
+      setMeta(this.sql, "title", text.trim().replace(/\s+/g, " ").slice(0, 60));
+    bumpAndNote(this.sql);
+    await this.ctx.storage.setAlarm(Date.now() + 100);
+  }
+
+  /** The title this chat gave itself (its first message), if it has one. */
+  async ownTitle(userId: string): Promise<string | null> {
+    this.own(userId);
+    return getMeta(this.sql, "title");
+  }
+
+  override async alarm(): Promise<void> {
+    const note = outboxNote(this.sql);
+    const name = this.ctx.id.name ?? "";
+    const m = /^chat:([^:]+):([^:]+)$/.exec(name);
+    if (!note || !m) return;
+    const [, userId, chatId] = m;
+    try {
+      await this.env.CHATS.getByName(`chat:${userId}`).touchChat(
+        userId!,
+        chatId!,
+        getMeta(this.sql, "title"),
+      );
+    } catch (e) {
+      console.warn("chat list update failed", e);
+      await this.ctx.storage.setAlarm(Date.now() + outboxFailed(this.sql));
+      return;
+    }
+    if (!clearOutbox(this.sql, note.seq)) await this.ctx.storage.setAlarm(Date.now() + 100);
+  }
+
+  private chatRow(id: string): ChatRow {
+    const r = this.sql
+      .exec<ChatRow>(`select id, title, created_at, updated_at from chats where id = ?`, id)
+      .toArray()[0];
+    if (!r) throw new ObjectError("not_found", "Chat not found");
+    return r;
+  }
+
+  // --- What the assistant remembers (main chat only) --------------------------------------
+
+  async memories(userId: string): Promise<MemoryRow[]> {
+    this.own(userId);
+    return this.sql
+      .exec<MemoryRow>(
+        `select id, text, source, created_at from memories where deleted_at is null order by created_at desc limit ?`,
+        MAX_MEMORIES,
+      )
+      .toArray();
+  }
+
+  async remember(
+    actor: Actor & { userId: string },
+    key: string | null,
+    text: string,
+    source: string,
+  ): Promise<MemoryRow> {
+    this.own(actor.userId);
+    const clean = text.trim().replace(/\s+/g, " ");
+    const hash = await hashOf(["remember", clean]);
+    return idempotent(this.ctx.storage, key, hash, () => this.rememberNow(actor, clean, source));
+  }
+
+  private rememberNow(actor: Actor, clean: string, source: string): MemoryRow {
+    const same = this.sql
+      .exec<MemoryRow>(
+        `select id, text, source, created_at from memories where deleted_at is null and lower(text) = lower(?)`,
+        clean,
+      )
+      .toArray()[0];
+    if (same) return same;
+    const n = this.sql
+      .exec<{ n: number }>(`select count(*) as n from memories where deleted_at is null`)
+      .one().n;
+    if (n >= MAX_MEMORIES)
+      throw new ObjectError("conflict", `It remembers up to ${MAX_MEMORIES} things; forget something first`);
+    const row: MemoryRow = { id: ulid(), text: clean, source, created_at: nowIso() };
+    this.sql.exec(
+      `insert into memories (id, text, source, created_at) values (?, ?, ?, ?)`,
+      row.id,
+      row.text,
+      row.source,
+      row.created_at,
+    );
+    audit(this.sql, actor, { action: "remember", entityType: "memory", entityId: row.id, after: row });
+    return row;
+  }
+
+  async forget(actor: Actor & { userId: string }, key: string | null, id: string): Promise<MemoryRow> {
+    this.own(actor.userId);
+    const hash = await hashOf(["forget", id]);
+    return idempotent(this.ctx.storage, key, hash, () => {
+      const r = this.sql
+        .exec<MemoryRow>(
+          `select id, text, source, created_at from memories where id = ? and deleted_at is null`,
+          id,
+        )
+        .toArray()[0];
+      if (!r) throw new ObjectError("not_found", "Nothing remembered with that id");
+      this.sql.exec(`update memories set deleted_at = ? where id = ?`, nowIso(), id);
+      audit(this.sql, actor, { action: "forget", entityType: "memory", entityId: id, before: r });
+      return r;
+    });
   }
 
   async clear(userId: string): Promise<void> {
