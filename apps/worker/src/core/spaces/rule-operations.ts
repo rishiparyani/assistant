@@ -1,10 +1,33 @@
-// Rules on a collection (chat-first step 6): checks, uniqueness and status flows. Adding or
-// removing one changes a setup, so outside assistants confirm first.
-import { AddRuleInput, CollectionRef, RuleRef } from "@assistant/shared";
+// Setups (chat-first step 6): a whole setup at once, and rules on a collection (checks,
+// uniqueness and status flows). Both change a setup, so outside assistants confirm first.
+import { AddRuleInput, CollectionRef, MakeSetupInput, RuleRef } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import { spaceOf } from "./service.ts";
 
 export const ruleOperations = [
+  defineOperation({
+    id: "core.make_setup",
+    tool: "make_setup",
+    description:
+      "Propose a whole setup at once: new collections with their fields, links between them, formulas and rollups, rules and saved views. The person sees it as one card and it's made, all together, only when they tap Make it. Prefer this over several create_collection calls for anything with more than one list.",
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/setups", status: 201 },
+    input: MakeSetupInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.makeSetup(actor, ctx.idempotencyKey, {
+        collections: i.collections.map((c) => ({
+          id: c.id ?? null,
+          name: c.name,
+          description: c.description ?? null,
+          fields: c.fields,
+        })),
+        rules: i.rules,
+        views: i.views,
+      });
+    },
+  }),
   defineOperation({
     id: "core.add_rule",
     tool: "add_rule",

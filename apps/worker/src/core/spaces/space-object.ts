@@ -28,6 +28,7 @@ import {
   type RecordView,
   type SavedView,
   formulaValues,
+  type SetupResult,
   type RuleFilter,
   type ShareAccess,
   type ShareInclude,
@@ -522,6 +523,16 @@ export interface SpaceInit {
   starter: boolean;
 }
 
+interface RuleInput {
+  kind: RuleKind;
+  require?: Filter[];
+  fields?: string[];
+  only_if?: Filter[];
+  field?: string;
+  moves?: Record<string, string[]>;
+  message?: string;
+}
+
 export interface FieldSpec {
   id?: string | null;
   name: string;
@@ -736,6 +747,80 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["create_collection", input], (ts) => {
       const id = this.insertCollection(actor, input, ts);
       return this.collectionView(this.requireCollection(id));
+    });
+  }
+
+  /**
+   * A whole setup in one write (chat-first step 6): the new collections with their plain
+   * fields first, then their links (which may point at each other), then calculated fields in
+   * the order their parts exist, then rules and views. If any part is wrong, nothing is made.
+   */
+  async makeSetup(
+    actor: Actor,
+    key: string | null,
+    input: {
+      collections: { id?: string | null; name: string; description?: string | null; fields: FieldSpec[] }[];
+      rules: (RuleInput & { collection: string })[];
+      views: (ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean })[];
+    },
+  ): Promise<SetupResult> {
+    return this.write(actor, key, ["make_setup", input], (ts) => {
+      const isLink = (f: FieldSpec) => f.type === "link";
+      const isRollup = (f: FieldSpec) => !isLink(f) && !!f.options?.rollup;
+      const isFormula = (f: FieldSpec) => !isLink(f) && !f.options?.rollup && !!f.options?.formula;
+      const ids = input.collections.map((c) =>
+        this.insertCollection(
+          actor,
+          { ...c, fields: c.fields.filter((f) => !isLink(f) && !isRollup(f) && !isFormula(f)) },
+          ts,
+        ),
+      );
+      input.collections.forEach((c, i) => {
+        const id = ids[i]!;
+        for (const f of c.fields.filter(isLink)) this.insertField(id, f, this.fieldRows(id).length, ts);
+      });
+      // Calculated fields may use each other across lists (a rollup of a formula, a formula of
+      // a rollup): add the ones whose parts exist, round by round, until none are left.
+      let pending = input.collections.flatMap((c, i) =>
+        c.fields.filter((f) => isRollup(f) || isFormula(f)).map((f) => ({ id: ids[i]!, f })),
+      );
+      while (pending.length) {
+        const left: typeof pending = [];
+        let last: unknown = null;
+        for (const p of pending)
+          try {
+            this.insertField(p.id, p.f, this.fieldRows(p.id).length, ts);
+          } catch (e) {
+            if (!(e instanceof ObjectError)) throw e;
+            left.push(p);
+            last = e;
+          }
+        if (left.length === pending.length) throw last;
+        pending = left;
+      }
+      // Fields in the order the setup gave them (an added Title stays first).
+      input.collections.forEach((c, i) => {
+        const rows = this.fieldRows(ids[i]!);
+        const offset = rows.length - c.fields.length;
+        c.fields.forEach((f, at) => {
+          const row = rows.find((r) => r.name_key === nameKey(f.name));
+          if (row) this.sql.exec(`update fields set position = ? where id = ?`, offset + at, row.id);
+        });
+      });
+      const rules = input.rules.map(({ collection, ...r }) => this.insertRule(actor, collection, r, ts));
+      const views = input.views.map((v) => this.insertView(actor, v, ts));
+      for (const id of ids) this.logChange("collection", id, "upsert", ts);
+      audit(this.sql, actor, {
+        action: "make_setup",
+        entityType: "collection",
+        entityId: ids[0]!,
+        after: input,
+      });
+      return {
+        collections: ids.map((id) => this.collectionView(this.requireCollection(id))),
+        rules,
+        views,
+      };
     });
   }
 
@@ -2133,39 +2218,45 @@ export class SpaceObject extends DurableObject<Env> {
     key: string | null,
     input: ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean },
   ) {
-    return this.write(actor, key, ["save_view", input], (ts) => {
-      const c = this.requireCollection(input.collection);
-      const n = this.sql
-        .exec<{ n: number }>(`select count(*) as n from views where deleted_at is null`)
-        .one().n;
-      if (n >= SPACE_LIMITS.views)
-        throw new ObjectError("validation_failed", `A space can have up to ${SPACE_LIMITS.views} views`);
-      this.checkViewName(input.name, null);
-      const query = this.checkViewQuery(c, input);
-      const id = this.newId("views", input.id);
-      const position =
-        this.sql
-          .exec<{ p: number | null }>(`select max(position) as p from views where deleted_at is null`)
-          .one().p ?? 0;
-      this.sql.exec(
-        `insert into views (id, name, name_key, collection_id, query_json, mode, pinned, position, created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        id,
-        input.name.trim(),
-        nameKey(input.name),
-        c.id,
-        JSON.stringify(query),
-        input.mode ?? "list",
-        input.pinned ? 1 : 0,
-        position + 1,
-        actor.userId,
-        ts,
-        ts,
-      );
-      this.logChange("view", id, "upsert", ts);
-      audit(this.sql, actor, { action: "save_view", entityType: "view", entityId: id, after: input });
-      return this.viewOf(this.requireView(id))!;
-    });
+    return this.write(actor, key, ["save_view", input], (ts) => this.insertView(actor, input, ts));
+  }
+
+  private insertView(
+    actor: Actor,
+    input: ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean },
+    ts: string,
+  ): SavedView {
+    const c = this.requireCollection(input.collection);
+    const n = this.sql
+      .exec<{ n: number }>(`select count(*) as n from views where deleted_at is null`)
+      .one().n;
+    if (n >= SPACE_LIMITS.views)
+      throw new ObjectError("validation_failed", `A space can have up to ${SPACE_LIMITS.views} views`);
+    this.checkViewName(input.name, null);
+    const query = this.checkViewQuery(c, input);
+    const id = this.newId("views", input.id);
+    const position =
+      this.sql
+        .exec<{ p: number | null }>(`select max(position) as p from views where deleted_at is null`)
+        .one().p ?? 0;
+    this.sql.exec(
+      `insert into views (id, name, name_key, collection_id, query_json, mode, pinned, position, created_by, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      input.name.trim(),
+      nameKey(input.name),
+      c.id,
+      JSON.stringify(query),
+      input.mode ?? "list",
+      input.pinned ? 1 : 0,
+      position + 1,
+      actor.userId,
+      ts,
+      ts,
+    );
+    this.logChange("view", id, "upsert", ts);
+    audit(this.sql, actor, { action: "save_view", entityType: "view", entityId: id, after: input });
+    return this.viewOf(this.requireView(id))!;
   }
 
   async updateView(
@@ -2523,116 +2614,100 @@ export class SpaceObject extends DurableObject<Env> {
     return this.ruleRows(this.requireCollection(collection).id).map((r) => this.ruleView(r));
   }
 
-  async addRule(
-    actor: Actor,
-    key: string | null,
-    collection: string,
-    input: {
-      kind: RuleKind;
-      require?: Filter[];
-      fields?: string[];
-      only_if?: Filter[];
-      field?: string;
-      moves?: Record<string, string[]>;
-      message?: string;
-    },
-  ): Promise<RuleView> {
-    return this.write(actor, key, ["add_rule", collection, input], (ts) => {
-      const c = this.requireCollection(collection);
-      const fields = this.fieldRows(c.id);
-      const only_if = this.checkViewQuery(c, { filters: input.only_if ?? [] }).filters;
-      let def: RuleDef;
-      if (input.kind === "check") {
-        if (!input.require?.length) throw new ObjectError("validation_failed", "Say what records must meet");
-        def = {
-          require: this.checkViewQuery(c, { filters: input.require }).filters,
-          fields: [],
-          only_if,
-          field: null,
-          moves: {},
-        };
-      } else if (input.kind === "unique") {
-        if (!input.fields?.length)
-          throw new ObjectError("validation_failed", "Say which fields may not repeat");
-        const ids = input.fields.map((ref) => {
-          const f = this.matchField(fields, ref);
-          if (
-            f.type === "money" ||
-            f.type === "long_text" ||
-            f.type === "multi_choice" ||
-            toField(f).options.personal
-          )
-            throw new ObjectError("validation_failed", `${f.name} can't be part of a uniqueness rule`);
-          return f.id;
-        });
-        def = { require: [], fields: [...new Set(ids)], only_if, field: null, moves: {} };
-      } else {
-        if (!input.field || !input.moves)
-          throw new ObjectError("validation_failed", "Say the field and its moves");
-        const f = this.matchField(fields, input.field);
-        if (f.type !== "choice") throw new ObjectError("validation_failed", `${f.name} isn't a choice field`);
-        const choices = toField(f).options.choices ?? [];
-        const pick = (v: string) => {
-          const hit = choices.find((x) => nameKey(x) === nameKey(v));
-          if (!hit)
-            throw new ObjectError(
-              "validation_failed",
-              `${f.name} has no choice "${v}". Choices: ${choices.join(", ")}`,
-            );
-          return hit;
-        };
-        const given = new Map(
-          Object.entries(input.moves).map(([from, to]) => [pick(from), [...new Set(to.map(pick))]]),
-        );
-        // Every choice is listed, so the words show the values that can't move at all.
-        const moves = Object.fromEntries(choices.map((ch) => [ch, given.get(ch) ?? []]));
-        def = { require: [], fields: [], only_if: [], field: f.id, moves };
-      }
-      const count = this.sql
-        .exec<{ n: number }>(
-          `select count(*) as n from rules where collection_id = ? and deleted_at is null`,
-          c.id,
+  async addRule(actor: Actor, key: string | null, collection: string, input: RuleInput): Promise<RuleView> {
+    return this.write(actor, key, ["add_rule", collection, input], (ts) =>
+      this.insertRule(actor, collection, input, ts),
+    );
+  }
+
+  private insertRule(actor: Actor, collection: string, input: RuleInput, ts: string): RuleView {
+    const c = this.requireCollection(collection);
+    const fields = this.fieldRows(c.id);
+    const only_if = this.checkViewQuery(c, { filters: input.only_if ?? [] }).filters;
+    let def: RuleDef;
+    if (input.kind === "check") {
+      if (!input.require?.length) throw new ObjectError("validation_failed", "Say what records must meet");
+      def = {
+        require: this.checkViewQuery(c, { filters: input.require }).filters,
+        fields: [],
+        only_if,
+        field: null,
+        moves: {},
+      };
+    } else if (input.kind === "unique") {
+      if (!input.fields?.length)
+        throw new ObjectError("validation_failed", "Say which fields may not repeat");
+      const ids = input.fields.map((ref) => {
+        const f = this.matchField(fields, ref);
+        if (
+          f.type === "money" ||
+          f.type === "long_text" ||
+          f.type === "multi_choice" ||
+          toField(f).options.personal
         )
-        .one().n;
-      if (count >= 30) throw new ObjectError("conflict", "A collection can have at most 30 rules");
-      const id = ulid();
-      this.sql.exec(
-        `insert into rules (id, collection_id, kind, def_json, message, created_by, created_at) values (?, ?, ?, ?, ?, ?, ?)`,
-        id,
-        c.id,
-        input.kind,
-        JSON.stringify(def),
-        input.message?.trim() || null,
-        actor.userId,
-        ts,
-      );
-      // Records already there must meet it (a rule that's broken from the start says so now).
-      const r = this.sql.exec<RuleRow>(`select * from rules where id = ?`, id).one();
-      // Every record, in batches (a rule over broken data would be a promise it can't keep).
-      for (let after = ""; ;) {
-        const batch = this.sql
-          .exec<{ id: string; values_json: string }>(
-            `select id, values_json from records where collection_id = ? and deleted_at is null and id > ? order by id limit 500`,
-            c.id,
-            after,
-          )
-          .toArray();
-        for (const rec of batch)
-          this.checkRule(
-            r,
-            c,
-            rec.id,
-            null,
-            JSON.parse(rec.values_json) as Record<string, StoredValue>,
-            true,
+          throw new ObjectError("validation_failed", `${f.name} can't be part of a uniqueness rule`);
+        return f.id;
+      });
+      def = { require: [], fields: [...new Set(ids)], only_if, field: null, moves: {} };
+    } else {
+      if (!input.field || !input.moves)
+        throw new ObjectError("validation_failed", "Say the field and its moves");
+      const f = this.matchField(fields, input.field);
+      if (f.type !== "choice") throw new ObjectError("validation_failed", `${f.name} isn't a choice field`);
+      const choices = toField(f).options.choices ?? [];
+      const pick = (v: string) => {
+        const hit = choices.find((x) => nameKey(x) === nameKey(v));
+        if (!hit)
+          throw new ObjectError(
+            "validation_failed",
+            `${f.name} has no choice "${v}". Choices: ${choices.join(", ")}`,
           );
-        if (batch.length < 500) break;
-        after = batch[batch.length - 1]!.id;
-      }
-      audit(this.sql, actor, { action: "add_rule", entityType: "rule", entityId: id, after: input });
-      this.logChange("collection", c.id, "upsert", ts);
-      return this.ruleView(r);
-    });
+        return hit;
+      };
+      const given = new Map(
+        Object.entries(input.moves).map(([from, to]) => [pick(from), [...new Set(to.map(pick))]]),
+      );
+      // Every choice is listed, so the words show the values that can't move at all.
+      const moves = Object.fromEntries(choices.map((ch) => [ch, given.get(ch) ?? []]));
+      def = { require: [], fields: [], only_if: [], field: f.id, moves };
+    }
+    const count = this.sql
+      .exec<{ n: number }>(
+        `select count(*) as n from rules where collection_id = ? and deleted_at is null`,
+        c.id,
+      )
+      .one().n;
+    if (count >= 30) throw new ObjectError("conflict", "A collection can have at most 30 rules");
+    const id = ulid();
+    this.sql.exec(
+      `insert into rules (id, collection_id, kind, def_json, message, created_by, created_at) values (?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      c.id,
+      input.kind,
+      JSON.stringify(def),
+      input.message?.trim() || null,
+      actor.userId,
+      ts,
+    );
+    // Records already there must meet it (a rule that's broken from the start says so now).
+    const r = this.sql.exec<RuleRow>(`select * from rules where id = ?`, id).one();
+    // Every record, in batches (a rule over broken data would be a promise it can't keep).
+    for (let after = ""; ;) {
+      const batch = this.sql
+        .exec<{ id: string; values_json: string }>(
+          `select id, values_json from records where collection_id = ? and deleted_at is null and id > ? order by id limit 500`,
+          c.id,
+          after,
+        )
+        .toArray();
+      for (const rec of batch)
+        this.checkRule(r, c, rec.id, null, JSON.parse(rec.values_json) as Record<string, StoredValue>, true);
+      if (batch.length < 500) break;
+      after = batch[batch.length - 1]!.id;
+    }
+    audit(this.sql, actor, { action: "add_rule", entityType: "rule", entityId: id, after: input });
+    this.logChange("collection", c.id, "upsert", ts);
+    return this.ruleView(r);
   }
 
   async deleteRule(actor: Actor, key: string | null, id: string): Promise<{ deleted: string }> {
