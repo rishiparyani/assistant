@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { CollectionView, FindResult, RecordView } from "@assistant/shared";
   import Check from "@lucide/svelte/icons/check";
   import { Button, EmptyState, Pill, SelectField, Sheet, Skeleton, confirm, toast } from "../ui/index.ts";
   import { createQuery } from "../query.svelte.ts";
-  import { listKey, spacesApi, updateRecord } from "./spaces-api.ts";
+  import { listKey, spacesApi, updateRecords } from "./spaces-api.ts";
 
   // A pick board (chat-first step 6; universal.md §5 "Consolidating"): records grouped by a
   // link or choice (Song), then by a choice (Instrument). Tapping one sets the pick field to
@@ -56,11 +57,20 @@
     }
   });
   const pickChoices = $derived(choices.find((f) => f.id === s.pick)?.options.choices ?? []);
+  // Another pick field: its own values, not the old field's.
+  $effect(() => {
+    const opts = pickChoices;
+    untrack(() => {
+      if (s.picked && !opts.includes(s.picked)) s.picked = opts[1] ?? opts[0] ?? "";
+      if (s.rest && !opts.includes(s.rest)) s.rest = "";
+    });
+  });
 
-  // The whole list (up to 500), in one cached result the record appliers keep current.
+  // The whole list (up to 500), in one cached result the record appliers keep current (a
+  // list key of its own, which the offline appliers can read).
   const query = { limit: 100 };
   const list = createQuery<FindResult>(
-    () => `${listKey(collection.id, query)}|board`,
+    () => listKey(collection.id, { limit: 500 }),
     async () => {
       let page = await spacesApi.find(collection.id, query);
       const items = [...page.items];
@@ -72,6 +82,14 @@
     },
   );
 
+  /** What a cell is keyed by: a linked record's id (titles can repeat), else the value. */
+  const keyOf = (r: RecordView, fid: string): string => {
+    if (!fid) return "";
+    const f = fields.find((x) => x.id === fid);
+    if (f?.type === "link") return r.links[fid]?.[0]?.id ?? "";
+    const v = r.values[fid];
+    return typeof v === "string" ? v : "";
+  };
   const labelOf = (r: RecordView, fid: string): string => {
     if (!fid) return "";
     const f = fields.find((x) => x.id === fid);
@@ -87,7 +105,7 @@
     for (const r of list.data?.items ?? []) {
       const group = labelOf(r, s.group);
       const then = labelOf(r, s.then);
-      const key = `${group}\u0000${then}`;
+      const key = `${keyOf(r, s.group)}\u0000${keyOf(r, s.then)}`;
       const cell = out.get(key) ?? { key, group, then, items: [] };
       cell.items.push(r);
       out.set(key, cell);
@@ -97,10 +115,14 @@
   const isPicked = (r: RecordView) => !!s.pick && r.values[s.pick] === s.picked;
   const isRest = (r: RecordView) => !!s.rest && r.values[s.pick] === s.rest;
   const filled = $derived(cells.filter((c) => c.items.some(isPicked)).length);
-  const ready = $derived(!!s.group && !!s.pick && !!s.picked);
+  const ready = $derived(!!s.group && !!s.pick && pickChoices.includes(s.picked));
 
-  const setPick = (r: RecordView, value: string) =>
-    updateRecord(collection, r, { values: { [s.pick]: value }, links: {} });
+  // One write for all of them: a replacement happens whole, or not at all.
+  const setPicks = (list: { r: RecordView; value: string }[]) =>
+    updateRecords(
+      collection,
+      list.map(({ r, value }) => ({ record: r, values: { [s.pick]: value } })),
+    );
 
   async function tap(cell: Cell, r: RecordView) {
     if (!ready || isPicked(r)) return;
@@ -115,8 +137,7 @@
       if (!ok || !back) return;
     }
     try {
-      for (const h of holders) await setPick(h, back);
-      await setPick(r, s.picked);
+      await setPicks([...holders.map((h) => ({ r: h, value: back })), { r, value: s.picked }]);
     } catch (e) {
       toast.error(e);
     }
@@ -138,7 +159,9 @@
     });
     if (!ok) return;
     try {
-      for (const r of todo) await setPick(r, s.rest);
+      // In writes of up to 50 (the most one write takes).
+      for (let i = 0; i < todo.length; i += 50)
+        await setPicks(todo.slice(i, i + 50).map((r) => ({ r, value: s.rest })));
     } catch (e) {
       toast.error(e);
     }

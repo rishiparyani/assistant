@@ -338,6 +338,34 @@ export function updateRecord(c: CollectionView, r: Pick<RecordView, "id" | "titl
   });
 }
 
+/** Several records of one list changed together, all or nothing (a pick-board "Replace"). */
+export function updateRecords(
+  c: CollectionView,
+  changes: { record: Pick<RecordView, "id" | "title">; values: Record<string, StoredValue> }[],
+) {
+  return send<{ records: RecordView[] } | undefined>({
+    kind: "spaces.update_records",
+    scope: scopeOf(c.id),
+    method: "POST",
+    path: "/api/records/batch",
+    body: {
+      changes: changes.map((x) => ({
+        record_id: x.record.id,
+        values: body(c, { values: x.values, links: {} }),
+      })),
+    },
+    args: {
+      changes: changes.map((x) => ({
+        id: x.record.id,
+        title_field_id: c.title_field_id,
+        values: x.values,
+        links: {},
+      })),
+    },
+    label: `${changes.length} in ${c.name}`,
+  });
+}
+
 export function deleteRecord(c: CollectionView, r: Pick<RecordView, "id" | "title">) {
   return send<unknown>({
     kind: "spaces.delete_record",
@@ -431,6 +459,17 @@ applyWith("spaces.update_record", (data, c) => {
   const a = c.args as unknown as Args;
   if (isList(data)) return { ...data, items: data.items.map((r) => (r.id === a.id ? changed(r, a, c) : r)) };
   return isRecord(data, a.id) ? changed(data, a, c) : data;
+});
+
+applyWith("spaces.update_records", (data, c) => {
+  const all = (c.args as { changes: Args[] }).changes;
+  const apply = (r: RecordView) => {
+    const a = all.find((x) => x.id === r.id);
+    return a ? changed(r, a, c) : r;
+  };
+  if (isList(data)) return { ...data, items: data.items.map(apply) };
+  const one = data as RecordView | undefined;
+  return one && typeof one === "object" && "id" in one ? apply(one) : data;
 });
 
 applyWith("spaces.delete_record", (data, c) => {
