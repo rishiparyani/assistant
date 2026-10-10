@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { WorkflowView } from "@assistant/shared";
-  import { EmptyState, PageHeader, Skeleton, toast } from "../ui/index.ts";
-  import { createQuery, publish } from "../query.svelte.ts";
+  import Plus from "@lucide/svelte/icons/plus";
+  import { Button, EmptyState, PageHeader, Skeleton, toast } from "../ui/index.ts";
+  import { createQuery, publish, refreshAll } from "../query.svelte.ts";
+  import { navigate, router } from "../router.svelte.ts";
+  import WorkflowBuilder from "./WorkflowBuilder.svelte";
   import { connection } from "../offline.svelte.ts";
   import WorkflowDiagram from "./WorkflowDiagram.svelte";
   import { WORKFLOWS_KEY, runsText, workflowsApi } from "./workflows-api.ts";
@@ -9,6 +12,13 @@
   // All my workflows (chat-first step 5): each with its switch, its plain words and how often
   // it ran; tap one for the diagram and its history.
   const list = createQuery<WorkflowView[]>(() => WORKFLOWS_KEY, workflowsApi.list);
+  // Making one by tapping (also from the chat's +, which opens /workflows?new=1).
+  let building = $state(router.route.query.get("new") === "1");
+  function made(w: WorkflowView) {
+    refreshAll();
+    toast.success("Saved and on");
+    navigate(`/workflows/${w.id}`);
+  }
 
   async function toggle(w: WorkflowView, on: boolean) {
     if (!connection.online) {
@@ -26,7 +36,15 @@
   }
 </script>
 
-<PageHeader title="Workflows" />
+<PageHeader title="Workflows">
+  {#snippet actions()}
+    <Button variant="primary" onclick={() => (building = true)}>
+      {#snippet icon()}<Plus />{/snippet}
+      New
+    </Button>
+  {/snippet}
+</PageHeader>
+<WorkflowBuilder bind:open={building} onmade={made} />
 {#if !list.data}
   {#if list.error}
     <EmptyState title="Can't load this" text="Check your connection and try again." />
@@ -36,7 +54,7 @@
 {:else if !list.data.length}
   <EmptyState
     title="No workflows yet"
-    text="Ask the assistant, e.g. “tell me when an expense is over ₹5,000” or “remind the band a day before each gig”."
+    text="Tap New, or ask the assistant, e.g. “tell me when an expense is over ₹5,000”."
   />
 {:else}
   <ul class="grid">
