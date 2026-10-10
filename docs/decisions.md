@@ -428,3 +428,7 @@ To bring people in from the chat, the owner needs to name them. "People I know" 
 ## 2026-10-10: Questions are shares
 
 "Ask Rahul and Priya if they're free" is a question card. A question lives in the asker's space (its own `questions` and `question_answers` tables) and reaches people through a share of a new kind, `question`, with the people asked added directly (they must be people the asker knows). Reusing shares means "Shared with you", leaving, removing, live pings and the 404-for-everyone-else check work unchanged; a question share reaches no records. Each person has one answer (one of the choices, matched without case, or a short text) and can change it until the asker closes the question. Only the asker sees everyone's answers. Asking needs a tap (it reaches other people); answering is online-only. The + menu can ask too, so this works without the assistant.
+
+## 2026-10-10: Who may use the assistant
+
+The owner decided collaborators have no assistant unless the owner switches it on per person (it costs the owner). Owners (`ADMIN_EMAILS`) and admins always have it; anyone else needs a row in D1 `assistant_access`, which owners and admins set for people they know (Settings). Until any owner or admin exists, everyone keeps it, so a missing secret can't lock the owner out. Only asking (send, confirm) is gated; lists, sharing, questions and outside assistants over MCP (the person's own AI, no cost to the owner) work for everyone.

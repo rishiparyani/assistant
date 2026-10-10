@@ -202,6 +202,42 @@ export class ChatObject extends DurableObject<Env> {
   }
 
   /** The send finished (or failed: the key is released so a retry can run). */
+  /**
+   * For a write this person makes outside any object (e.g. a D1 admin table): the stored
+   * result of an earlier request with this key (null when new); a key reused for a
+   * different request is refused. `keepResult` stores the result afterwards (24 h).
+   */
+  async recallResult(userId: string, key: string, hash: string): Promise<unknown> {
+    this.own(userId);
+    this.sql.exec(
+      `delete from _idempotency where created_at < ?`,
+      new Date(Date.now() - 86400_000).toISOString(),
+    );
+    const row = this.sql
+      .exec<{ request_hash: string; response_json: string }>(
+        `select request_hash, response_json from _idempotency where key = ?`,
+        key,
+      )
+      .toArray()[0];
+    if (!row) return null;
+    if (row.request_hash !== hash)
+      throw new ObjectError("conflict", "This Idempotency-Key was already used for a different request", {
+        reason: "idempotency_key_reused",
+      });
+    return JSON.parse(row.response_json) as unknown;
+  }
+
+  async keepResult(userId: string, key: string, hash: string, result: unknown): Promise<void> {
+    this.own(userId);
+    this.sql.exec(
+      `insert or ignore into _idempotency (key, request_hash, response_json, created_at) values (?, ?, ?, ?)`,
+      key,
+      hash,
+      JSON.stringify(result),
+      nowIso(),
+    );
+  }
+
   async release(userId: string, key: string, done: boolean) {
     this.own(userId);
     if (done) this.sql.exec(`update requests set status = 'done' where key = ?`, key);

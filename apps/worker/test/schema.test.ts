@@ -22,6 +22,7 @@ describe("migrations", () => {
         "admins",
         "alert_state",
         "app_settings",
+        "assistant_access",
         "dead_letters",
         "jwks",
         "oauthAccessToken",

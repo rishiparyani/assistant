@@ -634,6 +634,8 @@ export interface ChatView {
   setup_in_progress: boolean;
   /** Whether the smart model can be used now (prepaid credit set up and budget left). */
   smart_available: boolean;
+  /** Whether this person may ask the assistant (owners always; others when switched on). */
+  assistant_on: boolean;
 }
 
 /** One of the person's chats, for the side menu. */
@@ -920,6 +922,12 @@ export const QuestionRef = SpaceRef.extend({ question_id: z.string().trim().min(
 export const AnswerQuestionInput = z.object({
   share_id: z.string().trim().min(1).max(40),
   answer: z.string().trim().min(1).max(300).describe("One of the choices, or a short answer"),
+});
+
+/** Switch the assistant on or off for someone I know (owners and admins). */
+export const AssistantAccessInput = z.object({
+  user_id: z.string().trim().min(1).max(60),
+  on: z.boolean(),
 });
 
 /** Someone I know: they joined one of my shares or are in one of my spaces. */

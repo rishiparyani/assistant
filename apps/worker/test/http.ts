@@ -1,5 +1,5 @@
 // Test helpers: talk to the Worker over HTTP like the web app does. Fake data only.
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 
 const BASE = "http://localhost:8787";
 const worker = () => (exports as unknown as { default: Fetcher }).default;
@@ -41,8 +41,15 @@ export async function json<T = any>(res: Response): Promise<T> {
 }
 
 let n = 0;
-/** Signs up a new user (email/password works on localhost only) and returns its cookie. */
-export async function signUp(name = "Test User", email = `test-${Date.now()}-${++n}@example.com`) {
+/**
+ * Signs up a new user (email/password works on localhost only) and returns its cookie. Test
+ * users get the assistant switched on (owners would) unless `assistant: false`.
+ */
+export async function signUp(
+  name = "Test User",
+  email = `test-${Date.now()}-${++n}@example.com`,
+  opts: { assistant?: boolean } = {},
+) {
   const res = await call("/auth/sign-up/email", { body: { name, email, password: "test-password-123" } });
   if (res.status !== 200) throw new Error(`sign-up failed: ${res.status} ${await res.text()}`);
   const cookie = res.headers
@@ -50,5 +57,11 @@ export async function signUp(name = "Test User", email = `test-${Date.now()}-${+
     .map((c) => c.split(";")[0])
     .join("; ");
   const { user } = await json<{ user: { id: string } }>(res);
+  if (opts.assistant !== false)
+    await (env as unknown as { DB: D1Database }).DB.prepare(
+      `insert or ignore into assistant_access (user_id) values (?)`,
+    )
+      .bind(user.id)
+      .run();
   return { cookie, email, id: user.id, name };
 }

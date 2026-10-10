@@ -33,6 +33,8 @@
   let list = $state<HTMLElement | null>(null);
 
   const items = $derived<ChatItem[]>(chat.data?.items ?? []);
+  // Collaborators have no assistant unless the owner switches it on (step 4); + still works.
+  const assistantOff = $derived(chat.data?.assistant_on === false);
 
   // "+": add to any list by tapping, without the assistant (and offline).
   const collections = createQuery<CollectionView[]>(() => COLLECTIONS_KEY, spacesApi.collections);
@@ -200,7 +202,13 @@
 </div>
 
 <div class="dock">
-  <div class="suggest" aria-label="Try one">
+  {#if assistantOff}
+    <p class="off">
+      The assistant isn't on for you. Add to your lists with +, and find what people share with you in the
+      menu.
+    </p>
+  {/if}
+  <div class="suggest" aria-label="Try one" hidden={assistantOff}>
     {#each SUGGESTIONS as s (s)}
       <button type="button" class="suggestion" onclick={() => send(s)}>{s}</button>
     {/each}
@@ -234,7 +242,12 @@
         onkeydown={onKey}
         rows="1"
         maxlength="2000"
-        placeholder={connection.online ? "Message Gigspree" : "Offline: the assistant needs a connection"}
+        disabled={assistantOff}
+        placeholder={assistantOff
+          ? "The assistant is off for you"
+          : connection.online
+            ? "Message Gigspree"
+            : "Offline: the assistant needs a connection"}
         aria-label="Message the assistant"></textarea>
       <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending}>
         <ArrowUp size={20} />
@@ -256,6 +269,18 @@
 {/if}
 
 <style>
+  .suggest[hidden] {
+    display: none;
+  }
+  .off {
+    margin: 0 0 var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    font-size: var(--text-sm);
+  }
   .chat {
     max-width: var(--content-max);
     padding-bottom: 190px;
