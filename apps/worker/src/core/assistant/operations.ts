@@ -7,6 +7,7 @@ import {
   ChatActionRef,
   ChatRef,
   ShowInChatInput,
+  AssistantAccessInput,
   ChatSendInput,
   ChatSendTo,
   MemoryRef,
@@ -14,6 +15,7 @@ import {
   RememberInput,
 } from "@assistant/shared";
 import { defineOperation, type AnyOperation } from "../operations.ts";
+import { assistantPeople, setAssistantAccess } from "./access.ts";
 import {
   cancelAction,
   chatView,
@@ -142,6 +144,27 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       http: { method: "POST", path: "/chats/:chat_id/actions/:action_id/cancel" },
       input: ChatActionIn,
       handler: (ctx, i) => cancelAction(ctx, i.action_id, i.chat_id),
+    }),
+    // Who else may use the assistant (owners and admins switch it per person; it costs them).
+    defineOperation({
+      id: "core.assistant_people",
+      tool: "assistant_people",
+      description: "People I know, with whether the assistant is on for them (owners only).",
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/assistant/people" },
+      input: z.object({}),
+      handler: (ctx) => assistantPeople(ctx),
+    }),
+    defineOperation({
+      id: "core.assistant_access",
+      tool: "set_assistant_access",
+      description: "Switch the assistant on or off for someone I know (owners only).",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "PUT", path: "/assistant/people/:user_id" },
+      input: AssistantAccessInput,
+      handler: (ctx, i) => setAssistantAccess(ctx, i.user_id, i.on),
     }),
     defineOperation({
       id: "core.chat_show",

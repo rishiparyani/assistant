@@ -26,6 +26,18 @@ export const admins = sqliteTable("admins", {
   createdAt: timestamp("created_at"),
 });
 
+/**
+ * People an owner switched the in-app assistant on for (chat-first step 4; it costs the
+ * owner). Owners and admins always have it. Written rarely.
+ */
+export const assistantAccess = sqliteTable("assistant_access", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  grantedBy: text("granted_by").references(() => user.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at"),
+});
+
 /** What admins did in the admin panel. */
 export const adminAudit = sqliteTable(
   "admin_audit",

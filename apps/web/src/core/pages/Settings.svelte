@@ -18,6 +18,7 @@
   import Notifications from "./Notifications.svelte";
   import ApiTokens from "./ApiTokens.svelte";
   import AiAssistants from "./AiAssistants.svelte";
+  import AssistantAccess from "../assistant/AssistantAccess.svelte";
 
   // Only admins see the admin panel link.
   let isAdmin = $state(false);
@@ -159,6 +160,7 @@
   </ListGroup>
 
   {#if isAdmin}
+    <AssistantAccess />
     <ListGroup>
       <ListRow title="Admin panel" subtitle="Health, usage and repair tools" href="/admin">
         {#snippet leading()}<span class="admin-icon"><Gauge size={20} /></span>{/snippet}
