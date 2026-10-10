@@ -271,6 +271,27 @@ export interface RecordInput {
 }
 
 /** Checks form values with the shared rules; throws a ValueError with the field's name. */
+const IST = 330 * 60_000;
+/** A stored value as a form shows it (ValueField). */
+export function formValue(type: string, v: StoredValue | undefined): unknown {
+  if (v === null || v === undefined) return type === "multi_choice" ? [] : "";
+  if (type === "money") return String((v as number) / 100);
+  if (type === "datetime") return new Date(Date.parse(v as string) + IST).toISOString().slice(0, 16);
+  if (type === "boolean") return v ? "yes" : "no";
+  if (type === "person") return (v as { name: string }).name;
+  if (type === "multi_choice") return [...(v as string[])];
+  return String(v);
+}
+
+/** Values to send: money in rupees as text, so the server doesn't read it as paise. */
+export const sendValues = (fields: Pick<FieldView, "id" | "type">[], values: Record<string, StoredValue>) =>
+  Object.fromEntries(
+    Object.entries(values).map(([k, v]) => [
+      k,
+      typeof v === "number" && fields.find((f) => f.id === k)?.type === "money" ? String(v / 100) : v,
+    ]),
+  );
+
 export function readForm(fields: FieldView[], raw: Record<string, unknown>): Record<string, StoredValue> {
   const out: Record<string, StoredValue> = {};
   for (const f of fields) if (f.type !== "link" && f.id in raw) out[f.id] = normalizeValue(f, raw[f.id]);

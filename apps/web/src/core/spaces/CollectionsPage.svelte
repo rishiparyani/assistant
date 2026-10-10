@@ -3,6 +3,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import CircleHelp from "@lucide/svelte/icons/circle-help";
   import Layers from "@lucide/svelte/icons/layers";
+  import Inbox from "@lucide/svelte/icons/inbox";
   import { Button, EmptyState, ListGroup, ListRow, PageHeader, Skeleton, toast } from "../ui/index.ts";
   import { createQuery } from "../query.svelte.ts";
   import { navigate } from "../router.svelte.ts";
@@ -29,6 +30,9 @@
   subtitle="Your notes, reminders, expenses and anything else you keep track of."
 >
   {#snippet actions()}
+    <Button variant="ghost" href="/shared" aria-label="Shared with me">
+      {#snippet icon()}<Inbox />{/snippet}
+    </Button>
     <Button variant="ghost" href="/help" aria-label="Help">
       {#snippet icon()}<CircleHelp />{/snippet}
     </Button>

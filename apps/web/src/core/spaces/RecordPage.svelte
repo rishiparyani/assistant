@@ -2,6 +2,7 @@
   import type { CollectionView, LinkedRef, RecordView } from "@assistant/shared";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash from "@lucide/svelte/icons/trash-2";
+  import Share2 from "@lucide/svelte/icons/share-2";
   import {
     Button,
     Card,
@@ -27,6 +28,7 @@
   } from "./spaces-api.ts";
   import RecordSheet from "./RecordSheet.svelte";
   import LinkedSection from "./LinkedSection.svelte";
+  import ShareSheet from "./ShareSheet.svelte";
 
   // One record: its values, what it links to, and what links to it (each with + Add).
   let { collectionId, recordId }: { collectionId: string; recordId: string } = $props();
@@ -46,6 +48,7 @@
   const gone = $derived(!!(record as (RecordView & { deleted?: boolean }) | undefined)?.deleted);
 
   let editing = $state(false);
+  let sharing = $state(false);
   // Adding a record in another collection that links back to this one.
   let addTo = $state<{ collection: CollectionView; links: Record<string, LinkedRef[]> } | null>(null);
   let addOpen = $state(false);
@@ -106,6 +109,9 @@
       <Button variant="ghost" onclick={remove} aria-label="Delete">
         {#snippet icon()}<Trash />{/snippet}
       </Button>
+      <Button variant="ghost" onclick={() => (sharing = true)} aria-label="Share">
+        {#snippet icon()}<Share2 />{/snippet}
+      </Button>
       <Button variant="primary" onclick={() => (editing = true)}>
         {#snippet icon()}<Pencil />{/snippet}
         Edit
@@ -162,6 +168,7 @@
   </div>
 
   <RecordSheet bind:open={editing} {collection} {record} onsaved={() => void rec.refresh()} />
+  <ShareSheet bind:open={sharing} {collection} {record} />
   {#if addTo}
     <RecordSheet bind:open={addOpen} collection={addTo.collection} links={addTo.links} />
   {/if}

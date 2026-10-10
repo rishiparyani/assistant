@@ -10,7 +10,7 @@
   import { Button, Sheet, toast } from "../ui/index.ts";
   import { connection } from "../offline.svelte.ts";
   import ValueField from "./ValueField.svelte";
-  import { addRecord, readForm, updateRecord } from "./spaces-api.ts";
+  import { addRecord, formValue, readForm, updateRecord } from "./spaces-api.ts";
 
   // Add a record to a collection, or edit one: a form made from the collection's fields.
   // Works offline: the change waits in the outbox and syncs later.
@@ -34,18 +34,6 @@
   let errors = $state<Record<string, string>>({});
   let busy = $state(false);
 
-  const IST = 330 * 60_000;
-  /** A stored value as the form shows it. */
-  function toForm(type: string, v: StoredValue | undefined): unknown {
-    if (v === null || v === undefined) return type === "multi_choice" ? [] : "";
-    if (type === "money") return String((v as number) / 100);
-    if (type === "datetime") return new Date(Date.parse(v as string) + IST).toISOString().slice(0, 16);
-    if (type === "boolean") return v ? "yes" : "no";
-    if (type === "person") return (v as { name: string }).name;
-    if (type === "multi_choice") return [...(v as string[])];
-    return String(v);
-  }
-
   $effect(() => {
     if (!open) return;
     untrack(() => {
@@ -54,7 +42,7 @@
         next[f.id] =
           f.type === "link"
             ? [...(record?.links[f.id] ?? prefill[f.id] ?? [])]
-            : toForm(f.type, record?.values[f.id]);
+            : formValue(f.type, record?.values[f.id]);
       form = next;
       errors = {};
     });

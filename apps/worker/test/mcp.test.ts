@@ -288,4 +288,34 @@ describe("MCP", () => {
     });
     expect(setup.structuredContent.needs_confirmation).toBe(true);
   });
+
+  it("asks to confirm money changes on cards shared with me", async () => {
+    const owner = await signUp("Test Owner");
+    const exp = await json<{ id: string }>(
+      await call("/api/collections/Expenses/records", {
+        cookie: owner.cookie,
+        body: { values: { What: "Test strings", Amount: "600" } },
+      }),
+    );
+    const made = await json<{ share: { id: string }; link: string }>(
+      await call("/api/shares", {
+        cookie: owner.cookie,
+        body: { record_id: exp.id, access: "edit", hide_fields: [] },
+      }),
+    );
+    const friend = await signUp("Test Friend");
+    await call("/api/cards/join", {
+      cookie: friend.cookie,
+      body: { token: made.link.slice(made.link.indexOf("#") + 1) },
+    });
+    const token = await connect(friend);
+    const base = { share_id: made.share.id, record_id: exp.id };
+    const words = await tool(token, "update_shared_record", {
+      ...base,
+      values: { What: "Test new strings" },
+    });
+    expect(words.structuredContent.needs_confirmation).toBeUndefined();
+    const money = await tool(token, "update_shared_record", { ...base, values: { Amount: "900" } });
+    expect(money.structuredContent.needs_confirmation).toBe(true);
+  });
 });

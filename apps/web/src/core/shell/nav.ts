@@ -2,7 +2,17 @@
 export interface NavItem {
   href: string;
   label: string;
-  icon: "home" | "chat" | "gigs" | "collections" | "songs" | "people" | "band" | "reports" | "settings";
+  icon:
+    | "home"
+    | "chat"
+    | "gigs"
+    | "collections"
+    | "shared"
+    | "songs"
+    | "people"
+    | "band"
+    | "reports"
+    | "settings";
   exact?: boolean;
   /** Left out of the phone's tab bar (Settings is under the avatar there). */
   phone?: false;
@@ -14,6 +24,8 @@ export const MAIN_NAV: NavItem[] = [
   { href: "/overview", label: "Overview", icon: "home", phone: false },
   { href: "/gigs", label: "Gigs", icon: "gigs" },
   { href: "/c", label: "Collections", icon: "collections" },
+  // Cards others shared with me; on phones it's on the Collections page.
+  { href: "/shared", label: "Shared", icon: "shared", phone: false },
   { href: "/songs", label: "Songs", icon: "songs" },
   // On phones, Reports is in Settings (the tab bar keeps five).
   { href: "/reports", label: "Reports", icon: "reports", phone: false },
