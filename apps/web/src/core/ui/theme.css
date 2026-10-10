@@ -73,10 +73,25 @@
   --shadow-lg: 0 10px 40px rgb(20 20 40 / 0.18);
   --focus: 0 0 0 3px rgb(79 70 229 / 0.35);
 
+  /* Kinds of card (design: chat-first.md §3): each kind has its own colour, so lists, money,
+     people, workflows and forms are told apart at a glance. */
+  --kind-note: var(--amber);
+  --kind-note-soft: var(--amber-soft);
+  --kind-money: var(--green);
+  --kind-money-soft: var(--green-soft);
+  --kind-people: var(--accent-text);
+  --kind-people-soft: var(--accent-soft);
+  --kind-flow: var(--violet);
+  --kind-flow-soft: var(--violet-soft);
+  --kind-form: var(--red);
+  --kind-form-soft: var(--red-soft);
+  /* The assistant's mark. */
+  --mark-gradient: conic-gradient(from 200deg, #6366f1, #a855f7, #ec4899, #f59e0b, #6366f1);
+  --shadow-card: 0 1px 2px rgb(20 20 40 / 0.06), 0 8px 24px rgb(20 20 40 / 0.07);
+
   /* Layout */
-  --tabbar-h: 58px;
-  --topbar-h: 52px;
-  --sidebar-w: 264px;
+  --topbar-h: 60px;
+  --sidebar-w: 280px;
   --content-max: 760px;
   --content-wide: 1120px;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -135,6 +150,7 @@
     --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow: 0 1px 3px rgb(0 0 0 / 0.4), 0 6px 16px rgb(0 0 0 / 0.3);
     --shadow-lg: 0 10px 40px rgb(0 0 0 / 0.6);
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.35);
   }
 }
 

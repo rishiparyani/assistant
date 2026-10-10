@@ -2,19 +2,17 @@
   import type { ChatItem, ChatView } from "@assistant/shared";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Sparkles from "@lucide/svelte/icons/sparkles";
-  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-  import CircleHelp from "@lucide/svelte/icons/circle-help";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
-  import { Button, PageHeader, Pill, calm, confirm, toast } from "../ui/index.ts";
+  import { AssistantMark, Button, Pill, calm, toast } from "../ui/index.ts";
   import { createQuery, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
   import { router } from "../router.svelte.ts";
-  import PinnedBar from "../spaces/PinnedBar.svelte";
   import { CHAT_KEY, chatApi, SUGGESTIONS } from "./chat-api.ts";
 
-  // Home: the chat with the assistant (design §10). Pinned views are one tap away above it;
-  // everything the assistant does can also be done by tapping in Collections.
+  // The app's home: the chat with the assistant (docs/design/chat-first.md). Pinned views are
+  // in the side menu.
   const chat = createQuery<ChatView>(() => CHAT_KEY, chatApi.get);
   let text = $state(router.route.query.get("ask") ?? "");
   let thinkHarder = $state(false);
@@ -73,20 +71,6 @@
     }
   }
 
-  async function clear() {
-    const ok = await confirm({
-      title: "Start a new chat?",
-      message: "The messages go; everything saved in your collections stays.",
-      confirmLabel: "New chat",
-    });
-    if (!ok) return;
-    try {
-      chat.set(await chatApi.clear());
-    } catch (e) {
-      toast.error(e);
-    }
-  }
-
   function onKey(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
@@ -95,31 +79,12 @@
   }
 </script>
 
-<PageHeader title="Gigspree">
-  {#snippet actions()}
-    <Button variant="ghost" href="/help" aria-label="Help">
-      {#snippet icon()}<CircleHelp />{/snippet}
-    </Button>
-    {#if items.length}
-      <Button variant="ghost" onclick={clear} aria-label="New chat">
-        {#snippet icon()}<RotateCcw />{/snippet}
-      </Button>
-    {/if}
-  {/snippet}
-</PageHeader>
-
-<PinnedBar />
-
 <div class="chat">
   {#if !items.length && !sending}
     <div class="empty">
+      <AssistantMark size={56} />
       <p class="hello">What would you like to do?</p>
-      <p class="sub">Ask in English or Hinglish. Try one:</p>
-      <div class="suggestions">
-        {#each SUGGESTIONS as s (s)}
-          <button type="button" class="suggestion" onclick={() => send(s)}>{s}</button>
-        {/each}
-      </div>
+      <p class="sub">Notes, money, reminders, plans with people. Ask in English or Hinglish.</p>
     </div>
   {/if}
 
@@ -129,7 +94,10 @@
         <li class="msg mine" in:fly={calm(fromMe)}>{m.text}</li>
       {:else if m.role === "card" && m.card}
         <li class="card" class:closed={m.card.status !== "waiting"} in:fly={calm(fromThem)}>
-          <div class="card-title">{m.card.title}</div>
+          <div class="card-head">
+            <span class="kind"><ShieldCheck size={17} /></span>
+            <span class="card-title">{m.card.title}</span>
+          </div>
           {#if m.card.details.length}
             <ul class="details">
               {#each m.card.details as d, i (i)}<li>{d}</li>{/each}
@@ -174,120 +142,89 @@
   </ol>
 </div>
 
-<form
-  class="composer"
-  onsubmit={(e) => {
-    e.preventDefault();
-    void send();
-  }}
->
-  {#if chat.data?.setup_in_progress}
-    <p class="mode"><Sparkles size={14} /> Setting something up with the smart model</p>
-  {:else if chat.data?.smart_available}
-    <label class="think">
-      <input type="checkbox" bind:checked={thinkHarder} />
-      <Sparkles size={14} /> Think harder
-    </label>
-  {/if}
-  <div class="box">
-    <textarea
-      bind:value={text}
-      onkeydown={onKey}
-      rows="1"
-      maxlength="2000"
-      placeholder={connection.online ? "Message Gigspree" : "Offline: the assistant needs a connection"}
-      aria-label="Message the assistant"></textarea>
-    <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending}>
-      <ArrowUp size={20} />
-    </button>
+<div class="dock">
+  <div class="suggest" aria-label="Try one">
+    {#each SUGGESTIONS as s (s)}
+      <button type="button" class="suggestion" onclick={() => send(s)}>{s}</button>
+    {/each}
   </div>
-</form>
+  <form
+    class="composer"
+    onsubmit={(e) => {
+      e.preventDefault();
+      void send();
+    }}
+  >
+    {#if chat.data?.setup_in_progress}
+      <p class="mode"><Sparkles size={14} /> Setting something up with the smart model</p>
+    {:else if chat.data?.smart_available}
+      <label class="think">
+        <input type="checkbox" bind:checked={thinkHarder} />
+        <Sparkles size={14} /> Think harder
+      </label>
+    {/if}
+    <div class="box">
+      <textarea
+        bind:value={text}
+        onkeydown={onKey}
+        rows="1"
+        maxlength="2000"
+        placeholder={connection.online ? "Message Gigspree" : "Offline: the assistant needs a connection"}
+        aria-label="Message the assistant"></textarea>
+      <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending}>
+        <ArrowUp size={20} />
+      </button>
+    </div>
+  </form>
+</div>
 
 <style>
   .chat {
     max-width: var(--content-max);
-    padding-bottom: 140px;
+    padding-bottom: 190px;
   }
   .empty {
-    padding: var(--space-6) 0;
+    display: grid;
+    justify-items: center;
+    gap: var(--space-2);
+    padding: var(--space-10) 0 var(--space-6);
+    text-align: center;
+  }
+  .empty :global(.mark) {
+    animation: pop-in var(--dur-slow) var(--ease-spring) backwards;
+    margin-bottom: var(--space-2);
   }
   .hello {
     margin: 0;
-    font-size: var(--text-lg);
-    font-weight: 650;
-  }
-  .sub {
-    margin: var(--space-1) 0 var(--space-4);
-    color: var(--text-2);
-  }
-  .suggestions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-  .suggestion {
-    min-height: 44px;
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-full);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: var(--text-base);
-    text-align: left;
-    cursor: pointer;
-  }
-  .suggestion {
-    animation: pop-in var(--dur) var(--ease-spring) backwards;
-    transition:
-      background var(--dur-fast),
-      transform var(--dur) var(--ease-spring);
-  }
-  .suggestion:nth-child(2) {
-    animation-delay: 50ms;
-  }
-  .suggestion:nth-child(3) {
-    animation-delay: 100ms;
-  }
-  .suggestion:nth-child(n + 4) {
-    animation-delay: 150ms;
-  }
-  .suggestion:hover {
-    background: var(--surface-hover);
-    transform: translateY(-2px);
-  }
-  .suggestion:active {
-    transform: scale(0.97);
-  }
-  .hello,
-  .sub {
+    font-size: var(--text-xl);
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
     animation: rise-in var(--dur) var(--ease) backwards;
+    animation-delay: 60ms;
   }
-  .card:not(.closed) {
-    animation: glow 2.4s ease-in-out infinite;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .card:not(.closed) {
-      animation: none;
-    }
-  }
-  @keyframes glow {
-    50% {
-      box-shadow: 0 0 0 4px var(--accent-soft);
-    }
+  .sub {
+    margin: 0;
+    max-width: 34ch;
+    color: var(--text-2);
+    animation: rise-in var(--dur) var(--ease) backwards;
+    animation-delay: 110ms;
   }
   .messages {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: var(--space-2) 0 0;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
   }
+  .messages > li {
+    flex-shrink: 0;
+  }
   .msg {
-    max-width: 85%;
-    padding: var(--space-3) var(--space-4);
-    border-radius: var(--radius-xl);
+    max-width: 84%;
+    padding: 10px 14px;
+    border-radius: 20px;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
     line-height: 1.45;
@@ -296,37 +233,53 @@
     align-self: flex-end;
     background: var(--accent);
     color: var(--text-on-accent);
-    border-bottom-right-radius: var(--radius-sm);
+    border-bottom-right-radius: 6px;
   }
   .theirs {
     align-self: flex-start;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-bottom-left-radius: var(--radius-sm);
+    border-bottom-left-radius: 6px;
   }
   .note {
     align-self: center;
     color: var(--text-3);
     font-size: var(--text-sm);
+    font-weight: 600;
     text-align: center;
   }
+  /* A card the assistant wants confirmed (money, deletes, new setups). */
   .card {
-    align-self: flex-start;
-    width: min(100%, 420px);
-    padding: var(--space-4);
-    border-radius: var(--radius-lg);
+    align-self: stretch;
+    padding: var(--space-3) var(--space-4) var(--space-4);
+    border-radius: 20px;
     background: var(--surface);
-    border: 1px solid var(--accent);
-    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
     display: grid;
     gap: var(--space-3);
   }
   .card.closed {
-    border-color: var(--border);
     box-shadow: none;
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .kind {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: var(--kind-flow-soft);
+    color: var(--kind-flow);
   }
   .card-title {
     font-weight: 650;
+    letter-spacing: -0.01em;
   }
   .details {
     margin: 0;
@@ -338,6 +291,21 @@
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
+  }
+  .card:not(.closed) {
+    animation: glow 2.4s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card:not(.closed) {
+      animation: none;
+    }
+  }
+  @keyframes glow {
+    50% {
+      box-shadow:
+        var(--shadow-card),
+        0 0 0 4px var(--kind-flow-soft);
+    }
   }
   .typing {
     display: flex;
@@ -372,41 +340,85 @@
       animation: none;
     }
   }
-  .composer {
+
+  /* Suggestions and the message box, fixed at the bottom. */
+  .dock {
     position: fixed;
     left: 0;
     right: 0;
-    bottom: calc(var(--tabbar-h) + var(--safe-bottom));
-    padding: var(--space-2) var(--space-4) var(--space-3);
-    background: linear-gradient(to top, var(--bg) 70%, transparent);
+    bottom: 0;
     z-index: 5;
+    padding: var(--space-6) 0 calc(var(--safe-bottom) + var(--space-3));
+    background: linear-gradient(to top, var(--bg) 72%, transparent);
   }
-  @media (min-width: 768px) {
-    .composer {
+  @media (min-width: 900px) {
+    .dock {
       left: var(--sidebar-w);
-      bottom: 0;
-      padding-bottom: var(--space-5);
     }
   }
-  .box {
+  .suggest,
+  .composer {
     max-width: var(--content-max);
+    margin: 0 auto;
+  }
+  .suggest {
+    display: flex;
+    gap: var(--space-2);
+    overflow-x: auto;
+    padding: 0 var(--space-4) var(--space-2);
+    scrollbar-width: none;
+  }
+  .suggest::-webkit-scrollbar {
+    display: none;
+  }
+  .suggestion {
+    flex: none;
+    min-height: 40px;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    cursor: pointer;
+    animation: pop-in var(--dur) var(--ease-spring) backwards;
+    transition:
+      background var(--dur-fast),
+      transform var(--dur) var(--ease-spring);
+  }
+  .suggestion:nth-child(2) {
+    animation-delay: 50ms;
+  }
+  .suggestion:nth-child(3) {
+    animation-delay: 100ms;
+  }
+  .suggestion:nth-child(n + 4) {
+    animation-delay: 150ms;
+  }
+  .suggestion:hover {
+    background: var(--surface-hover);
+  }
+  .suggestion:active {
+    transform: scale(0.96);
+  }
+  .composer {
+    padding: 0 var(--space-3);
+  }
+  .box {
     display: flex;
     align-items: flex-end;
     gap: var(--space-2);
-    padding: var(--space-2);
-    border-radius: var(--radius-xl);
+    padding: 6px;
+    border-radius: 26px;
     background: var(--surface);
-    border: 1px solid var(--border-strong);
-    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-card);
+    transition: border-color var(--dur-fast);
   }
   .box:focus-within {
     border-color: var(--accent);
-    box-shadow: var(--focus);
-  }
-  textarea:focus,
-  textarea:focus-visible {
-    outline: none;
-    box-shadow: none;
   }
   textarea {
     flex: 1;
@@ -418,25 +430,27 @@
     color: var(--text);
     font: inherit;
     font-size: 16px;
-    line-height: 1.4;
-    padding: 10px var(--space-2);
+    line-height: 1.35;
+    padding: 9px 4px 9px 12px;
     max-height: 160px;
     field-sizing: content;
+  }
+  textarea:focus,
+  textarea:focus-visible {
+    outline: none;
+    box-shadow: none;
   }
   .send {
     flex: none;
     width: 44px;
     height: 44px;
-    border-radius: var(--radius-full);
+    border-radius: 50%;
     border: 0;
     background: var(--accent);
     color: var(--text-on-accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: grid;
+    place-items: center;
     cursor: pointer;
-  }
-  .send {
     transition:
       opacity var(--dur-fast),
       transform var(--dur) var(--ease-spring);
@@ -449,7 +463,7 @@
     transition-duration: 0.08s;
   }
   .send:disabled {
-    opacity: 0.4;
+    opacity: 0.35;
     cursor: default;
     transform: scale(0.92);
   }

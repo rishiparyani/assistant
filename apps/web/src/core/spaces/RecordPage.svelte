@@ -82,7 +82,7 @@
     try {
       await deleteRecord(collection, record);
       toast.success("Deleted");
-      navigate(`/c/${collection.id}`, { replace: true });
+      navigate("/", { replace: true });
     } catch (e) {
       toast.error(e);
     }
@@ -99,11 +99,7 @@
 </script>
 
 {#if !collection || !record || gone}
-  <PageHeader
-    title={collection?.name ?? "Record"}
-    back="/c/{collectionId}"
-    backLabel={collection?.name ?? "Back"}
-  />
+  <PageHeader title={collection?.name ?? "Record"} back="/" backLabel="Chat" />
   {#if gone}
     <EmptyState title="Deleted" text="It's gone once the change syncs." />
   {:else if rec.error}
@@ -112,7 +108,7 @@
     <Skeleton rows={5} label="Loading" />
   {/if}
 {:else}
-  <PageHeader title={record.title} back="/c/{collection.id}" backLabel={collection.name}>
+  <PageHeader title={record.title} back="/" backLabel="Chat" subtitle={collection.name}>
     {#snippet actions()}
       <Button variant="ghost" onclick={remove} aria-label="Delete">
         {#snippet icon()}<Trash />{/snippet}

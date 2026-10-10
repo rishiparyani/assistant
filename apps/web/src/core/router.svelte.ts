@@ -7,20 +7,11 @@ export interface Route {
 
 const PATTERNS: [string, RegExp][] = [
   ["root", /^\/$/],
-  ["overview", /^\/overview$/],
   ["login", /^\/login$/],
   ["consent", /^\/consent$/],
   ["settings", /^\/settings$/],
   ["admin", /^\/admin$/],
-  ["my_gigs", /^\/gigs$/],
-  ["booking", /^\/gigs\/(?<gigId>[^/]+)$/],
-  ["gig_history", /^\/gigs\/(?<gigId>[^/]+)\/history$/],
-  ["gig_together", /^\/gigs\/(?<gigId>[^/]+)\/(?<section>guests|lists|notes)$/],
-  ["reports", /^\/reports$/],
-  ["contacts", /^\/contacts$/],
-  ["collections", /^\/c$/],
-  ["collection_setup", /^\/c\/(?<collectionId>[^/]+)\/setup$/],
-  ["collection", /^\/c\/(?<collectionId>[^/]+)$/],
+  // A card (record) opened full screen, from a pinned view or a link.
   ["record", /^\/c\/(?<collectionId>[^/]+)\/(?<recordId>[^/]+)$/],
   ["help", /^\/help$/],
   // A saved view by name (Siri's "Show a Gigspree view").
@@ -31,10 +22,6 @@ const PATTERNS: [string, RegExp][] = [
   ["public_share", /^\/s$/],
   ["shared", /^\/shared$/],
   ["shared_card", /^\/shared\/(?<shareId>[^/]+)$/],
-  ["songs", /^\/songs$/],
-  ["song", /^\/songs\/(?<songId>[^/]+)$/],
-  // A gig's guest list shared with its venue (no sign-in; the link is the key).
-  ["guest_link", /^\/guests\/(?<token>[A-Za-z0-9_-]+)$/],
 ];
 
 function match(location: Location): Route {

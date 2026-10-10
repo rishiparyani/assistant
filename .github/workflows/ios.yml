@@ -106,7 +106,6 @@ jobs:
           set -e
           APP="$RUNNER_TEMP/dd/Build/Products/Debug-iphonesimulator/App.app"
           COOKIE="$(sed -n 's/^cookie=//p' "$RUNNER_TEMP/seed.txt")"
-          GIG="$(sed -n 's/^gig=//p' "$RUNNER_TEMP/seed.txt")"
           OUT="$RUNNER_TEMP/screens"; mkdir -p "$OUT"
           shoot() { # device label path name [signed-in]
             xcrun simctl terminate "$1" in.gigspree.assistant 2>/dev/null || true
@@ -130,13 +129,11 @@ jobs:
               xcrun simctl ui "$dev" appearance "$mode"
               # Signed out first (the session cookie stays in the app after the next launch).
               [ "$mode" = light ] && shoot "$dev" "$label-$mode" "/login" "0-login" out
-              shoot "$dev" "$label-$mode" "/" "1-home"
-              shoot "$dev" "$label-$mode" "/gigs/$GIG" "3-gig"
+              shoot "$dev" "$label-$mode" "/" "1-chat"
               [ "$label" = small ] && continue
-              shoot "$dev" "$label-$mode" "/gigs" "2-gigs"
-              shoot "$dev" "$label-$mode" "/gigs/$GIG/lists" "4-lists"
-              shoot "$dev" "$label-$mode" "/gigs/$GIG/guests" "5-guests"
-              shoot "$dev" "$label-$mode" "/settings" "6-settings"
+              shoot "$dev" "$label-$mode" "/help" "2-help"
+              shoot "$dev" "$label-$mode" "/shared" "3-shared"
+              shoot "$dev" "$label-$mode" "/settings" "4-settings"
             done
             xcrun simctl shutdown "$dev"
           done

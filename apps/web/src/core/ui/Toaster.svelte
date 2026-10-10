@@ -31,15 +31,16 @@
     z-index: 100;
     left: 50%;
     transform: translateX(-50%);
-    bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-3));
+    /* Above the chat's message box. */
+    bottom: calc(var(--safe-bottom) + 96px);
     display: grid;
     gap: var(--space-2);
     width: min(440px, calc(100vw - 32px));
     pointer-events: none;
   }
-  @media (min-width: 768px) {
+  @media (min-width: 900px) {
     .toaster {
-      bottom: var(--space-6);
+      left: calc(50% + var(--sidebar-w) / 2);
     }
   }
   .toast {

@@ -1,6 +1,8 @@
-// The chat with the in-app assistant (docs/design/universal.md §10). No logic here.
+// The chat with the in-app assistant (docs/design/chat-first.md). No logic here.
 import type { ChatView } from "@assistant/shared";
 import { request } from "../api.ts";
+import { publish } from "../query.svelte.ts";
+import { confirm, toast } from "../ui/index.ts";
 
 const enc = encodeURIComponent;
 
@@ -26,3 +28,18 @@ export const SUGGESTIONS = [
   "What did I spend this month?",
   "Kal shaam 7 baje rehearsal add karo",
 ];
+
+/** "New chat" (top bar): the messages go, everything saved stays. */
+export async function startNewChat(): Promise<void> {
+  const ok = await confirm({
+    title: "Start a new chat?",
+    message: "The messages go; everything saved stays.",
+    confirmLabel: "New chat",
+  });
+  if (!ok) return;
+  try {
+    publish(CHAT_KEY, await chatApi.clear());
+  } catch (e) {
+    toast.error(e);
+  }
+}

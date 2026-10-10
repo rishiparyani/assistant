@@ -4,14 +4,9 @@
   import { setLive } from "./live.ts";
   import { saveAheadWith, startOffline } from "./offline.svelte.ts";
   import { startSync } from "./outbox.svelte.ts";
-  import { saveGigsAhead } from "../modules/gigs/offline.ts";
-  import { saveSongsAhead } from "../modules/music/music-api.ts";
   import { saveSpacesAhead } from "./spaces/spaces-api.ts";
   import { saveSharedAhead } from "./spaces/shares-api.ts";
-  import CollectionsPage from "./spaces/CollectionsPage.svelte";
-  import CollectionPage from "./spaces/CollectionPage.svelte";
   import RecordPage from "./spaces/RecordPage.svelte";
-  import SetupPage from "./spaces/SetupPage.svelte";
   import HelpPage from "./spaces/HelpPage.svelte";
   import JoinPage from "./spaces/JoinPage.svelte";
   import OpenViewPage from "./spaces/OpenViewPage.svelte";
@@ -19,35 +14,22 @@
   import SharedCardPage from "./spaces/SharedCardPage.svelte";
   import PublicSharePage from "./spaces/PublicSharePage.svelte";
   import ChatPage from "./assistant/ChatPage.svelte";
-  import SongsPage from "../modules/music/SongsPage.svelte";
-  import SongPage from "../modules/music/SongPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
   import Consent from "./pages/Consent.svelte";
-  import Home from "../modules/gigs/booking/Home.svelte";
-  import MyGigs from "../modules/gigs/booking/MyGigs.svelte";
-  import GigPage from "../modules/gigs/booking/GigPage.svelte";
-  import GigTogether from "../modules/gigs/booking/GigTogether.svelte";
-  import GigHistory from "../modules/gigs/booking/GigHistory.svelte";
-  import Reports from "../modules/gigs/booking/Reports.svelte";
-  import Contacts from "../modules/gigs/booking/Contacts.svelte";
   import Settings from "./pages/Settings.svelte";
   import Admin from "./pages/Admin.svelte";
   import NotFound from "./pages/NotFound.svelte";
-  import SharedGuests from "../modules/gigs/booking/SharedGuests.svelte";
-  import GigTypesSettings from "../modules/gigs/booking/GigTypesSettings.svelte";
 
-  const PUBLIC = new Set(["login", "consent", "guest_link", "public_share"]);
+  const PUBLIC = new Set(["login", "consent", "public_share"]);
   // Opens at once with the user saved on this device; the server check runs alongside.
   void refreshSession();
 
   // Live updates while signed in.
   $effect(() => setLive(!!session.me));
 
-  // Offline first (docs/design/offline.md): save upcoming gigs and lists ahead.
-  saveAheadWith(saveGigsAhead);
-  saveAheadWith(saveSongsAhead);
+  // Offline first (docs/design/offline.md): save the space and shared cards ahead.
   saveAheadWith(saveSpacesAhead);
   saveAheadWith(saveSharedAhead);
   const signedIn = startOffline(() => !!session.me);
@@ -79,51 +61,14 @@
     <Consent query={route.query} />
   {:else if route.name === "public_share"}
     <PublicSharePage />
-  {:else if route.name === "guest_link"}
-    <SharedGuests token={route.params.token!} />
   {:else if session.me}
     <AppShell>
       {#if route.name === "settings"}
-        <Settings>
-          {#snippet modules()}<GigTypesSettings />{/snippet}
-        </Settings>
+        <Settings />
       {:else if route.name === "admin"}
         <Admin />
       {:else if route.name === "root"}
         <ChatPage />
-      {:else if route.name === "overview"}
-        <Home />
-      {:else if route.name === "my_gigs"}
-        <MyGigs />
-      {:else if route.name === "booking"}
-        {#key route.params.gigId}
-          <GigPage gigId={route.params.gigId!} />
-        {/key}
-      {:else if route.name === "gig_history"}
-        {#key route.params.gigId}
-          <GigHistory gigId={route.params.gigId!} />
-        {/key}
-      {:else if route.name === "gig_together"}
-        {#key route.params.gigId}
-          <GigTogether
-            gigId={route.params.gigId!}
-            section={route.params.section as "guests" | "lists" | "notes"}
-          />
-        {/key}
-      {:else if route.name === "reports"}
-        <Reports />
-      {:else if route.name === "contacts"}
-        <Contacts />
-      {:else if route.name === "collections"}
-        <CollectionsPage />
-      {:else if route.name === "collection"}
-        {#key `${route.params.collectionId}?${route.query.get("view") ?? ""}`}
-          <CollectionPage collectionId={route.params.collectionId!} viewId={route.query.get("view")} />
-        {/key}
-      {:else if route.name === "collection_setup"}
-        {#key route.params.collectionId}
-          <SetupPage collectionId={route.params.collectionId!} />
-        {/key}
       {:else if route.name === "record"}
         {#key route.params.recordId}
           <RecordPage collectionId={route.params.collectionId!} recordId={route.params.recordId!} />
@@ -139,12 +84,6 @@
       {:else if route.name === "shared_card"}
         {#key route.params.shareId}
           <SharedCardPage shareId={route.params.shareId!} />
-        {/key}
-      {:else if route.name === "songs"}
-        <SongsPage />
-      {:else if route.name === "song"}
-        {#key route.params.songId}
-          <SongPage songId={route.params.songId!} />
         {/key}
       {:else}
         <NotFound />

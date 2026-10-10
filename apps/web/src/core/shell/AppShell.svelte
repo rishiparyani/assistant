@@ -1,19 +1,33 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { Avatar, reducedMotion } from "../ui/index.ts";
-  import { router } from "../router.svelte.ts";
+  import Menu from "@lucide/svelte/icons/menu";
+  import SquarePen from "@lucide/svelte/icons/square-pen";
+  import MessageCircle from "@lucide/svelte/icons/message-circle";
+  import Inbox from "@lucide/svelte/icons/inbox";
+  import CircleHelp from "@lucide/svelte/icons/circle-help";
+  import Settings from "@lucide/svelte/icons/settings";
+  import { AssistantMark, Avatar, reducedMotion } from "../ui/index.ts";
+  import { navigate, router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
-  import { MAIN_NAV } from "./nav.ts";
-  import NavIcon from "./NavIcon.svelte";
+  import { startNewChat } from "../assistant/chat-api.ts";
+  import PinnedList from "../spaces/PinnedList.svelte";
   import PullToRefresh from "./PullToRefresh.svelte";
   import OfflineBar from "./OfflineBar.svelte";
 
+  // The chat-first shell (docs/design/chat-first.md): a top bar and a side menu around the
+  // page. On phones the menu slides in; on wide screens it stays open beside the page.
   let { children }: { children: Snippet } = $props();
-  const nav = MAIN_NAV;
-  // Depend on the route so "active" updates on navigation.
+
+  const route = $derived(router.route);
+  // Depend on the route so the path updates on navigation.
   const path = $derived((router.route, window.location.pathname));
-  const active = (href: string, exact = false) =>
-    exact ? path === href : path === href || path.startsWith(`${href}/`);
+  let menuOpen = $state(false);
+
+  // Any navigation closes the phone's menu.
+  $effect(() => {
+    void path;
+    menuOpen = false;
+  });
 
   // A soft fade between pages. Opacity only: a transform would make the page the frame for
   // position: fixed children (the chat composer) while it runs, and they'd jump.
@@ -26,285 +40,302 @@
     if (reducedMotion()) return;
     page.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
   });
+
+  function newChat() {
+    menuOpen = false;
+    if (route.name !== "root") navigate("/");
+    void startNewChat();
+  }
+
+  const LINKS = [
+    { href: "/shared", label: "Shared with you", icon: Inbox },
+    { href: "/help", label: "Help", icon: CircleHelp },
+    { href: "/settings", label: "Settings", icon: Settings },
+  ];
 </script>
 
+<svelte:window onkeydown={(e) => e.key === "Escape" && (menuOpen = false)} />
+
 <PullToRefresh />
-<div class="shell">
-  <!-- Tablet/laptop: sidebar -->
-  <aside class="sidebar">
-    <div class="brand">
-      <span class="mark" aria-hidden="true"></span>
-      <span>Gigspree</span>
-    </div>
-    <nav aria-label="Main">
-      {#each nav as item (item.href)}
-        <a class="side-link" class:active={active(item.href, item.exact)} href={item.href}>
-          <NavIcon icon={item.icon} size={20} active={active(item.href, item.exact)} />
-          {item.label}
-        </a>
-      {/each}
-    </nav>
+<div class="shell" class:menu-open={menuOpen}>
+  <header class="topbar">
+    <button class="icon-btn menu-btn" type="button" aria-label="Open menu" onclick={() => (menuOpen = true)}>
+      <Menu size={22} />
+    </button>
+    <a class="who" href="/">
+      <AssistantMark size={34} />
+      <span class="who-text">
+        <span class="who-name">Gigspree</span>
+        <span class="who-sub">Your assistant</span>
+      </span>
+    </a>
+    <button class="icon-btn" type="button" aria-label="New chat" onclick={newChat}>
+      <SquarePen size={21} />
+    </button>
+  </header>
+
+  <button class="scrim" type="button" tabindex="-1" aria-label="Close menu" onclick={() => (menuOpen = false)}
+  ></button>
+  <nav class="drawer" aria-label="Menu">
+    <button class="new" type="button" onclick={newChat}>
+      <SquarePen size={18} /> New chat
+    </button>
+
+    <h3>Chats</h3>
+    <a class="item" class:active={route.name === "root"} href="/">
+      <span class="ic chat"><MessageCircle size={16} /></span>
+      <span class="t">Gigspree</span>
+    </a>
+
+    <h3>Pinned</h3>
+    <PinnedList onopen={() => (menuOpen = false)} />
+
+    <h3>More</h3>
+    {#each LINKS as l (l.href)}
+      <a class="item" class:active={path === l.href || path.startsWith(`${l.href}/`)} href={l.href}>
+        <span class="ic"><l.icon size={16} /></span>
+        <span class="t">{l.label}</span>
+      </a>
+    {/each}
+
     {#if session.me}
       <a class="me" href="/settings">
         <Avatar name={session.me.user.name} size={32} />
-        <span class="ws-text">
-          <span class="ws-name">{session.me.user.name}</span>
-          <span class="ws-kind">{session.me.user.email}</span>
+        <span class="me-text">
+          <span class="me-name">{session.me.user.name}</span>
+          <span class="me-mail">{session.me.user.email}</span>
         </span>
       </a>
     {/if}
-  </aside>
-
-  <!-- Phone: top bar -->
-  <header class="topbar">
-    <a class="brand small" href="/"><span class="mark" aria-hidden="true"></span><span>Gigspree</span></a>
-    {#if session.me}
-      <a href="/settings" aria-label="Settings"><Avatar name={session.me.user.name} size={32} /></a>
-    {/if}
-  </header>
+  </nav>
 
   <main class="content">
     <div class="page" bind:this={page}><OfflineBar />{@render children()}</div>
   </main>
-
-  <!-- Phone: tab bar -->
-  <nav class="tabbar" aria-label="Main">
-    {#each nav.filter((n) => n.phone !== false) as item (item.href)}
-      <a class="tab" class:active={active(item.href, item.exact)} href={item.href}>
-        <span class="tab-icon"><NavIcon icon={item.icon} active={active(item.href, item.exact)} /></span>
-        <span>{item.label}</span>
-      </a>
-    {/each}
-  </nav>
 </div>
 
 <style>
   .shell {
     min-height: 100dvh;
   }
-  .content {
-    max-width: var(--content-max);
-    margin: 0 auto;
-    padding: var(--space-2) var(--space-4) calc(var(--tabbar-h) + var(--safe-bottom) + var(--space-8));
-  }
 
-  /* Phone chrome */
+  /* Top bar */
   .topbar {
     position: sticky;
     top: 0;
     z-index: 20;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
+    gap: var(--space-2);
     height: calc(var(--topbar-h) + var(--safe-top));
-    padding: var(--safe-top) var(--space-4) 0;
+    padding: var(--safe-top) var(--space-3) 0 var(--space-2);
     background: var(--chrome);
     backdrop-filter: saturate(180%) blur(20px);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     border-bottom: 1px solid var(--separator);
   }
-  .ws-name {
+  .icon-btn {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background var(--dur-fast);
+  }
+  .icon-btn:hover {
+    background: var(--surface-hover);
+  }
+  .who {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text);
+  }
+  .who-text {
+    display: grid;
+    min-width: 0;
+    line-height: 1.25;
+  }
+  .who-name {
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .who-sub {
+    font-size: var(--text-xs);
+    color: var(--text-3);
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .tabbar {
+
+  /* Side menu */
+  .scrim {
     position: fixed;
-    z-index: 20;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    display: flex;
-    height: calc(var(--tabbar-h) + var(--safe-bottom));
-    padding-bottom: var(--safe-bottom);
-    background: var(--chrome);
-    backdrop-filter: saturate(180%) blur(20px);
-    -webkit-backdrop-filter: saturate(180%) blur(20px);
-    border-top: 1px solid var(--separator);
+    inset: 0;
+    z-index: 30;
+    border: 0;
+    padding: 0;
+    background: var(--backdrop);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur);
   }
-  .tab {
-    flex: 1;
+  .drawer {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 31;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
     gap: 2px;
+    width: min(84vw, var(--sidebar-w));
+    padding: calc(var(--safe-top) + var(--space-3)) var(--space-2) calc(var(--safe-bottom) + var(--space-3));
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    transform: translateX(-102%);
+    transition: transform 0.34s var(--ease);
+  }
+  .menu-open .scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .menu-open .drawer {
+    transform: none;
+    box-shadow: var(--shadow-lg);
+  }
+  h3 {
+    margin: var(--space-4) var(--space-3) var(--space-1);
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
     color: var(--text-3);
-    font-size: 10.5px;
-    font-weight: 600;
-    letter-spacing: 0.01em;
-    transition: color var(--dur-fast);
   }
-  .tab.active {
-    color: var(--accent);
-  }
-  .tab:active .tab-icon {
-    transform: scale(0.88);
-  }
-  /* The active tab's icon sits on a soft pill that springs in. */
-  .tab-icon {
-    position: relative;
+  .new {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 52px;
-    height: 28px;
-    transition: transform var(--dur-fast) var(--ease-spring);
+    gap: var(--space-2);
+    min-height: 44px;
+    margin: 0 var(--space-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--dur) var(--ease-spring);
   }
-  .tab-icon::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: var(--radius-full);
-    background: var(--accent-soft);
-    opacity: 0;
-    transform: scale(0.5);
-    transition:
-      opacity var(--dur-fast),
-      transform var(--dur) var(--ease-spring);
+  .new:active {
+    transform: scale(0.97);
   }
-  .tab-icon :global(svg) {
-    position: relative;
-  }
-  .tab.active .tab-icon::before {
-    opacity: 1;
-    transform: none;
-  }
-  .tab.active .tab-icon :global(svg) {
-    animation: tab-bounce var(--dur-slow) var(--ease-spring);
-  }
-  @keyframes tab-bounce {
-    40% {
-      transform: translateY(-3px) scale(1.12);
-    }
-  }
-
-  /* Sidebar (hidden on phones) */
-  .sidebar {
-    display: none;
-  }
-
-  @media (min-width: 768px) {
-    .topbar,
-    .tabbar {
-      display: none;
-    }
-    .sidebar {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
-      position: fixed;
-      inset: 0 auto 0 0;
-      width: var(--sidebar-w);
-      padding: var(--space-5) var(--space-3);
-      background: var(--surface-2);
-      border-right: 1px solid var(--border);
-    }
-    .content {
-      margin-left: var(--sidebar-w);
-      max-width: none;
-      padding: var(--space-4) var(--space-8) var(--space-10);
-    }
-    .page {
-      max-width: var(--content-wide);
-      margin: 0 auto;
-    }
-  }
-
-  .brand {
+  .item {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
-    padding: 0 var(--space-2) var(--space-3);
-    font-weight: 750;
-    font-size: var(--text-md);
-    letter-spacing: -0.02em;
+    gap: var(--space-3);
+    min-height: 44px;
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    color: var(--text);
+    transition: background var(--dur-fast);
   }
-  .brand.small {
-    padding: 0;
-    font-size: var(--text-md);
+  .item:hover {
+    background: var(--surface-hover);
   }
-  .mark {
+  .item.active {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 650;
+  }
+  .ic {
+    display: grid;
+    place-items: center;
     flex: none;
     width: 30px;
     height: 30px;
-    background: var(--logo) center / contain no-repeat;
+    border-radius: 9px;
+    background: var(--surface-hover);
+    color: var(--text-2);
+  }
+  .ic.chat {
+    background: var(--kind-people-soft);
+    color: var(--kind-people);
+  }
+  .t {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .me {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    width: 100%;
-    padding: var(--space-2);
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text-2);
-    text-align: left;
-    cursor: pointer;
-    box-shadow: var(--shadow-sm);
-  }
-  .me {
     margin-top: auto;
-    border-color: transparent;
-    background: transparent;
-    box-shadow: none;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+    color: var(--text-2);
   }
   .me:hover {
     background: var(--surface-hover);
   }
-  .ws-text {
-    display: flex;
-    flex-direction: column;
+  .me-text {
+    display: grid;
     min-width: 0;
-    flex: 1;
   }
-  .me .ws-name {
+  .me-name {
     color: var(--text);
     font-weight: 600;
     font-size: var(--text-sm);
   }
-  .ws-kind {
+  .me-mail {
     font-size: var(--text-xs);
     color: var(--text-3);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  nav[aria-label="Main"]:not(.tabbar) {
-    display: grid;
-    gap: 2px;
-    margin-top: var(--space-3);
+
+  .content {
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: var(--space-2) var(--space-4) calc(var(--safe-bottom) + var(--space-8));
   }
-  .side-link {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    min-height: 40px;
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-sm);
-    color: var(--text-2);
-    font-weight: 500;
-  }
-  .side-link {
-    transition:
-      background var(--dur-fast),
-      color var(--dur-fast);
-  }
-  .side-link :global(svg) {
-    transition: transform var(--dur) var(--ease-spring);
-  }
-  .side-link:hover :global(svg) {
-    transform: scale(1.1);
-  }
-  .side-link:hover {
-    background: var(--surface-hover);
-    color: var(--text);
-  }
-  .side-link.active {
-    background: var(--accent-soft);
-    color: var(--accent-text);
-    font-weight: 600;
+
+  /* Wide screens: the menu stays open beside the page. */
+  @media (min-width: 900px) {
+    .menu-btn,
+    .scrim {
+      display: none;
+    }
+    .drawer {
+      transform: none;
+      width: var(--sidebar-w);
+      padding-top: var(--space-4);
+    }
+    .topbar,
+    .content {
+      margin-left: var(--sidebar-w);
+    }
+    .topbar {
+      padding-left: var(--space-5);
+    }
+    .content {
+      max-width: none;
+      padding: var(--space-4) var(--space-8) var(--space-10);
+    }
+    .page {
+      max-width: var(--content-max);
+      margin: 0 auto;
+    }
   }
 </style>

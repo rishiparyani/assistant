@@ -127,7 +127,6 @@
   @media (min-width: 768px) {
     .tabs {
       --pad: 0px;
-      top: 0;
     }
   }
   @media (prefers-reduced-motion: reduce) {
