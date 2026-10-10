@@ -24,6 +24,7 @@ describe("migrations", () => {
         "app_settings",
         "assistant_access",
         "dead_letters",
+        "group_members",
         "jwks",
         "oauthAccessToken",
         "oauthClient",
