@@ -22,6 +22,7 @@ import {
   type StoredValue,
 } from "@assistant/shared";
 import { request } from "../api.ts";
+import { session } from "../session.svelte.ts";
 import { applyWith, send, type Change } from "../outbox.svelte.ts";
 import { readCache, writeCache } from "../query.svelte.ts";
 import { findLocal, localCollections, localRecord, localViews, orLocal, syncSpace } from "./local-copy.ts";
@@ -354,12 +355,34 @@ const isList = (d: unknown): d is FindResult => !!d && typeof d === "object" && 
 const isRecord = (d: unknown, id: string): d is RecordView =>
   !!d && typeof d === "object" && (d as RecordView).id === id;
 
+/** My answers to personal fields, shown in the record's list of answers at once. */
+function myAnswers(r: RecordView, a: Args): RecordView["answers"] {
+  const me = session.me?.user;
+  if (!r.answers || !me) return r.answers;
+  const fields = savedCollections()?.find((x) => x.id === r.collection_id)?.fields ?? [];
+  const answers = { ...r.answers };
+  for (const [fid, v] of Object.entries(a.values)) {
+    if (!(fid in answers)) continue;
+    const f = fields.find((x) => x.id === fid);
+    const others = answers[fid]!.filter((x) => x.user_id !== me.id);
+    answers[fid] =
+      v === null
+        ? others
+        : [
+            ...others,
+            { user_id: me.id, name: me.name, value: v, display: f ? displayValue(f.type, v) : String(v) },
+          ];
+  }
+  return answers;
+}
+
 function changed(r: RecordView, a: Args, c: Change): RecordView {
   const values = { ...r.values, ...a.values };
   for (const [k, v] of Object.entries(values)) if (v === null) delete values[k];
   const title = values[a.title_field_id];
   return {
     ...r,
+    ...(r.answers ? { answers: myAnswers(r, a) } : {}),
     title: typeof title === "string" && title ? title : "Untitled",
     values,
     links: { ...r.links, ...a.links },

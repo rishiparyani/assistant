@@ -479,7 +479,8 @@ export class SpaceObject extends DurableObject<Env> {
     const id = this.newId("collections", input.id);
     // The first text field is the title; add one if there's none.
     const specs = [...input.fields];
-    if (!specs.some((f) => f.type === "text")) specs.unshift({ name: "Title", type: "text", required: true });
+    if (!specs.some((f) => f.type === "text" && !f.options?.personal))
+      specs.unshift({ name: "Title", type: "text", required: true });
     this.sql.exec(
       `insert into collections (id, name, name_key, description, title_field_id, position, created_at, updated_at)
        values (?, ?, ?, ?, '', ?, ?, ?)`,
@@ -935,13 +936,17 @@ export class SpaceObject extends DurableObject<Env> {
         ids,
         ts,
       );
-    this.saveAnswers(actor, r.id, answers, ts);
+    const answered = this.saveAnswers(actor, r.id, answers, ts);
     this.logChange("record", r.id, "upsert", ts);
     audit(this.sql, actor, {
       action: "update_record",
       entityType: "record",
       entityId: r.id,
-      before: Object.fromEntries(Object.keys(values).map((k) => [k, before[k] ?? null])),
+      // A personal answer's "before" is this person's own earlier answer.
+      before: {
+        ...Object.fromEntries(Object.keys(values).map((k) => [k, before[k] ?? null])),
+        ...answered,
+      },
       after: input.values,
     });
     return this.recordView(this.requireRecord(r.id), actor);
@@ -1110,10 +1115,25 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** The person's own answers to personal fields (null clears theirs). */
-  private saveAnswers(actor: Actor, recordId: string, answers: Map<string, StoredValue>, ts: string) {
-    if (!answers.size) return;
+  private saveAnswers(
+    actor: Actor,
+    recordId: string,
+    answers: Map<string, StoredValue>,
+    ts: string,
+  ): Record<string, StoredValue> {
+    const before: Record<string, StoredValue> = {};
+    if (!answers.size) return before;
     if (!actor.userId) throw new ObjectError("forbidden", "Sign in to give your own answer");
     for (const [fieldId, v] of answers) {
+      const old = this.sql
+        .exec<{ value_json: string }>(
+          `select value_json from answers where record_id = ? and field_id = ? and user_id = ?`,
+          recordId,
+          fieldId,
+          actor.userId,
+        )
+        .toArray()[0];
+      before[fieldId] = old ? (JSON.parse(old.value_json) as StoredValue) : null;
       if (v === null || v === undefined)
         this.sql.exec(
           `delete from answers where record_id = ? and field_id = ? and user_id = ?`,
@@ -1132,19 +1152,21 @@ export class SpaceObject extends DurableObject<Env> {
           ts,
         );
     }
+    return before;
   }
 
-  /** Names of everyone who can answer: the space's people and people in its shares. */
-  private personNames(): Map<string, string> {
+  /** Names of these people: from the space's people, else from the shares they joined. */
+  private personNames(ids: string[]): Map<string, string> {
     const out = new Map<string, string>();
-    for (const r of this.sql
-      .exec<{ user_id: string; name: string }>(`select user_id, name from share_people`)
-      .toArray())
-      out.set(r.user_id, r.name);
-    for (const r of this.sql
-      .exec<{ user_id: string; name: string }>(`select user_id, name from members`)
-      .toArray())
-      out.set(r.user_id, r.name);
+    for (const id of ids) {
+      const name =
+        this.sql.exec<{ name: string }>(`select name from members where user_id = ?`, id).toArray()[0]
+          ?.name ??
+        this.sql
+          .exec<{ name: string }>(`select name from share_people where user_id = ? limit 1`, id)
+          .toArray()[0]?.name;
+      if (name) out.set(id, name);
+    }
     return out;
   }
 
@@ -1295,7 +1317,7 @@ export class SpaceObject extends DurableObject<Env> {
           r.id,
         )
         .toArray();
-      const names = rows.length ? this.personNames() : new Map<string, string>();
+      const names = this.personNames([...new Set(rows.map((a) => a.user_id))]);
       answers = {};
       for (const f of personal) {
         const mine = rows.find((a) => a.field_id === f.id && a.user_id === actor?.userId);
@@ -2415,7 +2437,8 @@ export class SpaceObject extends DurableObject<Env> {
         next_cursor,
       };
     }
-    const fields = this.sharedFields(s, c.id);
+    // Someone without an account can't give a personal answer, so their form leaves those out.
+    const fields = this.sharedFields(s, c.id).filter((f) => !!actor.userId || !toField(f).options.personal);
     const mine = actor.userId
       ? this.sql
           .exec<RecordRow>(

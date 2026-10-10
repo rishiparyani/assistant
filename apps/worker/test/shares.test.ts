@@ -438,6 +438,30 @@ describe("personal answers", () => {
       ["Test Asha", "No"],
     ]);
 
+    // A link-only form leaves personal fields out (no account to answer as).
+    const form = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { form: "Jams", public: true } }),
+    );
+    const anon = await json<SharedFormView>(
+      await call("/api/link/open", { body: { token: tokenOf(form.link) } }),
+    );
+    expect(anon.fields.map((f) => f.name)).toEqual(["Title"]);
+    expect(
+      (
+        await call("/api/link/submit", {
+          body: { token: tokenOf(form.link), values: { Title: "Test walk-in jam" } },
+        })
+      ).status,
+    ).toBe(201);
+
+    // A collection whose only text field is personal still gets a title.
+    const polls = await json<{ title_field_id: string; fields: { id: string; name: string }[] }>(
+      await api(owner)("/collections", {
+        body: { name: "Polls", fields: [{ name: "Thoughts", type: "text", options: { personal: true } }] },
+      }),
+    );
+    expect(polls.fields.find((f) => f.id === polls.title_field_id)?.name).toBe("Title");
+
     // Personal answers can't be required, filtered or switched once used.
     expect(
       (
