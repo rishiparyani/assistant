@@ -1038,6 +1038,21 @@ export class SpaceObject extends DurableObject<Env> {
       const f = this.requireField(c.id, field);
       if (f.id === c.title_field_id)
         throw new ObjectError("conflict", "The title field can't be removed; rename it instead");
+      // A rule that uses it would stop every write here: the rule goes first.
+      const user = this.ruleRows(c.id).find((r) => {
+        const d = JSON.parse(r.def_json) as RuleDef;
+        return (
+          d.field === f.id ||
+          d.fields.includes(f.id) ||
+          [...d.require, ...d.only_if].some((x) => x.field === f.id)
+        );
+      });
+      if (user)
+        throw new ObjectError(
+          "conflict",
+          `${f.name} is used by a rule (${this.ruleView(user).words}); remove the rule first`,
+          { reason: "rule", rule_id: user.id },
+        );
       this.sql.exec(`update fields set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, f.id);
       this.sql.exec(`delete from record_values where field_id = ?`, f.id);
       this.touchCollection(c.id, ts);
@@ -1327,6 +1342,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
       }
       this.touchRecord(r.id, ts);
+      this.enforceLinkRules(r);
       audit(this.sql, actor, {
         action: "link_records",
         entityType: "record",
@@ -1351,6 +1367,7 @@ export class SpaceObject extends DurableObject<Env> {
       for (const id of to)
         this.sql.exec(`delete from links where field_id = ? and from_id = ? and to_id = ?`, f.id, r.id, id);
       this.touchRecord(r.id, ts);
+      this.enforceLinkRules(r);
       audit(this.sql, actor, {
         action: "unlink_records",
         entityType: "record",
@@ -2284,9 +2301,11 @@ export class SpaceObject extends DurableObject<Env> {
             );
           return hit;
         };
-        const moves = Object.fromEntries(
+        const given = new Map(
           Object.entries(input.moves).map(([from, to]) => [pick(from), [...new Set(to.map(pick))]]),
         );
+        // Every choice is listed, so the words show the values that can't move at all.
+        const moves = Object.fromEntries(choices.map((ch) => [ch, given.get(ch) ?? []]));
         def = { require: [], fields: [], only_if: [], field: f.id, moves };
       }
       const count = this.sql
@@ -2309,13 +2328,27 @@ export class SpaceObject extends DurableObject<Env> {
       );
       // Records already there must meet it (a rule that's broken from the start says so now).
       const r = this.sql.exec<RuleRow>(`select * from rules where id = ?`, id).one();
-      for (const rec of this.sql
-        .exec<{ id: string; values_json: string }>(
-          `select id, values_json from records where collection_id = ? and deleted_at is null order by id limit 2000`,
-          c.id,
-        )
-        .toArray())
-        this.checkRule(r, c, rec.id, null, JSON.parse(rec.values_json) as Record<string, StoredValue>, true);
+      // Every record, in batches (a rule over broken data would be a promise it can't keep).
+      for (let after = ""; ;) {
+        const batch = this.sql
+          .exec<{ id: string; values_json: string }>(
+            `select id, values_json from records where collection_id = ? and deleted_at is null and id > ? order by id limit 500`,
+            c.id,
+            after,
+          )
+          .toArray();
+        for (const rec of batch)
+          this.checkRule(
+            r,
+            c,
+            rec.id,
+            null,
+            JSON.parse(rec.values_json) as Record<string, StoredValue>,
+            true,
+          );
+        if (batch.length < 500) break;
+        after = batch[batch.length - 1]!.id;
+      }
       audit(this.sql, actor, { action: "add_rule", entityType: "rule", entityId: id, after: input });
       this.logChange("collection", c.id, "upsert", ts);
       return this.ruleView(r);
@@ -2386,6 +2419,12 @@ export class SpaceObject extends DurableObject<Env> {
     for (const r of this.ruleRows(c.id)) this.checkRule(r, c, recordId, before, after, false);
   }
 
+  /** A record's links changed on their own: its rules must still hold (values didn't move). */
+  private enforceLinkRules(r: RecordRow) {
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    this.enforceRules(this.requireCollection(r.collection_id), r.id, values, values);
+  }
+
   private checkRule(
     r: RuleRow,
     c: CollectionRow,
@@ -2443,8 +2482,9 @@ export class SpaceObject extends DurableObject<Env> {
     const from = before[def.field];
     const to = after[def.field];
     if (JSON.stringify(from ?? null) === JSON.stringify(to ?? null) || typeof from !== "string") return;
-    const allowed = def.moves[from];
-    if (allowed && !allowed.includes(String(to ?? "")))
+    // A value the rule doesn't list can't move anywhere (the words say "moves only …").
+    const allowed = def.moves[from] ?? [];
+    if (!allowed.includes(String(to ?? "")))
       throw new ObjectError(
         "validation_failed",
         say(

@@ -215,6 +215,7 @@
             ...choiceFields.map((f) => ({ value: f.id, label: f.name })),
           ]}
         />
+        {#if flowChoices.length}<p class="hint">A status with nothing picked can't change.</p>{/if}
         {#each flowChoices as from (from)}
           <fieldset class="group">
             <legend>From {from}, it can go to</legend>
@@ -302,6 +303,11 @@
     border-color: var(--kind-form);
     color: var(--kind-form);
     font-weight: 600;
+  }
+  .hint {
+    margin: 0;
+    font-size: var(--text-sm);
+    color: var(--text-2);
   }
   .actions {
     display: flex;

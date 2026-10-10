@@ -128,6 +128,20 @@ describe("rules", () => {
     expect((await set(me, one.id, { Status: "Selected" })).status).toBe(200);
     expect((await set(me, one.id, { Status: "Requested" })).status).toBe(400);
     expect((await set(me, one.id, { Status: "Not this time" })).status).toBe(200);
+    // A value the rule leaves out can't move at all, and the words say so.
+    const loose = await signUp("Test Organiser");
+    const two = await famJam(loose);
+    const partial = await json<RuleView>(
+      await api(loose)("/collections/Sign-ups/rules", {
+        body: { kind: "flow", field: "Status", moves: { Requested: ["Selected"] } },
+      }),
+    );
+    expect(partial.words).toBe(
+      "Status in Sign-ups moves only Requested → Selected; Selected → nothing; Not this time → nothing",
+    );
+    const asha = await two.signUpFor("Test Asha");
+    expect((await set(loose, asha.id, { Status: "Selected" })).status).toBe(200);
+    expect((await set(loose, asha.id, { Status: "Requested" })).status).toBe(400);
     // Unknown choices are refused when the rule is saved.
     expect(
       (
@@ -136,5 +150,40 @@ describe("rules", () => {
         })
       ).status,
     ).toBe(400);
+  });
+
+  it("checks links changed on their own, and keeps the fields a rule uses", async () => {
+    const me = await signUp("Test Organiser");
+    const { song, signUpFor } = await famJam(me);
+    const rule = await json<RuleView>(
+      await api(me)("/collections/Sign-ups/rules", {
+        body: { kind: "check", require: [{ field: "Song", op: "not_empty" }] },
+      }),
+    );
+    const one = await signUpFor("Test Asha");
+    // Taking the song off through the link route breaks the check, so it's refused.
+    const off = await api(me)(`/records/${one.id}/unlink`, { body: { field: "Song", to: [song.id] } });
+    expect(off.status).toBe(400);
+    // Uniqueness holds for the link route too.
+    await api(me)("/collections/Sign-ups/rules", {
+      body: { kind: "unique", fields: ["Song", "Instrument"] },
+    });
+    const other = await json<RecordView>(
+      await api(me)("/collections/Songs/records", { body: { values: { Title: "Test Song Two" } } }),
+    );
+    const second = await json<RecordView>(
+      await api(me)("/collections/Sign-ups/records", {
+        body: { values: { Person: "Test Dev", Song: other.id, Instrument: "Guitar" } },
+      }),
+    );
+    const clash = await api(me)(`/records/${second.id}/links`, { body: { field: "Song", to: [song.id] } });
+    expect(clash.status).toBe(409);
+    // A field a rule uses can't be removed until the rule goes.
+    const remove = () => api(me)("/collections/Sign-ups/fields/Song", { method: "DELETE" });
+    expect((await remove()).status).toBe(409);
+    for (const r of (await json<CollectionView>(await api(me)("/collections/Sign-ups"))).rules ?? [])
+      await api(me)(`/rules/${r.id}`, { method: "DELETE" });
+    expect(rule.id).toBeTruthy();
+    expect((await remove()).status).toBe(200);
   });
 });
