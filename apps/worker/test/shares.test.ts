@@ -546,9 +546,19 @@ describe("row rules", () => {
       ).status,
     ).toBe(404);
 
+    // Hiding a field a rule uses shows that person nothing, without breaking the list.
+    await api(owner)(`/collections/Songs/fields/Set`, { method: "DELETE" });
+    const after = await api(rahul)(`/cards/${share.id}`);
+    expect(after.status).toBe(200);
+    expect((await json<SharedListView>(after)).records).toEqual([]);
+    await api(owner)("/collections/Songs/fields", {
+      body: { name: "Set", type: "choice", options: { choices: ["A", "B", "C"] } },
+    });
+
     // Removing a rule shows the rows again; strangers and bad filters are refused.
     await api(owner)(`/shares/${share.id}/rules/${rahulId}`, { method: "PUT", body: { filters: [] } });
-    expect(await titles(rahul)).toEqual(["Test One", "Test Two"]);
+    await api(owner)(`/shares/${share.id}/rules/*`, { method: "PUT", body: { filters: [] } });
+    expect(await titles(rahul)).toEqual(["Test One", "Test Three", "Test Two"]);
     expect(
       (
         await api(owner)(`/shares/${share.id}/rules/someone-else`, {

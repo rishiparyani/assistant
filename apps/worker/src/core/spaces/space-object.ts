@@ -2106,8 +2106,12 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
-  /** The row rule filters that apply to this person on a shared view (everyone's, then theirs). */
-  private ruleFilters(s: ShareRow, actor: Actor): Filter[] {
+  /**
+   * The row rule filters that apply to this person on a shared view (everyone's, then theirs).
+   * A rule on a field that's been hidden since shows them no rows (never more than intended)
+   * until the field is shown again or the rule is changed; `null` means that.
+   */
+  private ruleFilters(s: ShareRow, actor: Actor): Filter[] | null {
     const rows = this.sql
       .exec<{ user_id: string; filters_json: string }>(
         `select user_id, filters_json from share_rules where share_id = ? and user_id in ('*', ?)`,
@@ -2115,7 +2119,8 @@ export class SpaceObject extends DurableObject<Env> {
         actor.userId ?? "*",
       )
       .toArray();
-    return rows.flatMap((r) => JSON.parse(r.filters_json) as Filter[]);
+    const filters = rows.flatMap((r) => JSON.parse(r.filters_json) as Filter[]);
+    return filters.every((f) => this.liveField(f.field)) ? filters : null;
   }
 
   /** Whether a collaborator's write touches a money field (MCP asks for confirmation then). */
@@ -2267,8 +2272,10 @@ export class SpaceObject extends DurableObject<Env> {
       });
     const v = this.viewOf(this.liveView(s.target_id)!);
     if (!v) return [];
+    const rule = this.ruleFilters(s, actor);
+    if (!rule) return [];
     return this.findRows(actor, c, {
-      filters: [...v.filters, ...this.ruleFilters(s, actor)],
+      filters: [...v.filters, ...rule],
       search: v.search ?? undefined,
       limit: ids.length,
       ids,
@@ -2497,8 +2504,10 @@ export class SpaceObject extends DurableObject<Env> {
       const fields = this.sharedFields(s, c.id);
       const v = this.viewOf(this.liveView(s.target_id)!);
       if (!v) throw new ObjectError("not_found", "Share not found");
+      const rule = this.ruleFilters(s, actor);
       const { rows, next_cursor } = this.findRows(actor, c, {
-        filters: [...v.filters, ...this.ruleFilters(s, actor)],
+        filters: [...v.filters, ...(rule ?? [])],
+        ...(rule ? {} : { ids: [] }),
         search: v.search ?? undefined,
         sort: v.sort ?? undefined,
         limit: 100,
