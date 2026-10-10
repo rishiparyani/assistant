@@ -26,11 +26,30 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 /// The web app in a native shell (docs/design/ios-app.md).
 class AppViewController: CAPBridgeViewController {
+    private var routeObserver: NSObjectProtocol?
+
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
         #if DEBUG
         openForSimulatorTest()
         #endif
+        // Siri, Shortcuts and the Action button open a page here (AppIntents.swift).
+        routeObserver = NotificationCenter.default.addObserver(
+            forName: AppRoute.openPath, object: nil, queue: .main
+        ) { [weak self] _ in self?.openPendingRoute() }
+        openPendingRoute()
+    }
+
+    deinit {
+        if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+    }
+
+    /// Opens the page an intent asked for, on the app's own site only.
+    private func openPendingRoute() {
+        guard let webView = bridge?.webView, let server = bridge?.config.serverURL,
+              let path = AppRoute.shared.take(), path.hasPrefix("/"),
+              let url = URL(string: path, relativeTo: server), url.host == server.host else { return }
+        _ = webView.load(URLRequest(url: url))
     }
 
     #if DEBUG

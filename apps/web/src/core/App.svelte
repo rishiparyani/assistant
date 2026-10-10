@@ -14,6 +14,7 @@
   import SetupPage from "./spaces/SetupPage.svelte";
   import HelpPage from "./spaces/HelpPage.svelte";
   import JoinPage from "./spaces/JoinPage.svelte";
+  import OpenViewPage from "./spaces/OpenViewPage.svelte";
   import SharedPage from "./spaces/SharedPage.svelte";
   import SharedCardPage from "./spaces/SharedCardPage.svelte";
   import PublicSharePage from "./spaces/PublicSharePage.svelte";
@@ -129,6 +130,8 @@
         {/key}
       {:else if route.name === "help"}
         <HelpPage />
+      {:else if route.name === "open_view"}
+        <OpenViewPage />
       {:else if route.name === "join"}
         <JoinPage />
       {:else if route.name === "shared"}

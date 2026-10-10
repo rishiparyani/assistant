@@ -51,6 +51,14 @@
     }
   }
 
+  // Siri, Shortcuts and the Action button open "/?ask=…&send=1" (the iPhone app's intents):
+  // send it once, and clear the address so a reload doesn't send it again.
+  const asked = router.route.query.get("send") === "1" ? (router.route.query.get("ask") ?? "") : "";
+  if (asked.trim()) {
+    history.replaceState(null, "", "/");
+    queueMicrotask(() => void send(asked));
+  }
+
   async function answer(actionId: string, yes: boolean) {
     busyCard = actionId;
     try {

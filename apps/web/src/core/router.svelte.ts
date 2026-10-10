@@ -23,6 +23,8 @@ const PATTERNS: [string, RegExp][] = [
   ["collection", /^\/c\/(?<collectionId>[^/]+)$/],
   ["record", /^\/c\/(?<collectionId>[^/]+)\/(?<recordId>[^/]+)$/],
   ["help", /^\/help$/],
+  // A saved view by name (Siri's "Show a Gigspree view").
+  ["open_view", /^\/open-view$/],
   // Cards others shared with me; /join#<token> joins one.
   ["join", /^\/join$/],
   // A view or form shared by link: no sign-in (/s#<token>).
