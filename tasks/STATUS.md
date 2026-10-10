@@ -4,6 +4,10 @@ _Updated: 2026-10-09_
 
 ## Last done
 
+- **Personal answers** (stage 2c, part 2, design §11): a field can be marked "Each person answers for themselves" (`options.personal`; not links, the title or required fields; can't be switched once it has values). Each person's answer is kept apart (space object migration 7, `answers`): `values` shows the asking person's own answer, `answers` lists everyone's with names for the space's people; collaborators see and give only their own, even on view-only shares (an Answer button). Personal fields can't be filtered or sorted yet. Tests: `shares.test.ts` personal answers. Browser-checked: a friend answers "Maybe" on a view-only shared jam; the owner's record shows "Going · 2 answers".
+  - Also checked: the first TestFlight run after #65 logged "Development certificates: 8; made by this build: 1; revoked 1" (the 7 older ones from before the fix stay until they expire or the owner revokes them).
+  - Next in 2c: row rules (who sees which rows of a shared view).
+
 - **Comments on records** (stage 2c, part 1, design §11): a record page has Comments (people in the space; anyone may comment, a viewer too; the writer or the space's owner deletes), and a shared card has them too, for everyone in the share (view-only people included; not link-only). Space object migration 6 (`comments`, indexed by record). Operations `list_comments`, `add_comment`, `delete_comment` (confirm), `list_shared_comments`, `add_shared_comment` (REST + MCP). Web: `Comments.svelte` on `RecordPage` and `SharedCardPage`; online-only. Tests: `shares.test.ts` comments. Browser-checked: a friend asks on a shared note, the owner sees it and answers (390, dark).
   - Next in 2c: personal answers (fields each person fills in for themselves), then row rules (who sees which rows).
 

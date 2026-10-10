@@ -49,6 +49,8 @@ export interface FieldOptions {
   ordered?: boolean;
   /** link: what happens to this link when the linked record is deleted. */
   on_delete?: LinkOnDelete;
+  /** Each person fills in their own answer ("Going?"); not for links or the title. */
+  personal?: boolean;
 }
 
 export interface FieldView {
@@ -102,9 +104,20 @@ export interface RecordView {
   /** Readable values by field name, for people and assistants ("₹450", "Sat, 12 Dec 2026"). */
   named: Record<string, string | string[] | null>;
   links: Record<string, LinkedRef[]>;
+  /**
+   * Personal fields: everyone's answers (for the space's people). `values` holds the asking
+   * person's own answer.
+   */
+  answers?: Record<string, PersonalAnswer[]>;
   created_at: string;
   updated_at: string;
   version: number;
+}
+export interface PersonalAnswer {
+  user_id: string;
+  name: string;
+  value: StoredValue;
+  display: string | string[] | null;
 }
 
 export interface FindResult {
@@ -159,6 +172,12 @@ export const FieldOptionsInput = z
       .enum(LINK_ON_DELETE)
       .optional()
       .describe("link: when the linked record is deleted: unlink (default), block, or cascade"),
+    personal: z
+      .boolean()
+      .optional()
+      .describe(
+        "Each person fills in their own answer (e.g. Going?); not for links, the title or required fields",
+      ),
   })
   .strict();
 
@@ -647,6 +666,8 @@ export interface SharedField {
   editable: boolean;
   /** The record's title field (shown as its title). */
   title: boolean;
+  /** Each person's own answer (the value shown is mine). */
+  personal: boolean;
 }
 /** A record as a collaborator sees it: only the fields shared with them (no links out). */
 export interface SharedRecord {
@@ -661,6 +682,7 @@ export interface SharedFieldInfo {
   options: FieldOptions;
   editable: boolean;
   required: boolean;
+  personal: boolean;
 }
 type SharedHead<K extends ShareKind> = {
   id: string;

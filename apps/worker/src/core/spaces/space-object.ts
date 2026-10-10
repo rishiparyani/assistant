@@ -220,6 +220,18 @@ const MIGRATIONS: Migrations = [
   );
   create index comments_record_idx on comments (record_id, deleted_at, created_at);
   `,
+  // Personal answers: fields each person fills in for themselves (design §11).
+  `
+  create table answers (
+    record_id text not null,
+    field_id text not null,
+    user_id text not null,
+    value_json text not null,
+    updated_at text not null,
+    primary key (record_id, field_id, user_id)
+  ) without rowid;
+  create index answers_user_idx on answers (user_id, field_id);
+  `,
 ];
 
 type ViewQuery = {
@@ -482,7 +494,7 @@ export class SpaceObject extends DurableObject<Env> {
     let titleId = "";
     specs.forEach((f, i) => {
       const fid = this.insertField(id, f, i, ts);
-      if (!titleId && f.type === "text") titleId = fid;
+      if (!titleId && f.type === "text" && !f.options?.personal) titleId = fid;
     });
     this.sql.exec(`update collections set title_field_id = ? where id = ?`, titleId, id);
     this.logChange("collection", id, "upsert", ts);
@@ -523,6 +535,8 @@ export class SpaceObject extends DurableObject<Env> {
     const nk = nameKey(f.name);
     this.checkFieldNames(collectionId, null, f.name, f.aliases ?? []);
     const options = this.checkOptions(f.type, f.options ?? {});
+    if (options.personal && f.required)
+      throw new ObjectError("validation_failed", `${f.name}: a personal answer can't be required`);
     const id = this.newId("fields", f.id);
     this.sql.exec(
       `insert into fields (id, collection_id, name, name_key, type, options_json, required, aliases_json, position, created_at, updated_at)
@@ -544,6 +558,13 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** Keeps only the options that fit the type; a link's target name becomes its id. */
   private checkOptions(type: FieldType, o: FieldOptions & { target?: string | null }): FieldOptions {
+    if (o.personal && type === "link")
+      throw new ObjectError("validation_failed", "Links can't be personal answers");
+    const personal = o.personal && type !== "link" ? { personal: true } : {};
+    return { ...this.typeOptions(type, o), ...personal };
+  }
+
+  private typeOptions(type: FieldType, o: FieldOptions & { target?: string | null }): FieldOptions {
     if (type === "choice" || type === "multi_choice") {
       const choices = [...new Set((o.choices ?? []).map((c) => c.trim()).filter(Boolean))];
       if (!choices.length)
@@ -690,6 +711,21 @@ export class SpaceObject extends DurableObject<Env> {
           }
         }
       }
+      if (!!options.personal !== !!before.options.personal) {
+        if (options.personal && f.id === c.title_field_id)
+          throw new ObjectError("validation_failed", `${f.name} is the title; it can't be a personal answer`);
+        // Values and answers are kept apart; switching would lose one or the other.
+        const used =
+          this.sql.exec(`select 1 from record_values where field_id = ? limit 1`, f.id).toArray().length +
+          this.sql.exec(`select 1 from answers where field_id = ? limit 1`, f.id).toArray().length;
+        if (used)
+          throw new ObjectError(
+            "conflict",
+            `${f.name} already has values; add a new field to ${options.personal ? "collect personal answers" : "hold one value"}`,
+          );
+      }
+      if (options.personal && (input.required ?? !!f.required))
+        throw new ObjectError("validation_failed", `${f.name}: a personal answer can't be required`);
       this.sql.exec(
         `update fields set name = ?, name_key = ?, options_json = ?, required = ?, aliases_json = ?, updated_at = ? where id = ?`,
         input.name?.trim() ?? f.name,
@@ -790,7 +826,7 @@ export class SpaceObject extends DurableObject<Env> {
     input: { id?: string | null; values: Record<string, unknown> },
   ): RecordView {
     const fields = this.fieldRows(c.id);
-    const { values, links } = this.readValues(fields, input.values);
+    const { values, links, answers } = this.readValues(fields, input.values);
     for (const f of fields)
       if (
         f.required &&
@@ -799,6 +835,7 @@ export class SpaceObject extends DurableObject<Env> {
         throw new ObjectError("validation_failed", `${f.name} is required`);
     const id = this.newId("records", input.id);
     this.saveRecord(id, c, fields, values, ts, actor, true);
+    this.saveAnswers(actor, id, answers, ts);
     for (const [fid, ids] of links)
       this.setLinks(
         fields.find((f) => f.id === fid)!,
@@ -813,7 +850,7 @@ export class SpaceObject extends DurableObject<Env> {
       entityId: id,
       after: input.values,
     });
-    return this.recordView(this.requireRecord(id));
+    return this.recordView(this.requireRecord(id), actor);
   }
 
   /** Whether a write to these values touches a money field (MCP asks for confirmation then). */
@@ -853,7 +890,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   async getRecord(actor: Actor, recordId: string): Promise<RecordView> {
     this.role(actor);
-    return this.recordView(this.requireRecord(recordId));
+    return this.recordView(this.requireRecord(recordId), actor);
   }
 
   async updateRecord(
@@ -880,7 +917,7 @@ export class SpaceObject extends DurableObject<Env> {
     const c = this.requireCollection(r.collection_id);
     const fields = this.fieldRows(c.id);
     const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
-    const { values, links } = this.readValues(fields, input.values);
+    const { values, links, answers } = this.readValues(fields, input.values);
     const merged = { ...before, ...values };
     for (const f of fields)
       if (
@@ -898,6 +935,7 @@ export class SpaceObject extends DurableObject<Env> {
         ids,
         ts,
       );
+    this.saveAnswers(actor, r.id, answers, ts);
     this.logChange("record", r.id, "upsert", ts);
     audit(this.sql, actor, {
       action: "update_record",
@@ -906,7 +944,7 @@ export class SpaceObject extends DurableObject<Env> {
       before: Object.fromEntries(Object.keys(values).map((k) => [k, before[k] ?? null])),
       after: input.values,
     });
-    return this.recordView(this.requireRecord(r.id));
+    return this.recordView(this.requireRecord(r.id), actor);
   }
 
   /** Soft delete; links to it follow each link field's rule (unlink / block / cascade). */
@@ -1008,7 +1046,7 @@ export class SpaceObject extends DurableObject<Env> {
         entityId: r.id,
         after: { field: f.name, to: ids },
       });
-      return this.recordView(this.requireRecord(r.id));
+      return this.recordView(this.requireRecord(r.id), actor);
     });
   }
 
@@ -1032,7 +1070,7 @@ export class SpaceObject extends DurableObject<Env> {
         entityId: r.id,
         before: { field: f.name, to },
       });
-      return this.recordView(this.requireRecord(r.id));
+      return this.recordView(this.requireRecord(r.id), actor);
     });
   }
 
@@ -1045,6 +1083,7 @@ export class SpaceObject extends DurableObject<Env> {
   private readValues(fields: FieldRow[], input: Record<string, unknown>) {
     const values: Record<string, StoredValue> = {};
     const links = new Map<string, string[]>();
+    const answers = new Map<string, StoredValue>();
     for (const [k, raw] of Object.entries(input)) {
       const f = this.matchField(fields, k);
       if (f.type === "link") {
@@ -1061,11 +1100,52 @@ export class SpaceObject extends DurableObject<Env> {
             return this.resolveRecord(f, v);
           }),
         );
+      } else if (toField(f).options.personal) {
+        answers.set(f.id, normalizeValue(toField(f), raw));
       } else {
         values[f.id] = normalizeValue(toField(f), raw);
       }
     }
-    return { values, links };
+    return { values, links, answers };
+  }
+
+  /** The person's own answers to personal fields (null clears theirs). */
+  private saveAnswers(actor: Actor, recordId: string, answers: Map<string, StoredValue>, ts: string) {
+    if (!answers.size) return;
+    if (!actor.userId) throw new ObjectError("forbidden", "Sign in to give your own answer");
+    for (const [fieldId, v] of answers) {
+      if (v === null || v === undefined)
+        this.sql.exec(
+          `delete from answers where record_id = ? and field_id = ? and user_id = ?`,
+          recordId,
+          fieldId,
+          actor.userId,
+        );
+      else
+        this.sql.exec(
+          `insert into answers (record_id, field_id, user_id, value_json, updated_at) values (?, ?, ?, ?, ?)
+           on conflict (record_id, field_id, user_id) do update set value_json = excluded.value_json, updated_at = excluded.updated_at`,
+          recordId,
+          fieldId,
+          actor.userId,
+          JSON.stringify(v),
+          ts,
+        );
+    }
+  }
+
+  /** Names of everyone who can answer: the space's people and people in its shares. */
+  private personNames(): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const r of this.sql
+      .exec<{ user_id: string; name: string }>(`select user_id, name from share_people`)
+      .toArray())
+      out.set(r.user_id, r.name);
+    for (const r of this.sql
+      .exec<{ user_id: string; name: string }>(`select user_id, name from members`)
+      .toArray())
+      out.set(r.user_id, r.name);
+    return out;
   }
 
   private saveRecord(
@@ -1196,13 +1276,47 @@ export class SpaceObject extends DurableObject<Env> {
     return Array.from({ length: count }, (_, i) => lo + step * (i + 1));
   }
 
-  private recordView(r: RecordRow): RecordView {
+  /**
+   * A record as the space's people see it. Personal fields show the asking person's own answer
+   * in `values`, and everyone's in `answers`.
+   */
+  private recordView(r: RecordRow, actor?: Actor): RecordView {
     const fields = this.fieldRows(r.collection_id);
     const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
     const live: Record<string, StoredValue> = {};
     const named: Record<string, string | string[] | null> = {};
     const links: Record<string, LinkedRef[]> = {};
+    const personal = fields.filter((f) => toField(f).options.personal);
+    let answers: RecordView["answers"];
+    if (personal.length) {
+      const rows = this.sql
+        .exec<{ field_id: string; user_id: string; value_json: string }>(
+          `select field_id, user_id, value_json from answers where record_id = ? order by updated_at`,
+          r.id,
+        )
+        .toArray();
+      const names = rows.length ? this.personNames() : new Map<string, string>();
+      answers = {};
+      for (const f of personal) {
+        const mine = rows.find((a) => a.field_id === f.id && a.user_id === actor?.userId);
+        const v = mine ? (JSON.parse(mine.value_json) as StoredValue) : null;
+        live[f.id] = v;
+        named[f.name] = displayValue(f.type, v);
+        answers[f.id] = rows
+          .filter((a) => a.field_id === f.id)
+          .map((a) => {
+            const value = JSON.parse(a.value_json) as StoredValue;
+            return {
+              user_id: a.user_id,
+              name: names.get(a.user_id) ?? "Someone",
+              value,
+              display: displayValue(f.type, value),
+            };
+          });
+      }
+    }
     for (const f of fields) {
+      if (toField(f).options.personal) continue;
       if (f.type === "link") {
         const refs = this.sql
           .exec<{ id: string; collection_id: string; title: string }>(
@@ -1227,6 +1341,7 @@ export class SpaceObject extends DurableObject<Env> {
       values: live,
       named,
       links,
+      ...(answers ? { answers } : {}),
       created_at: r.created_at,
       updated_at: r.updated_at,
       version: r.version,
@@ -1249,7 +1364,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.role(actor);
     const c = this.requireCollection(collection);
     const { rows, next_cursor } = this.findRows(actor, c, q);
-    return { items: rows.map((r) => this.recordView(r)), next_cursor };
+    return { items: rows.map((r) => this.recordView(r, actor)), next_cursor };
   }
 
   /** The find itself, without the role check (shares check their own access first). */
@@ -1285,6 +1400,8 @@ export class SpaceObject extends DurableObject<Env> {
     let order = `r.created_at desc, r.id desc`;
     if (q.sort) {
       const f = this.matchField(fields, q.sort.field);
+      if (toField(f).options.personal)
+        throw new ObjectError("validation_failed", `${f.name} is a personal answer; it can't be sorted yet`);
       const dir = q.sort.dir === "desc" ? "desc" : "asc";
       if (f.id === c.title_field_id) order = `r.title_key ${dir}, r.id`;
       else {
@@ -1310,6 +1427,8 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   private filterClause(f: FieldRow, flt: Filter, actor: Actor): [string, unknown[]] {
+    if (toField(f).options.personal)
+      throw new ObjectError("validation_failed", `${f.name} is a personal answer; it can't be filtered yet`);
     const op = flt.op;
     const sub = (cond: string) =>
       `r.id in (select record_id from record_values where field_id = ? and ${cond})`;
@@ -1857,10 +1976,19 @@ export class SpaceObject extends DurableObject<Env> {
         if (!this.sharedRecordIds(s, actor, [recordId]).length)
           throw new ObjectError("not_found", "Record not found");
         const r = this.requireRecord(recordId);
-        this.changeRecord(actor, ts, r, { values: this.sharedValues(s, r.collection_id, values) });
+        const shared = this.sharedValues(s, r.collection_id, values);
+        // Without edit access, people may still give their own personal answers.
+        if (s.access !== "edit") {
+          const fields = this.fieldRows(r.collection_id);
+          const others = Object.keys(shared).filter(
+            (id) => !toField(fields.find((f) => f.id === id)!).options.personal,
+          );
+          if (others.length) throw new ObjectError("forbidden", "This is shared with you to view only");
+        }
+        this.changeRecord(actor, ts, r, { values: shared });
         return this.opened(s, actor);
       },
-      () => (s = this.editableShare(actor, shareId)),
+      () => (s = this.joinedShare(actor, shareId)),
     );
   }
 
@@ -2041,16 +2169,10 @@ export class SpaceObject extends DurableObject<Env> {
     return s;
   }
 
-  private editableShare(actor: Actor, shareId: string): ShareRow {
-    const s = this.joinedShare(actor, shareId);
-    if (s.access !== "edit") throw new ObjectError("forbidden", "This is shared with you to view only");
-    return s;
-  }
-
   /** Which of these records the share lets this person reach. */
   private sharedRecordIds(s: ShareRow, actor: Actor, ids: string[]): string[] {
     if (s.kind === "card") {
-      const card = this.cardView(s);
+      const card = this.cardView(s, actor);
       const inCard = new Set([card.record.id, ...card.sections.flatMap((x) => x.records.map((r) => r.id))]);
       return ids.filter((id) => inCard.has(id));
     }
@@ -2215,25 +2337,44 @@ export class SpaceObject extends DurableObject<Env> {
     return this.fieldRows(collectionId).filter((f) => f.type !== "link" && !hidden.has(f.id));
   }
 
-  private fieldInfo(fields: FieldRow[], editable: boolean): SharedFieldInfo[] {
-    return fields.map((g) => ({
-      id: g.id,
-      name: g.name,
-      type: g.type,
-      options: toField(g).options,
-      editable,
-      required: !!g.required,
-    }));
+  /** Personal answers are everyone's own to give, whatever the share's access (signed in only). */
+  private fieldInfo(fields: FieldRow[], editable: boolean, actor: Actor): SharedFieldInfo[] {
+    return fields.map((g) => {
+      const personal = !!toField(g).options.personal;
+      return {
+        id: g.id,
+        name: g.name,
+        type: g.type,
+        options: toField(g).options,
+        editable: personal ? !!actor.userId : editable,
+        required: !!g.required,
+        personal,
+      };
+    });
   }
 
-  private sharedRecord(r: RecordRow, fields: FieldRow[], editable: boolean): SharedRecord {
+  private sharedRecord(r: RecordRow, fields: FieldRow[], editable: boolean, actor: Actor): SharedRecord {
     const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
     const titleId = this.requireCollection(r.collection_id).title_field_id;
+    const mine = actor.userId
+      ? new Map(
+          this.sql
+            .exec<{ field_id: string; value_json: string }>(
+              `select field_id, value_json from answers where record_id = ? and user_id = ?`,
+              r.id,
+              actor.userId,
+            )
+            .toArray()
+            .map((a) => [a.field_id, JSON.parse(a.value_json) as StoredValue]),
+        )
+      : new Map<string, StoredValue>();
     return {
       id: r.id,
       title: r.title,
       fields: fields.map((f) => {
-        const v = values[f.id] ?? null;
+        const personal = !!toField(f).options.personal;
+        // A personal field shows only the person's own answer, never anyone else's.
+        const v = personal ? (mine.get(f.id) ?? null) : (values[f.id] ?? null);
         return {
           id: f.id,
           name: f.name,
@@ -2241,15 +2382,16 @@ export class SpaceObject extends DurableObject<Env> {
           options: toField(f).options,
           value: v,
           display: displayValue(f.type, v),
-          editable,
+          editable: personal ? !!actor.userId : editable,
           title: f.id === titleId,
+          personal,
         };
       }),
     };
   }
 
   private opened(s: ShareRow, actor: Actor, cursor?: string): SharedOpened {
-    if (s.kind === "card") return this.cardView(s);
+    if (s.kind === "card") return this.cardView(s, actor);
     const c = this.shareCollection(s);
     const head = { id: s.id, title: this.shareTitle(s), access: s.access, owner: this.ownerName() };
     if (s.kind === "view") {
@@ -2267,9 +2409,9 @@ export class SpaceObject extends DurableObject<Env> {
       return {
         share: { ...head, kind: "view" },
         collection: c.name,
-        fields: this.fieldInfo(fields, edit),
+        fields: this.fieldInfo(fields, edit, actor),
         can_add: edit,
-        records: rows.map((r) => this.sharedRecord(r, fields, edit)),
+        records: rows.map((r) => this.sharedRecord(r, fields, edit, actor)),
         next_cursor,
       };
     }
@@ -2288,12 +2430,12 @@ export class SpaceObject extends DurableObject<Env> {
       share: { ...head, kind: "form" },
       collection: c.name,
       description: c.description,
-      fields: this.fieldInfo(fields, true),
-      mine: mine.map((r) => this.sharedRecord(r, fields, s.access === "edit")),
+      fields: this.fieldInfo(fields, true, actor),
+      mine: mine.map((r) => this.sharedRecord(r, fields, s.access === "edit", actor)),
     };
   }
 
-  private cardView(s: ShareRow): SharedCardView {
+  private cardView(s: ShareRow, actor: Actor): SharedCardView {
     const edit = s.access === "edit";
     const card = this.liveRecord(s.target_id);
     if (!card) throw new ObjectError("not_found", "Share not found");
@@ -2319,8 +2461,8 @@ export class SpaceObject extends DurableObject<Env> {
           title: f.name,
           collection_id: target ?? "",
           can_add: false,
-          fields: this.fieldInfo(fields, edit),
-          records: rows.map((r) => this.sharedRecord(r, target ? fields : [], edit)),
+          fields: this.fieldInfo(fields, edit, actor),
+          records: rows.map((r) => this.sharedRecord(r, target ? fields : [], edit, actor)),
         });
       } else {
         const fields = this.sharedFields(s, f.collection_id);
@@ -2338,14 +2480,14 @@ export class SpaceObject extends DurableObject<Env> {
           title: this.requireCollection(f.collection_id).name,
           collection_id: f.collection_id,
           can_add: edit,
-          fields: this.fieldInfo(fields, edit),
-          records: rows.map((r) => this.sharedRecord(r, fields, edit)),
+          fields: this.fieldInfo(fields, edit, actor),
+          records: rows.map((r) => this.sharedRecord(r, fields, edit, actor)),
         });
       }
     }
     return {
       share: { id: s.id, kind: "card", title: card.title, access: s.access, owner: this.ownerName() },
-      record: this.sharedRecord(card, cardFields, edit),
+      record: this.sharedRecord(card, cardFields, edit, actor),
       sections,
     };
   }
@@ -2566,7 +2708,7 @@ export class SpaceObject extends DurableObject<Env> {
       const r = this.sql
         .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
         .toArray()[0];
-      return r ? [this.recordView(r)] : [];
+      return r ? [this.recordView(r, actor)] : [];
     });
     out.collections = ids("collection").flatMap((id) => {
       const c = this.sql

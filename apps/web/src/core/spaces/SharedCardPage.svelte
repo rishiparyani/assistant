@@ -171,6 +171,18 @@
       <Button variant="ghost" onclick={leave} aria-label="Leave">
         {#snippet icon()}<LogOut />{/snippet}
       </Button>
+      {#if !canEdit && card && card.record.fields.some((f) => f.personal && f.editable)}
+        <Button
+          variant="primary"
+          onclick={() =>
+            edit(
+              infoOf(card.record).filter((f) => f.personal),
+              card.record,
+            )}
+        >
+          Answer
+        </Button>
+      {/if}
       {#if canEdit && card}
         <Button variant="primary" onclick={() => edit(infoOf(card.record), card.record)}>
           {#snippet icon()}<Pencil />{/snippet}
@@ -220,7 +232,7 @@
               <p>{f.value}</p>
             </div>
           {:else}
-            <ListRow title={f.name} chevron={false}>
+            <ListRow title={f.personal ? `${f.name} (your answer)` : f.name} chevron={false}>
               {#snippet trailing()}<span class="value">{showValue(f, f.value)}</span>{/snippet}
             </ListRow>
           {/if}
@@ -245,6 +257,16 @@
           {#each s.records as r (r.id)}
             {#if canEdit && s.fields.length}
               <ListRow title={r.title} subtitle={summary(r) || undefined} onclick={() => edit(s.fields, r)} />
+            {:else if s.fields.some((f) => f.personal && f.editable)}
+              <ListRow
+                title={r.title}
+                subtitle={summary(r) || undefined}
+                onclick={() =>
+                  edit(
+                    s.fields.filter((f) => f.personal),
+                    r,
+                  )}
+              />
             {:else}
               <ListRow title={r.title} subtitle={summary(r) || undefined} chevron={false} />
             {/if}
