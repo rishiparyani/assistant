@@ -38,9 +38,10 @@
 
 <PageHeader title="Workflows">
   {#snippet actions()}
-    <Button variant="primary" onclick={() => (building = true)}>
+    <!-- Assistant first: ask in the chat; the builder stays for offline and no-AI days. -->
+    <Button variant="ghost" onclick={() => (building = true)}>
       {#snippet icon()}<Plus />{/snippet}
-      New
+      By hand
     </Button>
   {/snippet}
 </PageHeader>
@@ -54,7 +55,7 @@
 {:else if !list.data.length}
   <EmptyState
     title="No workflows yet"
-    text="Tap New, or ask the assistant, e.g. “tell me when an expense is over ₹5,000”."
+    text="Ask the assistant, e.g. “tell me when an expense is over ₹5,000”. It shows you the workflow as a diagram before anything runs."
   />
 {:else}
   <ul class="grid">

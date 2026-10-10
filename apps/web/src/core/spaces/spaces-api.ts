@@ -20,6 +20,7 @@ import {
   type Period,
   type RecordView,
   type SpaceView,
+  type StarterKind,
   type StoredValue,
 } from "@assistant/shared";
 import { request } from "../api.ts";
@@ -141,6 +142,8 @@ export const spacesApi = {
   // online-only: a new setup needs the server (names are checked across the space).
   createCollection: (body: { name: string; description?: string | null; fields: FieldSpec[] }) =>
     request<CollectionView>("POST", "/api/collections", body),
+  // online-only: a new list is made on the server (names are checked across the space).
+  startList: (kind: StarterKind) => request<CollectionView>("POST", "/api/lists/start", { kind }),
   // online-only: changing a setup needs the server.
   updateCollection: (ref: string, body: { name?: string; description?: string | null }) =>
     request<CollectionView>("PATCH", `/api/collections/${enc(ref)}`, body),

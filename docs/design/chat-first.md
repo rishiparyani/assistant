@@ -26,7 +26,7 @@ The mockup's style replaces the single indigo: a colour per kind of card (lists 
 
 The tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports, and their pages) are **removed in step 1**, not kept behind links (owner, 2026-10-10: "I want to see the app as is from scratch"; the old gig and song screens were never used, so nothing real becomes unreachable). Their data stays; the server code for gigs and music stays until step 8 replaces it. Shared-with-you, join and public link pages, settings, help and admin stay.
 
-**Everything still works without the assistant** (and offline): from step 1 the side menu lists **Your lists** (every collection, opening as a pop-up with its records and **Add**), the message box has **+** (add to any list), and a record opens full screen as a card (edit, share, comments). Each later step keeps a tap path for what it adds.
+**Assistant first, by hand as the fallback** (owner's decision 2026-10-10, "Assistant first"): nobody starts with preset lists; the assistant starts lists and fields on the spot and shows them as cards, and makes workflows, rules and setups from what you say. The by-hand builders stay behind small **Edit by hand** links so everything still works without the assistant (and offline): from step 1 the side menu lists **Your lists** (every collection, opening as a pop-up with its records and **Add**), the message box has **+** (add to any list), and a record opens full screen as a card (edit, share, comments). Each later step keeps a tap path for what it adds.
 
 ## 5. Build order
 

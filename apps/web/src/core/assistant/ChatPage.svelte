@@ -55,7 +55,7 @@
 
   const addActions = $derived([
     { label: "Ask people…", onclick: () => (asking = true) },
-    { label: "New workflow…", onclick: () => navigate("/workflows?new=1") },
+    { label: "Workflow by hand…", onclick: () => navigate("/workflows?new=1") },
     ...(collections.data ?? []).map((c) => ({
       label: c.name,
       onclick: () => {
