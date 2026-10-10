@@ -202,6 +202,10 @@ const MIGRATIONS: Migrations = [
     primary key (share_id, day)
   ) without rowid;
   `,
+  // A person's own records (shared forms list "what I sent").
+  `
+  create index records_creator_idx on records (collection_id, created_by, deleted_at, created_at);
+  `,
 ];
 
 type ViewQuery = {
@@ -1613,6 +1617,19 @@ export class SpaceObject extends DurableObject<Env> {
         }
       }
       const hidden = this.resolveHidden(c, include, input.hide);
+      // A form must be fillable: every required field shown, and none of them a link.
+      if (input.kind === "form") {
+        const blocked = this.fieldRows(c.id).filter(
+          (f) => f.required && (f.type === "link" || hidden.includes(f.id)),
+        );
+        if (blocked.length)
+          throw new ObjectError(
+            "validation_failed",
+            `People can't fill in ${blocked.map((f) => f.name).join(", ")} on a form (required${
+              blocked.some((f) => f.type === "link") ? "; links can't be shared" : ", but hidden"
+            }). Show it, or make it optional first.`,
+          );
+      }
       // Link-only views are to look at; editing needs a name in the history.
       const access = input.public && input.kind === "view" ? "view" : input.access;
       const id = ulid();
@@ -1884,7 +1901,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
         if (include && "from_field" in include)
           collectionId = this.liveField(include.from_field)?.collection_id;
-      }
+      } else if (target.section === s.kind && s.kind !== "card") collectionId = this.shareCollection(s).id;
     } catch {
       // Not shared with them: the write itself says so.
       return false;

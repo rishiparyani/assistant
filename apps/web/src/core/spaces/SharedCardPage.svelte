@@ -51,6 +51,33 @@
   const filled = $derived(card?.record.fields.filter((f) => !f.title && showValue(f, f.value)) ?? []);
   // Sections to list: a card's linked parts, or a view's records as one section.
   type Section = SharedCardView["sections"][number];
+  // A view's later pages, added below the first.
+  let extra = $state<SharedRecord[]>([]);
+  let cursor = $state<string | null>(null);
+  let loadingMore = $state(false);
+  $effect(() => {
+    cursor =
+      opened?.share.kind === "view"
+        ? (opened as Extract<SharedOpened, { next_cursor: string | null }>).next_cursor
+        : null;
+    extra = [];
+  });
+  async function more() {
+    if (!cursor) return;
+    loadingMore = true;
+    try {
+      const next = (await sharesApi.open(shareId, cursor)) as Extract<
+        SharedOpened,
+        { next_cursor: string | null }
+      >;
+      extra = [...extra, ...next.records];
+      cursor = next.next_cursor;
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      loadingMore = false;
+    }
+  }
   const sections = $derived.by<Section[]>(() => {
     if (!opened) return [];
     if (opened.share.kind === "card") return (opened as SharedCardView).sections;
@@ -63,7 +90,7 @@
           collection_id: "",
           can_add: v.can_add,
           fields: v.fields,
-          records: v.records,
+          records: [...v.records, ...extra.filter((r) => !v.records.some((x) => x.id === r.id))],
         },
       ];
     }
@@ -226,6 +253,9 @@
         </ListGroup>
       </section>
     {/each}
+    {#if cursor}
+      <div><Button onclick={more} loading={loadingMore}>Show more</Button></div>
+    {/if}
   </div>
 
   {#if sheet}

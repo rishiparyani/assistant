@@ -257,6 +257,20 @@ describe("sharing views and forms", () => {
     expect((await json<SharedFormView>(await api(b)(`/cards/${share.id}`))).mine).toEqual([]);
     const guests = await json<FindResult>(await api(owner)("/collections/Guests/find", { body: {} }));
     expect(guests.items.map((r) => r.title)).toContain("Test Asha's friend");
+    // A form whose required fields people can't fill in isn't made.
+    await api(owner)("/collections", {
+      body: {
+        name: "Claims",
+        fields: [
+          { name: "What", type: "text" },
+          { name: "Amount", type: "money", required: true },
+        ],
+      },
+    });
+    expect((await api(owner)("/shares", { body: { form: "Claims", hide_fields: ["Amount"] } })).status).toBe(
+      400,
+    );
+    expect((await api(owner)("/shares", { body: { form: "Claims" } })).status).toBe(201);
     // Hidden fields can't be filled in.
     expect(
       (
