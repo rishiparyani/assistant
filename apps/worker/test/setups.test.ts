@@ -106,4 +106,47 @@ describe("setups", () => {
     expect(cols.map((c) => c.name)).not.toContain("Songs");
     expect(cols.map((c) => c.name)).not.toContain("Sign-ups");
   });
+
+  it("adds calculated fields in the order their parts exist", async () => {
+    const me = await signUp("Test Owner");
+    // A rollup of a formula on another list (invoice total of line totals).
+    const res = await api(me)("/setups", {
+      body: {
+        name: "Test invoices",
+        collections: [
+          {
+            name: "Invoices",
+            fields: [
+              { name: "Title", type: "text" },
+              {
+                name: "Total",
+                type: "money",
+                options: { rollup: { via: "Line items", fn: "sum", of: "Line total" } },
+              },
+            ],
+          },
+          {
+            name: "Line items",
+            fields: [
+              { name: "What", type: "text" },
+              { name: "Price", type: "money" },
+              { name: "Qty", type: "number" },
+              { name: "Line total", type: "money", options: { formula: "{Price} * {Qty}" } },
+              { name: "Invoice", type: "link", options: { target: "Invoices" } },
+            ],
+          },
+        ],
+      },
+    });
+    expect(res.status).toBe(201);
+    const inv = await json<RecordView>(
+      await api(me)("/collections/Invoices/records", { body: { values: { Title: "Test invoice" } } }),
+    );
+    await api(me)("/collections/Line items/records", {
+      body: { values: { What: "Test strings", Price: "500", Qty: 3, Invoice: inv.id } },
+    });
+    expect((await json<RecordView>(await api(me)(`/records/${inv.id}`))).named).toMatchObject({
+      Total: "₹1,500",
+    });
+  });
 });

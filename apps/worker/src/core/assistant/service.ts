@@ -749,6 +749,8 @@ export async function confirmAction(
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     note = `Done: ${a.title}.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
+    // A whole setup is the end of setting up: everyday chat (and the everyday model) again.
+    if (a.tool === "make_setup") await chat.setupInProgress(uid, false);
   } catch (e) {
     const msg = (JSON.parse(errorText(e)) as { error: string }).error;
     await chat.finishAction(uid, a.id, "failed", msg);
@@ -765,6 +767,7 @@ export async function cancelAction(ctx: OpUserCtx, actionId: string, chatId = MA
   const chat = await useChat(ctx, chatId);
   const a = await chat.takeAction(ctx.user.id, actionId);
   await chat.finishAction(ctx.user.id, a.id, "cancelled", null);
+  if (a.tool === "make_setup") await chat.setupInProgress(ctx.user.id, false);
   await chat.append(ctx.user.id, [{ role: "assistant", content: `Cancelled: ${a.title}.`, shown: "note" }]);
   return chatView(ctx, chatId);
 }

@@ -752,8 +752,8 @@ export class SpaceObject extends DurableObject<Env> {
 
   /**
    * A whole setup in one write (chat-first step 6): the new collections with their plain
-   * fields first, then their links (which may point at each other), then rollups (they need
-   * the links) and formulas, then rules and views. If any part is wrong, nothing is made.
+   * fields first, then their links (which may point at each other), then calculated fields in
+   * the order their parts exist, then rules and views. If any part is wrong, nothing is made.
    */
   async makeSetup(
     actor: Actor,
@@ -775,11 +775,29 @@ export class SpaceObject extends DurableObject<Env> {
           ts,
         ),
       );
-      for (const pass of [isLink, isRollup, isFormula])
-        input.collections.forEach((c, i) => {
-          const id = ids[i]!;
-          for (const f of c.fields.filter(pass)) this.insertField(id, f, this.fieldRows(id).length, ts);
-        });
+      input.collections.forEach((c, i) => {
+        const id = ids[i]!;
+        for (const f of c.fields.filter(isLink)) this.insertField(id, f, this.fieldRows(id).length, ts);
+      });
+      // Calculated fields may use each other across lists (a rollup of a formula, a formula of
+      // a rollup): add the ones whose parts exist, round by round, until none are left.
+      let pending = input.collections.flatMap((c, i) =>
+        c.fields.filter((f) => isRollup(f) || isFormula(f)).map((f) => ({ id: ids[i]!, f })),
+      );
+      while (pending.length) {
+        const left: typeof pending = [];
+        let last: unknown = null;
+        for (const p of pending)
+          try {
+            this.insertField(p.id, p.f, this.fieldRows(p.id).length, ts);
+          } catch (e) {
+            if (!(e instanceof ObjectError)) throw e;
+            left.push(p);
+            last = e;
+          }
+        if (left.length === pending.length) throw last;
+        pending = left;
+      }
       // Fields in the order the setup gave them (an added Title stays first).
       input.collections.forEach((c, i) => {
         const rows = this.fieldRows(ids[i]!);
