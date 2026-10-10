@@ -11,12 +11,18 @@
   let missing = $state(false);
 
   $effect(() => {
+    // Only while this page is still open: leaving it first cancels the jump.
+    let open = true;
     const go = (views: SavedView[]) => {
+      if (!open) return;
       const v = views.find((x) => nameKey(x.name) === nameKey(name));
       if (v) navigate(`/c/${v.collection_id}?view=${encodeURIComponent(v.id)}`, { replace: true });
       else missing = true;
     };
     spacesApi.views().then(go, () => go(readCache<SavedView[]>(VIEWS_KEY) ?? []));
+    return () => {
+      open = false;
+    };
   });
 </script>
 

@@ -28,7 +28,8 @@ private func query(_ value: String) -> String {
 }
 
 /// "Ask Gigspree…": a question, or something to save ("I paid Rahul ₹5,000 for Sunburn").
-/// The assistant works out what it is; money and deletes still wait for a tap on their card.
+/// It opens the chat with the message filled in; the person taps Send (a link alone never
+/// makes the assistant act), and money and deletes still wait for a tap on their card.
 @available(iOS 16.0, *)
 struct AskGigspreeIntent: AppIntent {
     static var title: LocalizedStringResource = "Ask Gigspree"
@@ -41,7 +42,7 @@ struct AskGigspreeIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        AppRoute.shared.open("/?ask=\(query(message))&send=1")
+        AppRoute.shared.open("/?ask=\(query(message))")
         return .result()
     }
 }
@@ -60,7 +61,7 @@ struct AddToGigspreeIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult {
-        AppRoute.shared.open("/?ask=\(query(text))&send=1")
+        AppRoute.shared.open("/?ask=\(query(text))")
         return .result()
     }
 }
