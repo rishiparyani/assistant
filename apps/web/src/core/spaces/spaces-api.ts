@@ -2,6 +2,7 @@
 // record changes that work offline. No logic here beyond showing a waiting change: values
 // are checked with the same shared rules the server uses (`normalizeValue`).
 import {
+  formulaValues,
   displayValue,
   formatDateIST,
   formatDateTimeIST,
@@ -378,6 +379,9 @@ function myAnswers(r: RecordView, a: Args): RecordView["answers"] {
 
 function changed(r: RecordView, a: Args, c: Change): RecordView {
   const values = { ...r.values, ...a.values };
+  // Formulas follow at once, worked out the same way the server will (rollups wait for sync).
+  const fields = savedCollections()?.find((x) => x.id === r.collection_id)?.fields ?? [];
+  Object.assign(values, formulaValues(fields, values));
   for (const [k, v] of Object.entries(values)) if (v === null) delete values[k];
   const title = values[a.title_field_id];
   return {

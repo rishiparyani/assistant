@@ -126,4 +126,73 @@ describe("calculated fields", () => {
       (await add({ name: "Of formula", type: "money", options: { formula: "{Balance} + 1" } })).status,
     ).toBe(400);
   });
+
+  it("works out new formulas for records already there, by name or alias", async () => {
+    const me = await signUp("Test Owner");
+    const { read } = await gigsWithPayments(me);
+    // Fee also answers to "Price"; a new formula using the alias is filled in for the gig at once.
+    await api(me)("/collections/Gigs/fields/Fee", { method: "PATCH", body: { aliases: ["Price"] } });
+    expect(
+      (
+        await api(me)("/collections/Gigs/fields", {
+          body: { field: { name: "Double", type: "money", options: { formula: "{Price} * 2" } } },
+        })
+      ).status,
+    ).toBe(201);
+    expect((await read()).named).toMatchObject({ Double: "₹1,00,000" });
+    // A required field can't become calculated (nobody could fill it in).
+    await api(me)("/collections/Gigs/fields", { body: { field: { name: "Deposit", type: "money" } } });
+    await api(me)("/collections/Gigs/fields/Deposit", { method: "PATCH", body: { required: true } });
+    expect(
+      (
+        await api(me)("/collections/Gigs/fields/Deposit", {
+          method: "PATCH",
+          body: { options: { formula: "{Fee} / 2" } },
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  it("keeps rules on records whose rollups a linked record moves", async () => {
+    const me = await signUp("Test Owner");
+    const { pay, read } = await gigsWithPayments(me);
+    expect(
+      (
+        await api(me)("/collections/Gigs/rules", {
+          body: { kind: "check", require: [{ field: "Balance", op: "gte", value: "0" }] },
+        })
+      ).status,
+    ).toBe(201);
+    await pay("Test advance", "20000");
+    // Paying more than the fee would make the gig's Balance negative: the payment is refused.
+    const over = await api(me)("/collections/Payments/records", {
+      body: { values: { Title: "Test too much", Amount: "40000", Gig: (await read()).id } },
+    });
+    expect(over.status).toBe(400);
+    expect((await read()).named).toMatchObject({ Paid: "₹20,000", Balance: "₹30,000" });
+  });
+
+  it("wakes workflows that watch a calculated value, on the record a payment changes", async () => {
+    const me = await signUp("Test Owner");
+    const { pay } = await gigsWithPayments(me);
+    const wf = await api(me)("/workflows", {
+      body: {
+        name: "Balance moved",
+        when: { event: "changed", collection: "Gigs", field: "Balance" },
+        then: [{ do: "notify", text: "Balance now {Balance}", to: ["me"] }],
+        enabled: true,
+      },
+    });
+    expect(wf.status).toBe(201);
+    await pay("Test advance", "20000");
+    const end = Date.now() + 8000;
+    let seen = false;
+    while (!seen && Date.now() < end) {
+      const items = (await json<{ items: { body: string | null }[] }>(await api(me)("/me/notifications")))
+        .items;
+      seen = items.some((n) => n.body === "Balance now ₹30,000");
+      if (!seen) await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(seen).toBe(true);
+  });
 });

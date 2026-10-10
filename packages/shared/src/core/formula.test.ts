@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { FormulaError, evalFormula, formulaFields, parseFormula, type FormulaValue } from "./formula.ts";
+import {
+  FormulaError,
+  evalFormula,
+  formulaFields,
+  formulaValues,
+  parseFormula,
+  type FormulaValue,
+} from "./formula.ts";
 
 const vals: Record<string, FormulaValue> = {
   Fee: { t: "money", v: 5_000_000 },
@@ -25,5 +32,16 @@ describe("formulas", () => {
       expect(() => parseFormula(bad)).toThrow(FormulaError);
     expect(() => run("{Fee} * {Paid}")).toThrow(FormulaError);
     expect(() => run("{Date} + {Date}")).toThrow(FormulaError);
+  });
+
+  it("works out every formula field from stored values", () => {
+    const fields = [
+      { id: "f1", name: "Fee", type: "money", aliases: ["Price"], options: {} },
+      { id: "f2", name: "Half", type: "money", options: { formula: "{Price} / 2" } },
+      { id: "f3", name: "Later", type: "date", options: { formula: "{Day} + 7" } },
+      { id: "f4", name: "Day", type: "date", options: {} },
+    ];
+    expect(formulaValues(fields, { f1: 5000, f4: "2026-12-12" })).toEqual({ f2: 2500, f3: "2026-12-19" });
+    expect(formulaValues(fields, {})).toEqual({ f2: null, f3: null });
   });
 });

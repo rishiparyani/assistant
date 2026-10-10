@@ -151,3 +151,58 @@ export function evalFormula(n: FormulaNode, get: (name: string) => FormulaValue)
       return bad();
   }
 }
+
+type FormulaField = {
+  id: string;
+  name: string;
+  type: string;
+  aliases?: string[];
+  options: { formula?: string | null };
+};
+const key = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+
+/**
+ * Every formula field's value from a record's stored values (null when it can't be worked
+ * out), the same on the server and in the app's offline overlay. Fields are found by name or
+ * alias; formulas don't use other formulas, so the order doesn't matter.
+ */
+export function formulaValues(
+  fields: FormulaField[],
+  values: Record<string, unknown>,
+): Record<string, number | string | null> {
+  const asValue = (f: FormulaField): FormulaValue => {
+    const v = values[f.id];
+    if (v === null || v === undefined) return null;
+    if (f.type === "number" && typeof v === "number") return { t: "num", v };
+    if (f.type === "money" && typeof v === "number") return { t: "money", v };
+    if ((f.type === "date" || f.type === "datetime") && typeof v === "string") {
+      const ms = Date.parse(`${v.slice(0, 10)}T00:00:00Z`);
+      return Number.isNaN(ms) ? null : { t: "date", v: ms };
+    }
+    return null;
+  };
+  const find = (name: string) =>
+    fields.find((x) => key(x.name) === key(name)) ??
+    fields.find((x) => (x.aliases ?? []).some((a) => key(a) === key(name)));
+  const out: Record<string, number | string | null> = {};
+  for (const f of fields) {
+    if (!f.options.formula) continue;
+    try {
+      const r = evalFormula(parseFormula(f.options.formula), (name) => {
+        const g = find(name);
+        return g ? asValue(g) : null;
+      });
+      out[f.id] =
+        r === null
+          ? null
+          : r.t === "date"
+            ? new Date(r.v).toISOString().slice(0, 10)
+            : r.t === "money"
+              ? Math.round(r.v)
+              : Math.round(r.v * 1000) / 1000;
+    } catch {
+      out[f.id] = null;
+    }
+  }
+  return out;
+}

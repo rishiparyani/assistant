@@ -27,6 +27,7 @@ import {
   type OpenedView,
   type RecordView,
   type SavedView,
+  formulaValues,
   type RuleFilter,
   type ShareAccess,
   type ShareInclude,
@@ -1018,37 +1019,13 @@ export class SpaceObject extends DurableObject<Env> {
         next[f.id] = f.type === "date" && typeof v === "string" ? v.slice(0, 10) : v;
       }
     }
-    const asValue = (f: FieldRow): FormulaValue => {
-      const v = next[f.id];
-      if (v === null || v === undefined) return null;
-      if (f.type === "number" && typeof v === "number") return { t: "num", v };
-      if (f.type === "money" && typeof v === "number") return { t: "money", v };
-      if ((f.type === "date" || f.type === "datetime") && typeof v === "string") {
-        const ms = Date.parse(`${v.slice(0, 10)}T00:00:00Z`);
-        return Number.isNaN(ms) ? null : { t: "date", v: ms };
-      }
-      return null;
-    };
-    for (const f of computed) {
-      const formula = toField(f).options.formula;
-      if (!formula) continue;
-      try {
-        const out = evalFormula(parseFormula(formula), (name) => {
-          const g = fields.find((x) => x.name_key === nameKey(name));
-          return g ? asValue(g) : null;
-        });
-        next[f.id] =
-          out === null
-            ? null
-            : out.t === "date"
-              ? new Date(out.v).toISOString().slice(0, 10)
-              : out.t === "money"
-                ? Math.round(out.v)
-                : Math.round(out.v * 1000) / 1000;
-      } catch {
-        next[f.id] = null;
-      }
-    }
+    Object.assign(
+      next,
+      formulaValues(
+        fields.map((f) => toField(f)),
+        next,
+      ),
+    );
     if (computed.every((f) => JSON.stringify(next[f.id] ?? null) === JSON.stringify(values[f.id] ?? null)))
       return false;
     for (const [k, v] of Object.entries(next)) if (v === null) delete next[k];
@@ -1073,6 +1050,38 @@ export class SpaceObject extends DurableObject<Env> {
   private leftLinks: string[] = [];
 
   /** After a record changed: itself, then every record linked to or from it (and ones it left). */
+  /**
+   * A record whose calculated values may have moved because another record changed: save
+   * them, and treat it as changed (its rules must still hold; its workflows see the change).
+   */
+  private refreshNeighbor(id: string, ts: string) {
+    const r = this.liveRecord(id);
+    if (!r) return;
+    const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    if (!this.recompute(id)) return;
+    this.logChange("record", id, "upsert", ts);
+    const after = this.currentValues(id);
+    const c = this.requireCollection(r.collection_id);
+    this.enforceRules(c, id, before, after);
+    this.queueWorkflows(c.id, id, before, after);
+  }
+
+  /** A new or changed calculated field: work it out for every record already there. */
+  private backfill(collectionId: string, ts: string) {
+    for (let after = ""; ;) {
+      const batch = this.sql
+        .exec<{ id: string }>(
+          `select id from records where collection_id = ? and deleted_at is null and id > ? order by id limit 500`,
+          collectionId,
+          after,
+        )
+        .toArray();
+      for (const r of batch) if (this.recompute(r.id)) this.logChange("record", r.id, "upsert", ts);
+      if (batch.length < 500) break;
+      after = batch[batch.length - 1]!.id;
+    }
+  }
+
   private recomputeAround(recordId: string, alsoIds: Iterable<string> = []) {
     this.recompute(recordId);
     const near = new Set<string>(alsoIds);
@@ -1085,7 +1094,8 @@ export class SpaceObject extends DurableObject<Env> {
       .toArray())
       near.add(row.id);
     near.delete(recordId);
-    for (const id of near) if (this.recompute(id)) this.logChange("record", id, "upsert", nowIso());
+    const ts = nowIso();
+    for (const id of near) this.refreshNeighbor(id, ts);
   }
 
   private typeOptions(type: FieldType, o: FieldOptions & { target?: string | null }): FieldOptions {
@@ -1163,6 +1173,7 @@ export class SpaceObject extends DurableObject<Env> {
           `A collection can have up to ${SPACE_LIMITS.fieldsPerCollection} fields`,
         );
       const id = this.insertField(c.id, field, n, ts);
+      if (field.options?.formula || field.options?.rollup) this.backfill(c.id, ts);
       this.touchCollection(c.id, ts);
       audit(this.sql, actor, { action: "add_field", entityType: "field", entityId: id, after: field });
       return this.collectionView(this.requireCollection(c.id));
@@ -1250,6 +1261,9 @@ export class SpaceObject extends DurableObject<Env> {
       }
       if (options.personal && (input.required ?? !!f.required))
         throw new ObjectError("validation_failed", `${f.name}: a personal answer can't be required`);
+      // Nobody can type a calculated value, so it can't be required either.
+      if ((options.formula || options.rollup) && (input.required ?? !!f.required))
+        throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be required`);
       this.sql.exec(
         `update fields set name = ?, name_key = ?, options_json = ?, required = ?, aliases_json = ?, updated_at = ? where id = ?`,
         input.name?.trim() ?? f.name,
@@ -1260,6 +1274,8 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
         f.id,
       );
+      // A new formula or rollup, or a renamed field a formula may use: work them out again.
+      if (this.computedFields(c.id).length) this.backfill(c.id, ts);
       this.touchCollection(c.id, ts);
       audit(this.sql, actor, {
         action: "update_field",
@@ -1385,7 +1401,8 @@ export class SpaceObject extends DurableObject<Env> {
     this.recomputeAround(id, this.leftLinks.splice(0));
     this.enforceRules(c, id, null, this.currentValues(id));
     this.logChange("record", id, "upsert", ts);
-    this.queueWorkflows(c.id, id, null, values);
+    // Workflows see the stored values, calculated ones included.
+    this.queueWorkflows(c.id, id, null, this.currentValues(id));
     audit(this.sql, actor, {
       action: "add_record",
       entityType: "record",
@@ -1482,7 +1499,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.enforceRules(c, r.id, before, this.currentValues(r.id));
     this.logChange("record", r.id, "upsert", ts);
     // Links and personal answers live apart from the values; they count as a change too.
-    this.queueWorkflows(c.id, r.id, before, merged, links.size > 0 || answers.size > 0);
+    this.queueWorkflows(c.id, r.id, before, this.currentValues(r.id), links.size > 0 || answers.size > 0);
     audit(this.sql, actor, {
       action: "update_record",
       entityType: "record",
@@ -1558,8 +1575,7 @@ export class SpaceObject extends DurableObject<Env> {
       }
     }
     this.sql.exec(`delete from links where from_id = ?`, r.id);
-    for (const id of new Set(near))
-      if (!deleted.includes(id) && this.recompute(id)) this.logChange("record", id, "upsert", ts);
+    for (const id of new Set(near)) if (!deleted.includes(id)) this.refreshNeighbor(id, ts);
   }
 
   async linkRecords(
