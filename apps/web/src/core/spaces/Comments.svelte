@@ -64,7 +64,7 @@
           <div class="meta">
             <strong>{c.mine ? "You" : c.author.name}</strong>
             <span>{formatDateTimeIST(c.created_at)}</span>
-            {#if remove && c.mine}
+            {#if remove && c.can_delete}
               <button type="button" class="del" aria-label="Delete comment" onclick={() => drop(c)}
                 ><Trash size={16} /></button
               >

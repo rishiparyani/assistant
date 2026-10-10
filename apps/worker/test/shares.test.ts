@@ -355,7 +355,22 @@ describe("comments", () => {
       (await api(friend)(`/cards/${share.id}/records/${other.id}/comments`, { body: { body: "Test x" } }))
         .status,
     ).toBe(404);
-    // Only the writer (or the owner) deletes a comment.
+    // The owner may delete any comment here; the friend only their own, through the share.
+    expect(thread.map((c) => c.can_delete)).toEqual([true, true]);
+    const seen = await json<CommentView[]>(
+      await api(friend)(`/cards/${share.id}/records/${show.id}/comments`),
+    );
+    expect(seen.map((c) => c.can_delete)).toEqual([false, true]);
+    expect(
+      (await api(friend)(`/cards/${share.id}/comments/${seen[0]!.id}`, { method: "DELETE" })).status,
+    ).toBe(403);
+    const again = await api(friend)(`/cards/${share.id}/records/${show.id}/comments`, {
+      body: { body: "Test oops" },
+    });
+    const oops = await json<CommentView>(again);
+    expect((await api(friend)(`/cards/${share.id}/comments/${oops.id}`, { method: "DELETE" })).status).toBe(
+      200,
+    );
     const friendComment = thread[1]!;
     expect((await api(owner)(`/comments/${friendComment.id}`, { method: "DELETE" })).status).toBe(200);
     expect(

@@ -2428,6 +2428,42 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
+  /** People in a share delete their own comments on what it reaches. */
+  async deleteSharedComment(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    commentId: string,
+  ): Promise<{ deleted: string }> {
+    let c!: CommentRow;
+    return this.write(
+      actor,
+      key,
+      ["delete_shared_comment", shareId, commentId],
+      (ts) => {
+        this.sql.exec(`update comments set deleted_at = ? where id = ?`, ts, c.id);
+        audit(this.sql, actor, {
+          action: "delete_comment",
+          entityType: "comment",
+          entityId: c.id,
+          before: { body: c.body },
+        });
+        return { deleted: c.id };
+      },
+      () => {
+        const s = this.joinedShare(actor, shareId);
+        const row = this.sql
+          .exec<CommentRow>(`select * from comments where id = ? and deleted_at is null`, commentId)
+          .toArray()[0];
+        if (!row || !this.sharedRecordIds(s, actor, [row.record_id]).length)
+          throw new ObjectError("not_found", "Comment not found");
+        if (row.author_id !== actor.userId)
+          throw new ObjectError("forbidden", "You can delete only your own comments");
+        c = row;
+      },
+    );
+  }
+
   private insertComment(
     actor: Actor,
     name: string,
@@ -2459,24 +2495,36 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
-  private commentList(recordId: string, actor: Actor): CommentView[] {
+  /** The newest 500 comments, oldest first. */
+  private commentList(recordId: string, actor: Actor, owner = this.isOwner(actor)): CommentView[] {
     return this.sql
       .exec<CommentRow>(
-        `select * from comments where record_id = ? and deleted_at is null order by created_at, id limit 500`,
+        `select * from comments where record_id = ? and deleted_at is null order by created_at desc, id desc limit 500`,
         recordId,
       )
       .toArray()
-      .map((c) => this.commentView(c, actor));
+      .reverse()
+      .map((c) => this.commentView(c, actor, owner));
   }
 
-  private commentView(c: CommentRow, actor: Actor): CommentView {
+  private isOwner(actor: Actor): boolean {
+    return (
+      !!actor.userId &&
+      this.sql.exec<{ role: Role }>(`select role from members where user_id = ?`, actor.userId).toArray()[0]
+        ?.role === "owner"
+    );
+  }
+
+  private commentView(c: CommentRow, actor: Actor, owner = this.isOwner(actor)): CommentView {
+    const mine = !!actor.userId && c.author_id === actor.userId;
     return {
+      can_delete: mine || owner,
       id: c.id,
       record_id: c.record_id,
       author: { user_id: c.author_id, name: c.author_name },
       body: c.body,
       created_at: c.created_at,
-      mine: !!actor.userId && c.author_id === actor.userId,
+      mine,
     };
   }
 

@@ -56,6 +56,9 @@ export const sharesApi = {
       body,
     }),
 
+  uncomment: (shareId: string, commentId: string) =>
+    request<{ deleted: string }>("DELETE", `/api/cards/${enc(shareId)}/comments/${enc(commentId)}`),
+
   // Link-only views and forms (no sign-in): the token goes in the body, never the address.
   openLink: (token: string, cursor?: string) =>
     request<SharedListView | SharedFormView>("POST", "/api/link/open", { token, cursor }),

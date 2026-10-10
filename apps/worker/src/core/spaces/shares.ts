@@ -213,3 +213,8 @@ export async function addSharedComment(
     body: i.body,
   });
 }
+
+export async function deleteSharedComment(ctx: OpUserCtx, shareId: string, commentId: string) {
+  const { stub } = await shareStub(ctx, shareId);
+  return stub.deleteSharedComment(actorOf(ctx), ctx.idempotencyKey, shareId, commentId);
+}

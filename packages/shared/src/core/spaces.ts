@@ -777,8 +777,10 @@ export interface CommentView {
   author: { user_id: string | null; name: string };
   body: string;
   created_at: string;
-  /** Written by the person asking (they may delete it). */
+  /** Written by the person asking. */
   mine: boolean;
+  /** The person asking may delete it (its writer, or the space's owner). */
+  can_delete: boolean;
 }
 
 const commentBody = z.string().trim().min(1).max(4000).describe("The comment (plain text)");
@@ -786,3 +788,4 @@ export const AddCommentInput = RecordRef.extend({ id: clientId, body: commentBod
 export const CommentRef = SpaceRef.extend({ comment_id: z.string().trim().min(1).max(40) });
 export const SharedRecordRef = SharedRef.extend({ record_id: z.string().trim().min(1).max(40) });
 export const AddSharedCommentInput = SharedRecordRef.extend({ id: clientId, body: commentBody });
+export const SharedCommentRef = SharedRef.extend({ comment_id: z.string().trim().min(1).max(40) });

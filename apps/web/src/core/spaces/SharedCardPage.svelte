@@ -259,6 +259,7 @@
         cacheKey={`${sharedCardKey(shareId)}:comments`}
         load={() => sharesApi.comments(shareId, card.record.id)}
         post={(id, body) => sharesApi.comment(shareId, card.record.id, id, body)}
+        remove={(id) => sharesApi.uncomment(shareId, id)}
       />
     {/if}
     {#if cursor}

@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   AddSharedCommentInput,
   AddSharedRecordInput,
+  SharedCommentRef,
   SharedRecordRef,
   CreateShareInput,
   JoinShareInput,
@@ -20,6 +21,7 @@ import { spaceOf } from "./service.ts";
 import {
   addSharedComment,
   addSharedRecord,
+  deleteSharedComment,
   sharedComments,
   createShare,
   joinShare,
@@ -171,5 +173,15 @@ export const shareOperations = [
     http: { method: "POST", path: "/cards/:share_id/records/:record_id/comments", status: 201 },
     input: AddSharedCommentInput,
     handler: (ctx, i) => addSharedComment(ctx, i),
+  }),
+  defineOperation({
+    id: "core.delete_shared_comment",
+    tool: "delete_shared_comment",
+    description: "Delete my own comment on something shared with me.",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/cards/:share_id/comments/:comment_id" },
+    input: SharedCommentRef,
+    handler: (ctx, i) => deleteSharedComment(ctx, i.share_id, i.comment_id),
   }),
 ];
