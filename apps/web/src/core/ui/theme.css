@@ -83,6 +83,13 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 
+  /* Motion: quick and light. --spring overshoots a touch, for things that pop in. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 0.15s;
+  --dur: 0.28s;
+  --dur-slow: 0.45s;
+  --stagger: 35ms;
+
   /* The Gigspree mark (transparent; the dark version is lighter). */
   --logo: url("/logo-light.png");
 }
@@ -200,6 +207,25 @@ textarea {
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Shared motion (theme.css is global, so components use these names as they are). */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

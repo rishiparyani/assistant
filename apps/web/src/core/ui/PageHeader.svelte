@@ -37,14 +37,19 @@
     font-weight: 500;
     min-height: 32px;
   }
+  /* When the buttons don't fit beside the title, they move under it (instead of squeezing
+     the title until it breaks mid-word). */
   .row {
     display: flex;
+    flex-wrap: wrap;
     align-items: flex-end;
     justify-content: space-between;
     gap: var(--space-3);
   }
   .titles {
+    flex: 1 1 200px;
     min-width: 0;
+    animation: rise-in var(--dur) var(--ease) backwards;
   }
   h1 {
     font-size: var(--text-2xl);
@@ -61,6 +66,7 @@
     display: flex;
     gap: var(--space-2);
     flex-shrink: 0;
+    margin-left: auto;
   }
   @media (min-width: 768px) {
     .page-header {

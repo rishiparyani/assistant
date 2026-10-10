@@ -66,11 +66,14 @@
     user-select: none;
     transition:
       background 0.15s var(--ease),
-      transform 0.1s var(--ease),
+      transform var(--dur) var(--ease-spring),
+      box-shadow var(--dur-fast),
       opacity 0.15s;
   }
+  /* Pressing squeezes the button; letting go springs it back. */
   .btn:active:not(:disabled) {
-    transform: scale(0.98);
+    transform: scale(0.96);
+    transition-duration: 0.08s;
   }
   .btn:disabled {
     opacity: 0.5;
@@ -97,6 +100,7 @@
   }
   .primary:hover:not(:disabled) {
     background: var(--accent-hover);
+    box-shadow: var(--shadow);
   }
   .secondary {
     background: var(--surface);
@@ -124,6 +128,10 @@
   }
   .icon {
     display: inline-flex;
+    transition: transform var(--dur) var(--ease-spring);
+  }
+  .btn:hover:not(:disabled) .icon {
+    transform: scale(1.08);
   }
   .icon :global(svg) {
     width: 18px;

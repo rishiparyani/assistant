@@ -47,6 +47,39 @@
     border: 1px solid var(--border);
     overflow: hidden;
   }
+  .rows > :global(*) {
+    animation: rise-in var(--dur) var(--ease) backwards;
+  }
+  .rows > :global(:nth-child(2)) {
+    animation-delay: calc(1 * var(--stagger));
+  }
+  .rows > :global(:nth-child(3)) {
+    animation-delay: calc(2 * var(--stagger));
+  }
+  .rows > :global(:nth-child(4)) {
+    animation-delay: calc(3 * var(--stagger));
+  }
+  .rows > :global(:nth-child(5)) {
+    animation-delay: calc(4 * var(--stagger));
+  }
+  .rows > :global(:nth-child(6)) {
+    animation-delay: calc(5 * var(--stagger));
+  }
+  .rows > :global(:nth-child(7)) {
+    animation-delay: calc(6 * var(--stagger));
+  }
+  .rows > :global(:nth-child(8)) {
+    animation-delay: calc(7 * var(--stagger));
+  }
+  .rows > :global(:nth-child(9)) {
+    animation-delay: calc(8 * var(--stagger));
+  }
+  .rows > :global(:nth-child(10)) {
+    animation-delay: calc(9 * var(--stagger));
+  }
+  .rows > :global(:nth-child(n + 11)) {
+    animation-delay: calc(10 * var(--stagger));
+  }
   .footer {
     padding: var(--space-2) var(--space-4) 0;
     font-size: var(--text-sm);

@@ -66,7 +66,24 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     padding-bottom: var(--safe-bottom);
     box-shadow: var(--shadow-lg);
-    animation: up 0.28s var(--ease);
+    animation: up 0.34s var(--ease);
+  }
+  /* What's inside follows the sheet up, one piece after another. */
+  .body > :global(*) {
+    animation: rise-in var(--dur) var(--ease) backwards;
+    animation-delay: 80ms;
+  }
+  .body > :global(:nth-child(2)) {
+    animation-delay: 110ms;
+  }
+  .body > :global(:nth-child(3)) {
+    animation-delay: 140ms;
+  }
+  .body > :global(:nth-child(n + 4)) {
+    animation-delay: 170ms;
+  }
+  .close:hover {
+    transform: rotate(90deg);
   }
   .grabber {
     width: 36px;
@@ -97,6 +114,7 @@
     background: var(--grey-soft);
     color: var(--text-2);
     cursor: pointer;
+    transition: transform var(--dur) var(--ease-spring);
   }
   .body {
     overflow-y: auto;
@@ -131,7 +149,7 @@
       border-radius: var(--radius-xl);
       max-height: min(760px, calc(100dvh - 64px));
       padding-bottom: 0;
-      animation: pop 0.2s var(--ease);
+      animation: pop var(--dur) var(--ease-spring);
     }
     .grabber {
       display: none;
@@ -147,7 +165,7 @@
   }
   @keyframes pop {
     from {
-      transform: scale(0.97);
+      transform: scale(0.94) translateY(8px);
       opacity: 0;
     }
   }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { Avatar } from "../ui/index.ts";
+  import { Avatar, reducedMotion } from "../ui/index.ts";
   import { router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
   import { MAIN_NAV } from "./nav.ts";
@@ -14,6 +14,18 @@
   const path = $derived((router.route, window.location.pathname));
   const active = (href: string, exact = false) =>
     exact ? path === href : path === href || path.startsWith(`${href}/`);
+
+  // A soft fade between pages. Opacity only: a transform would make the page the frame for
+  // position: fixed children (the chat composer) while it runs, and they'd jump.
+  let page: HTMLElement | undefined = $state();
+  let shown = window.location.pathname;
+  $effect(() => {
+    const p = path;
+    if (p === shown || !page) return;
+    shown = p;
+    if (reducedMotion()) return;
+    page.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
+  });
 </script>
 
 <PullToRefresh />
@@ -52,14 +64,14 @@
   </header>
 
   <main class="content">
-    <div class="page"><OfflineBar />{@render children()}</div>
+    <div class="page" bind:this={page}><OfflineBar />{@render children()}</div>
   </main>
 
   <!-- Phone: tab bar -->
   <nav class="tabbar" aria-label="Main">
     {#each nav.filter((n) => n.phone !== false) as item (item.href)}
       <a class="tab" class:active={active(item.href, item.exact)} href={item.href}>
-        <NavIcon icon={item.icon} active={active(item.href, item.exact)} />
+        <span class="tab-icon"><NavIcon icon={item.icon} active={active(item.href, item.exact)} /></span>
         <span>{item.label}</span>
       </a>
     {/each}
@@ -122,9 +134,50 @@
     font-size: 10.5px;
     font-weight: 600;
     letter-spacing: 0.01em;
+    transition: color var(--dur-fast);
   }
   .tab.active {
     color: var(--accent);
+  }
+  .tab:active .tab-icon {
+    transform: scale(0.88);
+  }
+  /* The active tab's icon sits on a soft pill that springs in. */
+  .tab-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 28px;
+    transition: transform var(--dur-fast) var(--ease-spring);
+  }
+  .tab-icon::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-full);
+    background: var(--accent-soft);
+    opacity: 0;
+    transform: scale(0.5);
+    transition:
+      opacity var(--dur-fast),
+      transform var(--dur) var(--ease-spring);
+  }
+  .tab-icon :global(svg) {
+    position: relative;
+  }
+  .tab.active .tab-icon::before {
+    opacity: 1;
+    transform: none;
+  }
+  .tab.active .tab-icon :global(svg) {
+    animation: tab-bounce var(--dur-slow) var(--ease-spring);
+  }
+  @keyframes tab-bounce {
+    40% {
+      transform: translateY(-3px) scale(1.12);
+    }
   }
 
   /* Sidebar (hidden on phones) */
@@ -233,6 +286,17 @@
     border-radius: var(--radius-sm);
     color: var(--text-2);
     font-weight: 500;
+  }
+  .side-link {
+    transition:
+      background var(--dur-fast),
+      color var(--dur-fast);
+  }
+  .side-link :global(svg) {
+    transition: transform var(--dur) var(--ease-spring);
+  }
+  .side-link:hover :global(svg) {
+    transform: scale(1.1);
   }
   .side-link:hover {
     background: var(--surface-hover);
