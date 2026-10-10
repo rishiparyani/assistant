@@ -37,7 +37,7 @@ async function cleanUp() {
   const auth = { authorization: `Bearer ${token()}` };
 
   const res = await fetch(
-    `${API}/certificates?filter[certificateType]=DEVELOPMENT,IOS_DEVELOPMENT&limit=200&fields[certificates]=name,certificateType,expirationDate`,
+    `${API}/certificates?filter[certificateType]=DEVELOPMENT,IOS_DEVELOPMENT&limit=200&fields[certificates]=name,displayName,certificateType`,
     { headers: auth },
   );
   if (!res.ok) {
@@ -46,7 +46,10 @@ async function cleanUp() {
     return;
   }
   const { data } = await res.json();
-  const ours = data.filter((c) => c.attributes?.name === "Created via API");
+  // The portal shows "Created via API"; the API may put it in name or displayName.
+  const made = (c) =>
+    [c.attributes?.name, c.attributes?.displayName].some((n) => /created via api/i.test(n ?? ""));
+  const ours = data.filter(made);
   let revoked = 0;
   for (const c of ours) {
     const del = await fetch(`${API}/certificates/${encodeURIComponent(c.id)}`, {
@@ -55,5 +58,7 @@ async function cleanUp() {
     });
     if (del.ok || del.status === 404) revoked++;
   }
-  console.log(`Development certificates made by earlier builds: ${ours.length}; revoked ${revoked}.`);
+  console.log(
+    `Development certificates: ${data.length}; made by earlier builds: ${ours.length}; revoked ${revoked}.`,
+  );
 }

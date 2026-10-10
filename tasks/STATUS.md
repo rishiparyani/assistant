@@ -4,6 +4,8 @@ _Updated: 2026-10-09_
 
 ## Last done
 
+- **TestFlight certificate cleanup now finds them** (2026-10-10): the first run listed 0 "Created via API" certificates, although the portal showed 10; the cleanup now asks for `name` and `displayName` and matches either (case-insensitive), and logs how many Development certificates it saw, so the next TestFlight run shows whether it matched.
+
 - **Sharing views and forms, and link-only access** (stage 2b, design §11): Share on a collection opens the same sheet for the open saved view (its records, live, with its filters) or, with no view open, the collection as a **form** (people add records and see only their own). Views and forms can be **link-only**: `/s#…` opens without signing in (views read-only; forms take up to 500 answers a day per link). Space object migration 4 (`shares.kind`, `target_id`, `public`; `share_counts`); `open_shared_card` returns a card, view or form; `POST /api/link/open` and `/api/link/submit` for link-only; new error code `rate_limited` (429). Web: `ShareSheet` takes a card, view or form target; `SharedCardPage` shows all three; `SharedForm`; `PublicSharePage`. Tests: `shares.test.ts` (+3). Browser-checked: owner shares "Confirmed people" (friend sees only confirmed rows), shares Availability as a link-only form (Fee hidden by default), someone without an account fills it in, owner gets it.
   - Next: 2c (row rules, personal answers, comments).
 
