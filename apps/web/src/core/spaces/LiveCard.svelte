@@ -55,7 +55,11 @@
   );
 
   const collection = $derived(
-    live.kind === "view" ? (view.data?.collection ?? null) : collectionOf(live.collection_id),
+    live.kind === "view"
+      ? (view.data?.collection ?? null)
+      : live.kind === "question"
+        ? null
+        : collectionOf(live.collection_id),
   );
   const rows = $derived<RecordView[]>(
     live.kind === "list"

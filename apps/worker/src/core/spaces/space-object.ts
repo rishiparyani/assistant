@@ -31,6 +31,7 @@ import {
   type ShareAccess,
   type ShareInclude,
   type Person,
+  type QuestionView,
   type ShareKind,
   type ShareView,
   type SharedCardView,
@@ -255,6 +256,26 @@ const MIGRATIONS: Migrations = [
   `
   create table live_extra (user_id text primary key) without rowid;
   `,
+  // Questions sent to people (chat-first step 4): one answer per person, changeable.
+  `
+  create table questions (
+    id text primary key,
+    text text not null,
+    choices_json text,
+    share_id text not null,
+    created_by text,
+    created_at text not null,
+    closed_at text,
+    deleted_at text
+  );
+  create table question_answers (
+    question_id text not null,
+    user_id text not null,
+    answer text not null,
+    at text not null,
+    primary key (question_id, user_id)
+  ) without rowid;
+  `,
 ];
 
 type ViewQuery = {
@@ -333,6 +354,17 @@ type ShareRow = {
   created_by: string | null;
   created_at: string;
   revoked_at: string | null;
+};
+
+type QuestionRow = {
+  id: string;
+  text: string;
+  choices_json: string | null;
+  share_id: string;
+  created_by: string | null;
+  created_at: string;
+  closed_at: string | null;
+  deleted_at: string | null;
 };
 
 export interface SpaceInit {
@@ -2004,6 +2036,159 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
+  // --- Questions (chat-first step 4) ------------------------------------------------------
+  // A question is shared like a card (a share of kind "question" with the people asked), so
+  // "Shared with you", live pings, leaving and removing work as for everything else.
+
+  private liveQuestion(id: string): QuestionRow | undefined {
+    return this.sql
+      .exec<QuestionRow>(`select * from questions where id = ? and deleted_at is null`, id)
+      .toArray()[0];
+  }
+
+  private questionView(q: QuestionRow): QuestionView {
+    const people = this.sql
+      .exec<{ user_id: string; name: string; answer: string | null; answered_at: string | null }>(
+        `select p.user_id, p.name, a.answer, a.at as answered_at from share_people p
+         left join question_answers a on a.question_id = ? and a.user_id = p.user_id
+         where p.share_id = ? order by p.name`,
+        q.id,
+        q.share_id,
+      )
+      .toArray();
+    return {
+      id: q.id,
+      text: q.text,
+      choices: q.choices_json ? (JSON.parse(q.choices_json) as string[]) : null,
+      people,
+      share_id: q.share_id,
+      closed: !!q.closed_at,
+      created_at: q.created_at,
+    };
+  }
+
+  /** Asks people the owner knows a question; they find it under "Shared with you". */
+  async askPeople(
+    actor: Actor,
+    key: string | null,
+    input: { id: string | null; text: string; choices: string[] | null; people: Person[]; tokenHash: string },
+  ): Promise<QuestionView> {
+    const { tokenHash, ...request } = input;
+    return this.write(actor, key, ["ask_people", request], (ts) => {
+      const id = input.id ?? ulid();
+      if (this.sql.exec(`select 1 from questions where id = ?`, id).toArray().length)
+        throw new ObjectError("conflict", "A question with this id already exists");
+      const people = input.people.filter((p) => p.user_id !== actor.userId);
+      if (!people.length) throw new ObjectError("validation_failed", "Ask at least one other person");
+      const choices = input.choices ? [...new Map(input.choices.map((c) => [nameKey(c), c])).values()] : null;
+      if (choices && choices.length < 2)
+        throw new ObjectError("validation_failed", "Give at least two different choices");
+      const shareId = ulid();
+      this.sql.exec(
+        `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at)
+         values (?, ?, 'question', ?, 0, ?, 'edit', '[]', '[]', null, ?, ?)`,
+        shareId,
+        id,
+        id,
+        tokenHash,
+        actor.userId,
+        ts,
+      );
+      this.sql.exec(
+        `insert into questions (id, text, choices_json, share_id, created_by, created_at) values (?, ?, ?, ?, ?, ?)`,
+        id,
+        input.text,
+        choices ? JSON.stringify(choices) : null,
+        shareId,
+        actor.userId,
+        ts,
+      );
+      for (const p of people)
+        this.sql.exec(
+          `insert or ignore into share_people (share_id, user_id, name, joined_at) values (?, ?, ?, ?)`,
+          shareId,
+          p.user_id,
+          p.name,
+          ts,
+        );
+      audit(this.sql, actor, { action: "ask_people", entityType: "question", entityId: id, after: request });
+      return this.questionView(this.liveQuestion(id)!);
+    });
+  }
+
+  /** A question I asked, with everyone's answers. */
+  async question(actor: Actor, id: string): Promise<QuestionView> {
+    this.canWrite(actor);
+    const q = this.liveQuestion(id);
+    if (!q) throw new ObjectError("not_found", "Question not found");
+    return this.questionView(q);
+  }
+
+  /** Stops answers (closed) or opens it again. */
+  async closeQuestion(actor: Actor, key: string | null, id: string, closed: boolean): Promise<QuestionView> {
+    return this.write(actor, key, ["close_question", id, closed], (ts) => {
+      const q = this.liveQuestion(id);
+      if (!q) throw new ObjectError("not_found", "Question not found");
+      this.sql.exec(`update questions set closed_at = ? where id = ?`, closed ? ts : null, id);
+      audit(this.sql, actor, {
+        action: closed ? "close_question" : "reopen_question",
+        entityType: "question",
+        entityId: id,
+      });
+      return this.questionView(this.liveQuestion(id)!);
+    });
+  }
+
+  /** Someone asked answers (or changes their answer): one of the choices, or a short text. */
+  async answerQuestion(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    answer: string,
+  ): Promise<SharedOpened> {
+    let s!: ShareRow;
+    return this.write(
+      actor,
+      key,
+      ["answer_question", shareId, answer],
+      (ts) => {
+        const q = this.liveQuestion(s.target_id)!;
+        if (q.closed_at) throw new ObjectError("conflict", "This question is closed");
+        const choices = q.choices_json ? (JSON.parse(q.choices_json) as string[]) : null;
+        const value = choices ? choices.find((c) => nameKey(c) === nameKey(answer)) : answer;
+        if (value === undefined)
+          throw new ObjectError("validation_failed", `Answer with one of: ${choices!.join(", ")}`);
+        const before = this.sql
+          .exec<{ answer: string }>(
+            `select answer from question_answers where question_id = ? and user_id = ?`,
+            q.id,
+            actor.userId,
+          )
+          .toArray()[0];
+        this.sql.exec(
+          `insert into question_answers (question_id, user_id, answer, at) values (?, ?, ?, ?)
+           on conflict (question_id, user_id) do update set answer = excluded.answer, at = excluded.at`,
+          q.id,
+          actor.userId,
+          value,
+          ts,
+        );
+        audit(this.sql, actor, {
+          action: "answer_question",
+          entityType: "question",
+          entityId: q.id,
+          before: before ?? null,
+          after: { answer: value },
+        });
+        return this.opened(s, actor);
+      },
+      () => {
+        s = this.joinedShare(actor, shareId);
+        if (s.kind !== "question") throw new ObjectError("not_found", "Share not found");
+      },
+    );
+  }
+
   /** Joins the share whose link has this hash; null when the link is wrong, off or expired. */
   async joinShare(
     actor: Actor,
@@ -2312,6 +2497,7 @@ export class SpaceObject extends DurableObject<Env> {
   private alive(s: ShareRow): boolean {
     if (s.expires_at && s.expires_at <= nowIso()) return false;
     if (s.kind === "card") return !!this.liveRecord(s.target_id);
+    if (s.kind === "question") return !!this.liveQuestion(s.target_id);
     try {
       this.shareCollection(s);
       return true;
@@ -2326,6 +2512,8 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** The collection a view or form share works on. */
   private shareCollection(s: ShareRow): CollectionRow {
+    // A question shares no records.
+    if (s.kind === "question") throw new ObjectError("not_found", "Share not found");
     const id = s.kind === "view" ? this.liveView(s.target_id)?.collection_id : s.target_id;
     if (!id) throw new ObjectError("not_found", "Share not found");
     return this.requireCollection(id);
@@ -2334,6 +2522,7 @@ export class SpaceObject extends DurableObject<Env> {
   private shareTitle(s: ShareRow): string {
     if (s.kind === "card") return this.liveRecord(s.target_id)?.title ?? "Deleted";
     if (s.kind === "view") return this.liveView(s.target_id)?.name ?? "Deleted";
+    if (s.kind === "question") return this.liveQuestion(s.target_id)?.text ?? "Deleted";
     try {
       return this.requireCollection(s.target_id).name;
     } catch {
@@ -2617,6 +2806,25 @@ export class SpaceObject extends DurableObject<Env> {
 
   private opened(s: ShareRow, actor: Actor, cursor?: string): SharedOpened {
     if (s.kind === "card") return this.cardView(s, actor);
+    if (s.kind === "question") {
+      const q = this.liveQuestion(s.target_id)!;
+      const mine = actor.userId
+        ? this.sql
+            .exec<{ answer: string }>(
+              `select answer from question_answers where question_id = ? and user_id = ?`,
+              q.id,
+              actor.userId,
+            )
+            .toArray()[0]
+        : undefined;
+      return {
+        share: { id: s.id, kind: "question", title: q.text, access: s.access, owner: this.ownerName() },
+        text: q.text,
+        choices: q.choices_json ? (JSON.parse(q.choices_json) as string[]) : null,
+        mine: mine?.answer ?? null,
+        closed: !!q.closed_at,
+      };
+    }
     const c = this.shareCollection(s);
     const head = { id: s.id, title: this.shareTitle(s), access: s.access, owner: this.ownerName() };
     if (s.kind === "view") {

@@ -601,7 +601,9 @@ export type LiveRef =
         sort?: { field: string; dir: "asc" | "desc" };
       };
     }
-  | { kind: "view"; view_id: string };
+  | { kind: "view"; view_id: string }
+  /** A question sent to people (chat-first step 4): answers arrive live. */
+  | { kind: "question"; question_id: string };
 
 export interface ChatItem {
   id: string;
@@ -678,6 +680,19 @@ export const ChatSendInput = z.object({
   text: z.string().trim().min(1).max(2000),
   think_harder: z.boolean().optional(),
 });
+/** Put a live card in a chat without the assistant (e.g. a question asked from the + menu). */
+export const ShowInChatInput = z.object({
+  chat_id: ChatId,
+  live: z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("record"),
+      collection_id: z.string().min(1).max(40),
+      record_id: z.string().min(1).max(40),
+    }),
+    z.object({ kind: z.literal("view"), view_id: z.string().min(1).max(40) }),
+    z.object({ kind: z.literal("question"), question_id: z.string().min(1).max(40) }),
+  ]),
+});
 export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });
 export const ChatSendTo = ChatRef.extend(ChatSendInput.shape);
 export const ChatActionIn = ChatRef.extend(ChatActionRef.shape);
@@ -701,7 +716,7 @@ export interface RuleFilter {
  * What's shared: a card (one record and parts linked to it), a view (its records, live), or a
  * form (people add records to a collection and see only their own).
  */
-export const SHARE_KINDS = ["card", "view", "form"] as const;
+export const SHARE_KINDS = ["card", "view", "form", "question"] as const;
 export type ShareKind = (typeof SHARE_KINDS)[number];
 
 export interface ShareView {
@@ -798,7 +813,15 @@ export interface SharedFormView {
   fields: SharedFieldInfo[];
   mine: SharedRecord[];
 }
-export type SharedOpened = SharedCardView | SharedListView | SharedFormView;
+/** A question someone asked me: their text, the choices, and my answer so far. */
+export interface SharedQuestionView {
+  share: SharedHead<"question">;
+  text: string;
+  choices: string[] | null;
+  mine: string | null;
+  closed: boolean;
+}
+export type SharedOpened = SharedCardView | SharedListView | SharedFormView | SharedQuestionView;
 
 export interface SharedWithMe {
   share_id: string;
@@ -860,6 +883,44 @@ export const ShareWithInput = ShareTarget.extend({
     .optional()
     .describe("Fields they don't see; left out, money fields stay hidden ([] shows everything)"),
 }).refine(oneTarget.check, { message: oneTarget.message });
+
+// --- Questions (chat-first step 4) -----------------------------------------------------------
+
+/** A question I sent and the answers so far (live). */
+export interface QuestionView {
+  id: string;
+  text: string;
+  /** Buttons to tap; null for a free answer. */
+  choices: string[] | null;
+  /** Everyone asked, with their answer (null while waiting). */
+  people: { user_id: string; name: string; answer: string | null; answered_at: string | null }[];
+  share_id: string;
+  closed: boolean;
+  created_at: string;
+}
+
+export const AskPeopleInput = SpaceRef.extend({
+  id: clientId,
+  text: z
+    .string()
+    .trim()
+    .min(1)
+    .max(300)
+    .describe('The question, e.g. "Free on Sat 14 Nov for the Test Wedding?"'),
+  choices: z
+    .array(z.string().trim().min(1).max(40))
+    .min(2)
+    .max(6)
+    .optional()
+    .describe('Answers to tap, e.g. ["Yes", "No", "Maybe"]; left out, they write an answer'),
+  people: peopleRefs,
+  chat_id: ChatId.optional().describe("App only: also put the question's card in this chat"),
+});
+export const QuestionRef = SpaceRef.extend({ question_id: z.string().trim().min(1).max(40) });
+export const AnswerQuestionInput = z.object({
+  share_id: z.string().trim().min(1).max(40),
+  answer: z.string().trim().min(1).max(300).describe("One of the choices, or a short answer"),
+});
 
 /** Someone I know: they joined one of my shares or are in one of my spaces. */
 export type Person = {

@@ -33,6 +33,14 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // "Test: share <record id> with <name>": a share card for that record.
   const share = /^Test: share (\S+) with (.+)$/.exec(lastUser);
   if (share) return call("share_with", { record_id: share[1], people: [share[2]], access: "edit" });
+  // "Test: ask <name> if they're free": a question card with Yes / No.
+  const ask = /^Test: ask (.+) if they're free$/.exec(lastUser);
+  if (ask)
+    return call("ask_people", {
+      text: "Test: free on Saturday for the Test Wedding?",
+      choices: ["Yes", "No"],
+      people: [ask[1]],
+    });
   switch (lastUser) {
     case "Test: spent 450 on groceries":
       return call("add_record", {

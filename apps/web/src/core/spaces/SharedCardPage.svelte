@@ -5,6 +5,7 @@
     type SharedFieldInfo,
     type SharedFormView,
     type SharedOpened,
+    type SharedQuestionView,
     type SharedRecord,
   } from "@assistant/shared";
   import Pencil from "@lucide/svelte/icons/pencil";
@@ -29,6 +30,7 @@
   import SharedRecordSheet from "./SharedRecordSheet.svelte";
   import SharedForm from "./SharedForm.svelte";
   import Comments from "./Comments.svelte";
+  import QuestionAnswer from "./QuestionAnswer.svelte";
 
   // Something shared with me: a card (its fields and the linked parts included), a view (its
   // records, live) or a form (fill it in; what I sent shows below). With edit access I can
@@ -47,6 +49,7 @@
   const opened = $derived(revoked ? undefined : q.data);
   const card = $derived(opened?.share.kind === "card" ? (opened as SharedCardView) : undefined);
   const form = $derived(opened?.share.kind === "form" ? (opened as SharedFormView) : undefined);
+  const question = $derived(opened?.share.kind === "question" ? (opened as SharedQuestionView) : undefined);
   const canEdit = $derived(opened?.share.access === "edit");
   // The title is the page's title; the rest shows when filled in.
   const filled = $derived(card?.record.fields.filter((f) => !f.title && showValue(f, f.value)) ?? []);
@@ -192,7 +195,9 @@
     {/snippet}
   </PageHeader>
   <p class="access">
-    {#if form}
+    {#if question}
+      <Pill tone="blue">Question</Pill>
+    {:else if form}
       <Pill tone="blue">Form</Pill>
     {:else}
       <Pill tone={canEdit ? "green" : "grey"}>{canEdit ? "You can edit" : "View only"}</Pill>
@@ -200,7 +205,9 @@
   </p>
 
   <div class="stack">
-    {#if form}
+    {#if question}
+      <QuestionAnswer view={question} />
+    {:else if form}
       {#if form.description}<p class="empty">{form.description}</p>{/if}
       <SharedForm fields={form.fields} send={sendForm} />
       {#if form.mine.length}
