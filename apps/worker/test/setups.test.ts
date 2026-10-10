@@ -70,7 +70,7 @@ describe("setups", () => {
     expect(signups.fields.map((f) => f.name)).toEqual(["Song", "Who", "Instrument", "Status"]);
     expect(made.rules.map((r) => r.words)).toEqual([
       "In Sign-ups, only one record when Status is Selected per Song and Instrument",
-      "Status in Sign-ups moves only Requested → Selected or Not this time; Selected → Requested",
+      "Status in Sign-ups moves only Requested → Selected or Not this time; Selected → Requested; Not this time → nothing",
     ]);
     expect(made.views.map((v) => v.name)).toEqual(["Test selected"]);
     // A repeat with the same key makes nothing new.
