@@ -15,6 +15,7 @@
   import ListChecks from "@lucide/svelte/icons/list-checks";
   import IndianRupee from "@lucide/svelte/icons/indian-rupee";
   import Rows from "@lucide/svelte/icons/rows-3";
+  import UserPlus from "@lucide/svelte/icons/user-plus";
   import { Button, Skeleton, toast } from "../ui/index.ts";
   import { createQuery, publish } from "../query.svelte.ts";
   import { navigate } from "../router.svelte.ts";
@@ -30,6 +31,7 @@
     type FindQuery,
   } from "./spaces-api.ts";
   import RecordSheet from "./RecordSheet.svelte";
+  import ShareSheet from "./ShareSheet.svelte";
 
   // A live card in the chat (docs/design/chat-first.md step 2): a record, a list or a saved
   // view the assistant worked with, loaded fresh (and from the offline copy), so a change made
@@ -132,6 +134,9 @@
     editOpen = true;
   }
 
+  // Share the card (or the saved view) with people, from the chat (step 4).
+  let sharing = $state(false);
+
   let pinning = $state(false);
   async function pin() {
     if (live.kind !== "list" || !collection) return;
@@ -208,6 +213,10 @@
           {#snippet icon()}<Maximize />{/snippet}
           Open
         </Button>
+        <Button size="sm" variant="ghost" onclick={() => (sharing = true)} disabled={isPending(r)}>
+          {#snippet icon()}<UserPlus />{/snippet}
+          Share
+        </Button>
       </footer>
     {:else}
       <Skeleton rows={2} label="Loading" />
@@ -261,12 +270,24 @@
           Pin
         </Button>
       </footer>
+    {:else if view.data}
+      <footer>
+        <Button size="sm" variant="ghost" onclick={() => (sharing = true)}>
+          {#snippet icon()}<UserPlus />{/snippet}
+          Share
+        </Button>
+      </footer>
     {/if}
   {:else}
     <Skeleton rows={3} label="Loading" />
   {/if}
 </article>
 
+{#if collection && live.kind === "record" && record.data}
+  <ShareSheet bind:open={sharing} {collection} target={{ kind: "card", record: record.data }} />
+{:else if collection && live.kind === "view" && view.data}
+  <ShareSheet bind:open={sharing} {collection} target={{ kind: "view", view: view.data.view }} />
+{/if}
 {#if editing && collection}
   {#key editing.id}
     <RecordSheet bind:open={editOpen} {collection} record={editing} />

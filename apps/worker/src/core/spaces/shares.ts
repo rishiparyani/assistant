@@ -3,10 +3,14 @@
 // carries its space's id, so a join goes straight to that space's object, which keeps only
 // the link's hash and checks every open and edit. D1 lists which spaces hold a person's shares.
 import type { z } from "zod";
+import { nameKey } from "@assistant/shared";
 import type {
   AddSharedRecordInput,
   CreateShareInput,
   CreatedShare,
+  Person,
+  ShareView,
+  ShareWithInput,
   SharedWithMe,
   UpdateSharedRecordInput,
 } from "@assistant/shared";
@@ -14,7 +18,7 @@ import type { OpUserCtx } from "../operations.ts";
 import type { Actor } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import { hashToken, newToken } from "../tokens.ts";
-import { spaceName, spaceOf } from "./service.ts";
+import { mySpaces, spaceName, spaceOf } from "./service.ts";
 
 const PREFIX = "shr";
 const TOKEN_RE = /^shr_([0-9A-HJKMNP-TV-Z]{26})_[A-Za-z0-9_-]{43}$/;
@@ -85,6 +89,102 @@ export async function removeSharePerson(
     .bind(userId, shareId, space.id)
     .run();
   return share;
+}
+
+// --- People I know (chat-first step 4) -----------------------------------------------------
+// Everyone in one of my spaces or in something I shared, across my spaces. Sharing straight
+// with them needs no link: it shows up under "Shared with you" (and pings their app).
+
+export async function knownPeople(ctx: OpUserCtx): Promise<Person[]> {
+  const spaces = (await mySpaces(ctx)).filter((s) => s.role !== "viewer");
+  const lists = await Promise.all(
+    spaces.map((s) => ctx.objects.SPACES.getByName(spaceName(s.id)).people(actorOf(ctx))),
+  );
+  const byId = new Map<string, Person>();
+  for (const p of lists.flat()) if (!byId.has(p.user_id)) byId.set(p.user_id, p);
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Names (or ids) to people I know: the exact name, or the first name when only one person
+ * has it. More than one match gives candidates; none lists who I know. Never a guess.
+ */
+export async function resolvePeople(ctx: OpUserCtx, refs: string[]): Promise<Person[]> {
+  const known = await knownPeople(ctx);
+  const out = new Map<string, Person>();
+  for (const ref of refs) {
+    const key = nameKey(ref);
+    const byId = known.find((p) => p.user_id === ref);
+    const exact = known.filter((p) => nameKey(p.name) === key);
+    const first = known.filter((p) => nameKey(p.name.split(/\s+/)[0] ?? "") === key);
+    const hit = byId ? [byId] : exact.length ? exact : first;
+    if (hit.length > 1)
+      throw new ObjectError("ambiguous", `More than one person called "${ref}"`, {
+        candidates: hit.map((p) => ({ id: p.user_id, name: p.name })),
+      });
+    if (!hit.length)
+      throw new ObjectError(
+        "not_found",
+        known.length
+          ? `You don't know anyone called "${ref}" here. People you know: ${known
+              .slice(0, 20)
+              .map((p) => p.name)
+              .join(", ")}. Others join with a link from the app.`
+          : `You haven't shared anything with "${ref}" yet. Share a link from the app first; after they join, you can share with them by name.`,
+      );
+    out.set(hit[0]!.user_id, hit[0]!);
+  }
+  return [...out.values()];
+}
+
+async function addPeople(ctx: OpUserCtx, spaceRef: string | undefined, shareId: string, people: Person[]) {
+  const { space, stub, actor } = await spaceOf(ctx, spaceRef);
+  const share = await stub.addSharePeople(actor, ctx.idempotencyKey, shareId, people);
+  await ctx.d1.batch(
+    people
+      .filter((p) => p.user_id !== ctx.user.id)
+      .map((p) =>
+        ctx.d1
+          .prepare(`insert or ignore into shared_with (user_id, share_id, space_id) values (?, ?, ?)`)
+          .bind(p.user_id, share.id, space.id),
+      ),
+  );
+  return share;
+}
+
+/** Adds people I know to a share I made. */
+export async function addSharePeople(
+  ctx: OpUserCtx,
+  spaceRef: string | undefined,
+  shareId: string,
+  refs: string[],
+): Promise<ShareView> {
+  return addPeople(ctx, spaceRef, shareId, await resolvePeople(ctx, refs));
+}
+
+/** Shares a card, view or form straight with people I know (money hidden unless asked). */
+export async function shareWith(ctx: OpUserCtx, i: z.output<typeof ShareWithInput>): Promise<ShareView> {
+  const people = await resolvePeople(ctx, i.people);
+  const { space, stub, actor } = await spaceOf(ctx, i.space);
+  // No link is handed out; the share still needs a key nobody holds.
+  const token = await shareToken(ctx, space.id, `with:${people.map((p) => p.user_id).join(",")}`);
+  const [kind, target] = i.record_id
+    ? (["card", i.record_id] as const)
+    : i.view
+      ? (["view", i.view] as const)
+      : (["form", i.form!] as const);
+  const made = await stub.createShare(actor, ctx.idempotencyKey && `${ctx.idempotencyKey}:share`, {
+    kind,
+    target,
+    public: false,
+    include: i.include ?? [],
+    access: i.access,
+    hide: i.hide_fields ?? [],
+    hideMoney: i.hide_fields === undefined,
+    expiresInDays: null,
+    tokenHash: await hashToken(token),
+  });
+  return addPeople(ctx, space.id, made.share.id, people);
 }
 
 // --- The collaborator's side ---------------------------------------------------------------

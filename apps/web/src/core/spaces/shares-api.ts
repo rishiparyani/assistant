@@ -4,6 +4,7 @@ import type {
   CommentView,
   CreatedShare,
   Filter,
+  Person,
   ShareAccess,
   ShareView,
   SharedFormView,
@@ -19,6 +20,7 @@ const enc = encodeURIComponent;
 export const SHARED_KEY = "spaces:shared";
 export const sharedCardKey = (id: string) => `spaces:shared:${id}`;
 export const sharesKey = (recordId: string) => `spaces:shares:${recordId}`;
+export const PEOPLE_KEY = "spaces:people";
 
 // online-only: shares are checked by the owner's space when they're made, opened or changed;
 // a link or an edit to someone else's card can't wait on this device.
@@ -34,6 +36,19 @@ export const sharesApi = {
     public?: boolean;
     expires_in_days?: number;
   }) => request<CreatedShare>("POST", "/api/shares", body),
+  /** People I know (in my spaces or in something I shared): share with them without a link. */
+  people: () => request<Person[]>("GET", "/api/people"),
+  shareWith: (body: {
+    record_id?: string;
+    view?: string;
+    form?: string;
+    include: string[];
+    access: ShareAccess;
+    hide_fields: string[];
+    people: string[];
+  }) => request<ShareView>("POST", "/api/shares/with", body),
+  addPeople: (shareId: string, people: string[]) =>
+    request<ShareView>("POST", `/api/shares/${enc(shareId)}/people`, { people }),
   reset: (shareId: string) => request<CreatedShare>("POST", `/api/shares/${enc(shareId)}/reset`),
   revoke: (shareId: string) => request<{ revoked: string }>("DELETE", `/api/shares/${enc(shareId)}`),
   setRule: (shareId: string, userId: string, filters: Filter[]) =>

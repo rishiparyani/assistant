@@ -3,6 +3,7 @@
 // collaborator's actions see only the cards they joined.
 import { z } from "zod";
 import {
+  AddSharePeopleInput,
   AddSharedCommentInput,
   AddSharedRecordInput,
   SharedCommentRef,
@@ -15,13 +16,17 @@ import {
   SharePersonRef,
   ShareRef,
   SharedRef,
+  ShareWithInput,
   UpdateSharedRecordInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import { spaceOf } from "./service.ts";
 import {
+  addSharePeople,
   addSharedComment,
   addSharedRecord,
+  knownPeople,
+  shareWith,
   deleteSharedComment,
   sharedComments,
   createShare,
@@ -92,6 +97,39 @@ export const shareOperations = [
     http: { method: "DELETE", path: "/shares/:share_id/people/:user_id" },
     input: SharePersonRef,
     handler: (ctx, i) => removeSharePerson(ctx, i.space, i.share_id, i.user_id),
+  }),
+
+  // --- People I know (chat-first step 4) ---
+  defineOperation({
+    id: "core.list_people",
+    tool: "list_people",
+    description:
+      "People I know: everyone in my spaces or in something I shared. Share with them by name (share_with); others join with a link from the app.",
+    kind: "read",
+    http: { method: "GET", path: "/people" },
+    input: z.object({}),
+    handler: (ctx) => knownPeople(ctx),
+  }),
+  defineOperation({
+    id: "core.share_with",
+    tool: "share_with",
+    description:
+      "Share a record (as a card, with linked parts you include), a saved view or a collection as a form straight with people I know, by name. No link; they find it under Shared with you. Money fields stay hidden unless hide_fields says otherwise.",
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/shares/with", status: 201 },
+    input: ShareWithInput,
+    handler: (ctx, i) => shareWith(ctx, i),
+  }),
+  defineOperation({
+    id: "core.add_share_people",
+    tool: "add_share_people",
+    description: "Add people I know (by name) to something I already shared.",
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/shares/:share_id/people" },
+    input: AddSharePeopleInput,
+    handler: (ctx, i) => addSharePeople(ctx, i.space, i.share_id, i.people),
   }),
 
   defineOperation({

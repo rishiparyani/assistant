@@ -2,6 +2,7 @@
   import type {
     CollectionView,
     CreatedShare,
+    Person,
     RecordView,
     SavedView,
     ShareAccess,
@@ -10,6 +11,7 @@
   import Copy from "@lucide/svelte/icons/copy";
   import Share from "@lucide/svelte/icons/share";
   import Link from "@lucide/svelte/icons/link";
+  import Users from "@lucide/svelte/icons/users";
   import {
     ActionSheet,
     Button,
@@ -58,6 +60,11 @@
   let access = $state<ShareAccess>("view");
   let hide = $state<string[]>([]);
   let linkOnly = $state(false);
+  // People I already know (in something I shared): share with them without a link.
+  let known = $state<Person[]>([]);
+  let picked = $state<string[]>([]);
+  let adding = $state<ShareView | null>(null);
+  let addOpen = $state(false);
 
   // Parts to include: the record's link fields, and collections that link to it.
   const parts = $derived(
@@ -102,6 +109,10 @@
   });
 
   async function load() {
+    sharesApi.people().then(
+      (p) => (known = p),
+      () => (known = []),
+    );
     try {
       shares = await sharesApi.list(targetId);
       if (!shares.length) startNew();
@@ -117,6 +128,7 @@
     // Money stays private unless the owner chooses otherwise.
     hide = moneyOf(collection);
     linkOnly = false;
+    picked = [];
     making = true;
   }
 
@@ -151,6 +163,41 @@
       toast.error(e);
     } finally {
       busy = false;
+    }
+  }
+
+  /** Shares with the people picked, no link (they find it under Shared with you). */
+  async function shareWithPicked() {
+    busy = true;
+    try {
+      const share = await sharesApi.shareWith({
+        ...(target.kind === "card"
+          ? { record_id: target.record.id }
+          : target.kind === "view"
+            ? { view: target.view.id }
+            : { form: collection.id }),
+        include,
+        access,
+        hide_fields: hide.filter((h) => hideable.includes(h)),
+        people: picked,
+      });
+      making = false;
+      shares = await sharesApi.list(targetId);
+      toast.success(`Shared with ${share.people.map((p) => p.name).join(", ")}`);
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      busy = false;
+    }
+  }
+  const notIn = (s: ShareView) => known.filter((k) => !s.people.some((p) => p.user_id === k.user_id));
+  async function addPerson(s: ShareView, p: Person) {
+    try {
+      await sharesApi.addPeople(s.id, [p.user_id]);
+      shares = await sharesApi.list(targetId);
+      toast.success(`Shared with ${p.name}`);
+    } catch (e) {
+      toast.error(e);
     }
   }
 
@@ -243,7 +290,7 @@
       <p>
         {made.share.public
           ? "Send this link. Anyone who has it can open it, without signing in."
-          : "Send this link. People sign in once, then find it in Shared with me."}
+          : "Send this link. People sign in once, then find it in Shared with you."}
       </p>
       <input
         class="url"
@@ -333,11 +380,34 @@
           </div>
         </fieldset>
       {/if}
+      {#if known.length && !(linkOnly && target.kind !== "card")}
+        <fieldset class="group">
+          <legend>People you know</legend>
+          <div class="chips">
+            {#each known as k (k.user_id)}
+              <button
+                type="button"
+                class="chip"
+                class:on={picked.includes(k.user_id)}
+                aria-pressed={picked.includes(k.user_id)}
+                onclick={() => (picked = toggle(picked, k.user_id))}>{k.name}</button
+              >
+            {/each}
+          </div>
+        </fieldset>
+      {/if}
       <div class="actions">
-        <Button variant="primary" loading={busy} onclick={create}>
-          {#snippet icon()}<Link />{/snippet}
-          Make a link
-        </Button>
+        {#if picked.length && !(linkOnly && target.kind !== "card")}
+          <Button variant="primary" loading={busy} onclick={shareWithPicked}>
+            {#snippet icon()}<Users />{/snippet}
+            Share with {picked.length === 1 ? "1 person" : `${picked.length} people`}
+          </Button>
+        {:else}
+          <Button variant="primary" loading={busy} onclick={create}>
+            {#snippet icon()}<Link />{/snippet}
+            Make a link
+          </Button>
+        {/if}
         {#if shares.length}<Button variant="ghost" onclick={() => (making = false)}>Cancel</Button>{/if}
       </div>
     {:else}
@@ -376,6 +446,15 @@
           {/each}
         </ListGroup>
         <div class="actions">
+          {#if !s.public && notIn(s).length}
+            <Button
+              size="sm"
+              onclick={() => {
+                adding = s;
+                addOpen = true;
+              }}>Add people</Button
+            >
+          {/if}
           <Button size="sm" onclick={() => reset(s)}>New link</Button>
           <Button size="sm" variant="ghost" onclick={() => revoke(s)}>Stop sharing</Button>
         </div>
@@ -385,6 +464,13 @@
   </div>
 </Sheet>
 
+{#if adding}
+  <ActionSheet
+    bind:open={addOpen}
+    title="Add someone you know"
+    actions={notIn(adding).map((p) => ({ label: p.name, onclick: () => addPerson(adding!, p) }))}
+  />
+{/if}
 {#if ruleFor}
   <RuleSheet bind:open={ruleOpen} {collection} who={ruleFor.who} rule={ruleFor.rule} onsave={saveRule} />
 {/if}

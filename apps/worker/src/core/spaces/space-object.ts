@@ -30,6 +30,7 @@ import {
   type RuleFilter,
   type ShareAccess,
   type ShareInclude,
+  type Person,
   type ShareKind,
   type ShareView,
   type SharedCardView,
@@ -1820,6 +1821,8 @@ export class SpaceObject extends DurableObject<Env> {
       include: string[];
       access: ShareAccess;
       hide: string[];
+      /** Also hide every money field in what's shared (sharing from the chat). */
+      hideMoney?: boolean;
       public: boolean;
       expiresInDays: number | null;
       tokenHash: string;
@@ -1850,6 +1853,12 @@ export class SpaceObject extends DurableObject<Env> {
         }
       }
       const hidden = this.resolveHidden(c, include, input.hide);
+      if (input.hideMoney)
+        for (const id of this.includedCollections(c, include)) {
+          const titleId = this.requireCollection(id).title_field_id;
+          for (const f of this.fieldRows(id))
+            if (f.type === "money" && f.id !== titleId && !hidden.includes(f.id)) hidden.push(f.id);
+        }
       // A form must be fillable: every required field shown, and none of them a link.
       if (input.kind === "form") {
         const blocked = this.fieldRows(c.id).filter(
@@ -1943,6 +1952,49 @@ export class SpaceObject extends DurableObject<Env> {
         entityType: "share",
         entityId: s.id,
         before: { user_id: userId },
+      });
+      return this.shareView(s);
+    });
+  }
+
+  /** People I know here: everyone in this space or one of its shares, but me. */
+  async people(actor: Actor): Promise<Person[]> {
+    this.canWrite(actor);
+    return this.sql
+      .exec<Person>(
+        `select user_id, name from members where user_id != ?
+         union select user_id, max(name) from share_people where user_id != ? group by user_id`,
+        actor.userId,
+        actor.userId,
+      )
+      .toArray();
+  }
+
+  /** Adds people the owner already knows to a share, without a link. */
+  async addSharePeople(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    people: Person[],
+  ): Promise<ShareView> {
+    return this.write(actor, key, ["add_share_people", shareId, people], (ts) => {
+      const s = this.requireShare(shareId);
+      if (!this.alive(s)) throw new ObjectError("not_found", "Share not found");
+      for (const p of people) {
+        if (p.user_id === actor.userId) continue;
+        this.sql.exec(
+          `insert or ignore into share_people (share_id, user_id, name, joined_at) values (?, ?, ?, ?)`,
+          s.id,
+          p.user_id,
+          p.name,
+          ts,
+        );
+      }
+      audit(this.sql, actor, {
+        action: "add_share_people",
+        entityType: "share",
+        entityId: s.id,
+        after: { people: people.map((p) => p.user_id) },
       });
       return this.shareView(s);
     });

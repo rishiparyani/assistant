@@ -136,7 +136,7 @@
   async function leave() {
     const ok = await confirm({
       title: "Leave this?",
-      message: "It goes from your Shared with me list. You'd need the link again to come back.",
+      message: "It goes from your Shared with you list. You'd need the link again to come back.",
       confirmLabel: "Leave",
       destructive: true,
     });
@@ -154,7 +154,7 @@
 </script>
 
 {#if !opened}
-  <PageHeader title="Shared with me" back="/shared" backLabel="Shared" />
+  <PageHeader title="Shared with you" back="/shared" backLabel="Shared" />
   {#if q.error}
     <EmptyState title="Can't open this" text="The owner may have stopped sharing it, or you're offline." />
   {:else}
