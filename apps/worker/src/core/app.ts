@@ -16,6 +16,8 @@ import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
 import { spaceOperations } from "./spaces/operations.ts";
 import { shareOperations } from "./spaces/share-operations.ts";
+import { openPublicShare, submitPublicForm } from "./spaces/shares.ts";
+import { PublicShareInput, PublicSubmitInput } from "@assistant/shared";
 import { assistantOperations } from "./assistant/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
 
@@ -150,6 +152,33 @@ export function createApp({ modules }: AppOptions) {
         sharedHeaders,
       );
     return c.json(data, 200, sharedHeaders);
+  });
+
+  // Link-only views and forms (design §11): no sign-in, the token comes in the body (it sits
+  // after # in the link, so it never reaches logs) and the space's object checks it.
+  const linkGone = () => new AppError("not_found", "This link doesn't work (any more)");
+  app.post("/api/link/open", async (c) => {
+    const body = PublicShareInput.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) throw linkGone();
+    const data = await openPublicShare(c.env, body.data.token, body.data.cursor);
+    if (!data) throw linkGone();
+    return c.json(data, 200, sharedHeaders);
+  });
+  app.post("/api/link/submit", async (c) => {
+    const key = c.req.header("idempotency-key") ?? null;
+    if (!key || key.length > 200)
+      throw new AppError(
+        "validation_failed",
+        "Writes need an Idempotency-Key header (a unique value per action)",
+      );
+    const body = PublicSubmitInput.safeParse(await c.req.json().catch(() => null));
+    if (!body.success) throw new AppError("validation_failed", "Send the token and the values");
+    const data = await submitPublicForm(c.env, body.data.token, key, {
+      id: body.data.id ?? null,
+      values: body.data.values,
+    });
+    if (!data) throw linkGone();
+    return c.json(data, 201, sharedHeaders);
   });
 
   // MCP (T10): AI assistants connect with OAuth (consent in the app) and call the

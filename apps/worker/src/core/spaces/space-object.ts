@@ -28,8 +28,11 @@ import {
   type SavedView,
   type ShareAccess,
   type ShareInclude,
+  type ShareKind,
   type ShareView,
   type SharedCardView,
+  type SharedFieldInfo,
+  type SharedOpened,
   type SharedRecord,
   type SharedWithMe,
   type StoredValue,
@@ -185,6 +188,24 @@ const MIGRATIONS: Migrations = [
   ) without rowid;
   create index share_people_user_idx on share_people (user_id);
   `,
+  // Views and forms can be shared too, and views and forms by link without signing in.
+  `
+  alter table shares add column kind text not null default 'card';
+  alter table shares add column target_id text;
+  alter table shares add column public integer not null default 0;
+  update shares set target_id = record_id;
+  create index shares_target_idx on shares (target_id, revoked_at);
+  create table share_counts (
+    share_id text not null,
+    day text not null,
+    count integer not null,
+    primary key (share_id, day)
+  ) without rowid;
+  `,
+  // A person's own records (shared forms list "what I sent").
+  `
+  create index records_creator_idx on records (collection_id, created_by, deleted_at, created_at);
+  `,
 ];
 
 type ViewQuery = {
@@ -238,9 +259,14 @@ type RecordRow = {
   version: number;
 };
 type Role = "owner" | "editor" | "viewer";
+/** Answers a link-only form takes a day, so a leaked link can't flood a space. */
+const PUBLIC_FORM_DAILY = 500;
 type ShareRow = {
   id: string;
   record_id: string;
+  kind: ShareKind;
+  target_id: string;
+  public: number;
   token_hash: string;
   access: ShareAccess;
   include_json: string;
@@ -1199,6 +1225,23 @@ export class SpaceObject extends DurableObject<Env> {
   ): Promise<FindResult> {
     this.role(actor);
     const c = this.requireCollection(collection);
+    const { rows, next_cursor } = this.findRows(actor, c, q);
+    return { items: rows.map((r) => this.recordView(r)), next_cursor };
+  }
+
+  /** The find itself, without the role check (shares check their own access first). */
+  private findRows(
+    actor: Actor,
+    c: CollectionRow,
+    q: {
+      filters: Filter[];
+      search?: string;
+      sort?: { field: string; dir: "asc" | "desc" };
+      limit: number;
+      cursor?: string;
+      ids?: string[];
+    },
+  ): { rows: RecordRow[]; next_cursor: string | null } {
     const fields = this.fieldRows(c.id);
     const where: string[] = [`r.collection_id = ?`, `r.deleted_at is null`];
     const args: unknown[] = [c.id];
@@ -1207,6 +1250,10 @@ export class SpaceObject extends DurableObject<Env> {
       const [clause, a] = this.filterClause(f, flt, actor);
       where.push(clause);
       args.push(...a);
+    }
+    if (q.ids) {
+      where.push(`r.id in (${q.ids.map(() => "?").join(", ") || "null"})`);
+      args.push(...q.ids);
     }
     for (const w of words(q.search ?? "").slice(0, 5)) {
       where.push(`r.id in (select record_id from record_words where word >= ? and word < ?)`);
@@ -1234,7 +1281,7 @@ export class SpaceObject extends DurableObject<Env> {
       .toArray();
     const more = rows.length > q.limit;
     return {
-      items: rows.slice(0, q.limit).map((r) => this.recordView(r)),
+      rows: rows.slice(0, q.limit),
       next_cursor: more ? encodeCursor([offset + q.limit]) : null,
     };
   }
@@ -1527,35 +1574,75 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   // --- Sharing (design §11) ----------------------------------------------------------------
-  // A card is one record plus the linked parts its owner chose. Collaborators reach it only
-  // through a share they joined; everything else in the space stays 404 to them.
+  // A card is one record plus the linked parts its owner chose; a view shares a saved view's
+  // records live; a form lets people add records to a collection and see only their own.
+  // Collaborators reach things only through a share; everything else in the space stays 404.
 
   async createShare(
     actor: Actor,
     key: string | null,
     input: {
-      recordId: string;
+      kind: ShareKind;
+      target: string;
       include: string[];
       access: ShareAccess;
       hide: string[];
+      public: boolean;
       expiresInDays: number | null;
       tokenHash: string;
     },
   ): Promise<{ share: ShareView; token_hash: string }> {
     const { tokenHash, ...request } = input;
     return this.write(actor, key, ["create_share", request], (ts) => {
-      const r = this.requireRecord(input.recordId);
-      const c = this.requireCollection(r.collection_id);
-      const include = this.resolveIncludes(c, input.include);
+      let targetId: string;
+      let c: CollectionRow;
+      let include: ShareInclude[] = [];
+      if (input.kind === "card") {
+        if (input.public)
+          throw new ObjectError("validation_failed", "Cards are shared with people who sign in");
+        const r = this.requireRecord(input.target);
+        c = this.requireCollection(r.collection_id);
+        include = this.resolveIncludes(c, input.include);
+        targetId = r.id;
+      } else {
+        if (input.include.length)
+          throw new ObjectError("validation_failed", "Only cards include linked parts");
+        if (input.kind === "view") {
+          const v = this.requireView(input.target);
+          c = this.requireCollection(v.collection_id);
+          targetId = v.id;
+        } else {
+          c = this.requireCollection(input.target);
+          targetId = c.id;
+        }
+      }
       const hidden = this.resolveHidden(c, include, input.hide);
+      // A form must be fillable: every required field shown, and none of them a link.
+      if (input.kind === "form") {
+        const blocked = this.fieldRows(c.id).filter(
+          (f) => f.required && (f.type === "link" || hidden.includes(f.id)),
+        );
+        if (blocked.length)
+          throw new ObjectError(
+            "validation_failed",
+            `People can't fill in ${blocked.map((f) => f.name).join(", ")} on a form (required${
+              blocked.some((f) => f.type === "link") ? "; links can't be shared" : ", but hidden"
+            }). Show it, or make it optional first.`,
+          );
+      }
+      // Link-only views are to look at; editing needs a name in the history.
+      const access = input.public && input.kind === "view" ? "view" : input.access;
       const id = ulid();
       this.sql.exec(
-        `insert into shares (id, record_id, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
-        r.id,
+        targetId,
+        input.kind,
+        targetId,
+        input.public ? 1 : 0,
         tokenHash,
-        input.access,
+        access,
         JSON.stringify(include),
         JSON.stringify(hidden),
         input.expiresInDays
@@ -1569,13 +1656,13 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
-  async listShares(actor: Actor, recordId?: string): Promise<ShareView[]> {
+  async listShares(actor: Actor, targetId?: string): Promise<ShareView[]> {
     this.canWrite(actor);
-    const rows = recordId
+    const rows = targetId
       ? this.sql
           .exec<ShareRow>(
-            `select * from shares where record_id = ? and revoked_at is null order by created_at`,
-            recordId,
+            `select * from shares where target_id = ? and revoked_at is null order by created_at`,
+            targetId,
           )
           .toArray()
       : this.sql
@@ -1634,10 +1721,8 @@ export class SpaceObject extends DurableObject<Env> {
     tokenHash: string,
   ): Promise<{ share_id: string; title: string } | null> {
     if (!actor.userId) return null;
-    const s = this.sql
-      .exec<ShareRow>(`select * from shares where token_hash = ? and revoked_at is null`, tokenHash)
-      .toArray()[0];
-    if (!s || this.expired(s) || !this.liveRecord(s.record_id)) return null;
+    const s = this.shareByHash(tokenHash);
+    if (!s) return null;
     const joined = this.sql
       .exec(`select 1 from share_people where share_id = ? and user_id = ?`, s.id, actor.userId)
       .toArray().length;
@@ -1651,7 +1736,7 @@ export class SpaceObject extends DurableObject<Env> {
       );
       audit(this.sql, actor, { action: "join_share", entityType: "share", entityId: s.id });
     }
-    return { share_id: s.id, title: this.liveRecord(s.record_id)!.title };
+    return { share_id: s.id, title: this.shareTitle(s) };
   }
 
   /** The shares in this space the person joined and can still open. */
@@ -1664,24 +1749,73 @@ export class SpaceObject extends DurableObject<Env> {
         actor.userId,
       )
       .toArray()
-      .flatMap((s) => {
-        const r = this.liveRecord(s.record_id);
-        return r && !this.expired(s)
+      .flatMap((s) =>
+        this.alive(s)
           ? [
               {
                 share_id: s.id,
-                title: r.title,
+                kind: s.kind,
+                title: this.shareTitle(s),
                 owner: this.ownerName(),
                 access: s.access,
                 joined_at: s.joined_at,
               },
             ]
-          : [];
-      });
+          : [],
+      );
   }
 
-  async openShare(actor: Actor, shareId: string): Promise<SharedCardView> {
-    return this.cardView(this.joinedShare(actor, shareId));
+  async openShare(actor: Actor, shareId: string, cursor?: string): Promise<SharedOpened> {
+    return this.opened(this.joinedShare(actor, shareId), actor, cursor);
+  }
+
+  /** A link-only view or form, opened without signing in; null unless the link is live. */
+  async openPublicShare(tokenHash: string, cursor?: string): Promise<SharedOpened | null> {
+    const s = this.shareByHash(tokenHash);
+    if (!s || !s.public) return null;
+    return this.opened(s, { userId: null, source: "web" }, cursor);
+  }
+
+  /** Someone without an account fills in a link-only form (a few hundred a day at most). */
+  async submitPublicForm(
+    tokenHash: string,
+    key: string | null,
+    input: { id?: string | null; values: Record<string, unknown> },
+  ): Promise<{ id: string } | null> {
+    const s = this.shareByHash(tokenHash);
+    if (!s || !s.public || s.kind !== "form") return null;
+    const actor: Actor = { userId: null, source: "web" };
+    return this.write(
+      actor,
+      key ? `link:${key}` : null,
+      ["submit_form", s.id, input],
+      (ts) => {
+        const day = ts.slice(0, 10);
+        const used =
+          this.sql
+            .exec<{ count: number }>(
+              `select count from share_counts where share_id = ? and day = ?`,
+              s.id,
+              day,
+            )
+            .toArray()[0]?.count ?? 0;
+        if (used >= PUBLIC_FORM_DAILY)
+          throw new ObjectError("rate_limited", "This form has had a lot of answers today; try tomorrow");
+        this.sql.exec(
+          `insert into share_counts (share_id, day, count) values (?, ?, 1)
+           on conflict (share_id, day) do update set count = count + 1`,
+          s.id,
+          day,
+        );
+        const c = this.requireCollection(s.target_id);
+        const r = this.insertRecord(actor, ts, c, {
+          id: input.id ?? null,
+          values: this.sharedValues(s, c.id, input.values),
+        });
+        return { id: r.id };
+      },
+      () => {},
+    );
   }
 
   async updateSharedRecord(
@@ -1690,20 +1824,18 @@ export class SpaceObject extends DurableObject<Env> {
     shareId: string,
     recordId: string,
     values: Record<string, unknown>,
-  ): Promise<SharedCardView> {
+  ): Promise<SharedOpened> {
     let s!: ShareRow;
     return this.write(
       actor,
       key,
       ["update_shared_record", shareId, recordId, values],
       (ts) => {
-        const card = this.cardView(s);
-        const inCard =
-          card.record.id === recordId || card.sections.some((x) => x.records.some((r) => r.id === recordId));
-        if (!inCard) throw new ObjectError("not_found", "Record not found");
+        if (!this.sharedRecordIds(s, actor, [recordId]).length)
+          throw new ObjectError("not_found", "Record not found");
         const r = this.requireRecord(recordId);
         this.changeRecord(actor, ts, r, { values: this.sharedValues(s, r.collection_id, values) });
-        return this.cardView(s);
+        return this.opened(s, actor);
       },
       () => (s = this.editableShare(actor, shareId)),
     );
@@ -1715,26 +1847,40 @@ export class SpaceObject extends DurableObject<Env> {
     shareId: string,
     section: string,
     input: { id?: string | null; values: Record<string, unknown> },
-  ): Promise<SharedCardView> {
+  ): Promise<SharedOpened> {
     let s!: ShareRow;
     return this.write(
       actor,
       key,
       ["add_shared_record", shareId, section, input],
       (ts) => {
-        const include = (JSON.parse(s.include_json) as ShareInclude[]).find(
-          (x) => "from_field" in x && `from:${x.from_field}` === section,
-        );
-        const f = include && "from_field" in include ? this.liveField(include.from_field) : undefined;
-        if (!f) throw new ObjectError("not_found", "You can't add records there");
-        const c = this.requireCollection(f.collection_id);
-        this.insertRecord(actor, ts, c, {
-          id: input.id ?? null,
-          values: { ...this.sharedValues(s, c.id, input.values), [f.id]: [s.record_id] },
-        });
-        return this.cardView(s);
+        if (s.kind === "card") {
+          const include = (JSON.parse(s.include_json) as ShareInclude[]).find(
+            (x) => "from_field" in x && `from:${x.from_field}` === section,
+          );
+          const f = include && "from_field" in include ? this.liveField(include.from_field) : undefined;
+          if (!f) throw new ObjectError("not_found", "You can't add records there");
+          const c = this.requireCollection(f.collection_id);
+          this.insertRecord(actor, ts, c, {
+            id: input.id ?? null,
+            values: { ...this.sharedValues(s, c.id, input.values), [f.id]: [s.target_id] },
+          });
+        } else {
+          if (section !== s.kind) throw new ObjectError("not_found", "You can't add records there");
+          const c = this.shareCollection(s);
+          this.insertRecord(actor, ts, c, {
+            id: input.id ?? null,
+            values: this.sharedValues(s, c.id, input.values),
+          });
+        }
+        return this.opened(s, actor);
       },
-      () => (s = this.editableShare(actor, shareId)),
+      () => {
+        s = this.joinedShare(actor, shareId);
+        // Forms are for filling in, whatever the access; adding elsewhere needs edit access.
+        if (s.kind !== "form" && s.access !== "edit")
+          throw new ObjectError("forbidden", "This is shared with you to view only");
+      },
     );
   }
 
@@ -1755,7 +1901,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
         if (include && "from_field" in include)
           collectionId = this.liveField(include.from_field)?.collection_id;
-      }
+      } else if (target.section === s.kind && s.kind !== "card") collectionId = this.shareCollection(s).id;
     } catch {
       // Not shared with them: the write itself says so.
       return false;
@@ -1795,8 +1941,45 @@ export class SpaceObject extends DurableObject<Env> {
     return s;
   }
 
-  private expired(s: ShareRow) {
-    return !!s.expires_at && s.expires_at <= nowIso();
+  /** The live share whose link has this hash. */
+  private shareByHash(tokenHash: string): ShareRow | undefined {
+    const s = this.sql
+      .exec<ShareRow>(`select * from shares where token_hash = ? and revoked_at is null`, tokenHash)
+      .toArray()[0];
+    return s && this.alive(s) ? s : undefined;
+  }
+
+  /** Not expired, and what it shares still exists. */
+  private alive(s: ShareRow): boolean {
+    if (s.expires_at && s.expires_at <= nowIso()) return false;
+    if (s.kind === "card") return !!this.liveRecord(s.target_id);
+    try {
+      this.shareCollection(s);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private liveView(id: string): ViewRow | undefined {
+    return this.sql.exec<ViewRow>(`select * from views where id = ? and deleted_at is null`, id).toArray()[0];
+  }
+
+  /** The collection a view or form share works on. */
+  private shareCollection(s: ShareRow): CollectionRow {
+    const id = s.kind === "view" ? this.liveView(s.target_id)?.collection_id : s.target_id;
+    if (!id) throw new ObjectError("not_found", "Share not found");
+    return this.requireCollection(id);
+  }
+
+  private shareTitle(s: ShareRow): string {
+    if (s.kind === "card") return this.liveRecord(s.target_id)?.title ?? "Deleted";
+    if (s.kind === "view") return this.liveView(s.target_id)?.name ?? "Deleted";
+    try {
+      return this.requireCollection(s.target_id).name;
+    } catch {
+      return "Deleted";
+    }
   }
 
   private liveRecord(id: string): RecordRow | undefined {
@@ -1826,8 +2009,7 @@ export class SpaceObject extends DurableObject<Env> {
     const allowed =
       !!s &&
       !!actor.userId &&
-      !this.expired(s) &&
-      !!this.liveRecord(s.record_id) &&
+      this.alive(s) &&
       (this.sql
         .exec(`select 1 from share_people where share_id = ? and user_id = ?`, s.id, actor.userId)
         .toArray().length > 0 ||
@@ -1838,8 +2020,39 @@ export class SpaceObject extends DurableObject<Env> {
 
   private editableShare(actor: Actor, shareId: string): ShareRow {
     const s = this.joinedShare(actor, shareId);
-    if (s.access !== "edit") throw new ObjectError("forbidden", "This card is shared with you to view only");
+    if (s.access !== "edit") throw new ObjectError("forbidden", "This is shared with you to view only");
     return s;
+  }
+
+  /** Which of these records the share lets this person reach. */
+  private sharedRecordIds(s: ShareRow, actor: Actor, ids: string[]): string[] {
+    if (s.kind === "card") {
+      const card = this.cardView(s);
+      const inCard = new Set([card.record.id, ...card.sections.flatMap((x) => x.records.map((r) => r.id))]);
+      return ids.filter((id) => inCard.has(id));
+    }
+    const c = this.shareCollection(s);
+    if (s.kind === "form")
+      return ids.filter((id) => {
+        const r = this.liveRecord(id);
+        return !!r && r.collection_id === c.id && !!actor.userId && this.createdBy(id) === actor.userId;
+      });
+    const v = this.viewOf(this.liveView(s.target_id)!);
+    if (!v) return [];
+    return this.findRows(actor, c, {
+      filters: v.filters,
+      search: v.search ?? undefined,
+      limit: ids.length,
+      ids,
+    }).rows.map((r) => r.id);
+  }
+
+  private createdBy(recordId: string): string | null {
+    return (
+      this.sql
+        .exec<{ created_by: string | null }>(`select created_by from records where id = ?`, recordId)
+        .toArray()[0]?.created_by ?? null
+    );
   }
 
   /** Values a collaborator may set: only fields shared with them, never links. */
@@ -1945,9 +2158,11 @@ export class SpaceObject extends DurableObject<Env> {
     const hidden = JSON.parse(s.hidden_json) as string[];
     return {
       id: s.id,
-      kind: "card",
-      record_id: s.record_id,
-      title: this.liveRecord(s.record_id)?.title ?? "Deleted",
+      kind: s.kind,
+      target_id: s.target_id,
+      record_id: s.kind === "card" ? s.target_id : null,
+      title: this.shareTitle(s),
+      public: !!s.public,
       access: s.access,
       include: include.flatMap((x) => {
         const f = this.liveField("field" in x ? x.field : x.from_field);
@@ -1971,44 +2186,102 @@ export class SpaceObject extends DurableObject<Env> {
     };
   }
 
-  private cardView(s: ShareRow): SharedCardView {
+  // What collaborators see: shared fields only, never links (they'd name records outside it).
+  private sharedFields(s: ShareRow, collectionId: string): FieldRow[] {
     const hidden = new Set(JSON.parse(s.hidden_json) as string[]);
-    const edit = s.access === "edit";
-    const shown = (collectionId: string) =>
-      this.fieldRows(collectionId).filter((f) => f.type !== "link" && !hidden.has(f.id));
-    const titleOf = (collectionId: string) => this.requireCollection(collectionId).title_field_id;
-    const toShared = (r: RecordRow, fields: FieldRow[]): SharedRecord => {
-      const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
-      const titleId = titleOf(r.collection_id);
-      return {
-        id: r.id,
-        title: r.title,
-        fields: fields.map((f) => {
-          const v = values[f.id] ?? null;
-          const view = toField(f);
-          return {
-            id: f.id,
-            name: f.name,
-            type: f.type,
-            options: view.options,
-            value: v,
-            display: displayValue(f.type, v),
-            editable: edit,
-            title: f.id === titleId,
-          };
-        }),
-      };
+    return this.fieldRows(collectionId).filter((f) => f.type !== "link" && !hidden.has(f.id));
+  }
+
+  private fieldInfo(fields: FieldRow[], editable: boolean): SharedFieldInfo[] {
+    return fields.map((g) => ({
+      id: g.id,
+      name: g.name,
+      type: g.type,
+      options: toField(g).options,
+      editable,
+      required: !!g.required,
+    }));
+  }
+
+  private sharedRecord(r: RecordRow, fields: FieldRow[], editable: boolean): SharedRecord {
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const titleId = this.requireCollection(r.collection_id).title_field_id;
+    return {
+      id: r.id,
+      title: r.title,
+      fields: fields.map((f) => {
+        const v = values[f.id] ?? null;
+        return {
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          options: toField(f).options,
+          value: v,
+          display: displayValue(f.type, v),
+          editable,
+          title: f.id === titleId,
+        };
+      }),
     };
-    const card = this.liveRecord(s.record_id);
+  }
+
+  private opened(s: ShareRow, actor: Actor, cursor?: string): SharedOpened {
+    if (s.kind === "card") return this.cardView(s);
+    const c = this.shareCollection(s);
+    const head = { id: s.id, title: this.shareTitle(s), access: s.access, owner: this.ownerName() };
+    if (s.kind === "view") {
+      const edit = s.access === "edit";
+      const fields = this.sharedFields(s, c.id);
+      const v = this.viewOf(this.liveView(s.target_id)!);
+      if (!v) throw new ObjectError("not_found", "Share not found");
+      const { rows, next_cursor } = this.findRows(actor, c, {
+        filters: v.filters,
+        search: v.search ?? undefined,
+        sort: v.sort ?? undefined,
+        limit: 100,
+        cursor,
+      });
+      return {
+        share: { ...head, kind: "view" },
+        collection: c.name,
+        fields: this.fieldInfo(fields, edit),
+        can_add: edit,
+        records: rows.map((r) => this.sharedRecord(r, fields, edit)),
+        next_cursor,
+      };
+    }
+    const fields = this.sharedFields(s, c.id);
+    const mine = actor.userId
+      ? this.sql
+          .exec<RecordRow>(
+            `select * from records where collection_id = ? and created_by = ? and deleted_at is null
+             order by created_at desc limit 50`,
+            c.id,
+            actor.userId,
+          )
+          .toArray()
+      : [];
+    return {
+      share: { ...head, kind: "form" },
+      collection: c.name,
+      description: c.description,
+      fields: this.fieldInfo(fields, true),
+      mine: mine.map((r) => this.sharedRecord(r, fields, s.access === "edit")),
+    };
+  }
+
+  private cardView(s: ShareRow): SharedCardView {
+    const edit = s.access === "edit";
+    const card = this.liveRecord(s.target_id);
     if (!card) throw new ObjectError("not_found", "Share not found");
-    const cardFields = shown(card.collection_id);
+    const cardFields = this.sharedFields(s, card.collection_id);
     const sections: SharedCardView["sections"] = [];
     for (const x of JSON.parse(s.include_json) as ShareInclude[]) {
       const f = this.liveField("field" in x ? x.field : x.from_field);
       if (!f) continue;
       if ("field" in x) {
         const target = (JSON.parse(f.options_json) as FieldOptions).target ?? null;
-        const fields = target ? shown(target) : [];
+        const fields = target ? this.sharedFields(s, target) : [];
         const rows = this.sql
           .exec<RecordRow>(
             `select r.* from links l join records r on r.id = l.to_id
@@ -2023,17 +2296,11 @@ export class SpaceObject extends DurableObject<Env> {
           title: f.name,
           collection_id: target ?? "",
           can_add: false,
-          fields: fields.map((g) => ({
-            id: g.id,
-            name: g.name,
-            type: g.type,
-            options: toField(g).options,
-            editable: edit,
-          })),
-          records: rows.map((r) => toShared(r, target ? fields : [])),
+          fields: this.fieldInfo(fields, edit),
+          records: rows.map((r) => this.sharedRecord(r, target ? fields : [], edit)),
         });
       } else {
-        const fields = shown(f.collection_id);
+        const fields = this.sharedFields(s, f.collection_id);
         const rows = this.sql
           .exec<RecordRow>(
             `select r.* from links l join records r on r.id = l.from_id
@@ -2048,20 +2315,14 @@ export class SpaceObject extends DurableObject<Env> {
           title: this.requireCollection(f.collection_id).name,
           collection_id: f.collection_id,
           can_add: edit,
-          fields: fields.map((g) => ({
-            id: g.id,
-            name: g.name,
-            type: g.type,
-            options: toField(g).options,
-            editable: edit,
-          })),
-          records: rows.map((r) => toShared(r, fields)),
+          fields: this.fieldInfo(fields, edit),
+          records: rows.map((r) => this.sharedRecord(r, fields, edit)),
         });
       }
     }
     return {
-      share: { id: s.id, title: card.title, access: s.access, owner: this.ownerName() },
-      record: toShared(card, cardFields),
+      share: { id: s.id, kind: "card", title: card.title, access: s.access, owner: this.ownerName() },
+      record: this.sharedRecord(card, cardFields, edit),
       sections,
     };
   }

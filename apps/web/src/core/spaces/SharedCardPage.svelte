@@ -1,5 +1,12 @@
 <script lang="ts">
-  import type { SharedCardView, SharedRecord } from "@assistant/shared";
+  import {
+    ulid,
+    type SharedCardView,
+    type SharedFieldInfo,
+    type SharedFormView,
+    type SharedOpened,
+    type SharedRecord,
+  } from "@assistant/shared";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Plus from "@lucide/svelte/icons/plus";
   import LogOut from "@lucide/svelte/icons/log-out";
@@ -20,12 +27,14 @@
   import { SHARED_KEY, noLongerShared, sharedCardKey, sharesApi } from "./shares-api.ts";
   import { showValue } from "./spaces-api.ts";
   import SharedRecordSheet from "./SharedRecordSheet.svelte";
+  import SharedForm from "./SharedForm.svelte";
 
-  // A card someone shared with me: its fields and the linked parts they included. With edit
-  // access I can change the fields shown and add to sections (a guest, a song).
+  // Something shared with me: a card (its fields and the linked parts included), a view (its
+  // records, live) or a form (fill it in; what I sent shows below). With edit access I can
+  // change the fields shown and add records (a guest, a song).
   let { shareId }: { shareId: string } = $props();
 
-  const q = createQuery<SharedCardView>(
+  const q = createQuery<SharedOpened>(
     () => sharedCardKey(shareId),
     () => sharesApi.open(shareId),
   );
@@ -34,28 +43,81 @@
   $effect(() => {
     if (revoked) dropCache(sharedCardKey(shareId));
   });
-  const card = $derived(revoked ? undefined : q.data);
-  const canEdit = $derived(card?.share.access === "edit");
+  const opened = $derived(revoked ? undefined : q.data);
+  const card = $derived(opened?.share.kind === "card" ? (opened as SharedCardView) : undefined);
+  const form = $derived(opened?.share.kind === "form" ? (opened as SharedFormView) : undefined);
+  const canEdit = $derived(opened?.share.access === "edit");
   // The title is the page's title; the rest shows when filled in.
   const filled = $derived(card?.record.fields.filter((f) => !f.title && showValue(f, f.value)) ?? []);
+  // Sections to list: a card's linked parts, or a view's records as one section.
+  type Section = SharedCardView["sections"][number];
+  // A view's later pages, added below the first.
+  let extra = $state<SharedRecord[]>([]);
+  let cursor = $state<string | null>(null);
+  let loadingMore = $state(false);
+  $effect(() => {
+    cursor =
+      opened?.share.kind === "view"
+        ? (opened as Extract<SharedOpened, { next_cursor: string | null }>).next_cursor
+        : null;
+    extra = [];
+  });
+  async function more() {
+    if (!cursor) return;
+    loadingMore = true;
+    try {
+      const next = (await sharesApi.open(shareId, cursor)) as Extract<
+        SharedOpened,
+        { next_cursor: string | null }
+      >;
+      extra = [...extra, ...next.records];
+      cursor = next.next_cursor;
+    } catch (e) {
+      toast.error(e);
+    } finally {
+      loadingMore = false;
+    }
+  }
+  const sections = $derived.by<Section[]>(() => {
+    if (!opened) return [];
+    if (opened.share.kind === "card") return (opened as SharedCardView).sections;
+    if (opened.share.kind === "view") {
+      const v = opened as Extract<SharedOpened, { collection: string; records: SharedRecord[] }>;
+      return [
+        {
+          key: "view",
+          title: v.collection,
+          collection_id: "",
+          can_add: v.can_add,
+          fields: v.fields,
+          records: [...v.records, ...extra.filter((r) => !v.records.some((x) => x.id === r.id))],
+        },
+      ];
+    }
+    return [];
+  });
+  const infoOf = (r: SharedRecord): SharedFieldInfo[] => r.fields.map((f) => ({ ...f, required: false }));
 
   let sheet = $state<{
     title: string;
-    fields: SharedCardView["sections"][number]["fields"];
+    fields: SharedFieldInfo[];
     record: SharedRecord | null;
     section: string | null;
   } | null>(null);
   let sheetOpen = $state(false);
 
-  function edit(fields: SharedCardView["sections"][number]["fields"], record: SharedRecord) {
+  function edit(fields: SharedFieldInfo[], record: SharedRecord) {
     sheet = { title: `Edit ${record.title}`, fields, record, section: null };
     sheetOpen = true;
   }
-  function add(s: SharedCardView["sections"][number]) {
+  function add(s: Section) {
     sheet = { title: `Add to ${s.title}`, fields: s.fields, record: null, section: s.key };
     sheetOpen = true;
   }
-  const saved = (c: SharedCardView) => publish(sharedCardKey(shareId), c);
+  const saved = (c: SharedOpened) => publish(sharedCardKey(shareId), c);
+  async function sendForm(values: Record<string, unknown>) {
+    saved(await sharesApi.add(shareId, "form", ulid(), values));
+  }
 
   /** A short line under each record: its first few filled values. */
   const summary = (r: SharedRecord) =>
@@ -72,7 +134,7 @@
 
   async function leave() {
     const ok = await confirm({
-      title: "Leave this card?",
+      title: "Leave this?",
       message: "It goes from your Shared with me list. You'd need the link again to come back.",
       confirmLabel: "Leave",
       destructive: true,
@@ -90,8 +152,8 @@
   }
 </script>
 
-{#if !card}
-  <PageHeader title="Shared card" back="/shared" backLabel="Shared" />
+{#if !opened}
+  <PageHeader title="Shared with me" back="/shared" backLabel="Shared" />
   {#if q.error}
     <EmptyState title="Can't open this" text="The owner may have stopped sharing it, or you're offline." />
   {:else}
@@ -99,8 +161,8 @@
   {/if}
 {:else}
   <PageHeader
-    title={card.record.title}
-    subtitle="Shared by {card.share.owner}"
+    title={opened.share.title}
+    subtitle="Shared by {opened.share.owner}"
     back="/shared"
     backLabel="Shared"
   >
@@ -108,8 +170,8 @@
       <Button variant="ghost" onclick={leave} aria-label="Leave">
         {#snippet icon()}<LogOut />{/snippet}
       </Button>
-      {#if canEdit}
-        <Button variant="primary" onclick={() => edit(card.record.fields, card.record)}>
+      {#if canEdit && card}
+        <Button variant="primary" onclick={() => edit(infoOf(card.record), card.record)}>
           {#snippet icon()}<Pencil />{/snippet}
           Edit
         </Button>
@@ -117,11 +179,38 @@
     {/snippet}
   </PageHeader>
   <p class="access">
-    <Pill tone={canEdit ? "green" : "grey"}>{canEdit ? "You can edit" : "View only"}</Pill>
+    {#if form}
+      <Pill tone="blue">Form</Pill>
+    {:else}
+      <Pill tone={canEdit ? "green" : "grey"}>{canEdit ? "You can edit" : "View only"}</Pill>
+    {/if}
   </p>
 
   <div class="stack">
-    {#if filled.length}
+    {#if form}
+      {#if form.description}<p class="empty">{form.description}</p>{/if}
+      <SharedForm fields={form.fields} send={sendForm} />
+      {#if form.mine.length}
+        <section class="section">
+          <h2>What you sent</h2>
+          <ListGroup>
+            {#each form.mine as r (r.id)}
+              {#if canEdit}
+                <ListRow
+                  title={r.title}
+                  subtitle={summary(r) || undefined}
+                  onclick={() => edit(form.fields, r)}
+                />
+              {:else}
+                <ListRow title={r.title} subtitle={summary(r) || undefined} chevron={false} />
+              {/if}
+            {/each}
+          </ListGroup>
+        </section>
+      {/if}
+    {:else if !card}
+      <!-- A view: its records below. -->
+    {:else if filled.length}
       <ListGroup>
         {#each filled as f (f.id)}
           {#if f.type === "long_text"}
@@ -140,7 +229,7 @@
       <Card><p class="empty">Nothing else filled in.</p></Card>
     {/if}
 
-    {#each card.sections as s (s.key)}
+    {#each sections as s (s.key)}
       <section class="section">
         <div class="head">
           <h2>{s.title}</h2>
@@ -164,6 +253,9 @@
         </ListGroup>
       </section>
     {/each}
+    {#if cursor}
+      <div><Button onclick={more} loading={loadingMore}>Show more</Button></div>
+    {/if}
   </div>
 
   {#if sheet}

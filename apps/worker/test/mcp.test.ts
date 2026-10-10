@@ -317,5 +317,19 @@ describe("MCP", () => {
     expect(words.structuredContent.needs_confirmation).toBeUndefined();
     const money = await tool(token, "update_shared_record", { ...base, values: { Amount: "900" } });
     expect(money.structuredContent.needs_confirmation).toBe(true);
+    // Adding through a shared form asks too when it sets money.
+    const form = await json<{ share: { id: string }; link: string }>(
+      await call("/api/shares", { cookie: owner.cookie, body: { form: "Expenses", hide_fields: [] } }),
+    );
+    await call("/api/cards/join", {
+      cookie: friend.cookie,
+      body: { token: form.link.slice(form.link.indexOf("#") + 1) },
+    });
+    const claim = await tool(token, "add_shared_record", {
+      share_id: form.share.id,
+      section: "form",
+      values: { What: "Test claim", Amount: "200" },
+    });
+    expect(claim.structuredContent.needs_confirmation).toBe(true);
   });
 });

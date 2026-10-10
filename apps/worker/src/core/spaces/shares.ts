@@ -32,8 +32,12 @@ async function shareToken(ctx: OpUserCtx, spaceId: string, purpose: string) {
   return `${PREFIX}_${spaceId}_${secret}`;
 }
 
-/** The link people open; the token is in the part after #, so it never reaches server logs. */
-const linkFor = (ctx: OpUserCtx, token: string) => `${ctx.baseUrl}/join#${token}`;
+/**
+ * The link people open; the token is in the part after #, so it never reaches server logs.
+ * Link-only views and forms open at /s (no sign-in); everything else joins at /join.
+ */
+const linkFor = (ctx: OpUserCtx, token: string, share: { public: boolean }) =>
+  `${ctx.baseUrl}/${share.public ? "s" : "join"}#${token}`;
 
 /** A new share and its link (shown now; only its hash is kept). */
 export async function createShare(
@@ -42,15 +46,22 @@ export async function createShare(
 ): Promise<CreatedShare> {
   const { space, stub, actor } = await spaceOf(ctx, i.space);
   const token = await shareToken(ctx, space.id, "create");
+  const [kind, target] = i.record_id
+    ? (["card", i.record_id] as const)
+    : i.view
+      ? (["view", i.view] as const)
+      : (["form", i.form!] as const);
   const made = await stub.createShare(actor, ctx.idempotencyKey, {
-    recordId: i.record_id,
+    kind,
+    target,
+    public: i.public,
     include: i.include ?? [],
     access: i.access,
     hide: i.hide_fields ?? [],
     expiresInDays: i.expires_in_days ?? null,
     tokenHash: await hashToken(token),
   });
-  return { share: made.share, link: linkFor(ctx, token) };
+  return { share: made.share, link: linkFor(ctx, token, made.share) };
 }
 
 /** A new link for a share; the old one stops working. */
@@ -58,7 +69,7 @@ export async function resetShareLink(ctx: OpUserCtx, spaceRef: string | undefine
   const { space, stub, actor } = await spaceOf(ctx, spaceRef);
   const token = await shareToken(ctx, space.id, `reset:${shareId}`);
   const made = await stub.resetShareLink(actor, ctx.idempotencyKey, shareId, await hashToken(token));
-  return { share: made.share, link: linkFor(ctx, token) } satisfies CreatedShare;
+  return { share: made.share, link: linkFor(ctx, token, made.share) } satisfies CreatedShare;
 }
 
 export async function removeSharePerson(
@@ -137,9 +148,31 @@ export async function sharedTouchesMoney(
   );
 }
 
-export async function openShare(ctx: OpUserCtx, shareId: string) {
+export async function openShare(ctx: OpUserCtx, shareId: string, cursor?: string) {
   const { stub } = await shareStub(ctx, shareId);
-  return stub.openShare(actorOf(ctx), shareId);
+  return stub.openShare(actorOf(ctx), shareId, cursor);
+}
+
+// --- Link-only views and forms (no sign-in; the link is the key) -----------------------------
+
+function publicStub(env: Env, token: string) {
+  const m = TOKEN_RE.exec(token);
+  return m ? env.SPACES.getByName(spaceName(m[1]!)) : null;
+}
+
+export async function openPublicShare(env: Env, token: string, cursor?: string) {
+  const stub = publicStub(env, token);
+  return stub ? stub.openPublicShare(await hashToken(token), cursor) : null;
+}
+
+export async function submitPublicForm(
+  env: Env,
+  token: string,
+  key: string,
+  input: { id?: string | null; values: Record<string, unknown> },
+) {
+  const stub = publicStub(env, token);
+  return stub ? stub.submitPublicForm(await hashToken(token), key, input) : null;
 }
 
 export async function updateSharedRecord(ctx: OpUserCtx, i: z.output<typeof UpdateSharedRecordInput>) {

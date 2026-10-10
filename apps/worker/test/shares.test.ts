@@ -1,7 +1,16 @@
 // Sharing a card (docs/design/universal.md §11): join links, view and edit access, hidden
 // fields, and that nothing else in the owner's space is reachable. Fake data only.
 import { describe, expect, it } from "vitest";
-import type { CreatedShare, RecordView, ShareView, SharedCardView, SharedWithMe } from "@assistant/shared";
+import type {
+  CreatedShare,
+  FindResult,
+  RecordView,
+  ShareView,
+  SharedCardView,
+  SharedFormView,
+  SharedListView,
+  SharedWithMe,
+} from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -179,5 +188,138 @@ describe("sharing a card", () => {
     expect(title.status).toBe(400);
     // Others can't share my records.
     expect((await api(friend)("/shares", { body: { record_id: show.id } })).status).toBe(404);
+  });
+});
+
+describe("sharing views and forms", () => {
+  it("shares a view live, with its filters, and keeps edits inside it", async () => {
+    const { owner } = await setUp();
+    await api(owner)("/collections/Shows/records", { body: { values: { Title: "Test Small", Fee: "100" } } });
+    const view = await json<{ id: string }>(
+      await api(owner)("/views", {
+        body: {
+          name: "Big shows",
+          collection: "Shows",
+          filters: [{ field: "Fee", op: "gte", value: "1000" }],
+        },
+      }),
+    );
+    const { share, link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { view: "Big shows", access: "edit", hide_fields: ["Fee"] } }),
+    );
+    expect(share).toMatchObject({ kind: "view", target_id: view.id, title: "Big shows", record_id: null });
+    const friend = await signUp("Test Friend");
+    await api(friend)("/cards/join", { body: { token: tokenOf(link) } });
+    const opened = await json<SharedListView>(await api(friend)(`/cards/${share.id}`));
+    expect(opened.share.kind).toBe("view");
+    expect(opened.records.map((r) => r.title)).toEqual(["Test Fest"]);
+    expect(opened.fields.map((f) => f.name)).toEqual(["Title", "Venue notes"]);
+    // A record outside the view can't be changed through it.
+    const all = await json<FindResult>(await api(owner)("/collections/Shows/find", { body: {} }));
+    const small = all.items.find((r) => r.title === "Test Small")!;
+    expect(
+      (
+        await api(friend)(`/cards/${share.id}/records/${small.id}`, {
+          method: "PATCH",
+          body: { values: { "Venue notes": "Test x" } },
+        })
+      ).status,
+    ).toBe(404);
+    const fest = opened.records[0]!;
+    expect(
+      (
+        await api(friend)(`/cards/${share.id}/records/${fest.id}`, {
+          method: "PATCH",
+          body: { values: { "Venue notes": "Test updated" } },
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("lets people fill in a form and see only their own answers", async () => {
+    const { owner } = await setUp();
+    const { share, link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { form: "Guests", hide_fields: ["Arrived"] } }),
+    );
+    expect(share.kind).toBe("form");
+    const a = await signUp("Test Asha");
+    const b = await signUp("Test Ben");
+    for (const u of [a, b]) await api(u)("/cards/join", { body: { token: tokenOf(link) } });
+    const form = await json<SharedFormView>(await api(a)(`/cards/${share.id}`));
+    expect(form.fields.map((f) => f.name)).toEqual(["Name", "Phone"]);
+    expect(form.mine).toEqual([]);
+    const sent = await api(a)(`/cards/${share.id}/records`, {
+      body: { section: "form", values: { Name: "Test Asha's friend" } },
+    });
+    expect(sent.status).toBe(201);
+    expect((await json<SharedFormView>(sent)).mine.map((r) => r.title)).toEqual(["Test Asha's friend"]);
+    // Ben sees none of Asha's answers; the owner sees them all.
+    expect((await json<SharedFormView>(await api(b)(`/cards/${share.id}`))).mine).toEqual([]);
+    const guests = await json<FindResult>(await api(owner)("/collections/Guests/find", { body: {} }));
+    expect(guests.items.map((r) => r.title)).toContain("Test Asha's friend");
+    // A form whose required fields people can't fill in isn't made.
+    await api(owner)("/collections", {
+      body: {
+        name: "Claims",
+        fields: [
+          { name: "What", type: "text" },
+          { name: "Amount", type: "money", required: true },
+        ],
+      },
+    });
+    expect((await api(owner)("/shares", { body: { form: "Claims", hide_fields: ["Amount"] } })).status).toBe(
+      400,
+    );
+    expect((await api(owner)("/shares", { body: { form: "Claims" } })).status).toBe(201);
+    // Hidden fields can't be filled in.
+    expect(
+      (
+        await api(b)(`/cards/${share.id}/records`, {
+          body: { section: "form", values: { Name: "Test x", Arrived: "yes" } },
+        })
+      ).status,
+    ).toBe(403);
+  });
+
+  it("opens link-only views and forms without signing in", async () => {
+    const { owner } = await setUp();
+    await api(owner)("/views", { body: { name: "All shows", collection: "Shows" } });
+    const view = await json<CreatedShare>(
+      await api(owner)("/shares", {
+        body: { view: "All shows", public: true, access: "edit", hide_fields: ["Fee"] },
+      }),
+    );
+    // Link-only views are read-only.
+    expect(view.share).toMatchObject({ public: true, access: "view" });
+    const opened = await json<SharedListView>(
+      await call("/api/link/open", { body: { token: tokenOf(view.link) } }),
+    );
+    expect(opened.records.map((r) => r.title)).toEqual(["Test Fest"]);
+    expect(JSON.stringify(opened)).not.toContain("50000");
+
+    const form = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { form: "Guests", public: true } }),
+    );
+    const ok = await call("/api/link/submit", {
+      body: { token: tokenOf(form.link), values: { Name: "Test Walk-in" } },
+    });
+    expect(ok.status).toBe(201);
+    const guests = await json<FindResult>(await api(owner)("/collections/Guests/find", { body: {} }));
+    expect(guests.items.map((r) => r.title)).toContain("Test Walk-in");
+
+    // A card link, or a link that's been turned off, doesn't open without signing in.
+    const card = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { record_id: guests.items[0]!.id } }),
+    );
+    expect((await call("/api/link/open", { body: { token: tokenOf(card.link) } })).status).toBe(404);
+    await api(owner)(`/shares/${form.share.id}`, { method: "DELETE" });
+    expect(
+      (await call("/api/link/submit", { body: { token: tokenOf(form.link), values: { Name: "Test late" } } }))
+        .status,
+    ).toBe(404);
+    // Cards can't be link-only.
+    expect(
+      (await api(owner)("/shares", { body: { record_id: guests.items[0]!.id, public: true } })).status,
+    ).toBe(400);
   });
 });

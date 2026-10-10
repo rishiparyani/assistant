@@ -16,6 +16,7 @@
   import JoinPage from "./spaces/JoinPage.svelte";
   import SharedPage from "./spaces/SharedPage.svelte";
   import SharedCardPage from "./spaces/SharedCardPage.svelte";
+  import PublicSharePage from "./spaces/PublicSharePage.svelte";
   import ChatPage from "./assistant/ChatPage.svelte";
   import SongsPage from "../modules/music/SongsPage.svelte";
   import SongPage from "../modules/music/SongPage.svelte";
@@ -36,7 +37,7 @@
   import SharedGuests from "../modules/gigs/booking/SharedGuests.svelte";
   import GigTypesSettings from "../modules/gigs/booking/GigTypesSettings.svelte";
 
-  const PUBLIC = new Set(["login", "consent", "guest_link"]);
+  const PUBLIC = new Set(["login", "consent", "guest_link", "public_share"]);
   // Opens at once with the user saved on this device; the server check runs alongside.
   void refreshSession();
 
@@ -75,6 +76,8 @@
     <Login query={route.query} />
   {:else if route.name === "consent"}
     <Consent query={route.query} />
+  {:else if route.name === "public_share"}
+    <PublicSharePage />
   {:else if route.name === "guest_link"}
     <SharedGuests token={route.params.token!} />
   {:else if session.me}

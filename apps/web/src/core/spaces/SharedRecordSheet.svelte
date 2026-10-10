@@ -4,7 +4,7 @@
     ulid,
     type FieldOptions,
     type FieldType,
-    type SharedCardView,
+    type SharedOpened,
     type SharedRecord,
     type StoredValue,
   } from "@assistant/shared";
@@ -33,7 +33,7 @@
     /** Adding: the section's key. */
     section?: string | null;
     title: string;
-    onsaved: (card: SharedCardView) => void;
+    onsaved: (card: SharedOpened) => void;
   } = $props();
 
   const uid = $props.id();

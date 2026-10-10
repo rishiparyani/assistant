@@ -168,7 +168,7 @@
   </div>
 
   <RecordSheet bind:open={editing} {collection} {record} onsaved={() => void rec.refresh()} />
-  <ShareSheet bind:open={sharing} {collection} {record} />
+  <ShareSheet bind:open={sharing} {collection} target={{ kind: "card", record }} />
   {#if addTo}
     <RecordSheet bind:open={addOpen} collection={addTo.collection} links={addTo.links} />
   {/if}

@@ -1,6 +1,14 @@
 // Sharing cards (docs/design/universal.md §11): the owner's share links and the cards others
 // shared with me.
-import type { CreatedShare, ShareAccess, ShareView, SharedCardView, SharedWithMe } from "@assistant/shared";
+import type {
+  CreatedShare,
+  ShareAccess,
+  ShareView,
+  SharedFormView,
+  SharedListView,
+  SharedOpened,
+  SharedWithMe,
+} from "@assistant/shared";
 import { ApiError, request } from "../api.ts";
 import { dropCache, writeCache } from "../query.svelte.ts";
 
@@ -13,12 +21,15 @@ export const sharesKey = (recordId: string) => `spaces:shares:${recordId}`;
 // online-only: shares are checked by the owner's space when they're made, opened or changed;
 // a link or an edit to someone else's card can't wait on this device.
 export const sharesApi = {
-  list: (recordId: string) => request<ShareView[]>("GET", `/api/shares?record_id=${enc(recordId)}`),
+  list: (targetId: string) => request<ShareView[]>("GET", `/api/shares?target_id=${enc(targetId)}`),
   create: (body: {
-    record_id: string;
+    record_id?: string;
+    view?: string;
+    form?: string;
     include: string[];
     access: ShareAccess;
     hide_fields: string[];
+    public?: boolean;
     expires_in_days?: number;
   }) => request<CreatedShare>("POST", "/api/shares", body),
   reset: (shareId: string) => request<CreatedShare>("POST", `/api/shares/${enc(shareId)}/reset`),
@@ -28,12 +39,19 @@ export const sharesApi = {
 
   join: (token: string) => request<{ share_id: string; title: string }>("POST", "/api/cards/join", { token }),
   sharedWithMe: () => request<SharedWithMe[]>("GET", "/api/cards"),
-  open: (shareId: string) => request<SharedCardView>("GET", `/api/cards/${enc(shareId)}`),
+  open: (shareId: string, cursor?: string) =>
+    request<SharedOpened>("GET", `/api/cards/${enc(shareId)}${cursor ? `?cursor=${enc(cursor)}` : ""}`),
   update: (shareId: string, recordId: string, values: Record<string, unknown>) =>
-    request<SharedCardView>("PATCH", `/api/cards/${enc(shareId)}/records/${enc(recordId)}`, { values }),
+    request<SharedOpened>("PATCH", `/api/cards/${enc(shareId)}/records/${enc(recordId)}`, { values }),
   add: (shareId: string, section: string, id: string, values: Record<string, unknown>) =>
-    request<SharedCardView>("POST", `/api/cards/${enc(shareId)}/records`, { section, id, values }),
+    request<SharedOpened>("POST", `/api/cards/${enc(shareId)}/records`, { section, id, values }),
   leave: (shareId: string) => request<{ left: string }>("DELETE", `/api/cards/${enc(shareId)}`),
+
+  // Link-only views and forms (no sign-in): the token goes in the body, never the address.
+  openLink: (token: string, cursor?: string) =>
+    request<SharedListView | SharedFormView>("POST", "/api/link/open", { token, cursor }),
+  submitLink: (token: string, id: string, values: Record<string, unknown>) =>
+    request<{ id: string }>("POST", "/api/link/submit", { token, id, values }),
 };
 
 /** The server says this isn't shared with me (any more): not a connection problem. */
