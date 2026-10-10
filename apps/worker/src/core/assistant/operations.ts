@@ -175,8 +175,10 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
     defineOperation({
       id: "core.forget_memory",
       tool: "forget_memory",
-      description: "Forget something remembered earlier (by its id from list_memories).",
+      description: "Forget something remembered earlier (by its id from list_memories). Needs confirmation.",
       kind: "write",
+      // A delete: outside assistants get a preview to confirm (rule 9); the in-app one a card.
+      confirm: true,
       http: { method: "DELETE", path: "/memories/:memory_id" },
       input: MemoryRef,
       handler: (ctx, i) => forgetMemory(ctx, i.memory_id),

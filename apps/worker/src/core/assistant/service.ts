@@ -274,6 +274,7 @@ const liveKey = (l: LiveRef) =>
 /** The person's chats: "main" (their first, which also keeps the list and memory) or another. */
 const MAIN = "main";
 const MAIN_TITLE = "Gigspree";
+const actorOf = (ctx: OpUserCtx) => ({ userId: ctx.user.id, source: ctx.source });
 const chatOf = (ctx: OpUserCtx, chatId = MAIN) =>
   ctx.objects.CHATS.get(
     ctx.objects.CHATS.idFromName(chatId === MAIN ? `chat:${ctx.user.id}` : `chat:${ctx.user.id}:${chatId}`),
@@ -301,7 +302,9 @@ export async function chatView(ctx: OpUserCtx, chatId = MAIN): Promise<ChatView>
   const title =
     chatId === MAIN
       ? MAIN_TITLE
-      : ((await chatOf(ctx).chats(ctx.user.id)).find((c) => c.id === chatId)?.title ?? "Chat");
+      : ((await chat.ownTitle(ctx.user.id)) ??
+        (await chatOf(ctx).chats(ctx.user.id)).find((c) => c.id === chatId)?.title ??
+        "New chat");
   return {
     id: chatId,
     title,
@@ -327,8 +330,10 @@ export async function sendMessage(
   if (claim === "running") throw new AppError("conflict", "Still answering your last message");
   try {
     await answerMessage(ctx, ops, input, key, chatId);
+    // Names a new chat and moves it up the list (the list follows by outbox; nothing here
+    // can fail the send after it's answered).
+    if (chatId !== MAIN) await chat.touched(uid, input.text);
     await chat.release(uid, key, true);
-    if (chatId !== MAIN) await chatOf(ctx).touchChat(uid, chatId, input.text);
     return chatView(ctx, chatId);
   } catch (e) {
     await chat.release(uid, key, false);
@@ -657,10 +662,8 @@ export async function deleteChat(ctx: OpUserCtx, chatId: string): Promise<{ dele
     await chatOf(ctx).clear(ctx.user.id);
     return { deleted: MAIN };
   }
-  const chat = await useChat(ctx, chatId);
-  await chat.clear(ctx.user.id);
-  await chatOf(ctx).deleteChat(ctx.user.id, chatId);
-  return { deleted: chatId };
+  // Soft delete: the chat leaves the list; its messages stay in its own object.
+  return chatOf(ctx).deleteChat(actorOf(ctx), ctx.idempotencyKey, chatId);
 }
 
 // --- Memory -----------------------------------------------------------------------------------
@@ -677,9 +680,9 @@ export async function remember(ctx: OpUserCtx, text: string): Promise<Memory> {
     timeZone: "UTC",
   });
   const from = ctx.source === "web" ? "a chat" : ctx.source === "mcp" ? "an AI assistant" : ctx.source;
-  return chatOf(ctx).remember(ctx.user.id, text, `From ${from}, ${day}`);
+  return chatOf(ctx).remember(actorOf(ctx), ctx.idempotencyKey, text, `From ${from}, ${day}`);
 }
 
 export async function forgetMemory(ctx: OpUserCtx, memoryId: string): Promise<Memory> {
-  return chatOf(ctx).forget(ctx.user.id, memoryId);
+  return chatOf(ctx).forget(actorOf(ctx), ctx.idempotencyKey, memoryId);
 }

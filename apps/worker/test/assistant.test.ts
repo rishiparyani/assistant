@@ -185,7 +185,12 @@ describe("several chats and memory", () => {
     expect((await call(`/api/chats/${id}`, { cookie: other.cookie })).status).toBe(404);
     expect((await call(`/api/chats/${ulidOf(2)}`, { cookie: me.cookie })).status).toBe(404);
 
-    await call(`/api/chats/${id}`, { cookie: me.cookie, method: "DELETE" });
+    // Deleting is soft, and a retry with the same key gets the same answer.
+    const del = () =>
+      call(`/api/chats/${id}`, { cookie: me.cookie, method: "DELETE", idempotencyKey: "test-delete-chat" });
+    expect(await json(await del())).toEqual({ deleted: id });
+    expect(await json(await del())).toEqual({ deleted: id });
+    expect((await call(`/api/chats/${id}`, { cookie: me.cookie })).status).toBe(404);
     const after = await json<{ id: string }[]>(await call("/api/chats", { cookie: me.cookie }));
     expect(after.map((c) => c.id)).toEqual(["main"]);
   });

@@ -68,8 +68,16 @@
     text = "";
     try {
       chat.set(await chatApi.send(chatId, t, thinkHarder));
-      // A chat is named by its first message: the menu shows the new name.
-      if (chatId !== MAIN_CHAT) publish(CHATS_KEY, await chatApi.list());
+      // A chat is named by its first message; the menu's list catches up a moment later.
+      if (chatId !== MAIN_CHAT)
+        setTimeout(
+          () =>
+            void chatApi.list().then(
+              (l) => publish(CHATS_KEY, l),
+              () => {},
+            ),
+          1500,
+        );
       thinkHarder = false;
       // Records it added show up on the other screens.
       refreshAll();
