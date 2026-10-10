@@ -17,7 +17,7 @@
   import { AssistantMark, Button, Pill, calm, toast } from "../ui/index.ts";
   import { createQuery, publish, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
-  import { router } from "../router.svelte.ts";
+  import { navigate, router } from "../router.svelte.ts";
   import { CHATS_KEY, MAIN_CHAT, chatApi, chatKey, SUGGESTIONS } from "./chat-api.ts";
 
   // The app's home: the chat with the assistant (docs/design/chat-first.md). Pinned views are
@@ -55,6 +55,7 @@
 
   const addActions = $derived([
     { label: "Ask people…", onclick: () => (asking = true) },
+    { label: "New workflow…", onclick: () => navigate("/workflows?new=1") },
     ...(collections.data ?? []).map((c) => ({
       label: c.name,
       onclick: () => {

@@ -10,6 +10,8 @@ export const workflowKey = (id: string) => `workflows:one:${id}`;
 export const workflowsApi = {
   list: () => request<WorkflowView[]>("GET", "/api/workflows"),
   get: (id: string) => request<WorkflowDetail>("GET", `/api/workflows/${enc(id)}`),
+  // online-only: a workflow lives and runs in the space on the server.
+  create: (body: unknown) => request<WorkflowView>("POST", "/api/workflows", body),
   // online-only: a workflow runs in the space on the server; turning it on schedules it there.
   setEnabled: (id: string, enabled: boolean) =>
     request<WorkflowView>("PUT", `/api/workflows/${enc(id)}/enabled`, { enabled }),
