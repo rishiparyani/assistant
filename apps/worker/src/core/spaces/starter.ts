@@ -1,10 +1,18 @@
-// The starter setup every personal space begins with (docs/design/universal.md §10):
-// enough for everyday requests ("remind me", "note that", "spent ₹450") without building
-// anything. It's ordinary data: people can rename, extend or remove any of it.
+// The everyday lists (docs/design/universal.md §10): nobody starts with them any more
+// (decision "Assistant first"); the assistant starts one on the spot the first time it's
+// needed ("remind me", "note that", "spent ₹450"), so everyday requests stay on the free
+// model. It's ordinary data: people can rename, extend or remove any of it.
+import type { StarterKind } from "@assistant/shared";
 import type { FieldSpec } from "./space-object.ts";
 
-export const STARTER_COLLECTIONS: { name: string; description: string; fields: FieldSpec[] }[] = [
+export const STARTER_COLLECTIONS: {
+  kind: StarterKind;
+  name: string;
+  description: string;
+  fields: FieldSpec[];
+}[] = [
   {
+    kind: "notes",
     name: "Notes",
     description: "Things to remember",
     fields: [
@@ -14,6 +22,7 @@ export const STARTER_COLLECTIONS: { name: string; description: string; fields: F
     ],
   },
   {
+    kind: "reminders",
     name: "Reminders",
     description: "Things to do, with an optional time",
     fields: [
@@ -24,6 +33,7 @@ export const STARTER_COLLECTIONS: { name: string; description: string; fields: F
     ],
   },
   {
+    kind: "events",
     name: "Events",
     description: "Things happening at a time: dinners, meetings, plans",
     fields: [
@@ -35,6 +45,7 @@ export const STARTER_COLLECTIONS: { name: string; description: string; fields: F
     ],
   },
   {
+    kind: "expenses",
     name: "Expenses",
     description: "Money I spent",
     fields: [

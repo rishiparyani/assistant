@@ -2,6 +2,7 @@
   import type { CollectionView, FindResult, RecordView } from "@assistant/shared";
   import Plus from "@lucide/svelte/icons/plus";
   import {
+    ActionSheet,
     Button,
     EmptyState,
     ListGroup,
@@ -25,6 +26,7 @@
 
   let showRules = $state(false);
   let showBoard = $state(false);
+  let byHand = $state(false);
   let typed = $state("");
   let search = $state("");
   $effect(() => {
@@ -98,15 +100,20 @@
     <Skeleton rows={4} label="Loading" />
   {/if}
   {#snippet footer()}
-    <Button variant="primary" onclick={() => (adding = true)}>
-      {#snippet icon()}<Plus />{/snippet}
-      Add
-    </Button>
     <Button variant="ghost" onclick={() => (showBoard = true)}>Pick</Button>
-    <Button variant="ghost" onclick={() => (showRules = true)}>Rules</Button>
+    <!-- Assistant first: changes come from the chat; by hand is here for offline and no-AI days. -->
+    <Button variant="ghost" onclick={() => (byHand = true)}>Edit by hand</Button>
   {/snippet}
 </Sheet>
 
 <RecordSheet bind:open={adding} {collection} onsaved={() => void list.refresh()} />
 <RulesSheet bind:open={showRules} {collection} />
+<ActionSheet
+  bind:open={byHand}
+  title="Edit {collection.name} by hand"
+  actions={[
+    { label: "Add a record", icon: Plus, onclick: () => (adding = true) },
+    { label: "Rules", onclick: () => (showRules = true) },
+  ]}
+/>
 {#if showBoard}<PickBoard bind:open={showBoard} {collection} />{/if}

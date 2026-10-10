@@ -48,7 +48,7 @@ let n = 0;
 export async function signUp(
   name = "Test User",
   email = `test-${Date.now()}-${++n}@example.com`,
-  opts: { assistant?: boolean } = {},
+  opts: { assistant?: boolean; lists?: boolean } = {},
 ) {
   const res = await call("/auth/sign-up/email", { body: { name, email, password: "test-password-123" } });
   if (res.status !== 200) throw new Error(`sign-up failed: ${res.status} ${await res.text()}`);
@@ -63,5 +63,9 @@ export async function signUp(
     )
       .bind(user.id)
       .run();
+  // New people start empty; most tests want the everyday lists, as the assistant would start them.
+  if (opts.lists !== false)
+    for (const kind of ["notes", "reminders", "events", "expenses"])
+      await call("/api/lists/start", { cookie, body: { kind } });
   return { cookie, email, id: user.id, name };
 }

@@ -27,6 +27,7 @@ import {
   type OpenedView,
   type RecordView,
   type SavedView,
+  type StarterKind,
   formulaValues,
   type SetupResult,
   type RuleFilter,
@@ -3435,14 +3436,33 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /**
-   * The starter Reminders list reminds: a built-in workflow (at Due, unless Done, tell the
-   * owner), made once per personal space, for new and existing spaces alike.
+   * An everyday list, started on the spot (decision "Assistant first"). If one with that name
+   * is already there, it's used as it is; a new Reminders list comes with its alarm.
+   */
+  async startList(actor: Actor, key: string | null, kind: StarterKind): Promise<CollectionView> {
+    return this.write(actor, key, ["start_list", kind], (ts) => {
+      const spec = STARTER_COLLECTIONS.find((c) => c.kind === kind)!;
+      const have = this.sql
+        .exec<CollectionRow>(
+          `select * from collections where name_key = ? and deleted_at is null`,
+          nameKey(spec.name),
+        )
+        .toArray()[0];
+      if (have) return this.collectionView(have);
+      const { kind: _k, ...input } = spec;
+      const id = this.insertCollection(actor, { ...input, id: null }, ts);
+      if (kind === "reminders") this.remindersWorkflow(id, ts);
+      return this.collectionView(this.requireCollection(id));
+    });
+  }
+
+  /**
+   * Spaces made with the old starter Reminders list get its alarm once (new spaces start
+   * empty; `startList` adds it with the list).
    */
   private ensureReminders() {
     if (getMeta(this.sql, "wf_reminders")) return;
-    const space = this.sql
-      .exec<{ kind: string; owner_user_id: string }>(`select kind, owner_user_id from space limit 1`)
-      .toArray()[0];
+    const space = this.sql.exec<{ kind: string }>(`select kind from space limit 1`).toArray()[0];
     if (!space) return;
     setMeta(this.sql, "wf_reminders", "1");
     if (space.kind !== "personal") return;
@@ -3452,8 +3472,16 @@ export class SpaceObject extends DurableObject<Env> {
         nameKey("Reminders"),
       )
       .toArray()[0];
-    if (!c) return;
-    const fields = this.fieldRows(c.id);
+    if (c) this.remindersWorkflow(c.id, nowIso());
+  }
+
+  /** "Remind me": at Due, unless Done, tell the owner (a built-in workflow, data like any other). */
+  private remindersWorkflow(collectionId: string, ts: string) {
+    const space = this.sql
+      .exec<{ owner_user_id: string }>(`select owner_user_id from space limit 1`)
+      .toArray()[0];
+    if (!space) return;
+    const fields = this.fieldRows(collectionId);
     const due = fields.find(
       (f) => f.name_key === nameKey("Due") && (f.type === "datetime" || f.type === "date"),
     );
@@ -3467,18 +3495,17 @@ export class SpaceObject extends DurableObject<Env> {
       then: [{ do: "notify", text: `{${title.name}}`, to: [{ user_id: space.owner_user_id, name: "me" }] }],
     };
     const id = ulid();
-    const ts = nowIso();
     this.sql.exec(
       `insert into workflows (id, name, collection_id, def_json, enabled, created_by, created_at, updated_at)
        values (?, 'Remind me', ?, ?, 1, ?, ?, ?)`,
       id,
-      c.id,
+      collectionId,
       JSON.stringify(def),
       space.owner_user_id,
       ts,
       ts,
     );
-    this.scheduleExisting(id, c.id, def);
+    this.scheduleExisting(id, collectionId, def);
   }
 
   // --- Questions (chat-first step 4) ------------------------------------------------------
