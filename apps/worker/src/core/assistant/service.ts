@@ -5,7 +5,9 @@
 // money, deletes and new setups into confirm cards that run only after a tap.
 import { z } from "zod";
 import {
+  MakeSetupInput,
   nameKey,
+  setupWords,
   ulid,
   workflowWords,
   type FilterOp,
@@ -77,7 +79,8 @@ const SETUP = [
   // Workflows (chat-first step 5): saved off; the person turns them on from the card.
   "create_workflow",
   "delete_workflow",
-  // Rules (chat-first step 6).
+  // Setups and rules (chat-first step 6): a whole setup is one card.
+  "make_setup",
   "add_rule",
   "delete_rule",
 ];
@@ -179,7 +182,7 @@ function systemPrompt(ctx: OpUserCtx, level: Level, cols: CollectionView[], memo
     );
   else
     lines.push(
-      "- You're building or changing a setup. Use clear names and the right field types (money for amounts, date for days, choice for fixed options, link to connect collections). Reuse what exists before adding new collections. When it's saved or dropped, call hand_back.",
+      "- You're building or changing a setup. Use clear names and the right field types (money for amounts, date for days, choice for fixed options, link to connect collections). Reuse what exists before adding new collections. For anything with more than one list, propose it all at once with make_setup (one card). When it's saved or dropped, call hand_back.",
     );
   return lines.join("\n");
 }
@@ -275,6 +278,13 @@ function describe(
             : "They write an answer",
         ],
       };
+    case "make_setup": {
+      const def = MakeSetupInput.safeParse(args);
+      return {
+        title: `Make “${String(args.name ?? "a setup")}”`,
+        details: def.success ? setupWords(def.data) : [],
+      };
+    }
     case "create_collection": {
       const fields = Array.isArray(args.fields) ? (args.fields as { name?: string; type?: string }[]) : [];
       return {
@@ -325,6 +335,10 @@ function liveFrom(
     if (typeof r.id === "string" && typeof r.collection_id === "string")
       return { kind: "record", collection_id: r.collection_id, record_id: r.id };
     return null;
+  }
+  if (tool === "make_setup") {
+    const first = (r.collections as CollectionView[] | undefined)?.[0];
+    return first ? { kind: "list", collection_id: first.id, title: first.name, query: {} } : null;
   }
   if (tool === "create_workflow" || tool === "set_workflow_enabled")
     return typeof r.id === "string" ? { kind: "workflow", workflow_id: r.id } : null;

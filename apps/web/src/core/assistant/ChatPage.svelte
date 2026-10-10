@@ -165,7 +165,8 @@
                 size="sm"
                 variant="primary"
                 onclick={() => answer(m.card!.action_id, true)}
-                loading={busyCard === m.card.action_id}>Confirm</Button
+                loading={busyCard === m.card.action_id}
+                >{m.card.tool === "make_setup" ? "Make it" : "Confirm"}</Button
               >
             </div>
           {:else}

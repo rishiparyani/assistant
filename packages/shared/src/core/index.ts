@@ -13,3 +13,4 @@ export * from "./space-query.ts";
 export * from "./workflows.ts";
 export * from "./rules.ts";
 export * from "./formula.ts";
+export * from "./setups.ts";

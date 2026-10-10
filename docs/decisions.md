@@ -441,6 +441,11 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-10: A setup is one card and one write
+
+Setups by chat (chat-first step 6) are proposed as one card (`make_setup`) listing every list, link, calculated field, rule and view in words made from the definition, and made in one space-object transaction on **Make it**: all of it or nothing. Links inside the setup may point at each other, so links are added after the plain fields and calculated fields after the links. The single-piece tools (`create_collection`, `add_field`, `add_rule`, …) stay for small changes.
+Reason: a half-made setup (Songs made, Sign-ups failed on a bad rule) is worse than none, and one card is what the person can read and approve.
+
 ## 2026-10-10: Calculated fields are stored values
 
 Formulas and rollups (universal.md §2) are number, money or date fields with a `formula` or `rollup` option, not new field types, so displaying, indexing, filtering, sorting and totals need nothing new. Their values are calculated inside the write that changes them (the record, then the records linked to or from it, one step out) and stored, so reads stay plain index lookups. The formula language is braces, numbers and + − * / with brackets, parsed and evaluated by our own small code (no eval). Formulas can't use other formulas, which keeps the order of calculation simple and rules out loops.
