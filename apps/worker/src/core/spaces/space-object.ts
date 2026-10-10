@@ -27,6 +27,7 @@ import {
   type OpenedView,
   type RecordView,
   type SavedView,
+  type RuleFilter,
   type ShareAccess,
   type ShareInclude,
   type ShareKind,
@@ -231,6 +232,15 @@ const MIGRATIONS: Migrations = [
     primary key (record_id, field_id, user_id)
   ) without rowid;
   create index answers_user_idx on answers (user_id, field_id);
+  `,
+  // Row rules on shared views: which rows everyone ("*") or one person sees.
+  `
+  create table share_rules (
+    share_id text not null,
+    user_id text not null,
+    filters_json text not null,
+    primary key (share_id, user_id)
+  ) without rowid;
   `,
 ];
 
@@ -2057,6 +2067,57 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
+  /** Limits which rows of a shared view everyone ("*") or one person sees; [] removes it. */
+  async setShareRule(
+    actor: Actor,
+    key: string | null,
+    shareId: string,
+    userId: string,
+    filters: Filter[],
+  ): Promise<ShareView> {
+    return this.write(actor, key, ["set_share_rule", shareId, userId, filters], () => {
+      const s = this.requireShare(shareId);
+      if (s.kind !== "view")
+        throw new ObjectError("validation_failed", "Row rules are for shared views (lists)");
+      if (
+        userId !== "*" &&
+        !this.sql
+          .exec(`select 1 from share_people where share_id = ? and user_id = ?`, s.id, userId)
+          .toArray().length
+      )
+        throw new ObjectError("not_found", "That person isn't in this share");
+      const checked = this.checkViewQuery(this.shareCollection(s), { filters }).filters;
+      if (checked.length)
+        this.sql.exec(
+          `insert into share_rules (share_id, user_id, filters_json) values (?, ?, ?)
+           on conflict (share_id, user_id) do update set filters_json = excluded.filters_json`,
+          s.id,
+          userId,
+          JSON.stringify(checked),
+        );
+      else this.sql.exec(`delete from share_rules where share_id = ? and user_id = ?`, s.id, userId);
+      audit(this.sql, actor, {
+        action: "set_share_rule",
+        entityType: "share",
+        entityId: s.id,
+        after: { user_id: userId, filters: checked },
+      });
+      return this.shareView(s);
+    });
+  }
+
+  /** The row rule filters that apply to this person on a shared view (everyone's, then theirs). */
+  private ruleFilters(s: ShareRow, actor: Actor): Filter[] {
+    const rows = this.sql
+      .exec<{ user_id: string; filters_json: string }>(
+        `select user_id, filters_json from share_rules where share_id = ? and user_id in ('*', ?)`,
+        s.id,
+        actor.userId ?? "*",
+      )
+      .toArray();
+    return rows.flatMap((r) => JSON.parse(r.filters_json) as Filter[]);
+  }
+
   /** Whether a collaborator's write touches a money field (MCP asks for confirmation then). */
   async sharedTouchesMoney(
     actor: Actor,
@@ -2207,7 +2268,7 @@ export class SpaceObject extends DurableObject<Env> {
     const v = this.viewOf(this.liveView(s.target_id)!);
     if (!v) return [];
     return this.findRows(actor, c, {
-      filters: v.filters,
+      filters: [...v.filters, ...this.ruleFilters(s, actor)],
       search: v.search ?? undefined,
       limit: ids.length,
       ids,
@@ -2343,11 +2404,26 @@ export class SpaceObject extends DurableObject<Env> {
         return f ? [{ id: f.id, name: f.name }] : [];
       }),
       people: this.sql
-        .exec<{ user_id: string; name: string; joined_at: string }>(
-          `select user_id, name, joined_at from share_people where share_id = ? order by joined_at`,
+        .exec<{ user_id: string; name: string; joined_at: string; filters_json: string | null }>(
+          `select p.user_id, p.name, p.joined_at, r.filters_json from share_people p
+           left join share_rules r on r.share_id = p.share_id and r.user_id = p.user_id
+           where p.share_id = ? order by p.joined_at`,
           s.id,
         )
-        .toArray(),
+        .toArray()
+        .map(({ filters_json, ...p }) => ({
+          ...p,
+          rule: filters_json ? (JSON.parse(filters_json) as RuleFilter[]) : [],
+        })),
+      rule_all: (() => {
+        const r = this.sql
+          .exec<{ filters_json: string }>(
+            `select filters_json from share_rules where share_id = ? and user_id = '*'`,
+            s.id,
+          )
+          .toArray()[0];
+        return r ? (JSON.parse(r.filters_json) as RuleFilter[]) : [];
+      })(),
       expires_at: s.expires_at,
       created_at: s.created_at,
     };
@@ -2422,7 +2498,7 @@ export class SpaceObject extends DurableObject<Env> {
       const v = this.viewOf(this.liveView(s.target_id)!);
       if (!v) throw new ObjectError("not_found", "Share not found");
       const { rows, next_cursor } = this.findRows(actor, c, {
-        filters: v.filters,
+        filters: [...v.filters, ...this.ruleFilters(s, actor)],
         search: v.search ?? undefined,
         sort: v.sort ?? undefined,
         limit: 100,

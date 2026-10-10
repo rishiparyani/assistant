@@ -11,6 +11,7 @@ import {
   JoinShareInput,
   ListSharesInput,
   OpenSharedInput,
+  SetShareRuleInput,
   SharePersonRef,
   ShareRef,
   SharedRef,
@@ -91,6 +92,20 @@ export const shareOperations = [
     http: { method: "DELETE", path: "/shares/:share_id/people/:user_id" },
     input: SharePersonRef,
     handler: (ctx, i) => removeSharePerson(ctx, i.space, i.share_id, i.user_id),
+  }),
+
+  defineOperation({
+    id: "core.set_share_rule",
+    tool: "set_share_rule",
+    description:
+      'Limit which rows of a shared view (list) a person sees, or everyone in it ("*"), with filters on top of the view\'s; [] removes the limit.',
+    kind: "write",
+    http: { method: "PUT", path: "/shares/:share_id/rules/:user_id" },
+    input: SetShareRuleInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.setShareRule(actor, ctx.idempotencyKey, i.share_id, i.user_id, i.filters);
+    },
   }),
 
   // --- Shared with me ---

@@ -3,6 +3,7 @@
 import type {
   CommentView,
   CreatedShare,
+  Filter,
   ShareAccess,
   ShareView,
   SharedFormView,
@@ -35,6 +36,8 @@ export const sharesApi = {
   }) => request<CreatedShare>("POST", "/api/shares", body),
   reset: (shareId: string) => request<CreatedShare>("POST", `/api/shares/${enc(shareId)}/reset`),
   revoke: (shareId: string) => request<{ revoked: string }>("DELETE", `/api/shares/${enc(shareId)}`),
+  setRule: (shareId: string, userId: string, filters: Filter[]) =>
+    request<ShareView>("PUT", `/api/shares/${enc(shareId)}/rules/${enc(userId)}`, { filters }),
   removePerson: (shareId: string, userId: string) =>
     request<ShareView>("DELETE", `/api/shares/${enc(shareId)}/people/${enc(userId)}`),
 

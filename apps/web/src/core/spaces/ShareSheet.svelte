@@ -10,7 +10,19 @@
   import Copy from "@lucide/svelte/icons/copy";
   import Share from "@lucide/svelte/icons/share";
   import Link from "@lucide/svelte/icons/link";
-  import { Button, ListGroup, ListRow, Segmented, Sheet, Spinner, confirm, toast } from "../ui/index.ts";
+  import {
+    ActionSheet,
+    Button,
+    ListGroup,
+    ListRow,
+    Segmented,
+    Sheet,
+    Spinner,
+    confirm,
+    toast,
+  } from "../ui/index.ts";
+  import RuleSheet from "./RuleSheet.svelte";
+  import { filterLabel } from "./spaces-api.ts";
   import { savedCollections } from "./spaces-api.ts";
   import { sharesApi } from "./shares-api.ts";
 
@@ -205,6 +217,24 @@
       toast.error(e);
     }
   }
+
+  // Row rules on a shared list: for everyone ("*") or one person.
+  let ruleFor = $state<{ share: ShareView; userId: string; who: string; rule: ShareView["rule_all"] } | null>(
+    null,
+  );
+  let ruleOpen = $state(false);
+  let personFor = $state<{ share: ShareView; person: ShareView["people"][number] } | null>(null);
+  let personOpen = $state(false);
+  function editRule(share: ShareView, userId: string, who: string, rule: ShareView["rule_all"]) {
+    ruleFor = { share, userId, who, rule };
+    ruleOpen = true;
+  }
+  async function saveRule(filters: Parameters<typeof sharesApi.setRule>[2]) {
+    if (!ruleFor) return;
+    await sharesApi.setRule(ruleFor.share.id, ruleFor.userId, filters);
+    shares = await sharesApi.list(targetId);
+  }
+  const ruleText = (rule: ShareView["rule_all"]) => rule.map((f) => filterLabel(collection, f)).join(" · ");
 </script>
 
 <Sheet bind:open title={sheetTitle}>
@@ -325,12 +355,21 @@
               chevron={false}
             />
           {/if}
+          {#if s.kind === "view"}
+            <ListRow
+              title="Rows everyone sees"
+              subtitle={s.rule_all.length ? ruleText(s.rule_all) : "Every row in the list"}
+              onclick={() => editRule(s, "*", "everyone", s.rule_all)}
+            />
+          {/if}
           {#each s.people as p (p.user_id)}
             <ListRow
               title={p.name}
-              subtitle="Joined · tap to remove"
-              onclick={() => removePerson(s, p)}
-              chevron={false}
+              subtitle={s.kind === "view" && p.rule.length ? `Sees only: ${ruleText(p.rule)}` : "Joined"}
+              onclick={() => {
+                personFor = { share: s, person: p };
+                personOpen = true;
+              }}
             />
           {:else}
             <ListRow title="No one has joined yet" chevron={false} />
@@ -345,6 +384,37 @@
     {/if}
   </div>
 </Sheet>
+
+{#if ruleFor}
+  <RuleSheet bind:open={ruleOpen} {collection} who={ruleFor.who} rule={ruleFor.rule} onsave={saveRule} />
+{/if}
+{#if personFor}
+  <ActionSheet
+    bind:open={personOpen}
+    title={personFor.person.name}
+    actions={[
+      ...(personFor.share.kind === "view"
+        ? [
+            {
+              label: "Limit their rows",
+              onclick: () =>
+                editRule(
+                  personFor!.share,
+                  personFor!.person.user_id,
+                  personFor!.person.name,
+                  personFor!.person.rule,
+                ),
+            },
+          ]
+        : []),
+      {
+        label: "Remove from this share",
+        destructive: true,
+        onclick: () => removePerson(personFor!.share, personFor!.person),
+      },
+    ]}
+  />
+{/if}
 
 <style>
   .body {
