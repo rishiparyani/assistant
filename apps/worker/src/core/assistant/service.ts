@@ -20,6 +20,7 @@ import { operationContext, type AnyOperation, type OpUserCtx } from "../operatio
 import { parse } from "../validation.ts";
 import { spaceOf } from "../spaces/service.ts";
 import { resolvePeople } from "../spaces/shares.ts";
+import { assistantAllowed, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
 import type { MemoryRow, StoredMessage } from "./chat-object.ts";
 import {
@@ -352,6 +353,7 @@ export async function chatView(ctx: OpUserCtx, chatId = MAIN): Promise<ChatView>
     items: await chat.items(ctx.user.id),
     setup_in_progress: await chat.setupInProgress(ctx.user.id),
     smart_available: modelsFor(2, ctx.ai.settings).length > 0,
+    assistant_on: await assistantAllowed(ctx),
   };
 }
 
@@ -362,6 +364,7 @@ export async function sendMessage(
   input: { text: string; think_harder?: boolean },
   chatId = MAIN,
 ): Promise<ChatView> {
+  await requireAssistant(ctx);
   const chat = await useChat(ctx, chatId);
   const uid = ctx.user.id;
   // Claim the key first, so an overlapping retry can't run tools a second time.
@@ -648,6 +651,7 @@ export async function confirmAction(
   actionId: string,
   chatId = MAIN,
 ): Promise<ChatView> {
+  await requireAssistant(ctx);
   const chat = await useChat(ctx, chatId);
   const uid = ctx.user.id;
   const a = await chat.takeAction(uid, actionId);

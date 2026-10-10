@@ -48,6 +48,8 @@ export interface UserCtx {
   scopes: readonly TokenScope[] | null;
   /** The in-app assistant's models and limits (docs/design/universal.md §10). */
   ai: { binding?: Ai; settings: AiSettings };
+  /** Owners' emails (ADMIN_EMAILS, lower case): they always have the assistant. */
+  owners: readonly string[];
 }
 
 export type TokenScope = "read" | "write";
@@ -123,6 +125,10 @@ export function userCtxFor(
     sealer: sealerFor(env),
     scopes,
     ai: { binding: env.AI, settings: aiSettings(env) },
+    owners: (env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
   };
 }
 
