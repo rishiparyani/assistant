@@ -137,7 +137,7 @@
           { "name": "CHATS", "class_name": "ChatObject" },
           { "name": "BUDGET", "class_name": "BudgetObject" },
           { "name": "LIVE", "class_name": "LiveObject" },
-      { "name": "GROUPS", "class_name": "GroupObject" },
+          { "name": "GROUPS", "class_name": "GroupObject" },
         ],
       },
       "migrations": [

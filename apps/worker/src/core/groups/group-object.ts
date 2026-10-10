@@ -112,7 +112,9 @@ export class GroupObject extends DurableObject<Env> {
 
   private members(): GroupMember[] {
     return this.sql
-      .exec<MemberRow>(`select * from members where left_at is null order by role = 'owner' desc, added_at, name`)
+      .exec<MemberRow>(
+        `select * from members where left_at is null order by role = 'owner' desc, added_at, name`,
+      )
       .toArray()
       .map((m) => ({ user_id: m.user_id, name: m.name, role: m.role }));
   }
