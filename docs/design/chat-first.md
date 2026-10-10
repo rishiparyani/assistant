@@ -1,6 +1,6 @@
 # Design: chat first (memory, live cards, workflows, group chats)
 
-_Status: **approved by the owner** (2026-10-10). It changes how the universal design ([universal.md](universal.md)) looks and the order it is built in. The engine, sharing, data and architecture in universal.md stay. Section 10 (chat) and section 14 (build stages) of universal.md are replaced by this page. Mockup: the "Chat-first Gigspree" artifact (owner's claude.ai account)._
+_Status: **approved by the owner** (2026-10-10). It changes how the universal design ([universal.md](universal.md)) looks and the order it is built in. The engine, sharing, data and architecture in universal.md stay. This page replaces **the chat's layout and screens** in universal.md §10 (chat as home with pop-up views, "everything has a screen") and **§14 (build stages)**. The rest of §10 still holds: safe structured tools only, confirmation for deletes, money and new rules, asking on ambiguous names, search, the model router, budgets, keeping the AI's context small, the model test and connectors. Mockup: the "Chat-first Gigspree" artifact (owner's claude.ai account)._
 
 ## 1. What the app is
 
@@ -24,7 +24,9 @@ The mockup's style replaces the single indigo: a colour per kind of card (lists 
 
 ## 4. What goes
 
-The tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports, and their pages) are **removed in step 1**, not kept behind links (owner, 2026-10-10: "I want to see the app as is from scratch"). Their data stays; the server code for gigs and music stays until step 8 replaces it. Shared-with-you, join and public link pages, settings, help and admin stay.
+The tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports, and their pages) are **removed in step 1**, not kept behind links (owner, 2026-10-10: "I want to see the app as is from scratch"; the old gig and song screens were never used, so nothing real becomes unreachable). Their data stays; the server code for gigs and music stays until step 8 replaces it. Shared-with-you, join and public link pages, settings, help and admin stay.
+
+**Everything still works without the assistant** (and offline): from step 1 the side menu lists **Your lists** (every collection, opening as a pop-up with its records and **Add**), the message box has **+** (add to any list), and a record opens full screen as a card (edit, share, comments). Each later step keeps a tap path for what it adds.
 
 ## 5. Build order
 

@@ -1,6 +1,6 @@
 # Design: a universal assistant (spaces, collections, rules, chat)
 
-_Status: **approved by the owner** (2026-10-09). **Section 10 (chat) and section 14 (build stages) are replaced by [chat-first.md](chat-first.md) (2026-10-10).** Being built in that page's order. Decisions: `docs/decisions.md` (2026-10-09). Architecture rules in `AGENTS.md` follow it._
+_Status: **approved by the owner** (2026-10-09). **The chat's layout and screens in section 10, and section 14 (build stages), are replaced by [chat-first.md](chat-first.md) (2026-10-10); the rest of section 10 still holds.** Being built in that page's order. Decisions: `docs/decisions.md` (2026-10-09). Architecture rules in `AGENTS.md` follow it._
 
 ## 1. Why change
 
