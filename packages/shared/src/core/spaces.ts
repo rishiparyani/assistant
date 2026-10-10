@@ -603,7 +603,9 @@ export type LiveRef =
     }
   | { kind: "view"; view_id: string }
   /** A question sent to people (chat-first step 4): answers arrive live. */
-  | { kind: "question"; question_id: string };
+  | { kind: "question"; question_id: string }
+  /** A workflow (chat-first step 5): diagram, plain words, on/off. */
+  | { kind: "workflow"; workflow_id: string };
 
 export interface ChatItem {
   id: string;
@@ -693,6 +695,7 @@ export const ShowInChatInput = z.object({
     }),
     z.object({ kind: z.literal("view"), view_id: z.string().min(1).max(40) }),
     z.object({ kind: z.literal("question"), question_id: z.string().min(1).max(40) }),
+    z.object({ kind: z.literal("workflow"), workflow_id: z.string().min(1).max(40) }),
   ]),
 });
 export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });

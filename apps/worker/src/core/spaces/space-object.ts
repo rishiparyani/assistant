@@ -32,6 +32,11 @@ import {
   type ShareInclude,
   type Person,
   type QuestionView,
+  type WorkflowDetail,
+  type WorkflowEvent,
+  type WorkflowRun,
+  type WorkflowView,
+  workflowWords,
   type ShareKind,
   type ShareView,
   type SharedCardView,
@@ -45,6 +50,8 @@ import {
 import {
   BASE_TABLES,
   audit,
+  getMeta,
+  setMeta,
   hashOf,
   idempotent,
   migrate,
@@ -57,6 +64,8 @@ import {
   outboxNote,
 } from "../objects/storage.ts";
 import { liveOf } from "../live/live-object.ts";
+import { inboxName } from "../push/notify.ts";
+import type { NewNotification } from "../push/inbox.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
 const LIVE_DELAY_MS = 500;
@@ -276,6 +285,54 @@ const MIGRATIONS: Migrations = [
     primary key (question_id, user_id)
   ) without rowid;
   `,
+  // Workflows (chat-first step 5): saved definitions, jobs waiting to run, and what they did.
+  `
+  create table workflows (
+    id text primary key,
+    name text not null,
+    collection_id text not null,
+    def_json text not null,
+    enabled integer not null default 0,
+    run_count integer not null default 0,
+    last_run_at text,
+    created_by text,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create index workflows_collection_idx on workflows (collection_id, enabled) where deleted_at is null;
+  create table workflow_jobs (
+    id text primary key,
+    workflow_id text not null,
+    record_id text not null,
+    kind text not null check (kind in ('event', 'date')),
+    due_at text not null,
+    depth integer not null default 0
+  );
+  create index workflow_jobs_due_idx on workflow_jobs (due_at);
+  create index workflow_jobs_record_idx on workflow_jobs (workflow_id, record_id, kind);
+  create table workflow_runs (
+    id text primary key,
+    workflow_id text not null,
+    record_id text,
+    at text not null,
+    ok integer not null,
+    counted integer not null,
+    detail text not null
+  );
+  create index workflow_runs_idx on workflow_runs (workflow_id, at);
+  `,
+  // Workflow notifications waiting to reach people's inboxes (tried again until they do).
+  `
+  create table workflow_notes (
+    id text primary key,
+    user_id text not null,
+    note_json text not null,
+    attempts integer not null default 0,
+    next_at text not null
+  );
+  create index workflow_notes_next_idx on workflow_notes (next_at);
+  `,
 ];
 
 type ViewQuery = {
@@ -356,6 +413,55 @@ type ShareRow = {
   revoked_at: string | null;
 };
 
+type WorkflowDef = {
+  when: { event: WorkflowEvent; field_id: string | null; offset_minutes: number };
+  check: Filter[];
+  wait_minutes: number;
+  then: (
+    | { do: "notify"; text: string; to: Person[] }
+    | { do: "set"; field_id: string; value: unknown }
+    | { do: "add"; collection_id: string; values: Record<string, unknown> }
+  )[];
+};
+type WorkflowRow = {
+  id: string;
+  name: string;
+  collection_id: string;
+  def_json: string;
+  enabled: number;
+  run_count: number;
+  last_run_at: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+};
+type WorkflowJobRow = {
+  id: string;
+  workflow_id: string;
+  record_id: string;
+  kind: "event" | "date";
+  due_at: string;
+  depth: number;
+};
+/** A workflow as asked for: names (resolved here) and the people to tell (resolved before). */
+export type WorkflowSpec = {
+  name: string;
+  when: { event: WorkflowEvent; collection: string; field?: string; offset_minutes: number };
+  check: Filter[];
+  wait_minutes: number;
+  then: (
+    | { do: "notify"; text: string; to: Person[] }
+    | { do: "set"; field: string; value: unknown }
+    | { do: "add"; collection: string; values: Record<string, unknown> }
+  )[];
+  enabled: boolean;
+};
+/** At most this many workflows per space, and this many workflow steps in a chain. */
+const MAX_WORKFLOWS = 100;
+const MAX_WORKFLOW_DEPTH = 3;
+const DAY_TIME_IST = "09:00:00+05:30";
+
 type QuestionRow = {
   id: string;
   text: string;
@@ -412,7 +518,29 @@ export class SpaceObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+    ctx.blockConcurrencyWhile(async () => {
+      migrate(this.sql, MIGRATIONS);
+      this.ensureReminders();
+      await this.wakeForJobs();
+    });
+  }
+
+  /** Makes sure the alarm comes for the next workflow job (after a restart or a new job). */
+  private async wakeForJobs() {
+    const next = this.nextWorkflowTime();
+    if (next !== null && (await this.ctx.storage.getAlarm()) === null)
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, next));
+  }
+
+  /** When the next workflow job is due or a notification is to be tried again (ms), or null. */
+  private nextWorkflowTime(): number | null {
+    const row = this.sql
+      .exec<{ at: string | null }>(
+        `select min(at) as at from (select min(due_at) as at from workflow_jobs
+         union all select min(next_at) as at from workflow_notes)`,
+      )
+      .toArray()[0];
+    return row?.at ? Date.parse(row.at) : null;
   }
 
   // --- Space and members ---------------------------------------------------------------
@@ -442,6 +570,8 @@ export class SpaceObject extends DurableObject<Env> {
       }
       this.logChange("space", init.id, "upsert", ts);
     });
+    this.ensureReminders();
+    await this.wakeForJobs();
   }
 
   private role(actor: Actor): Role {
@@ -490,8 +620,18 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
+    await this.runDueJobs();
+    const liveIn = await this.pingLive();
+    // Next: the live ping still owed, or the next workflow job, whichever is sooner.
+    const next = this.nextWorkflowTime();
+    const times = [...(liveIn === null ? [] : [Date.now() + liveIn]), ...(next === null ? [] : [next])];
+    if (times.length) await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, Math.min(...times)));
+  }
+
+  /** Pings everyone's live object for the outbox note; ms until the next try, or null when done. */
+  private async pingLive(): Promise<number | null> {
     const note = outboxNote(this.sql);
-    if (!note) return;
+    if (!note) return null;
     const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id;
     const people = this.sql
       .exec<{ user_id: string }>(
@@ -508,12 +648,11 @@ export class SpaceObject extends DurableObject<Env> {
       );
     } catch (e) {
       console.warn("live ping failed", e);
-      await this.ctx.storage.setAlarm(Date.now() + outboxFailed(this.sql));
-      return;
+      return outboxFailed(this.sql);
     }
     // Only those pinged now leave the list; anyone added meanwhile waits for the next alarm.
     for (const u of people) this.sql.exec(`delete from live_extra where user_id = ?`, u);
-    if (!clearOutbox(this.sql, note.seq)) await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+    return clearOutbox(this.sql, note.seq) ? null : LIVE_DELAY_MS;
   }
 
   /** Someone losing access to a share still gets one ping, so their open app drops it. */
@@ -947,6 +1086,7 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
       );
     this.logChange("record", id, "upsert", ts);
+    this.queueWorkflows(c.id, id, null, values);
     audit(this.sql, actor, {
       action: "add_record",
       entityType: "record",
@@ -1040,6 +1180,8 @@ export class SpaceObject extends DurableObject<Env> {
       );
     const answered = this.saveAnswers(actor, r.id, answers, ts);
     this.logChange("record", r.id, "upsert", ts);
+    // Links and personal answers live apart from the values; they count as a change too.
+    this.queueWorkflows(c.id, r.id, before, merged, links.size > 0 || answers.size > 0);
     audit(this.sql, actor, {
       action: "update_record",
       entityType: "record",
@@ -2034,6 +2176,572 @@ export class SpaceObject extends DurableObject<Env> {
       });
       return this.shareView(s);
     });
+  }
+
+  // --- Workflows (chat-first step 5) ------------------------------------------------------
+  // A workflow is a saved definition: when (a record is added, changes, or a date comes),
+  // check (filters), wait, then (tell someone, set a field, add a record). A record write
+  // queues a job in its own transaction; the alarm runs due jobs afterwards, checks the record
+  // again and does the steps in one transaction (a set or add is a normal record write, so it
+  // can start other workflows, at most MAX_WORKFLOW_DEPTH deep). Telling someone goes to their
+  // inbox after the run is saved.
+
+  /** How deep in a chain of workflow runs the current write is (0: a person's write). */
+  private wfDepth = 0;
+
+  async listWorkflows(actor: Actor): Promise<WorkflowView[]> {
+    this.role(actor);
+    return this.sql
+      .exec<WorkflowRow>(`select * from workflows where deleted_at is null order by created_at`)
+      .toArray()
+      .map((w) => this.workflowView(w));
+  }
+
+  async getWorkflow(actor: Actor, id: string): Promise<WorkflowDetail> {
+    this.role(actor);
+    const w = this.requireWorkflow(id);
+    const history = this.sql
+      .exec<{ id: string; at: string; record_id: string | null; ok: number; detail: string }>(
+        `select id, at, record_id, ok, detail from workflow_runs where workflow_id = ? order by at desc limit 20`,
+        w.id,
+      )
+      .toArray()
+      .map((r): WorkflowRun => ({
+        id: r.id,
+        at: r.at,
+        record_id: r.record_id,
+        record: r.record_id ? (this.liveRecord(r.record_id)?.title ?? null) : null,
+        ok: !!r.ok,
+        detail: r.detail,
+      }));
+    return { workflow: this.workflowView(w), history };
+  }
+
+  async createWorkflow(actor: Actor, key: string | null, spec: WorkflowSpec): Promise<WorkflowView> {
+    return this.write(actor, key, ["create_workflow", spec], (ts) => {
+      const { collectionId, def } = this.resolveWorkflow(spec);
+      const count = this.sql
+        .exec<{ n: number }>(`select count(*) as n from workflows where deleted_at is null`)
+        .one().n;
+      if (count >= MAX_WORKFLOWS)
+        throw new ObjectError("conflict", `A space can have at most ${MAX_WORKFLOWS} workflows`);
+      const id = ulid();
+      this.sql.exec(
+        `insert into workflows (id, name, collection_id, def_json, enabled, created_by, created_at, updated_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        spec.name,
+        collectionId,
+        JSON.stringify(def),
+        spec.enabled ? 1 : 0,
+        actor.userId,
+        ts,
+        ts,
+      );
+      if (spec.enabled) this.scheduleExisting(id, collectionId, def);
+      audit(this.sql, actor, {
+        action: "create_workflow",
+        entityType: "workflow",
+        entityId: id,
+        after: spec,
+      });
+      return this.workflowView(this.requireWorkflow(id));
+    });
+  }
+
+  /** Turns a workflow on (it starts watching; dates already set are scheduled) or off. */
+  async setWorkflowEnabled(
+    actor: Actor,
+    key: string | null,
+    id: string,
+    enabled: boolean,
+  ): Promise<WorkflowView> {
+    return this.write(actor, key, ["set_workflow_enabled", id, enabled], (ts) => {
+      const w = this.requireWorkflow(id);
+      // Already so: change nothing (jobs waiting to run stay).
+      if (!!w.enabled === enabled) return this.workflowView(w);
+      this.sql.exec(
+        `update workflows set enabled = ?, updated_at = ? where id = ?`,
+        enabled ? 1 : 0,
+        ts,
+        w.id,
+      );
+      this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, w.id);
+      if (enabled) this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
+      audit(this.sql, actor, {
+        action: enabled ? "enable_workflow" : "disable_workflow",
+        entityType: "workflow",
+        entityId: w.id,
+      });
+      return this.workflowView(this.requireWorkflow(w.id));
+    });
+  }
+
+  async deleteWorkflow(actor: Actor, key: string | null, id: string): Promise<{ deleted: string }> {
+    return this.write(actor, key, ["delete_workflow", id], (ts) => {
+      const w = this.requireWorkflow(id);
+      this.sql.exec(`update workflows set deleted_at = ?, enabled = 0 where id = ?`, ts, w.id);
+      this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, w.id);
+      audit(this.sql, actor, { action: "delete_workflow", entityType: "workflow", entityId: w.id });
+      return { deleted: w.id };
+    });
+  }
+
+  private requireWorkflow(id: string): WorkflowRow {
+    const w = this.sql
+      .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, id)
+      .toArray()[0];
+    if (!w) throw new ObjectError("not_found", "Workflow not found");
+    return w;
+  }
+
+  /** Names to ids, and every value checked now (a bad value fails when it's saved, not later). */
+  private resolveWorkflow(spec: WorkflowSpec): { collectionId: string; def: WorkflowDef } {
+    const c = this.requireCollection(spec.when.collection);
+    const fields = this.fieldRows(c.id);
+    let fieldId: string | null = null;
+    if (spec.when.event === "date") {
+      if (!spec.when.field)
+        throw new ObjectError("validation_failed", "A date workflow needs the date field to watch");
+      const f = this.matchField(fields, spec.when.field);
+      if (f.type !== "date" && f.type !== "datetime")
+        throw new ObjectError("validation_failed", `${f.name} isn't a date or date-and-time field`);
+      fieldId = f.id;
+    } else if (spec.when.field) {
+      if (spec.when.event === "added")
+        throw new ObjectError("validation_failed", "Pick a field only for “changed” or “date”");
+      const f = this.matchField(fields, spec.when.field);
+      if (f.type === "link" || toField(f).options.personal)
+        throw new ObjectError(
+          "validation_failed",
+          `Workflows can't watch ${f.name} by itself yet (links and personal answers); watch the whole record instead`,
+        );
+      fieldId = f.id;
+    }
+    const check = this.checkViewQuery(c, { filters: spec.check }).filters;
+    const noLinks = (f: FieldRow) => {
+      if (f.type === "link")
+        throw new ObjectError("validation_failed", `Workflows can't set links yet (${f.name})`);
+    };
+    const then = spec.then.map((a): WorkflowDef["then"][number] => {
+      if (a.do === "notify") {
+        if (!a.to.length) throw new ObjectError("validation_failed", "Say who to tell");
+        return { do: "notify", text: a.text, to: a.to };
+      }
+      if (a.do === "set") {
+        const f = this.matchField(fields, a.field);
+        noLinks(f);
+        this.readValues(fields, { [f.id]: a.value });
+        return { do: "set", field_id: f.id, value: a.value };
+      }
+      const t = this.requireCollection(a.collection);
+      const tf = this.fieldRows(t.id);
+      const values: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(a.values)) {
+        const f = this.matchField(tf, k);
+        noLinks(f);
+        // Text with {Field} is filled in when it runs; anything else is checked now.
+        if (!(typeof v === "string" && /\{[^{}]+\}/.test(v))) this.readValues(tf, { [f.id]: v });
+        values[f.id] = v;
+      }
+      const missing = tf.filter((f) => f.required && f.type !== "link" && !(f.id in values));
+      if (missing.length)
+        throw new ObjectError(
+          "validation_failed",
+          `A new ${t.name} record needs ${missing.map((f) => f.name).join(", ")}`,
+        );
+      return { do: "add", collection_id: t.id, values };
+    });
+    return {
+      collectionId: c.id,
+      def: {
+        when: {
+          event: spec.when.event,
+          field_id: fieldId,
+          offset_minutes: spec.when.event === "date" ? spec.when.offset_minutes : 0,
+        },
+        check,
+        wait_minutes: spec.wait_minutes,
+        then,
+      },
+    };
+  }
+
+  private workflowView(w: WorkflowRow): WorkflowView {
+    const def = JSON.parse(w.def_json) as WorkflowDef;
+    const fieldName = (id: string) => this.liveField(id)?.name ?? "(removed field)";
+    const colName = (id: string) =>
+      this.sql
+        .exec<{ name: string }>(`select name from collections where id = ? and deleted_at is null`, id)
+        .toArray()[0]?.name ?? "(removed list)";
+    const base = {
+      when: {
+        event: def.when.event,
+        collection_id: w.collection_id,
+        collection: colName(w.collection_id),
+        field_id: def.when.field_id,
+        field: def.when.field_id ? fieldName(def.when.field_id) : null,
+        offset_minutes: def.when.offset_minutes,
+      },
+      check: def.check.map((f) => ({
+        field_id: f.field,
+        field: fieldName(f.field),
+        op: f.op,
+        value: f.value ?? null,
+        ...this.shownValue(f),
+      })),
+      wait_minutes: def.wait_minutes,
+      then: def.then.map((a): WorkflowView["then"][number] =>
+        a.do === "notify"
+          ? { do: "notify", text: a.text, to: a.to }
+          : a.do === "set"
+            ? { do: "set", field_id: a.field_id, field: fieldName(a.field_id), value: a.value }
+            : {
+                do: "add",
+                collection_id: a.collection_id,
+                collection: colName(a.collection_id),
+                values: Object.fromEntries(Object.entries(a.values).map(([k, v]) => [fieldName(k), v])),
+              },
+      ),
+    };
+    return {
+      id: w.id,
+      name: w.name,
+      enabled: !!w.enabled,
+      ...base,
+      words: workflowWords(base),
+      runs: w.run_count,
+      last_run_at: w.last_run_at,
+      created_at: w.created_at,
+    };
+  }
+
+  /** A check's value as people read it ("₹5,000", "yes"); nothing when it can't be shown. */
+  private shownValue(f: Filter): { shown?: string } {
+    const field = this.liveField(f.field);
+    if (!field || f.value === undefined || f.value === null || typeof f.value === "object") return {};
+    if (!["eq", "ne", "lt", "lte", "gt", "gte"].includes(f.op)) return {};
+    try {
+      const shown = displayValue(field.type, normalizeValue(toField(field), f.value));
+      return typeof shown === "string" ? { shown } : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /** Called inside a record write: queues the jobs it starts (same transaction). */
+  private queueWorkflows(
+    collectionId: string,
+    recordId: string,
+    before: Record<string, StoredValue> | null,
+    after: Record<string, StoredValue>,
+    otherChange = false,
+  ) {
+    if (this.wfDepth >= MAX_WORKFLOW_DEPTH) return;
+    const rows = this.sql
+      .exec<WorkflowRow>(
+        `select * from workflows where collection_id = ? and enabled = 1 and deleted_at is null`,
+        collectionId,
+      )
+      .toArray();
+    const now = Date.now();
+    const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+    for (const w of rows) {
+      const def = JSON.parse(w.def_json) as WorkflowDef;
+      const f = def.when.field_id;
+      if (def.when.event === "date") {
+        this.scheduleDate(w.id, def, recordId, after, now);
+        continue;
+      }
+      const fire =
+        def.when.event === "added"
+          ? before === null
+          : before !== null &&
+            (f
+              ? !same(before[f], after[f])
+              : otherChange ||
+                [...new Set([...Object.keys(before), ...Object.keys(after)])].some(
+                  (k) => !same(before[k], after[k]),
+                ));
+      if (fire) this.addJob(w.id, recordId, "event", now + def.wait_minutes * 60_000);
+    }
+  }
+
+  /** (Re)schedules a date workflow for one record; nothing when the date is gone or past. */
+  private scheduleDate(
+    workflowId: string,
+    def: WorkflowDef,
+    recordId: string,
+    values: Record<string, StoredValue>,
+    now: number,
+  ) {
+    this.sql.exec(
+      `delete from workflow_jobs where workflow_id = ? and record_id = ? and kind = 'date'`,
+      workflowId,
+      recordId,
+    );
+    const v = values[def.when.field_id!];
+    if (typeof v !== "string") return;
+    // A date without a time counts from 9 am India time that day.
+    const at = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T${DAY_TIME_IST}` : v);
+    if (Number.isNaN(at)) return;
+    const due = at + (def.when.offset_minutes + def.wait_minutes) * 60_000;
+    if (due > now) this.addJob(workflowId, recordId, "date", due);
+  }
+
+  /** A date workflow just turned on: schedules every record that already has a date. */
+  private scheduleExisting(workflowId: string, collectionId: string, def: WorkflowDef) {
+    if (def.when.event !== "date") return;
+    const now = Date.now();
+    let after = "";
+    for (;;) {
+      const batch = this.sql
+        .exec<{ id: string; values_json: string }>(
+          `select id, values_json from records where collection_id = ? and deleted_at is null and id > ?
+           order by id limit 500`,
+          collectionId,
+          after,
+        )
+        .toArray();
+      for (const r of batch)
+        this.scheduleDate(
+          workflowId,
+          def,
+          r.id,
+          JSON.parse(r.values_json) as Record<string, StoredValue>,
+          now,
+        );
+      if (batch.length < 500) return;
+      after = batch[batch.length - 1]!.id;
+    }
+  }
+
+  private addJob(workflowId: string, recordId: string, kind: "event" | "date", dueMs: number) {
+    this.sql.exec(
+      `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth) values (?, ?, ?, ?, ?, ?)`,
+      ulid(),
+      workflowId,
+      recordId,
+      kind,
+      new Date(dueMs).toISOString(),
+      this.wfDepth,
+    );
+  }
+
+  /** Runs the jobs that are due (a few at a time; the alarm comes back for the rest). */
+  private async runDueJobs(): Promise<void> {
+    const jobs = this.sql
+      .exec<WorkflowJobRow>(
+        `select * from workflow_jobs where due_at <= ? order by due_at limit 25`,
+        nowIso(),
+      )
+      .toArray();
+    for (const j of jobs) {
+      try {
+        // The steps and the notifications to send are saved together.
+        this.ctx.storage.transactionSync(() => {
+          for (const t of this.runJob(j))
+            this.sql.exec(
+              `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+              ulid(),
+              t.userId,
+              JSON.stringify(t.n),
+              nowIso(),
+            );
+        });
+      } catch (e) {
+        // The steps rolled back; note why, so the history says what happened.
+        this.ctx.storage.transactionSync(() => {
+          this.sql.exec(`delete from workflow_jobs where id = ?`, j.id);
+          this.noteRun(j.workflow_id, j.record_id, false, false, e instanceof Error ? e.message : String(e));
+        });
+      } finally {
+        this.wfDepth = 0;
+      }
+    }
+    await this.sendNotes();
+  }
+
+  /**
+   * Delivers saved notifications to people's inboxes; one that fails stays and is tried again
+   * later (backing off, for about a day), so a run's message isn't lost.
+   */
+  private async sendNotes(): Promise<void> {
+    const notes = this.sql
+      .exec<{ id: string; user_id: string; note_json: string; attempts: number }>(
+        `select id, user_id, note_json, attempts from workflow_notes where next_at <= ? order by next_at limit 50`,
+        nowIso(),
+      )
+      .toArray();
+    for (const n of notes) {
+      try {
+        await this.env.INBOX.getByName(inboxName(n.user_id)).notify(
+          JSON.parse(n.note_json) as NewNotification,
+        );
+        this.sql.exec(`delete from workflow_notes where id = ?`, n.id);
+      } catch (e) {
+        console.warn("workflow notification failed", e instanceof Error ? e.message : String(e));
+        if (n.attempts >= 12) this.sql.exec(`delete from workflow_notes where id = ?`, n.id);
+        else
+          this.sql.exec(
+            `update workflow_notes set attempts = attempts + 1, next_at = ? where id = ?`,
+            new Date(Date.now() + Math.min(86_400_000, 30_000 * 2 ** n.attempts)).toISOString(),
+            n.id,
+          );
+      }
+    }
+  }
+
+  /** One job, inside a transaction: check, then every step; who to tell afterwards. */
+  private runJob(j: WorkflowJobRow): { userId: string; n: NewNotification }[] {
+    this.sql.exec(`delete from workflow_jobs where id = ?`, j.id);
+    const w = this.sql
+      .exec<WorkflowRow>(
+        `select * from workflows where id = ? and deleted_at is null and enabled = 1`,
+        j.workflow_id,
+      )
+      .toArray()[0];
+    if (!w) return [];
+    const r = this.liveRecord(j.record_id);
+    if (!r) {
+      this.noteRun(w.id, j.record_id, true, false, "Skipped: the record was deleted");
+      return [];
+    }
+    const def = JSON.parse(w.def_json) as WorkflowDef;
+    const actor: Actor = { userId: w.created_by, source: "system" };
+    const c = this.requireCollection(w.collection_id);
+    if (
+      def.check.length &&
+      !this.findRows(actor, c, { filters: def.check, ids: [r.id], limit: 1 }).rows.length
+    ) {
+      this.noteRun(w.id, r.id, true, false, "Skipped: it didn't match the check");
+      return [];
+    }
+    const ts = nowIso();
+    this.wfDepth = j.depth + 1;
+    const tell: { userId: string; n: NewNotification }[] = [];
+    const did: string[] = [];
+    for (const a of def.then) {
+      if (a.do === "notify") {
+        const body = this.fillTemplate(a.text, this.requireRecord(r.id));
+        for (const p of a.to)
+          if (p.user_id)
+            tell.push({
+              userId: p.user_id,
+              n: { kind: "workflow", title: w.name, body, url: `/c/${r.collection_id}/${r.id}` },
+            });
+        did.push(`Told ${a.to.map((p) => p.name).join(", ")}: “${body}”`);
+      } else if (a.do === "set") {
+        this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });
+        did.push(`Set ${this.liveField(a.field_id)?.name ?? "a field"}`);
+      } else {
+        const t = this.requireCollection(a.collection_id);
+        const current = this.requireRecord(r.id);
+        const values = Object.fromEntries(
+          Object.entries(a.values).map(([k, v]) => [
+            k,
+            typeof v === "string" ? this.fillTemplate(v, current) : v,
+          ]),
+        );
+        const added = this.insertRecord(actor, ts, t, { values });
+        did.push(`Added “${added.title}” to ${t.name}`);
+      }
+    }
+    this.noteRun(w.id, r.id, true, true, did.join(" · "));
+    this.changed();
+    return tell;
+  }
+
+  private noteRun(
+    workflowId: string,
+    recordId: string | null,
+    ok: boolean,
+    counted: boolean,
+    detail: string,
+  ) {
+    const at = nowIso();
+    this.sql.exec(
+      `insert into workflow_runs (id, workflow_id, record_id, at, ok, counted, detail) values (?, ?, ?, ?, ?, ?, ?)`,
+      ulid(),
+      workflowId,
+      recordId,
+      at,
+      ok ? 1 : 0,
+      counted ? 1 : 0,
+      detail.slice(0, 500),
+    );
+    if (counted)
+      this.sql.exec(
+        `update workflows set run_count = run_count + 1, last_run_at = ? where id = ?`,
+        at,
+        workflowId,
+      );
+    // Keep the last 50 runs of each workflow.
+    this.sql.exec(
+      `delete from workflow_runs where workflow_id = ? and id not in
+       (select id from workflow_runs where workflow_id = ? order by at desc limit 50)`,
+      workflowId,
+      workflowId,
+    );
+  }
+
+  /** "{Amount} on {Category}" with the record's values (unknown names stay as written). */
+  private fillTemplate(text: string, r: RecordRow): string {
+    const fields = this.fieldRows(r.collection_id);
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    return text.replace(/\{([^{}]{1,80})\}/g, (all, name: string) => {
+      const f = fields.find((x) => x.name_key === nameKey(name));
+      if (!f) return all;
+      const shown = displayValue(f.type, values[f.id] ?? null);
+      return Array.isArray(shown) ? shown.join(", ") : (shown ?? "");
+    });
+  }
+
+  /**
+   * The starter Reminders list reminds: a built-in workflow (at Due, unless Done, tell the
+   * owner), made once per personal space, for new and existing spaces alike.
+   */
+  private ensureReminders() {
+    if (getMeta(this.sql, "wf_reminders")) return;
+    const space = this.sql
+      .exec<{ kind: string; owner_user_id: string }>(`select kind, owner_user_id from space limit 1`)
+      .toArray()[0];
+    if (!space) return;
+    setMeta(this.sql, "wf_reminders", "1");
+    if (space.kind !== "personal") return;
+    const c = this.sql
+      .exec<{ id: string }>(
+        `select id from collections where name_key = ? and deleted_at is null`,
+        nameKey("Reminders"),
+      )
+      .toArray()[0];
+    if (!c) return;
+    const fields = this.fieldRows(c.id);
+    const due = fields.find(
+      (f) => f.name_key === nameKey("Due") && (f.type === "datetime" || f.type === "date"),
+    );
+    const done = fields.find((f) => f.name_key === nameKey("Done") && f.type === "boolean");
+    const title = fields.find((f) => f.name_key === nameKey("Title"));
+    if (!due || !title) return;
+    const def: WorkflowDef = {
+      when: { event: "date", field_id: due.id, offset_minutes: 0 },
+      check: done ? [{ field: done.id, op: "ne", value: true }] : [],
+      wait_minutes: 0,
+      then: [{ do: "notify", text: `{${title.name}}`, to: [{ user_id: space.owner_user_id, name: "me" }] }],
+    };
+    const id = ulid();
+    const ts = nowIso();
+    this.sql.exec(
+      `insert into workflows (id, name, collection_id, def_json, enabled, created_by, created_at, updated_at)
+       values (?, 'Remind me', ?, ?, 1, ?, ?, ?)`,
+      id,
+      c.id,
+      JSON.stringify(def),
+      space.owner_user_id,
+      ts,
+      ts,
+    );
+    this.scheduleExisting(id, c.id, def);
   }
 
   // --- Questions (chat-first step 4) ------------------------------------------------------

@@ -7,6 +7,7 @@
   import CircleHelp from "@lucide/svelte/icons/circle-help";
   import Settings from "@lucide/svelte/icons/settings";
   import Brain from "@lucide/svelte/icons/brain";
+  import WorkflowIcon from "@lucide/svelte/icons/workflow";
   import Trash from "@lucide/svelte/icons/trash-2";
   import type { ChatSummary } from "@assistant/shared";
   import { fade } from "svelte/transition";
@@ -164,6 +165,10 @@
     <a class="item" class:active={path === "/memory"} href="/memory">
       <span class="ic flow"><Brain size={16} /></span>
       <span class="t">What it remembers</span>
+    </a>
+    <a class="item" class:active={path.startsWith("/workflows")} href="/workflows">
+      <span class="ic flow"><WorkflowIcon size={16} /></span>
+      <span class="t">Workflows</span>
     </a>
 
     <h3>More</h3>
