@@ -1,12 +1,11 @@
 // The offline rule (AGENTS.md, docs/design/offline.md) as a check, so a new screen can't
 // quietly skip it:
 // 1. Every write the web app sends either goes through the outbox (a module's change helper,
-//    e.g. gigChange) or is marked `online-only: <reason>` in the comment above it (on the
+//    e.g. the record changes in spaces-api.ts) or is marked `online-only: <reason>` in the comment above it (on the
 //    property/function, or on the object it belongs to).
 // 2. Module code never calls fetch() itself (writes would bypass the outbox and the key); core
 //    marks each direct fetch() online-only too (only `request()` itself is exempt).
-// 3. Every gig change kind sent through the outbox is shown on screen by an applier, except
-//    money entries, which the Money tab lists as waiting instead.
+// 3. Every change kind sent through the outbox is shown on screen by an applier.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -108,16 +107,12 @@ describe("offline rule", () => {
     expect(unmarked, "Use request(), or add `// online-only: <reason>` above it").toEqual([]);
   });
 
-  it("shows every gig change sent through the outbox on screen", () => {
-    const text = (p: string) => sources.find((s) => s.path === p)!.lines.join("\n");
-    const sent = [...text("modules/gigs/gigs-api.ts").matchAll(/gigChange\(\s*\w+,\s*"([^"]+)"/g)].map(
-      (m) => m[1]!,
-    );
-    const shown = new Set(
-      [...text("modules/gigs/offline-changes.ts").matchAll(/\bon\("([^"]+)"/g)].map((m) => m[1]!),
-    );
-    expect(sent.length).toBeGreaterThan(10);
-    const missing = sent.filter((k) => !shown.has(k) && !k.startsWith("gigs.record_"));
-    expect(missing, "Add an applier in offline-changes.ts").toEqual([]);
+  it("shows every change sent through the outbox on screen", () => {
+    const all = sources.map((s) => s.lines.join("\n")).join("\n");
+    const sent = [...all.matchAll(/kind:\s*"([a-z_]+\.[a-z_]+)"/g)].map((m) => m[1]!);
+    const shown = new Set([...all.matchAll(/applyWith\(\s*"([^"]+)"/g)].map((m) => m[1]!));
+    expect(sent.length).toBeGreaterThan(2);
+    const missing = sent.filter((k) => !shown.has(k));
+    expect(missing, "Add an applier with applyWith()").toEqual([]);
   });
 });

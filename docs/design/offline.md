@@ -1,5 +1,7 @@
 # Offline first (Firebase-like)
 
+_2026-10-10: the web app's gig screens and `modules/` were removed (chat-first step 1). The same pattern now lives in core: `send` and `applyWith` in `core/outbox.svelte.ts`, used by the record changes in `core/spaces/spaces-api.ts`; save-ahead with `saveAheadWith`. Mentions of `gigChange` and `modules/gigs` below are history._
+
 Owner, 2026-09-29: "Let's do what we already can. Like the offline sync … to make it like firebase."
 
 Goal: the app always opens and shows my data at once, with or without a connection; what I change is applied on screen straight away and reaches the server by itself when there's a connection; everyone else's changes arrive live. No extra dependencies; the server stays the source of truth.

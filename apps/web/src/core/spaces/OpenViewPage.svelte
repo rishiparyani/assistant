@@ -16,7 +16,8 @@
     const go = (views: SavedView[]) => {
       if (!open) return;
       const v = views.find((x) => nameKey(x.name) === nameKey(name));
-      if (v) navigate(`/c/${v.collection_id}?view=${encodeURIComponent(v.id)}`, { replace: true });
+      // The chat opens it as a pop-up.
+      if (v) navigate(`/?view=${encodeURIComponent(v.id)}`, { replace: true });
       else missing = true;
     };
     spacesApi.views().then(go, () => go(readCache<SavedView[]>(VIEWS_KEY) ?? []));
@@ -28,8 +29,8 @@
 
 <PageHeader title={name || "Saved view"} />
 {#if missing}
-  <EmptyState title="No view called that" text="Your saved views are on the Collections page.">
-    {#snippet action()}<Button href="/c">Collections</Button>{/snippet}
+  <EmptyState title="No view called that" text="Your pinned views are in the menu.">
+    {#snippet action()}<Button href="/">Back to chat</Button>{/snippet}
   </EmptyState>
 {:else}
   <div class="wait"><Spinner size={22} label="Opening…" /></div>

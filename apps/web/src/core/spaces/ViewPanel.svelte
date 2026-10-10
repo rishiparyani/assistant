@@ -60,10 +60,6 @@
       toast.error(e);
     }
   }
-  function openFull() {
-    open = false;
-    navigate(`/c/${view.collection_id}?view=${encodeURIComponent(view.id)}`);
-  }
 </script>
 
 <Sheet bind:open title={view.name}>
@@ -93,7 +89,7 @@
           </ListRow>
         {/each}
       </ListGroup>
-      {#if data.result.next_cursor}<p class="what">More in the full view.</p>{/if}
+      {#if data.result.next_cursor}<p class="what">Showing the first {data.result.items.length}.</p>{/if}
     {:else}
       <EmptyState title="Nothing here right now" text="Records that match show up here." />
     {/if}
@@ -108,7 +104,6 @@
       {#snippet icon()}{#if view.pinned}<PinOff />{:else}<Pin />{/if}{/snippet}
       {view.pinned ? "Unpin" : "Pin"}
     </Button>
-    <Button variant="primary" onclick={openFull}>Open</Button>
   {/snippet}
 </Sheet>
 

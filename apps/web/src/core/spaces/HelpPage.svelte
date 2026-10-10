@@ -35,22 +35,12 @@
   ];
   const TAP: { title: string; text: string; href?: string }[] = [
     {
-      title: "Open a collection",
-      text: "Collections → tap one. Search, filter, sort, or switch to a table.",
-      href: "/c",
-    },
-    { title: "Add a record", text: "In a collection, tap Add. Required fields are marked *." },
-    {
-      title: "Link records",
-      text: "A link field lets you pick records from another collection. On a record, linked sections have “Add to …”.",
+      title: "Pinned views",
+      text: "Open the menu (top left): pinned views open in a pop-up; tap a row to open it as a card.",
     },
     {
-      title: "Make your own collection",
-      text: "Collections → New. Name it, add fields and pick their types.",
-    },
-    {
-      title: "Change a setup",
-      text: "In a collection, tap the settings button: rename it, add, edit or hide fields.",
+      title: "Edit a card",
+      text: "On a card, tap Edit. Linked sections have “Add to …”; Share sends it to someone.",
     },
     {
       title: "Offline",
@@ -62,8 +52,8 @@
 <PageHeader
   title="Help"
   subtitle="A few examples of what you can ask, and how to do it by tapping."
-  back="/c"
-  backLabel="Collections"
+  back="/"
+  backLabel="Chat"
 />
 
 <div class="stack">

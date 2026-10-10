@@ -4,6 +4,9 @@ _Updated: 2026-10-10_
 
 ## Last done
 
+- **C1: new look and the chat-first shell** (`docs/design/chat-first.md` step 1): the app opens on the chat; a top bar (menu, the gradient assistant mark, New chat) and a side menu (New chat, Chats, Pinned views, Shared with you, Help, Settings; it stays open beside the page from 900 px). Colour tokens per kind of card in `theme.css` (`--kind-note/money/people/flow/form`), `AssistantMark` in `core/ui`. Chat restyled like the mockup (bubbles, suggestion chips above a pill message box, a glowing confirm card). **Removed:** the tab bar and the old screens (Overview, Gigs and gig pages, Collections, collection and setup pages, Songs, Contacts, Reports, the venue guest-list page) and the whole web `modules/` folder; the worker's gig and music code stays until step 8. Without the assistant (and offline): **Your lists** in the menu (`ListsMenu`, `CollectionPanel`: a collection's records as a pop-up, with Add) and **+** in the message box (add to any list); a record still opens full screen (`/c/:collection/:record`; back goes to the chat) so editing, sharing and comments keep working. `/open-view?name=` now opens the view over the chat (`/?view=`). The offline rule test now checks every outbox change kind (not just gigs); AGENTS rule 17 updated. iOS screenshots: chat, help, shared, settings. Browser-checked at 390/820/1280, light and dark.
+  - Next: C2, live cards in the chat.
+
 - **Chat-first redesign approved** (2026-10-10, `docs/design/chat-first.md`, decision "Chat first"): after a clickable mockup, the owner approved the chat as the whole app (live cards, memory, workflows as diagrams, group chats) and a new build order that replaces universal.md §14. Old screens go in step 1. Paused: iPhone widgets (now step 9).
   - Next: C1, the new look and the chat-first shell (`tasks/backlog.md`).
 
