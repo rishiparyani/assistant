@@ -6,11 +6,15 @@
   import Inbox from "@lucide/svelte/icons/inbox";
   import CircleHelp from "@lucide/svelte/icons/circle-help";
   import Settings from "@lucide/svelte/icons/settings";
+  import Brain from "@lucide/svelte/icons/brain";
+  import Trash from "@lucide/svelte/icons/trash-2";
+  import type { ChatSummary } from "@assistant/shared";
   import { fade } from "svelte/transition";
-  import { AssistantMark, Avatar, calm, reducedMotion } from "../ui/index.ts";
+  import { AssistantMark, Avatar, calm, confirm, reducedMotion, toast } from "../ui/index.ts";
+  import { createQuery } from "../query.svelte.ts";
   import { navigate, router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
-  import { startNewChat } from "../assistant/chat-api.ts";
+  import { CHATS_KEY, MAIN_CHAT, chatApi, chatPath, startNewChat } from "../assistant/chat-api.ts";
   import PinnedList from "../spaces/PinnedList.svelte";
   import ListsMenu from "../spaces/ListsMenu.svelte";
   import PullToRefresh from "./PullToRefresh.svelte";
@@ -54,8 +58,31 @@
 
   function newChat() {
     menuOpen = false;
-    if (route.name !== "root") navigate("/");
     void startNewChat();
+  }
+
+  // The person's chats: the main one first, then the newest.
+  const chats = createQuery<ChatSummary[]>(() => CHATS_KEY, chatApi.list);
+  const chatList = $derived(chats.data ?? [{ id: MAIN_CHAT, title: "Gigspree", updated_at: null }]);
+  const openChat = $derived(
+    route.name === "root" ? MAIN_CHAT : route.name === "chat" ? (route.params.chatId ?? null) : null,
+  );
+
+  async function removeChat(c: ChatSummary) {
+    const ok = await confirm({
+      title: `Delete “${c.title}”?`,
+      message: "Its messages go; everything saved in your lists stays.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await chatApi.remove(c.id);
+      chats.set((chats.data ?? []).filter((x) => x.id !== c.id));
+      if (openChat === c.id) navigate("/");
+    } catch (e) {
+      toast.error(e);
+    }
   }
 
   const LINKS = [
@@ -77,7 +104,11 @@
       <AssistantMark size={34} />
       <span class="who-text">
         <span class="who-name">Gigspree</span>
-        <span class="who-sub">Your assistant</span>
+        <span class="who-sub"
+          >{openChat && openChat !== MAIN_CHAT
+            ? (chatList.find((c) => c.id === openChat)?.title ?? "Your assistant")
+            : "Your assistant"}</span
+        >
       </span>
     </a>
     <button class="icon-btn" type="button" aria-label="New chat" onclick={newChat}>
@@ -102,16 +133,38 @@
     </button>
 
     <h3>Chats</h3>
-    <a class="item" class:active={route.name === "root"} href="/">
-      <span class="ic chat"><MessageCircle size={16} /></span>
-      <span class="t">Gigspree</span>
-    </a>
+    <ul class="chats">
+      {#each chatList as c (c.id)}
+        <li class="chat-row">
+          <a class="item" class:active={openChat === c.id} href={chatPath(c.id)}>
+            <span class="ic chat"><MessageCircle size={16} /></span>
+            <span class="t">{c.title}</span>
+          </a>
+          {#if c.id !== MAIN_CHAT}
+            <button
+              class="del"
+              type="button"
+              aria-label="Delete chat {c.title}"
+              onclick={() => removeChat(c)}
+            >
+              <Trash size={16} />
+            </button>
+          {/if}
+        </li>
+      {/each}
+    </ul>
 
     <h3>Pinned</h3>
     <PinnedList onopen={() => (menuOpen = false)} />
 
     <h3>Your lists</h3>
     <ListsMenu onopen={() => (menuOpen = false)} />
+
+    <h3>The assistant</h3>
+    <a class="item" class:active={path === "/memory"} href="/memory">
+      <span class="ic flow"><Brain size={16} /></span>
+      <span class="t">What it remembers</span>
+    </a>
 
     <h3>More</h3>
     {#each LINKS as l (l.href)}
@@ -281,6 +334,45 @@
     border-radius: 9px;
     background: var(--surface-hover);
     color: var(--text-2);
+  }
+  .chats {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+  }
+  .chat-row {
+    display: flex;
+    align-items: center;
+    /* A long title shortens (…) instead of pushing the delete button out of the menu. */
+    min-width: 0;
+  }
+  .chat-row .item {
+    flex: 1;
+    min-width: 0;
+  }
+  .del {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    opacity: 0.6;
+  }
+  .del:hover {
+    opacity: 1;
+    color: var(--red);
+    background: var(--surface-hover);
+  }
+  .ic.flow {
+    background: var(--kind-flow-soft);
+    color: var(--kind-flow);
   }
   .ic.chat {
     background: var(--kind-people-soft);

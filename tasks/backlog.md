@@ -4,7 +4,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
-**Order now follows [docs/design/chat-first.md](../docs/design/chat-first.md) §5 (approved 2026-10-10).** Next: step 3, several chats and memory (C1, C2 done).
+**Order now follows [docs/design/chat-first.md](../docs/design/chat-first.md) §5 (approved 2026-10-10).** Next: step 4, bringing people in from the chat (C1–C3 done).
 
 ## C1 New look and the chat-first shell
 

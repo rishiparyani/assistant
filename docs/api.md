@@ -154,13 +154,25 @@ Filters use the find language; periods ("this_month") and "me" are kept as writt
 
 ### Chat with the assistant (session only)
 
-| Method | Path                                   | What                                                          |
-| ------ | -------------------------------------- | ------------------------------------------------------------- |
-| GET    | `/api/chat`                            | `{ items, setup_in_progress, smart_available }`               |
-| POST   | `/api/chat`                            | Send `{ text, think_harder? }`; answers with the updated chat |
-| POST   | `/api/chat/actions/:action_id/confirm` | Run what a card shows (once)                                  |
-| POST   | `/api/chat/actions/:action_id/cancel`  | Drop a card                                                   |
-| DELETE | `/api/chat`                            | Start a new chat (saved records stay)                         |
+| Method | Path                                             | What                                                                                          |
+| ------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| GET    | `/api/chat`                                      | `{ items, setup_in_progress, smart_available }`                                               |
+| POST   | `/api/chat`                                      | Send `{ text, think_harder? }`; answers with the updated chat                                 |
+| POST   | `/api/chat/actions/:action_id/confirm`           | Run what a card shows (once)                                                                  |
+| POST   | `/api/chat/actions/:action_id/cancel`            | Drop a card                                                                                   |
+| DELETE | `/api/chat`                                      | Clear the main chat (saved records stay)                                                      |
+| GET    | `/api/chats`                                     | My chats: `[{ id, title, updated_at }]`, `main` first                                         |
+| POST   | `/api/chats`                                     | New chat `{ id? }` (a ULID made on the device); 201 + the chat                                |
+| GET    | `/api/chats/:chat_id`                            | One chat (`main` or its id): `{ id, title, items, … }`                                        |
+| POST   | `/api/chats/:chat_id`                            | Send in that chat `{ text, think_harder? }`                                                   |
+| POST   | `/api/chats/:chat_id/actions/:action_id/confirm` | Run a card in that chat                                                                       |
+| POST   | `/api/chats/:chat_id/actions/:action_id/cancel`  | Drop a card in that chat                                                                      |
+| DELETE | `/api/chats/:chat_id`                            | Delete a chat (`main` is cleared instead)                                                     |
+| GET    | `/api/memories`                                  | What the assistant remembers: `[{ id, text, source, created_at }]` (also MCP `list_memories`) |
+| POST   | `/api/memories`                                  | Remember `{ text }` (also the assistant's and MCP's `remember` tool)                          |
+| DELETE | `/api/memories/:memory_id`                       | Forget one (also `forget_memory`)                                                             |
+
+Chat items have `role` `user`, `assistant`, `card` (a confirm card), `note` or `live` (a live card: `live` is `{ kind: "record", collection_id, record_id }`, `{ kind: "list", collection_id, title, query }` or `{ kind: "view", view_id }`; the app loads its data fresh).
 
 Items are `user`, `assistant`, `note` (system notes such as "Done: …") or `card` (with `card.status` waiting / done / cancelled / failed / expired). Tool calls and raw results stay on the server. Not available to API tokens or MCP: outside assistants use the tools directly.
 

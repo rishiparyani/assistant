@@ -2,9 +2,30 @@
 // or MCP; outside assistants call the tools directly). They need every other operation,
 // because the assistant's tools are those operations.
 import { z } from "zod";
-import { ChatActionRef, ChatSendInput } from "@assistant/shared";
+import {
+  ChatActionIn,
+  ChatActionRef,
+  ChatRef,
+  ChatSendInput,
+  ChatSendTo,
+  MemoryRef,
+  NewChatInput,
+  RememberInput,
+} from "@assistant/shared";
 import { defineOperation, type AnyOperation } from "../operations.ts";
-import { cancelAction, chatView, clearChat, confirmAction, sendMessage } from "./service.ts";
+import {
+  cancelAction,
+  chatView,
+  clearChat,
+  confirmAction,
+  deleteChat,
+  forgetMemory,
+  listChats,
+  listMemories,
+  newChat,
+  remember,
+  sendMessage,
+} from "./service.ts";
 
 export function assistantOperations(all: () => readonly AnyOperation[]) {
   return [
@@ -57,6 +78,108 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       http: { method: "DELETE", path: "/chat" },
       input: z.object({}),
       handler: (ctx) => clearChat(ctx),
+    }),
+
+    // Several chats (docs/design/chat-first.md step 3). "main" is the person's first chat.
+    defineOperation({
+      id: "core.chats",
+      tool: "list_chats",
+      description: "My chats with the assistant, newest first.",
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/chats" },
+      input: z.object({}),
+      handler: (ctx) => listChats(ctx),
+    }),
+    defineOperation({
+      id: "core.chat_new",
+      tool: "new_chat",
+      description: "Start a new chat (the old ones stay in the list).",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/chats", status: 201 },
+      input: NewChatInput,
+      handler: (ctx, i) => newChat(ctx, i.id),
+    }),
+    defineOperation({
+      id: "core.chat_open",
+      tool: "open_chat",
+      description: "One of my chats.",
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/chats/:chat_id" },
+      input: ChatRef,
+      handler: (ctx, i) => chatView(ctx, i.chat_id),
+    }),
+    defineOperation({
+      id: "core.chat_send_to",
+      tool: "chat_send_to",
+      description: "Send a message in one of my chats.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/chats/:chat_id" },
+      input: ChatSendTo,
+      handler: (ctx, i) => sendMessage(ctx, all(), i, i.chat_id),
+    }),
+    defineOperation({
+      id: "core.chat_confirm_in",
+      tool: "chat_confirm_in",
+      description: "Confirm what a card in one of my chats shows.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/chats/:chat_id/actions/:action_id/confirm" },
+      input: ChatActionIn,
+      handler: (ctx, i) => confirmAction(ctx, all(), i.action_id, i.chat_id),
+    }),
+    defineOperation({
+      id: "core.chat_cancel_in",
+      tool: "chat_cancel_in",
+      description: "Cancel what a card in one of my chats shows.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/chats/:chat_id/actions/:action_id/cancel" },
+      input: ChatActionIn,
+      handler: (ctx, i) => cancelAction(ctx, i.action_id, i.chat_id),
+    }),
+    defineOperation({
+      id: "core.chat_delete",
+      tool: "delete_chat",
+      description: "Delete one of my chats (the main chat is cleared instead).",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "DELETE", path: "/chats/:chat_id" },
+      input: ChatRef,
+      handler: (ctx, i) => deleteChat(ctx, i.chat_id),
+    }),
+
+    // Memory: what the assistant keeps for the person. Also tools for the assistant itself.
+    defineOperation({
+      id: "core.memories",
+      tool: "list_memories",
+      description: "What the assistant remembers for me.",
+      kind: "read",
+      http: { method: "GET", path: "/memories" },
+      input: z.object({}),
+      handler: (ctx) => listMemories(ctx),
+    }),
+    defineOperation({
+      id: "core.remember",
+      tool: "remember",
+      description:
+        "Remember a fact or preference the person asked you to keep (one short sentence), so every chat can use it.",
+      kind: "write",
+      http: { method: "POST", path: "/memories", status: 201 },
+      input: RememberInput,
+      handler: (ctx, i) => remember(ctx, i.text),
+    }),
+    defineOperation({
+      id: "core.forget_memory",
+      tool: "forget_memory",
+      description: "Forget something remembered earlier (by its id from list_memories).",
+      kind: "write",
+      http: { method: "DELETE", path: "/memories/:memory_id" },
+      input: MemoryRef,
+      handler: (ctx, i) => forgetMemory(ctx, i.memory_id),
     }),
   ];
 }

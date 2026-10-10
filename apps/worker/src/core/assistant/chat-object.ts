@@ -46,7 +46,45 @@ const MIGRATIONS: Migrations = [
   `,
   // Live cards (chat-first step 2): what a "live" message points at.
   `alter table messages add column live_json text;`,
+  // Several chats and memory (chat-first step 3). Kept in the person's main chat only:
+  // the list of their other chats, and what the assistant remembers for them.
+  `
+  create table chats (
+    id text primary key,
+    title text not null,
+    created_at text not null,
+    updated_at text not null,
+    deleted_at text
+  );
+  create index chats_updated_idx on chats (deleted_at, updated_at);
+  create table memories (
+    id text primary key,
+    text text not null,
+    source text not null,
+    created_at text not null,
+    deleted_at text
+  );
+  create index memories_created_idx on memories (deleted_at, created_at);
+  `,
 ];
+
+/** What the assistant remembers for a person (chat-first step 3). */
+export type MemoryRow = {
+  id: string;
+  text: string;
+  source: string;
+  created_at: string;
+};
+
+export type ChatRow = {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+};
+
+const MAX_MEMORIES = 200;
+const MAX_CHATS = 200;
 
 export interface StoredMessage extends ChatMessage {
   /** Shown on screen as this role (null: for the model only). */
@@ -256,6 +294,114 @@ export class ChatObject extends DurableObject<Env> {
   async finishAction(userId: string, id: string, status: ActionRow["status"], result: string | null) {
     this.own(userId);
     this.sql.exec(`update actions set status = ?, result = ? where id = ?`, status, result, id);
+  }
+
+  // --- The person's chats (main chat only) ---------------------------------------------
+
+  async chats(userId: string): Promise<ChatRow[]> {
+    this.own(userId);
+    return this.sql
+      .exec<ChatRow>(
+        `select id, title, created_at, updated_at from chats where deleted_at is null order by updated_at desc limit ?`,
+        MAX_CHATS,
+      )
+      .toArray();
+  }
+
+  async addChat(userId: string, id: string): Promise<ChatRow> {
+    this.own(userId);
+    const n = this.sql
+      .exec<{ n: number }>(`select count(*) as n from chats where deleted_at is null`)
+      .one().n;
+    if (n >= MAX_CHATS)
+      throw new ObjectError("conflict", `Up to ${MAX_CHATS} chats; delete an old one first`);
+    const now = nowIso();
+    this.sql.exec(
+      `insert into chats (id, title, created_at, updated_at) values (?, 'New chat', ?, ?) on conflict (id) do nothing`,
+      id,
+      now,
+      now,
+    );
+    return this.chatRow(id);
+  }
+
+  /** A chat got a message: it moves to the top; its first message names it. */
+  async touchChat(userId: string, id: string, firstText: string | null): Promise<void> {
+    this.own(userId);
+    const row = this.sql.exec<{ title: string }>(`select title from chats where id = ?`, id).toArray()[0];
+    if (!row) return;
+    const title =
+      row.title === "New chat" && firstText ? firstText.trim().replace(/\s+/g, " ").slice(0, 60) : row.title;
+    this.sql.exec(`update chats set title = ?, updated_at = ? where id = ?`, title, nowIso(), id);
+  }
+
+  async hasChat(userId: string, id: string): Promise<boolean> {
+    this.own(userId);
+    return this.sql.exec(`select 1 from chats where id = ? and deleted_at is null`, id).toArray().length > 0;
+  }
+
+  async deleteChat(userId: string, id: string): Promise<void> {
+    this.own(userId);
+    this.sql.exec(`update chats set deleted_at = ? where id = ? and deleted_at is null`, nowIso(), id);
+  }
+
+  private chatRow(id: string): ChatRow {
+    const r = this.sql
+      .exec<ChatRow>(`select id, title, created_at, updated_at from chats where id = ?`, id)
+      .toArray()[0];
+    if (!r) throw new ObjectError("not_found", "Chat not found");
+    return r;
+  }
+
+  // --- What the assistant remembers (main chat only) --------------------------------------
+
+  async memories(userId: string): Promise<MemoryRow[]> {
+    this.own(userId);
+    return this.sql
+      .exec<MemoryRow>(
+        `select id, text, source, created_at from memories where deleted_at is null order by created_at desc limit ?`,
+        MAX_MEMORIES,
+      )
+      .toArray();
+  }
+
+  async remember(userId: string, text: string, source: string): Promise<MemoryRow> {
+    this.own(userId);
+    const clean = text.trim().replace(/\s+/g, " ");
+    const same = this.sql
+      .exec<MemoryRow>(
+        `select id, text, source, created_at from memories where deleted_at is null and lower(text) = lower(?)`,
+        clean,
+      )
+      .toArray()[0];
+    if (same) return same;
+    const n = this.sql
+      .exec<{ n: number }>(`select count(*) as n from memories where deleted_at is null`)
+      .one().n;
+    if (n >= MAX_MEMORIES)
+      throw new ObjectError("conflict", `It remembers up to ${MAX_MEMORIES} things; forget something first`);
+    const row: MemoryRow = { id: ulid(), text: clean, source, created_at: nowIso() };
+    this.sql.exec(
+      `insert into memories (id, text, source, created_at) values (?, ?, ?, ?)`,
+      row.id,
+      row.text,
+      row.source,
+      row.created_at,
+    );
+    return row;
+  }
+
+  async forget(userId: string, id: string): Promise<MemoryRow> {
+    this.own(userId);
+    const r = this.sql
+      .exec<MemoryRow>(
+        `select id, text, source, created_at from memories where id = ? and deleted_at is null`,
+        id,
+      )
+      .toArray()[0];
+    if (!r) throw new ObjectError("not_found", "Nothing remembered with that id");
+    this.sql.exec(`update memories set deleted_at = ? where id = ?`, nowIso(), id);
+    return r;
   }
 
   async clear(userId: string): Promise<void> {

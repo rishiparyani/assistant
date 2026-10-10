@@ -14,6 +14,7 @@
   import SharedCardPage from "./spaces/SharedCardPage.svelte";
   import PublicSharePage from "./spaces/PublicSharePage.svelte";
   import ChatPage from "./assistant/ChatPage.svelte";
+  import MemoryPage from "./assistant/MemoryPage.svelte";
   import { ConfirmHost, Spinner, Toaster, TopProgress, toast } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
@@ -76,7 +77,13 @@
       {:else if route.name === "admin"}
         <Admin />
       {:else if route.name === "root"}
-        <ChatPage />
+        {#key "main"}<ChatPage />{/key}
+      {:else if route.name === "chat"}
+        {#key route.params.chatId}
+          <ChatPage chatId={route.params.chatId!} />
+        {/key}
+      {:else if route.name === "memory"}
+        <MemoryPage />
       {:else if route.name === "record"}
         {#key route.params.recordId}
           <RecordPage collectionId={route.params.collectionId!} recordId={route.params.recordId!} />

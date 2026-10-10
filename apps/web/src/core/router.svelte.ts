@@ -7,6 +7,10 @@ export interface Route {
 
 const PATTERNS: [string, RegExp][] = [
   ["root", /^\/$/],
+  // Another chat with the assistant (the first one is the home page).
+  ["chat", /^\/chat\/(?<chatId>[^/]+)$/],
+  // What the assistant remembers.
+  ["memory", /^\/memory$/],
   ["login", /^\/login$/],
   ["consent", /^\/consent$/],
   ["settings", /^\/settings$/],
