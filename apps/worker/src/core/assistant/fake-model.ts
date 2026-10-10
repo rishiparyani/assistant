@@ -49,6 +49,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Vocals", "Keys"] } },
         ],
       });
+    case "Test: show my notes":
+      return call("find_records", { collection: "Notes", search: "Test" });
     case "Test: bad tool":
       return call("add_record", { collection: "Nope", values: {} });
     default:

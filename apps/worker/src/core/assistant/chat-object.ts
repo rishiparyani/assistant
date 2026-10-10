@@ -2,7 +2,7 @@
 // model sees (including tool calls and results), what the screen shows, confirm cards
 // waiting for a tap, and whether a setup is in progress. Only its owner can read it.
 import { DurableObject } from "cloudflare:workers";
-import { ulid, type ChatItem } from "@assistant/shared";
+import { ulid, type ChatItem, type LiveRef } from "@assistant/shared";
 import { BASE_TABLES, getMeta, migrate, nowIso, setMeta, type Migrations } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import type { ChatMessage, ToolCall } from "./client.ts";
@@ -44,12 +44,15 @@ const MIGRATIONS: Migrations = [
   );
   create index requests_created_idx on requests (created_at);
   `,
+  // Live cards (chat-first step 2): what a "live" message points at.
+  `alter table messages add column live_json text;`,
 ];
 
 export interface StoredMessage extends ChatMessage {
   /** Shown on screen as this role (null: for the model only). */
-  shown?: "user" | "assistant" | "card" | "note" | null;
+  shown?: "user" | "assistant" | "card" | "note" | "live" | null;
   card_action_id?: string;
+  live?: LiveRef;
   level?: number;
 }
 
@@ -74,6 +77,7 @@ type MessageRow = {
   shown: string | null;
   card_action_id: string | null;
   level: number | null;
+  live_json?: string | null;
   created_at: string;
 };
 
@@ -184,11 +188,12 @@ export class ChatObject extends DurableObject<Env> {
           shown: m.shown ?? null,
           card_action_id: m.card_action_id ?? null,
           level: m.level ?? null,
+          live_json: m.live ? JSON.stringify(m.live) : null,
           created_at: nowIso(),
         };
         this.sql.exec(
-          `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, request_key, created_at)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, request_key, created_at)
+           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           row.id,
           row.role,
           row.content,
@@ -197,6 +202,7 @@ export class ChatObject extends DurableObject<Env> {
           row.shown,
           row.card_action_id,
           row.level,
+          row.live_json ?? null,
           key,
           row.created_at,
         );
@@ -294,6 +300,7 @@ export class ChatObject extends DurableObject<Env> {
       text: r.content ?? "",
       created_at: r.created_at,
       ...(r.level ? { level: r.level } : {}),
+      ...(r.live_json ? { live: JSON.parse(r.live_json) as LiveRef } : {}),
     };
     if (r.card_action_id) {
       const a = this.action(r.card_action_id);

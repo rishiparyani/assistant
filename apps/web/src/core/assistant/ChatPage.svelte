@@ -7,6 +7,7 @@
   import type { CollectionView } from "@assistant/shared";
   import ActionSheet from "../ui/ActionSheet.svelte";
   import RecordSheet from "../spaces/RecordSheet.svelte";
+  import LiveCard from "../spaces/LiveCard.svelte";
   import { COLLECTIONS_KEY, spacesApi } from "../spaces/spaces-api.ts";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
@@ -147,6 +148,10 @@
             >
           {/if}
         </li>
+      {:else if m.role === "live" && m.live}
+        <li class="live" in:fly={calm(fromThem)}>
+          <LiveCard live={m.live} collections={collections.data} />
+        </li>
       {:else if m.role === "note"}
         <li class="note" in:fly={calm({ y: 8, duration: 250 })}>{m.text}</li>
       {:else}
@@ -274,6 +279,10 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-bottom-left-radius: 6px;
+  }
+  .live {
+    align-self: stretch;
+    display: grid;
   }
   .note {
     align-self: center;

@@ -4,7 +4,13 @@
 // (the operation's own validation and the space object's rules), runs safe ones, and turns
 // money, deletes and new setups into confirm cards that run only after a tap.
 import { z } from "zod";
-import type { ChatView, CollectionView } from "@assistant/shared";
+import {
+  nameKey,
+  type ChatView,
+  type CollectionView,
+  type LiveRef,
+  type RuleFilter,
+} from "@assistant/shared";
 import { AppError } from "../errors.ts";
 import { toAppError } from "../objects/errors.ts";
 import { operationContext, type AnyOperation, type OpUserCtx } from "../operations.ts";
@@ -199,6 +205,62 @@ async function recordLabel(ctx: OpUserCtx, recordId: string): Promise<string | n
   }
 }
 
+/** At most this many live cards after one message (the newest ones). */
+const MAX_LIVE = 3;
+
+/**
+ * The live card a tool's result deserves (docs/design/chat-first.md step 2): a record it
+ * added, changed or read, or the list a find or a saved view returned. Facts from the tool
+ * and its result only; never from what the person wrote.
+ */
+function liveFrom(
+  tool: string,
+  args: Record<string, unknown>,
+  result: unknown,
+  cols: CollectionView[],
+): LiveRef | null {
+  const r = (result ?? {}) as Record<string, unknown>;
+  if (["add_record", "update_record", "get_record"].includes(tool)) {
+    if (typeof r.id === "string" && typeof r.collection_id === "string")
+      return { kind: "record", collection_id: r.collection_id, record_id: r.id };
+    return null;
+  }
+  if (tool === "show_view") {
+    const view = r.view as { id?: unknown } | undefined;
+    return typeof view?.id === "string" ? { kind: "view", view_id: view.id } : null;
+  }
+  if (tool === "find_records" && typeof args.collection === "string") {
+    const ref = args.collection;
+    const col = cols.find((c) => c.id === ref || nameKey(c.name) === nameKey(ref));
+    if (!col) return null;
+    const filters = Array.isArray(args.filters) ? (args.filters as RuleFilter[]).slice(0, 10) : [];
+    const search = typeof args.search === "string" && args.search.trim() ? args.search.trim() : undefined;
+    const sort =
+      args.sort && typeof args.sort === "object"
+        ? (args.sort as { field: string; dir: "asc" | "desc" })
+        : undefined;
+    const label = (f: RuleFilter) =>
+      [f.field, f.op.replace(/_/g, " "), Array.isArray(f.value) ? f.value.join(", ") : (f.value ?? "")]
+        .join(" ")
+        .trim();
+    const title = [col.name, ...filters.map(label), ...(search ? [`“${search}”`] : [])].join(" · ");
+    return {
+      kind: "list",
+      collection_id: col.id,
+      title,
+      query: {
+        ...(filters.length ? { filters } : {}),
+        ...(search ? { search } : {}),
+        ...(sort ? { sort } : {}),
+      },
+    };
+  }
+  return null;
+}
+
+const liveKey = (l: LiveRef) =>
+  l.kind === "record" ? `r:${l.record_id}` : l.kind === "view" ? `v:${l.view_id}` : `l:${JSON.stringify(l)}`;
+
 const chatOf = (ctx: OpUserCtx) => ctx.objects.CHATS.get(ctx.objects.CHATS.idFromName(`chat:${ctx.user.id}`));
 const budgetOf = (ctx: OpUserCtx) => ctx.objects.BUDGET.get(ctx.objects.BUDGET.idFromName("budget:global"));
 
@@ -265,6 +327,8 @@ async function answerMessage(
 
   const reply = (text: string, at = level) =>
     rows.push({ role: "assistant", content: text, shown: "assistant", level: at });
+  // Live cards follow the reply (newest kept, one per record or list).
+  const lives = new Map<string, LiveRef>();
 
   steps: for (let step = 0; step < MAX_STEPS; step++) {
     const { specs, allowed } = toolsFor(level, ops);
@@ -292,14 +356,14 @@ async function answerMessage(
     rows.push({ ...callMsg, shown: null });
     for (const [i, call] of tool_calls.entries()) {
       // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
-      const result = await runTool(ctx, ops, call, allowed, level, `${requestKey}:${step}:${i}`);
+      const result = await runTool(ctx, ops, call, allowed, level, `${requestKey}:${step}:${i}`, cols);
       if (result.kind === "hand_over") {
         // Start this request again at level 2, without the handover call.
         turn.pop();
         rows.pop();
         if (!modelsFor(2, s).length) {
           reply(
-            "Setting this up needs the smart model, which switches on once AI credit is added. Until then you can make it by tapping: Collections → New.",
+            "Setting this up needs the smart model, which switches on once AI credit is added. Until then, your existing lists work by tapping: Your lists in the menu, or + by the message box.",
           );
           break steps;
         }
@@ -326,6 +390,10 @@ async function answerMessage(
       }
       if (result.kind === "error") failures++;
       if (result.kind === "ran" && SETUP.includes(call.function.name)) cols = await stub.collections(actor);
+      if (result.kind === "ran" && result.live) {
+        lives.delete(liveKey(result.live));
+        lives.set(liveKey(result.live), result.live);
+      }
       const tool: ChatMessage = { role: "tool", tool_call_id: call.id, content: result.text };
       turn.push(tool);
       rows.push({ ...tool, shown: null });
@@ -338,12 +406,15 @@ async function answerMessage(
     }
     if (step === MAX_STEPS - 1) reply("I stopped here to keep things safe. Check what's done above.");
   }
+  for (const live of [...lives.values()].slice(-MAX_LIVE))
+    rows.push({ role: "assistant", content: "", shown: "live", live, level });
   await chat.append(uid, rows, requestKey);
   return chatView(ctx);
 }
 
 type ToolResult =
-  | { kind: "ran" | "error"; text: string }
+  | { kind: "ran"; text: string; live?: LiveRef | null }
+  | { kind: "error"; text: string }
   | {
       kind: "card";
       text: string;
@@ -358,6 +429,7 @@ async function runTool(
   allowed: Set<string>,
   level: Level,
   writeKey: string,
+  cols: CollectionView[],
 ): Promise<ToolResult> {
   const name = call.function.name;
   if (name === "hand_over" && level === 1) return { kind: "hand_over", text: "{}" };
@@ -394,7 +466,11 @@ async function runTool(
     }
     const result = await op.handler(operationContext(op, ctx, op.kind === "write" ? writeKey : null), input);
     const text = JSON.stringify(result ?? null);
-    return { kind: "ran", text: text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}…(cut)` : text };
+    return {
+      kind: "ran",
+      text: text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}…(cut)` : text,
+      live: liveFrom(name, args, result, cols),
+    };
   } catch (e) {
     return { kind: "error", text: errorText(e) };
   }
@@ -478,12 +554,14 @@ export async function confirmAction(
   const a = await chat.takeAction(uid, actionId);
   const op = ops.find((o) => o.tool === a.tool && !o.sessionOnly);
   let note: string;
+  let live: LiveRef | null = null;
   try {
     if (!op) throw new AppError("not_found", "That action isn't available any more");
     const input = parse(op.input, JSON.parse(a.args_json) as unknown);
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;
+    live = liveFrom(a.tool, {}, result, []);
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     note = `Done: ${a.title}.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
@@ -492,7 +570,10 @@ export async function confirmAction(
     await chat.finishAction(uid, a.id, "failed", msg);
     note = `Couldn't do “${a.title}”: ${msg}`;
   }
-  await chat.append(uid, [{ role: "assistant", content: note, shown: "note" }]);
+  await chat.append(uid, [
+    { role: "assistant", content: note, shown: "note" },
+    ...(live ? [{ role: "assistant" as const, content: "", shown: "live" as const, live }] : []),
+  ]);
   return chatView(ctx);
 }
 
