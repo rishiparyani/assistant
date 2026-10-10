@@ -525,12 +525,14 @@ async function runTool(
         return { kind: "error", text: JSON.stringify({ error: "Record not found" }) };
       // Sharing names people: check them now, so a wrong or shared name comes back to the
       // model (candidates) instead of failing after the tap.
-      if (name === "share_with" || name === "add_share_people")
-        args = {
-          ...args,
-          people: (await resolvePeople(ctx, (input as { people: string[] }).people)).map((p) => p.name),
-        };
-      const card = { tool: name, args, ...describe(name, args, target) };
+      // The card keeps the resolved ids (names can repeat) and shows the names.
+      let shown = args;
+      if (name === "share_with" || name === "add_share_people") {
+        const people = await resolvePeople(ctx, (input as { people: string[] }).people);
+        args = { ...args, people: people.map((p) => p.user_id) };
+        shown = { ...args, people: people.map((p) => p.name) };
+      }
+      const card = { tool: name, args, ...describe(name, shown, target) };
       return {
         kind: "card",
         card,

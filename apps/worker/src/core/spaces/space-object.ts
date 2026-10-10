@@ -1957,9 +1957,13 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
-  /** People I know here: everyone in this space or one of its shares, but me. */
+  /** People I know here: everyone in this space or one of its shares (viewers: members), but me. */
   async people(actor: Actor): Promise<Person[]> {
-    this.canWrite(actor);
+    // Viewers see the space's members only, not who its owner shared things with.
+    if (this.role(actor) === "viewer")
+      return this.sql
+        .exec<Person>(`select user_id, name from members where user_id != ?`, actor.userId)
+        .toArray();
     return this.sql
       .exec<Person>(
         `select user_id, name from members where user_id != ?

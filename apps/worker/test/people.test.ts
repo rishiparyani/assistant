@@ -130,4 +130,27 @@ describe("people I know", () => {
       "Test Sangeet",
     );
   });
+
+  it("keeps the person picked by id on the chat card, even when two share a name", async () => {
+    const { owner, add } = await setUp();
+    const rec = await add("Test Mehendi");
+    const { link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { record_id: rec.id, access: "view" } }),
+    );
+    // Two people both called "Test Twin".
+    const a = await signUp("Test Twin");
+    const b = await signUp("Test Twin");
+    for (const u of [a, b]) await api(u)("/cards/join", { body: { token: tokenOf(link) } });
+    const other = await add("Test Haldi");
+    const view = await json<ChatView>(
+      await api(owner)("/chat", { body: { text: `Test: share ${other.id} with ${b.id}` } }),
+    );
+    const card = view.items.find((i) => i.role === "card")!.card!;
+    expect(card.title).toBe("Share “Test Haldi” (Shows) with Test Twin");
+    expect((await api(owner)(`/chat/actions/${card.action_id}/confirm`, { body: {} })).status).toBe(200);
+    const seen = async (u: User) =>
+      (await json<SharedWithMe[]>(await api(u)("/cards"))).some((s) => s.title === "Test Haldi");
+    expect(await seen(b)).toBe(true);
+    expect(await seen(a)).toBe(false);
+  });
 });

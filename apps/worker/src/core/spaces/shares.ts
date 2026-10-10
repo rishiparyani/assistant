@@ -96,7 +96,7 @@ export async function removeSharePerson(
 // with them needs no link: it shows up under "Shared with you" (and pings their app).
 
 export async function knownPeople(ctx: OpUserCtx): Promise<Person[]> {
-  const spaces = (await mySpaces(ctx)).filter((s) => s.role !== "viewer");
+  const spaces = await mySpaces(ctx);
   const lists = await Promise.all(
     spaces.map((s) => ctx.objects.SPACES.getByName(spaceName(s.id)).people(actorOf(ctx))),
   );

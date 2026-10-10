@@ -33,6 +33,10 @@
   const count = $derived(
     q.data && q.data.share.kind === "view" && "records" in q.data ? q.data.records.length : null,
   );
+  // Only the first page is loaded; with more pages the count isn't exact.
+  const morePages = $derived(
+    !!q.data && q.data.share.kind === "view" && "next_cursor" in q.data && !!q.data.next_cursor,
+  );
 </script>
 
 <a class="tile {share.kind}" href="/shared/{share.share_id}">
@@ -55,7 +59,9 @@
       {#each peek as line, i (i)}<li>{line}</li>{/each}
     </ul>
   {/if}
-  {#if count !== null && count > 3}<p class="more">and {count - 3} more</p>{/if}
+  {#if count !== null && (count > 3 || morePages)}<p class="more">
+      {morePages ? "and more" : `and ${count - 3} more`}
+    </p>{/if}
 </a>
 
 <style>
