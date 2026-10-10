@@ -22,6 +22,9 @@ const PATTERNS: [string, RegExp][] = [
   ["public_share", /^\/s$/],
   ["shared", /^\/shared$/],
   ["shared_card", /^\/shared\/(?<shareId>[^/]+)$/],
+  // Old gig links (gig notifications, the calendar feed) until gigs are rebuilt as a setup
+  // (chat-first step 8): they open the chat with a note instead of an error.
+  ["old_gig", /^\/gigs(\/.*)?$/],
 ];
 
 function match(location: Location): Route {

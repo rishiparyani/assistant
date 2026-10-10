@@ -14,7 +14,7 @@
   import SharedCardPage from "./spaces/SharedCardPage.svelte";
   import PublicSharePage from "./spaces/PublicSharePage.svelte";
   import ChatPage from "./assistant/ChatPage.svelte";
-  import { ConfirmHost, Spinner, Toaster, TopProgress } from "./ui/index.ts";
+  import { ConfirmHost, Spinner, Toaster, TopProgress, toast } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
   import Consent from "./pages/Consent.svelte";
@@ -37,6 +37,14 @@
   // Send changes made offline whenever there's a chance.
   startSync();
   const route = $derived(router.route);
+
+  // Old gig links (notifications, calendar feed) open the chat with a note until gigs are
+  // rebuilt (docs/design/chat-first.md step 8).
+  $effect(() => {
+    if (route.name !== "old_gig" || !session.me) return;
+    navigate("/", { replace: true });
+    toast.info("Gig pages are being rebuilt. Ask the assistant about this gig for now.");
+  });
 
   // Signed-out users go to sign-in (and come back afterwards).
   $effect(() => {
@@ -85,6 +93,8 @@
         {#key route.params.shareId}
           <SharedCardPage shareId={route.params.shareId!} />
         {/key}
+      {:else if route.name === "old_gig"}
+        <Spinner size={22} label="Opening the chat…" />
       {:else}
         <NotFound />
       {/if}

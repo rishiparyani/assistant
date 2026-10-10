@@ -6,7 +6,8 @@
   import Inbox from "@lucide/svelte/icons/inbox";
   import CircleHelp from "@lucide/svelte/icons/circle-help";
   import Settings from "@lucide/svelte/icons/settings";
-  import { AssistantMark, Avatar, reducedMotion } from "../ui/index.ts";
+  import { fade } from "svelte/transition";
+  import { AssistantMark, Avatar, calm, reducedMotion } from "../ui/index.ts";
   import { navigate, router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
   import { startNewChat } from "../assistant/chat-api.ts";
@@ -84,8 +85,17 @@
     </button>
   </header>
 
-  <button class="scrim" type="button" tabindex="-1" aria-label="Close menu" onclick={() => (menuOpen = false)}
-  ></button>
+  {#if menuOpen && !wide}
+    <!-- Only while the menu is open, so screen readers never find a dead "Close menu". -->
+    <button
+      class="scrim"
+      type="button"
+      tabindex="-1"
+      aria-label="Close menu"
+      onclick={() => (menuOpen = false)}
+      transition:fade={calm({ duration: 250 })}
+    ></button>
+  {/if}
   <nav class="drawer" aria-label="Menu" inert={!menuOpen && !wide}>
     <button class="new" type="button" onclick={newChat}>
       <SquarePen size={18} /> New chat
@@ -196,9 +206,6 @@
     border: 0;
     padding: 0;
     background: var(--backdrop);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--dur);
   }
   .drawer {
     position: fixed;
@@ -214,10 +221,6 @@
     border-right: 1px solid var(--border);
     transform: translateX(-102%);
     transition: transform 0.34s var(--ease);
-  }
-  .menu-open .scrim {
-    opacity: 1;
-    pointer-events: auto;
   }
   .menu-open .drawer {
     transform: none;
@@ -326,8 +329,7 @@
 
   /* Wide screens: the menu stays open beside the page. */
   @media (min-width: 900px) {
-    .menu-btn,
-    .scrim {
+    .menu-btn {
       display: none;
     }
     .drawer {

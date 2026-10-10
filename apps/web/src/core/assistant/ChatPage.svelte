@@ -407,7 +407,7 @@
   }
   .suggestion {
     flex: none;
-    min-height: 40px;
+    min-height: 44px;
     padding: 0 var(--space-4);
     border-radius: var(--radius-full);
     border: 1px solid var(--border);
