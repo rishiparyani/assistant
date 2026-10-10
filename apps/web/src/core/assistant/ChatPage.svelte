@@ -6,7 +6,7 @@
   import CircleHelp from "@lucide/svelte/icons/circle-help";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
-  import { Button, PageHeader, Pill, confirm, toast } from "../ui/index.ts";
+  import { Button, PageHeader, Pill, calm, confirm, toast } from "../ui/index.ts";
   import { createQuery, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
   import { router } from "../router.svelte.ts";
@@ -126,9 +126,9 @@
   <ol class="messages" bind:this={list} aria-live="polite">
     {#each items as m (m.id)}
       {#if m.role === "user"}
-        <li class="msg mine" in:fly={fromMe}>{m.text}</li>
+        <li class="msg mine" in:fly={calm(fromMe)}>{m.text}</li>
       {:else if m.role === "card" && m.card}
-        <li class="card" class:closed={m.card.status !== "waiting"} in:fly={fromThem}>
+        <li class="card" class:closed={m.card.status !== "waiting"} in:fly={calm(fromThem)}>
           <div class="card-title">{m.card.title}</div>
           {#if m.card.details.length}
             <ul class="details">
@@ -160,14 +160,14 @@
           {/if}
         </li>
       {:else if m.role === "note"}
-        <li class="note" in:fly={{ y: 8, duration: 250 }}>{m.text}</li>
+        <li class="note" in:fly={calm({ y: 8, duration: 250 })}>{m.text}</li>
       {:else}
-        <li class="msg theirs" in:fly={fromThem}>{m.text}</li>
+        <li class="msg theirs" in:fly={calm(fromThem)}>{m.text}</li>
       {/if}
     {/each}
     {#if sending}
-      <li class="msg mine" in:fly={fromMe}>{sending}</li>
-      <li class="msg theirs typing" aria-label="The assistant is thinking" in:fly={fromThem}>
+      <li class="msg mine" in:fly={calm(fromMe)}>{sending}</li>
+      <li class="msg theirs typing" aria-label="The assistant is thinking" in:fly={calm(fromThem)}>
         <span></span><span></span><span></span>
       </li>
     {/if}
@@ -265,6 +265,11 @@
   }
   .card:not(.closed) {
     animation: glow 2.4s ease-in-out infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .card:not(.closed) {
+      animation: none;
+    }
   }
   @keyframes glow {
     50% {

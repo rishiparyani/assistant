@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { Avatar } from "../ui/index.ts";
+  import { Avatar, reducedMotion } from "../ui/index.ts";
   import { router } from "../router.svelte.ts";
   import { session } from "../session.svelte.ts";
   import { MAIN_NAV } from "./nav.ts";
@@ -23,7 +23,7 @@
     const p = path;
     if (p === shown || !page) return;
     shown = p;
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
     page.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: "ease-out" });
   });
 </script>

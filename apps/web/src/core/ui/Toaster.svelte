@@ -6,15 +6,16 @@
   import { fade, fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
   import { toasts } from "./toast.svelte.ts";
+  import { calm } from "./motion.ts";
 </script>
 
 <div class="toaster" role="status" aria-live="polite">
   {#each toasts as t (t.id)}
     <div
       class="toast {t.kind}"
-      animate:flip={{ duration: 250 }}
-      in:fly={{ y: 24, duration: 380, easing: backOut }}
-      out:fade={{ duration: 180 }}
+      animate:flip={calm({ duration: 250 })}
+      in:fly={calm({ y: 24, duration: 380, easing: backOut })}
+      out:fade={calm({ duration: 180 })}
     >
       {#if t.kind === "success"}<CircleCheck size={18} />{:else if t.kind === "error"}<CircleAlert
           size={18}
