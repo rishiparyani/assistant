@@ -26,8 +26,25 @@ describe("chat", () => {
     expect(view.items.map((i) => [i.role, i.text])).toEqual([
       ["user", "Test: note the PA needs two DI boxes"],
       ["assistant", "Done."],
+      ["live", ""],
     ]);
-    expect((await find(me, "Notes")).items.map((i) => i.title)).toEqual(["Test PA needs two DI boxes"]);
+    const notes = await find(me, "Notes");
+    expect(notes.items.map((i) => i.title)).toEqual(["Test PA needs two DI boxes"]);
+    // The new note follows the reply as a live card pointing at the record.
+    expect(view.items.at(-1)!.live).toEqual({
+      kind: "record",
+      collection_id: notes.items[0]!.collection_id,
+      record_id: notes.items[0]!.id,
+    });
+  });
+
+  it("shows a find as a live list card", async () => {
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const view = await say(me, "Test: show my notes");
+    const live = view.items.at(-1)!;
+    expect(live.role).toBe("live");
+    expect(live.live).toMatchObject({ kind: "list", title: "Notes · “Test”", query: { search: "Test" } });
   });
 
   it("shows money as a card that runs only on Confirm, once", async () => {
@@ -42,8 +59,9 @@ describe("chat", () => {
       await call(`/api/chat/actions/${card.card!.action_id}/confirm`, { cookie: me.cookie, body: {} }),
     );
     expect(done.items.find((i) => i.role === "card")!.card!.status).toBe("done");
-    expect(done.items.at(-1)!.text).toBe("Done: Add to Expenses.");
+    expect(done.items.at(-2)!.text).toBe("Done: Add to Expenses.");
     const expenses = await find(me, "Expenses");
+    expect(done.items.at(-1)!.live).toMatchObject({ kind: "record", record_id: expenses.items[0]!.id });
     expect(expenses.items.map((i) => i.named.Amount)).toEqual(["₹450"]);
     // A second tap can't add it again.
     const again = await call(`/api/chat/actions/${card.card!.action_id}/confirm`, {
@@ -66,7 +84,7 @@ describe("chat", () => {
   it("hands setups over, and says so when the smart model is off", async () => {
     const me = await signUp("Test Owner");
     const view = await say(me, "Test: make a collection for fam jam sign-ups");
-    expect(view.items.at(-1)!.text).toMatch(/needs the smart model.*Collections → New/);
+    expect(view.items.at(-1)!.text).toMatch(/needs the smart model.*Your lists in the menu/);
     expect(view.setup_in_progress).toBe(false);
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");

@@ -584,9 +584,30 @@ export function periodRange(
 // --- Chat with the assistant (design §10) -------------------------------------------------
 
 /** One thing on the chat screen. Tool calls and their raw results stay inside the chat object. */
+/**
+ * A live card in the chat (docs/design/chat-first.md): it points at real data, and the app
+ * loads it fresh, so a change made anywhere shows in the card.
+ */
+export type LiveRef =
+  | { kind: "record"; collection_id: string; record_id: string }
+  | {
+      kind: "list";
+      collection_id: string;
+      /** "Expenses · Date is in this month" */
+      title: string;
+      query: {
+        filters?: RuleFilter[];
+        search?: string;
+        sort?: { field: string; dir: "asc" | "desc" };
+      };
+    }
+  | { kind: "view"; view_id: string };
+
 export interface ChatItem {
   id: string;
-  role: "user" | "assistant" | "card" | "note";
+  role: "user" | "assistant" | "card" | "note" | "live";
+  /** For role "live": what the card shows. */
+  live?: LiveRef;
   text: string;
   /** A confirm card: what the assistant wants to do, waiting for a tap. */
   card?: {
