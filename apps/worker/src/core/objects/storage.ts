@@ -208,6 +208,21 @@ export interface ObjectDump {
   tables: TableDump;
 }
 
+/**
+ * The tables worth keeping in a backup: everything the object made, plus its meta and audit
+ * history; not idempotency records, the outbox or the schema row (made again on restore).
+ */
+export function backupTables(sql: SqlStorage): string[] {
+  return sql
+    .exec<{ name: string }>(
+      `select name from sqlite_master where type = 'table' and name not like 'sqlite_%'
+       and substr(name, 1, 4) != '_cf_' and name not in ('_idempotency', '_outbox', '_schema')
+       order by name`,
+    )
+    .toArray()
+    .map((r) => r.name);
+}
+
 /** Every row of the given tables, with the object's schema version. */
 export function exportTables(sql: SqlStorage, tables: readonly string[]): ObjectDump {
   const version = Number(sql.exec(`select version from _schema`).one().version);

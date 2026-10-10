@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import type { BookingView } from "@assistant/shared";
 import type { DriveClient } from "../src/core/backup/drive.ts";
-import { gunzip, restoreBackup, runBackup, type BackupFile } from "../src/core/backup/service.ts";
+import {
+  buildBackup,
+  gunzip,
+  restoreBackup,
+  runBackup,
+  type BackupFile,
+} from "../src/core/backup/service.ts";
 import { decryptSecret, encryptSecret } from "../src/core/crypto.ts";
 import { modules } from "../src/modules/index.ts";
 import { call, json, signUp } from "./http.ts";
@@ -75,6 +81,44 @@ describe("backups", () => {
     expect(back.money.received!.amount_display).toBe("₹1,000");
     // Restoring again changes nothing.
     expect((await restoreBackup(env, modules, copy)).modules.gigs).toBe(0);
+  });
+
+  it("keeps lists, chats and group chats too, and restores them into empty objects", async () => {
+    const owner = await signUp("Test Owner");
+    await call("/api/collections/Notes/records", {
+      cookie: owner.cookie,
+      body: { values: { Title: "Test kept note" } },
+    });
+    await call("/api/chat", { cookie: owner.cookie, body: { text: "Hello" } });
+    const group = await json<{ id: string }>(
+      await call("/api/groups", {
+        cookie: owner.cookie,
+        body: { id: "01J0000000000000000000BAND", name: "Test Band" },
+      }),
+    );
+    const file = await buildBackup(env, modules);
+    const spaces = Object.entries(file.core!.spaces);
+    const mine = spaces.find(([, d]) =>
+      (d.tables.records ?? []).some((r) => String(r.title).includes("Test kept note")),
+    );
+    expect(mine).toBeDefined();
+    expect(mine![1].tables._idempotency).toBeUndefined();
+    expect(file.core!.chats[`chat:${owner.id}`]).toBeDefined();
+    expect(file.core!.groups[group.id]).toBeDefined();
+    expect(file.d1.spaces!.length).toBeGreaterThan(0);
+
+    // A lost space comes back (here: the same data under a fresh name), and only once.
+    const copy: BackupFile = {
+      ...file,
+      d1: {},
+      modules: {},
+      core: { spaces: { "test-restored": mine![1] }, chats: {}, groups: {} },
+    };
+    expect((await restoreBackup(env, modules, copy)).core).toBe(1);
+    const restored = env.SPACES.getByName("space:test-restored");
+    const dump = await restored.exportData();
+    expect((dump!.tables.records ?? []).some((r) => String(r.title).includes("Test kept note"))).toBe(true);
+    expect((await restoreBackup(env, modules, copy)).core).toBe(0);
   });
 
   it("does nothing until Drive is connected; restore is for owners and needs confirming", async () => {

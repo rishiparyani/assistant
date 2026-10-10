@@ -6,6 +6,8 @@ import { objectBindings } from "../context.ts";
 import { getSetting, setSetting } from "../settings.ts";
 import { decryptSecret, encryptSecret } from "../crypto.ts";
 import { googleDrive, type DriveClient } from "./drive.ts";
+import { spaceName } from "../spaces/service.ts";
+import type { ObjectDump } from "../objects/storage.ts";
 
 export const BACKUP_FORMAT = "assistant-backup/v1";
 const KEEP = 60;
@@ -21,7 +23,59 @@ const D1_TABLES: Record<string, readonly string[]> = {
   admin_audit: [],
   // access_tokens is left out on purpose: links and tokens are made again after a restore.
   user_audit: [],
+  // The universal app's indexes (its data is in the objects, under "core" below).
+  spaces: [],
+  space_members: [],
+  shared_with: [],
+  assistant_access: [],
+  group_members: [],
 };
+
+/**
+ * The universal app's own objects (lists and records, chats, group chats), each as a dump
+ * of its tables. Restores go into empty objects only.
+ */
+export interface CoreBackup {
+  spaces: Record<string, ObjectDump>;
+  chats: Record<string, ObjectDump>;
+  groups: Record<string, ObjectDump>;
+}
+
+async function exportCore(env: BackupEnv): Promise<CoreBackup> {
+  const out: CoreBackup = { spaces: {}, chats: {}, groups: {} };
+  const ids = async (q: string) => (await env.DB.prepare(q).all<{ id: string }>()).results.map((r) => r.id);
+  for (const id of await ids(`select id from spaces`)) {
+    const dump = await env.SPACES.getByName(spaceName(id)).exportData();
+    if (dump) out.spaces[id] = dump;
+  }
+  for (const id of await ids(`select distinct group_id as id from group_members`)) {
+    const dump = await env.GROUPS.getByName(`group:${id}`).exportData();
+    if (dump) out.groups[id] = dump;
+  }
+  // Each person's main chat (it also lists their other chats and keeps their memory).
+  for (const uid of await ids(`select id from user`)) {
+    const main = env.CHATS.getByName(`chat:${uid}`);
+    const dump = await main.exportData();
+    if (!dump) continue;
+    out.chats[`chat:${uid}`] = dump;
+    for (const cid of await main.chatIds()) {
+      const other = await env.CHATS.getByName(`chat:${uid}:${cid}`).exportData();
+      if (other) out.chats[`chat:${uid}:${cid}`] = other;
+    }
+  }
+  return out;
+}
+
+async function importCore(env: BackupEnv, core: CoreBackup): Promise<number> {
+  let n = 0;
+  for (const [id, dump] of Object.entries(core.spaces ?? {}))
+    if (await env.SPACES.getByName(spaceName(id)).importData(dump)) n++;
+  for (const [id, dump] of Object.entries(core.groups ?? {}))
+    if (await env.GROUPS.getByName(`group:${id}`).importData(dump)) n++;
+  for (const [name, dump] of Object.entries(core.chats ?? {}))
+    if (await env.CHATS.getByName(name).importData(dump)) n++;
+  return n;
+}
 
 export interface BackupFile {
   format: typeof BACKUP_FORMAT;
@@ -29,6 +83,8 @@ export interface BackupFile {
   created_at: string;
   d1: Record<string, Record<string, unknown>[]>;
   modules: Record<string, unknown>;
+  /** Lists, chats and groups (missing in backups made before 2026-10-10). */
+  core?: CoreBackup;
 }
 
 export interface BackupStatus {
@@ -68,6 +124,7 @@ export async function buildBackup(
     created_at: now.toISOString(),
     d1,
     modules: out,
+    core: await exportCore(env),
   };
 }
 
@@ -163,7 +220,7 @@ export async function restoreBackup(
   env: BackupEnv,
   modules: readonly ModuleDefinition[],
   file: BackupFile,
-): Promise<{ rows: number; modules: Record<string, number> }> {
+): Promise<{ rows: number; modules: Record<string, number>; core: number }> {
   if (file.format !== BACKUP_FORMAT) throw new Error("Not a Gigspree backup file");
   let rows = 0;
   for (const table of Object.keys(D1_TABLES)) {
@@ -183,7 +240,8 @@ export async function restoreBackup(
     if (m.backup && file.modules[m.id] !== undefined)
       restored[m.id] = await m.backup.import(ctx, file.modules[m.id]);
   }
-  return { rows, modules: restored };
+  const core = file.core ? await importCore(env, file.core) : 0;
+  return { rows, modules: restored, core };
 }
 
 /** Nightly at about 02:30 India time (21:00 UTC), on the 15-minute timer. */

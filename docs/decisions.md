@@ -441,6 +441,11 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-10: Backups include every space, chat and group object
+
+The nightly backup also holds each space, chat and group object as a dump of all its tables (except idempotency records, the outbox, the schema row and Cloudflare's internal tables), found through D1 (spaces, group members, users) and each person's main chat (their other chats). Restore only fills empty objects.
+Reason: since Phase 2 the owner's data lives in these objects; a backup without them would restore nothing that matters.
+
 ## 2026-10-10: Group chats: one object per group, @assistant as the asker
 
 Each group chat is its own Durable Object (rule 1: per chat) with its members and messages; D1 keeps only who is in which group, for the list. Writing @assistant (a fixed word, like a command) asks the assistant; only people with assistant access may send it. It runs as the asker, with their own data and from their allowance, in a chat of theirs for that group, and sees only the asker's own words: other members' messages and the group's name never reach a model that can read and change the asker's data (they could steer it). Its reply is posted to the group for everyone; if it fails, the group gets only "I couldn't answer that just now". Confirm cards and live cards stay in the asker's chat. People are added only from those the owner already knows (their shares).

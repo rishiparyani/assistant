@@ -72,6 +72,10 @@ import {
   clearOutbox,
   outboxFailed,
   outboxNote,
+  backupTables,
+  exportTables,
+  importTables,
+  type ObjectDump,
 } from "../objects/storage.ts";
 import { liveOf } from "../live/live-object.ts";
 import { inboxName } from "../push/notify.ts";
@@ -596,6 +600,20 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   // --- Space and members ---------------------------------------------------------------
+
+  /** Everything needed to restore this space (not idempotency records or the outbox). */
+  async exportData(): Promise<ObjectDump | null> {
+    if (!this.sql.exec(`select 1 from space`).toArray().length) return null;
+    return exportTables(this.sql, backupTables(this.sql));
+  }
+
+  /** Restores a backup into this space if it's empty; never overwrites anything. */
+  async importData(dump: ObjectDump): Promise<boolean> {
+    if (this.sql.exec(`select 1 from space`).toArray().length) return false;
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables));
+    await this.wakeForJobs();
+    return true;
+  }
 
   /** Sets the space up once (repeats are harmless). */
   async init(init: SpaceInit): Promise<void> {
