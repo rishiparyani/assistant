@@ -229,43 +229,58 @@ export class ChatObject extends DurableObject<Env> {
 
   async append(userId: string, messages: StoredMessage[], key: string | null = null): Promise<ChatItem[]> {
     this.own(userId);
-    const out: ChatItem[] = [];
-    this.ctx.storage.transactionSync(() => {
-      for (const m of messages) {
-        const row: MessageRow = {
-          id: ulid(),
-          role: m.role,
-          content: m.content,
-          tool_calls_json: m.tool_calls?.length ? JSON.stringify(m.tool_calls) : null,
-          tool_call_id: m.tool_call_id ?? null,
-          shown: m.shown ?? null,
-          card_action_id: m.card_action_id ?? null,
-          level: m.level ?? null,
-          live_json: m.live ? JSON.stringify(m.live) : null,
-          created_at: nowIso(),
-        };
-        this.sql.exec(
-          `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, request_key, created_at)
-           values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          row.id,
-          row.role,
-          row.content,
-          row.tool_calls_json,
-          row.tool_call_id,
-          row.shown,
-          row.card_action_id,
-          row.level,
-          row.live_json ?? null,
-          key,
-          row.created_at,
-        );
-        if (row.shown) out.push(this.itemOf(row));
-      }
-      // Keep the last 500 messages.
-      this.sql.exec(
-        `delete from messages where rowid in (select rowid from messages order by rowid desc limit -1 offset 500)`,
-      );
+    return this.ctx.storage.transactionSync(() => this.insert(messages, key));
+  }
+
+  /**
+   * A live card the app puts in the chat (no model), once per idempotency key: a retry gives
+   * the same card, and the key reused for a different card is refused.
+   */
+  async showLive(actor: Actor & { userId: string }, key: string | null, live: LiveRef): Promise<void> {
+    this.own(actor.userId);
+    const hash = await hashOf(["show_live", live]);
+    idempotent(this.ctx.storage, key, hash, () => {
+      this.insert([{ role: "assistant", content: "", shown: "live", live }], key);
+      return { shown: true };
     });
+  }
+
+  private insert(messages: StoredMessage[], key: string | null): ChatItem[] {
+    const out: ChatItem[] = [];
+    for (const m of messages) {
+      const row: MessageRow = {
+        id: ulid(),
+        role: m.role,
+        content: m.content,
+        tool_calls_json: m.tool_calls?.length ? JSON.stringify(m.tool_calls) : null,
+        tool_call_id: m.tool_call_id ?? null,
+        shown: m.shown ?? null,
+        card_action_id: m.card_action_id ?? null,
+        level: m.level ?? null,
+        live_json: m.live ? JSON.stringify(m.live) : null,
+        created_at: nowIso(),
+      };
+      this.sql.exec(
+        `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, request_key, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id,
+        row.role,
+        row.content,
+        row.tool_calls_json,
+        row.tool_call_id,
+        row.shown,
+        row.card_action_id,
+        row.level,
+        row.live_json ?? null,
+        key,
+        row.created_at,
+      );
+      if (row.shown) out.push(this.itemOf(row));
+    }
+    // Keep the last 500 messages.
+    this.sql.exec(
+      `delete from messages where rowid in (select rowid from messages order by rowid desc limit -1 offset 500)`,
+    );
     return out;
   }
 

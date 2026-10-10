@@ -8,18 +8,27 @@
 
   // Ask people I know a question without the assistant (chat-first step 4): the text, how they
   // answer, and who. The card with the answers goes into the chat (`onasked`).
-  let { open = $bindable(false), onasked }: { open?: boolean; onasked: (q: QuestionView) => void } = $props();
+  let {
+    open = $bindable(false),
+    chatId,
+    onasked,
+  }: { open?: boolean; chatId: string; onasked: (q: QuestionView) => void } = $props();
 
   let text = $state("");
   let kind = $state<"yesno" | "maybe" | "free">("yesno");
   let picked = $state<string[]>([]);
   let known = $state<Person[] | null>(null);
   let busy = $state(false);
+  // One id and key per ask: a retry after a dropped connection sends the same question once.
+  let questionId = ulid();
+  let askKey = crypto.randomUUID();
 
   $effect(() => {
     if (!open) return;
     text = "";
     picked = [];
+    questionId = ulid();
+    askKey = crypto.randomUUID();
     kind = "yesno";
     known = null;
     sharesApi.people().then(
@@ -42,12 +51,16 @@
     }
     busy = true;
     try {
-      const q = await questionsApi.ask({
-        id: ulid(),
-        text: text.trim(),
-        ...(kind === "free" ? {} : { choices: kind === "yesno" ? ["Yes", "No"] : ["Yes", "No", "Maybe"] }),
-        people: picked,
-      });
+      const q = await questionsApi.ask(
+        {
+          id: questionId,
+          text: text.trim(),
+          ...(kind === "free" ? {} : { choices: kind === "yesno" ? ["Yes", "No"] : ["Yes", "No", "Maybe"] }),
+          people: picked,
+          chat_id: chatId,
+        },
+        askKey,
+      );
       open = false;
       onasked(q);
     } catch (e) {

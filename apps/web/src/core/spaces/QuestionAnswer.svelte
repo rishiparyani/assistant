@@ -73,8 +73,10 @@
         />
         <Button type="submit" variant="primary" loading={!!busy} disabled={!draft.trim()}>Send</Button>
       </form>
-    {:else if !view.mine}
-      <p class="note">Tap to answer</p>
+    {:else}
+      <a class="tap" href="/shared/{view.share.id}"
+        >{view.mine ? "Change your answer" : "Write your answer"}</a
+      >
     {/if}
   {/if}
 </div>
@@ -127,6 +129,14 @@
     color: var(--text);
     font: inherit;
     font-size: 16px;
+  }
+  .tap {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    color: var(--kind-people);
+    font-weight: 600;
+    text-decoration: none;
   }
   .note {
     margin: 0;

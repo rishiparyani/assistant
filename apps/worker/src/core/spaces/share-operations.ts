@@ -23,6 +23,7 @@ import {
   UpdateSharedRecordInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
+import { showInChat } from "../assistant/service.ts";
 import { spaceOf } from "./service.ts";
 import {
   addSharePeople,
@@ -147,7 +148,19 @@ export const shareOperations = [
     confirm: true,
     http: { method: "POST", path: "/questions", status: 201 },
     input: AskPeopleInput,
-    handler: (ctx, i) => askPeople(ctx, i),
+    handler: async (ctx, i) => {
+      const q = await askPeople(ctx, i);
+      // Asked from the app's + menu: the card goes into that chat in the same request (a
+      // retry with the same key gives the same question and adds the card once).
+      if (i.chat_id)
+        await showInChat(
+          ctx,
+          i.chat_id,
+          { kind: "question", question_id: q.id },
+          ctx.idempotencyKey && `${ctx.idempotencyKey}:chat`,
+        );
+      return q;
+    },
   }),
   defineOperation({
     id: "core.get_question",

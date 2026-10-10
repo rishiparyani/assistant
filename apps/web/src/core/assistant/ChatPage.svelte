@@ -41,13 +41,15 @@
   let addTo = $state<CollectionView | null>(null);
   // Ask people a question (step 4); its card goes into this chat.
   let asking = $state(false);
-  async function asked(q: { id: string }) {
+  // The question's card is already in the chat (same request); show it.
+  async function asked() {
     try {
-      chat.set(await chatApi.show(chatId, { kind: "question", question_id: q.id }));
+      chat.set(await chatApi.get(chatId));
     } catch (e) {
       toast.error(e);
     }
   }
+
   const addActions = $derived([
     { label: "Ask people…", onclick: () => (asking = true) },
     ...(collections.data ?? []).map((c) => ({
@@ -242,7 +244,7 @@
 </div>
 
 <ActionSheet bind:open={picking} title="Add or ask" actions={addActions} />
-<AskSheet bind:open={asking} onasked={asked} />
+<AskSheet bind:open={asking} {chatId} onasked={asked} />
 {#if addTo}
   {#key addTo.id}
     <RecordSheet

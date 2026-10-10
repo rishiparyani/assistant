@@ -708,11 +708,14 @@ export async function newChat(ctx: OpUserCtx, id = ulid()): Promise<ChatView> {
 
 /** Deletes a chat (the main chat is cleared instead: it keeps the list and memory). */
 /** A live card added to a chat by the app itself (no model, no cost). */
-export async function showInChat(ctx: OpUserCtx, chatId: string, live: LiveRef): Promise<ChatView> {
+export async function showInChat(
+  ctx: OpUserCtx,
+  chatId: string,
+  live: LiveRef,
+  key: string | null = ctx.idempotencyKey,
+): Promise<ChatView> {
   const chat = await useChat(ctx, chatId);
-  const uid = ctx.user.id;
-  if (!ctx.idempotencyKey || !(await chat.forKey(uid, ctx.idempotencyKey)))
-    await chat.append(uid, [{ role: "assistant", content: "", shown: "live", live }], ctx.idempotencyKey);
+  await chat.showLive({ userId: ctx.user.id, source: ctx.source }, key, live);
   return chatView(ctx, chatId);
 }
 

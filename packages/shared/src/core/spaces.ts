@@ -914,6 +914,7 @@ export const AskPeopleInput = SpaceRef.extend({
     .optional()
     .describe('Answers to tap, e.g. ["Yes", "No", "Maybe"]; left out, they write an answer'),
   people: peopleRefs,
+  chat_id: ChatId.optional().describe("App only: also put the question's card in this chat"),
 });
 export const QuestionRef = SpaceRef.extend({ question_id: z.string().trim().min(1).max(40) });
 export const AnswerQuestionInput = z.object({

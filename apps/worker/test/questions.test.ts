@@ -118,16 +118,47 @@ describe("question cards", () => {
     );
   });
 
-  it("puts a question card in a chat without the assistant", async () => {
+  it("asked from the + menu: the card goes into the chat in the same request, once", async () => {
+    const { owner, rahul } = await setUp();
+    const ask = () =>
+      api(owner)("/questions", {
+        body: {
+          id: "01J00000000000000000QSTN00",
+          text: "Test: lunch?",
+          choices: ["Yes", "No"],
+          people: ["Rahul Test"],
+          chat_id: "main",
+        },
+        idempotencyKey: "test-ask-once",
+      });
+    const first = await json<QuestionView>(await ask());
+    // A retry (say the connection dropped) gives the same question and adds no second card.
+    const again = await ask();
+    expect(again.status).toBe(201);
+    expect((await json<QuestionView>(again)).id).toBe(first.id);
+    const view = await json<ChatView>(await api(owner)("/chat"));
+    const cards = view.items.filter((i) => i.role === "live" && i.live?.kind === "question");
+    expect(cards).toHaveLength(1);
+    expect(
+      (await json<SharedWithMe[]>(await api(rahul)("/cards"))).filter((s) => s.kind === "question"),
+    ).toHaveLength(1);
+  });
+
+  it("show_in_chat adds a card once per key and refuses the key for another card", async () => {
     const { owner } = await setUp();
     const q = await json<QuestionView>(
       await api(owner)("/questions", {
-        body: { text: "Test: lunch?", choices: ["Yes", "No"], people: ["Rahul Test"] },
+        body: { text: "Test: dinner?", choices: ["Yes", "No"], people: ["Rahul Test"] },
       }),
     );
-    const view = await json<ChatView>(
-      await api(owner)("/chats/main/live", { body: { live: { kind: "question", question_id: q.id } } }),
-    );
-    expect(view.items.at(-1)).toMatchObject({ role: "live", live: { kind: "question", question_id: q.id } });
+    const show = (id: string) =>
+      api(owner)("/chats/main/live", {
+        body: { live: { kind: "question", question_id: id } },
+        idempotencyKey: "test-show-once",
+      });
+    await Promise.all([show(q.id), show(q.id)]);
+    const view = await json<ChatView>(await api(owner)("/chat"));
+    expect(view.items.filter((i) => i.role === "live")).toHaveLength(1);
+    expect((await show("01J00000000000000000OTHERQ")).status).toBe(409);
   });
 });
