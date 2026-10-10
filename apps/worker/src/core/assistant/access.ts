@@ -6,6 +6,7 @@ import { ulid, type Person } from "@assistant/shared";
 import type { OpUserCtx } from "../operations.ts";
 import { AppError } from "../errors.ts";
 import { knownPeople } from "../spaces/shares.ts";
+import { hashOf } from "../objects/storage.ts";
 
 async function isAdminCtx(ctx: OpUserCtx): Promise<boolean> {
   const email = ctx.user.email.toLowerCase();
@@ -40,30 +41,67 @@ async function requireAdminCtx(ctx: OpUserCtx) {
   if (!(await isAdminCtx(ctx))) throw new AppError("not_found", "Not found");
 }
 
-export type AssistantPerson = Person & { on: boolean };
+/** `fixed`: an owner or admin, who always has it (the switch can't change that). */
+export type AssistantPerson = Person & { on: boolean; fixed: boolean };
+
+/** Which of these people are owners or admins (by their sign-in email). */
+async function fixedIds(ctx: OpUserCtx, ids: string[]): Promise<Set<string>> {
+  if (!ids.length) return new Set();
+  const rows = await ctx.d1
+    .prepare(
+      `select u.id, lower(u.email) as email, a.email as admin from "user" u
+       left join admins a on a.email = lower(u.email) where u.id in (${ids.map(() => "?").join(",")})`,
+    )
+    .bind(...ids)
+    .all<{ id: string; email: string; admin: string | null }>();
+  return new Set(rows.results.filter((r) => r.admin || ctx.owners.includes(r.email)).map((r) => r.id));
+}
 
 /** People I know, with whether the assistant is on for them (owners and admins only). */
 export async function assistantPeople(ctx: OpUserCtx): Promise<AssistantPerson[]> {
   await requireAdminCtx(ctx);
   const people = await knownPeople(ctx);
   if (!people.length) return [];
-  const on = await ctx.d1
-    .prepare(`select user_id from assistant_access where user_id in (${people.map(() => "?").join(",")})`)
-    .bind(...people.map((p) => p.user_id))
-    .all<{ user_id: string }>();
-  const ids = new Set(on.results.map((r) => r.user_id));
-  return people.map((p) => ({ ...p, on: ids.has(p.user_id) }));
+  const ids = people.map((p) => p.user_id);
+  const [on, fixed] = await Promise.all([
+    ctx.d1
+      .prepare(`select user_id from assistant_access where user_id in (${ids.map(() => "?").join(",")})`)
+      .bind(...ids)
+      .all<{ user_id: string }>(),
+    fixedIds(ctx, ids),
+  ]);
+  const granted = new Set(on.results.map((r) => r.user_id));
+  return people.map((p) => ({
+    ...p,
+    on: fixed.has(p.user_id) || granted.has(p.user_id),
+    fixed: fixed.has(p.user_id),
+  }));
 }
 
-/** Switches the assistant on or off for someone I know (owners and admins only). */
+/**
+ * Switches the assistant on or off for someone I know (owners and admins only). Idempotent
+ * by key (kept in my own chat object), and their open app hears about it.
+ */
 export async function setAssistantAccess(
   ctx: OpUserCtx,
   userId: string,
   on: boolean,
 ): Promise<AssistantPerson> {
   await requireAdminCtx(ctx);
+  const mine = ctx.objects.CHATS.get(ctx.objects.CHATS.idFromName(`chat:${ctx.user.id}`));
+  const key = ctx.idempotencyKey && `assistant_access:${ctx.idempotencyKey}`;
+  const hash = await hashOf(["assistant_access", userId, on]);
+  if (key) {
+    const prior = await mine.recallResult(ctx.user.id, key, hash);
+    if (prior) return prior as AssistantPerson;
+  }
   const person = (await knownPeople(ctx)).find((p) => p.user_id === userId);
   if (!person) throw new AppError("not_found", "You can switch it on only for people you know");
+  if ((await fixedIds(ctx, [userId])).has(userId))
+    throw new AppError(
+      "validation_failed",
+      `${person.name} is an owner or admin and always has the assistant`,
+    );
   await ctx.d1.batch([
     on
       ? ctx.d1
@@ -74,5 +112,13 @@ export async function setAssistantAccess(
       .prepare(`insert into admin_audit (id, actor_user_id, action, detail_json) values (?, ?, ?, ?)`)
       .bind(ulid(), ctx.user.id, on ? "assistant_on" : "assistant_off", JSON.stringify({ user_id: userId })),
   ]);
-  return { ...person, on };
+  const result: AssistantPerson = { ...person, on, fixed: false };
+  if (key) await mine.keepResult(ctx.user.id, key, hash, result);
+  // Their open app refreshes (the composer turns on or off). Best effort.
+  try {
+    await ctx.objects.LIVE.getByName(`live:${userId}`).ping({ type: "assistant_changed" });
+  } catch (e) {
+    console.warn("live ping failed", e);
+  }
+  return result;
 }

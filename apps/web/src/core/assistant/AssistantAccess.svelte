@@ -2,7 +2,7 @@
   import { ListGroup, ListRow, Spinner, toast } from "../ui/index.ts";
   import { request } from "../api.ts";
 
-  type Person = { user_id: string; name: string; on: boolean };
+  type Person = { user_id: string; name: string; on: boolean; fixed: boolean };
 
   // Owners only (chat-first step 4): switch the assistant on for people they know. It's off
   // for collaborators by default because their questions cost the owner.
@@ -45,12 +45,15 @@
   {:else}
     {#each people as p (p.user_id)}
       <label class="toggle">
-        <span>{p.name}</span>
+        <span class="who"
+          >{p.name}{#if p.fixed}<small>Owner or admin: always on</small>{/if}</span
+        >
         <input
           type="checkbox"
           role="switch"
           aria-label="Assistant for {p.name}"
           checked={p.on}
+          disabled={p.fixed}
           onchange={(e) => set(p, e.currentTarget.checked)}
         />
       </label>
@@ -70,6 +73,17 @@
     min-height: 52px;
     padding: 0 var(--space-4);
     cursor: pointer;
+  }
+  .who {
+    display: grid;
+  }
+  .who small {
+    color: var(--text-3);
+    font-size: var(--text-sm);
+  }
+  .toggle input:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .toggle + .toggle {
     border-top: 1px solid var(--border);
