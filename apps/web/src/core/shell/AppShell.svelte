@@ -11,6 +11,7 @@
   import { session } from "../session.svelte.ts";
   import { startNewChat } from "../assistant/chat-api.ts";
   import PinnedList from "../spaces/PinnedList.svelte";
+  import ListsMenu from "../spaces/ListsMenu.svelte";
   import PullToRefresh from "./PullToRefresh.svelte";
   import OfflineBar from "./OfflineBar.svelte";
 
@@ -22,6 +23,15 @@
   // Depend on the route so the path updates on navigation.
   const path = $derived((router.route, window.location.pathname));
   let menuOpen = $state(false);
+  // Wide screens keep the menu open beside the page; on phones a closed menu is off screen
+  // and out of reach (inert) for the keyboard and screen readers.
+  const WIDE = matchMedia("(min-width: 900px)");
+  let wide = $state(WIDE.matches);
+  $effect(() => {
+    const on = () => (wide = WIDE.matches);
+    WIDE.addEventListener("change", on);
+    return () => WIDE.removeEventListener("change", on);
+  });
 
   // Any navigation closes the phone's menu.
   $effect(() => {
@@ -76,7 +86,7 @@
 
   <button class="scrim" type="button" tabindex="-1" aria-label="Close menu" onclick={() => (menuOpen = false)}
   ></button>
-  <nav class="drawer" aria-label="Menu">
+  <nav class="drawer" aria-label="Menu" inert={!menuOpen && !wide}>
     <button class="new" type="button" onclick={newChat}>
       <SquarePen size={18} /> New chat
     </button>
@@ -89,6 +99,9 @@
 
     <h3>Pinned</h3>
     <PinnedList onopen={() => (menuOpen = false)} />
+
+    <h3>Your lists</h3>
+    <ListsMenu onopen={() => (menuOpen = false)} />
 
     <h3>More</h3>
     {#each LINKS as l (l.href)}

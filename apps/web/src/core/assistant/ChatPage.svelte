@@ -3,6 +3,11 @@
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import Plus from "@lucide/svelte/icons/plus";
+  import type { CollectionView } from "@assistant/shared";
+  import ActionSheet from "../ui/ActionSheet.svelte";
+  import RecordSheet from "../spaces/RecordSheet.svelte";
+  import { COLLECTIONS_KEY, spacesApi } from "../spaces/spaces-api.ts";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
   import { AssistantMark, Button, Pill, calm, toast } from "../ui/index.ts";
@@ -21,6 +26,21 @@
   let list = $state<HTMLElement | null>(null);
 
   const items = $derived<ChatItem[]>(chat.data?.items ?? []);
+
+  // "+": add to any list by tapping, without the assistant (and offline).
+  const collections = createQuery<CollectionView[]>(() => COLLECTIONS_KEY, spacesApi.collections);
+  let picking = $state(false);
+  let adding = $state(false);
+  let addTo = $state<CollectionView | null>(null);
+  const addActions = $derived(
+    (collections.data ?? []).map((c) => ({
+      label: c.name,
+      onclick: () => {
+        addTo = c;
+        adding = true;
+      },
+    })),
+  );
   // New messages float up from the side they come from.
   const fromMe = { y: 12, x: 12, duration: 320, easing: backOut };
   const fromThem = { y: 12, x: -12, duration: 320, easing: backOut };
@@ -164,6 +184,9 @@
       </label>
     {/if}
     <div class="box">
+      <button type="button" class="plus" aria-label="Add to a list" onclick={() => (picking = true)}>
+        <Plus size={20} />
+      </button>
       <textarea
         bind:value={text}
         onkeydown={onKey}
@@ -177,6 +200,17 @@
     </div>
   </form>
 </div>
+
+<ActionSheet bind:open={picking} title="Add to…" actions={addActions} />
+{#if addTo}
+  {#key addTo.id}
+    <RecordSheet
+      bind:open={adding}
+      collection={addTo}
+      onsaved={() => toast.success(`Added to ${addTo?.name}`)}
+    />
+  {/key}
+{/if}
 
 <style>
   .chat {
@@ -431,7 +465,7 @@
     font: inherit;
     font-size: 16px;
     line-height: 1.35;
-    padding: 9px 4px 9px 12px;
+    padding: 9px 4px;
     max-height: 160px;
     field-sizing: content;
   }
@@ -439,6 +473,22 @@
   textarea:focus-visible {
     outline: none;
     box-shadow: none;
+  }
+  .plus {
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 0;
+    background: var(--surface-hover);
+    color: var(--text-2);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: transform var(--dur) var(--ease-spring);
+  }
+  .plus:active {
+    transform: scale(0.9);
   }
   .send {
     flex: none;
