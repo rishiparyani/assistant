@@ -2306,6 +2306,11 @@ export class SpaceObject extends DurableObject<Env> {
       const f = this.matchField(fields, spec.when.field);
       if (f.type !== "date" && f.type !== "datetime")
         throw new ObjectError("validation_failed", `${f.name} isn't a date or date-and-time field`);
+      if (toField(f).options.personal)
+        throw new ObjectError(
+          "validation_failed",
+          `${f.name} is a personal answer; a date workflow can't watch it yet`,
+        );
       fieldId = f.id;
     } else if (spec.when.field) {
       if (spec.when.event === "added")

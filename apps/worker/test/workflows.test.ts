@@ -186,4 +186,25 @@ describe("workflows", () => {
       true,
     );
   });
+
+  it("refuses a date workflow on a personal-answer date", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test jams",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "My day", type: "date", options: { personal: true } },
+        ],
+      },
+    });
+    const res = await api(me)("/workflows", {
+      body: {
+        name: "Personal date",
+        when: { event: "date", collection: "Test jams", field: "My day" },
+        then: [{ do: "notify", text: "x" }],
+      },
+    });
+    expect(res.status).toBe(400);
+  });
 });

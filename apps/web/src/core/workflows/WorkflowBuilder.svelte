@@ -56,7 +56,22 @@
 
   const collection = $derived(collections.data?.find((c) => c.id === collectionId));
   const fields = $derived(collection?.fields.filter((f) => f.type !== "link") ?? []);
-  const dateFields = $derived(fields.filter((f) => f.type === "date" || f.type === "datetime"));
+  // Personal answers are kept apart per person; a date workflow can't watch them.
+  const dateFields = $derived(
+    fields.filter((f) => (f.type === "date" || f.type === "datetime") && !f.options.personal),
+  );
+  // Another list: the fields picked for the old one don't apply any more.
+  let lastCollection = "";
+  $effect(() => {
+    const id = collectionId;
+    if (id === lastCollection) return;
+    lastCollection = id;
+    untrack(() => {
+      field = "";
+      checkField = "";
+      setField = "";
+    });
+  });
   const UNIT = { minutes: 1, hours: 60, days: 1440 } as const;
   const minutes = (amount: string, unit: keyof typeof UNIT) =>
     Math.max(0, Math.round(Number(amount) || 0)) * UNIT[unit];
