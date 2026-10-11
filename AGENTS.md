@@ -8,7 +8,7 @@ Instructions for every coding agent (Claude Code, Codex, others) working in this
 
 **Phase 2 (approved 2026-10-09): [docs/design/universal.md](docs/design/universal.md).** The app stops knowing about gigs. Full users have **spaces** with **collections** (typed fields, links, formulas, rules, views, screens) that the in-app assistant builds by chat; **collaborators** work only on what's shared with them. Deep features come as built-in **apps** (Songbook first). Gigs becomes a template built from the blocks. **Chat first (approved 2026-10-10): [docs/design/chat-first.md](docs/design/chat-first.md)**: the chat is the whole app (no tabs), answers are live cards, memory, workflows shown as diagrams, group chats; its build order replaces universal.md §14. Until stage 8 the old `gigs` and `music` modules stay and follow the gig rules below; new code follows the space rules.
 
-Priorities: near-zero recurring cost (Cloudflare **Free plan**; paid AI only from prepaid credit, ₹2,000/month cap); one source of truth; assistant first, with a by-hand fallback for every change (offline, no AI budget) (decision "Assistant first"); browser/PWA-first and offline-first; simple enough for one person to maintain; stage features never depend on internet.
+Priorities: near-zero recurring cost (Cloudflare **Free plan**; paid AI only from prepaid credit, ₹2,000/month cap); one source of truth; chat makes, screens use: lists, fields, records, workflows, rules, songs and any add or edit screens are made and changed in the chat; screens are for using what exists (open, tick, pick, play, share, delete) (decision "Chat makes, screens use"); browser/PWA-first and offline-first; simple enough for one person to maintain; stage features never depend on internet.
 
 ## Every session
 

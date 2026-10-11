@@ -1,8 +1,6 @@
 <script lang="ts">
   import type { CollectionView, FindResult, RecordView } from "@assistant/shared";
-  import Plus from "@lucide/svelte/icons/plus";
   import {
-    ActionSheet,
     Button,
     EmptyState,
     ListGroup,
@@ -16,17 +14,14 @@
   import { createQuery } from "../query.svelte.ts";
   import { navigate } from "../router.svelte.ts";
   import { isPending, listKey, spacesApi, summaryOf } from "./spaces-api.ts";
-  import RecordSheet from "./RecordSheet.svelte";
-  import RulesSheet from "./RulesSheet.svelte";
   import PickBoard from "./PickBoard.svelte";
 
   // One list (collection) as a pop-up from the side menu: search, its records page by page, a
-  // tap opens one as a card, Add makes one. Works offline and without the assistant.
+  // tap opens one as a card, Pick to choose among them. Works offline. Records, fields and
+  // rules are made and changed in the chat (decision "Chat makes, screens use").
   let { open = $bindable(false), collection }: { open?: boolean; collection: CollectionView } = $props();
 
-  let showRules = $state(false);
   let showBoard = $state(false);
-  let byHand = $state(false);
   let typed = $state("");
   let search = $state("");
   $effect(() => {
@@ -63,7 +58,6 @@
       loadingMore = false;
     }
   }
-  let adding = $state(false);
 </script>
 
 <Sheet bind:open title={collection.name}>
@@ -92,7 +86,7 @@
     {:else if search}
       <EmptyState title="Nothing matches" text="Try other words." />
     {:else}
-      <EmptyState title="Nothing here yet" text="Add one here, or ask the assistant." />
+      <EmptyState title="Nothing here yet" text="Ask the assistant to add one." />
     {/if}
   {:else if list.error}
     <EmptyState title="Can't open this" text="You may be offline and it isn't saved on this device yet." />
@@ -101,19 +95,7 @@
   {/if}
   {#snippet footer()}
     <Button variant="ghost" onclick={() => (showBoard = true)}>Pick</Button>
-    <!-- Assistant first: changes come from the chat; by hand is here for offline and no-AI days. -->
-    <Button variant="ghost" onclick={() => (byHand = true)}>Edit by hand</Button>
   {/snippet}
 </Sheet>
 
-<RecordSheet bind:open={adding} {collection} onsaved={() => void list.refresh()} />
-<RulesSheet bind:open={showRules} {collection} />
-<ActionSheet
-  bind:open={byHand}
-  title="Edit {collection.name} by hand"
-  actions={[
-    { label: "Add a record", icon: Plus, onclick: () => (adding = true) },
-    { label: "Rules", onclick: () => (showRules = true) },
-  ]}
-/>
 {#if showBoard}<PickBoard bind:open={showBoard} {collection} />{/if}

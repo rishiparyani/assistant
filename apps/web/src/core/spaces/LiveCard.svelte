@@ -9,7 +9,6 @@
     type RecordView,
   } from "@assistant/shared";
   import Pin from "@lucide/svelte/icons/pin";
-  import Pencil from "@lucide/svelte/icons/pencil";
   import Maximize from "@lucide/svelte/icons/maximize-2";
   import Check from "@lucide/svelte/icons/check";
   import ListChecks from "@lucide/svelte/icons/list-checks";
@@ -30,7 +29,6 @@
     viewKey,
     type FindQuery,
   } from "./spaces-api.ts";
-  import RecordSheet from "./RecordSheet.svelte";
   import ShareSheet from "./ShareSheet.svelte";
 
   // A live card in the chat (docs/design/chat-first.md step 2): a record, a list or a saved
@@ -131,13 +129,6 @@
     }
   }
 
-  let editing = $state<RecordView | null>(null);
-  let editOpen = $state(false);
-  function edit(r: RecordView) {
-    editing = r;
-    editOpen = true;
-  }
-
   // Share the card (or the saved view) with people, from the chat (step 4).
   let sharing = $state(false);
 
@@ -204,10 +195,6 @@
         <div class="pair"><span>{d.field.name}</span><span>{d.text}</span></div>
       {/each}
       <footer>
-        <Button size="sm" onclick={() => edit(r)} disabled={isPending(r)}>
-          {#snippet icon()}<Pencil />{/snippet}
-          Edit
-        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -291,11 +278,6 @@
   <ShareSheet bind:open={sharing} {collection} target={{ kind: "card", record: record.data }} />
 {:else if collection && live.kind === "view" && view.data}
   <ShareSheet bind:open={sharing} {collection} target={{ kind: "view", view: view.data.view }} />
-{/if}
-{#if editing && collection}
-  {#key editing.id}
-    <RecordSheet bind:open={editOpen} {collection} record={editing} />
-  {/key}
 {/if}
 
 <style>
