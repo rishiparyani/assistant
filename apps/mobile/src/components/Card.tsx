@@ -42,7 +42,14 @@ export function Card({
     case "number":
       body = (
         <View style={s.grow}>
-          <Text style={[s.num, { color: t.fg }]}>{formatTotal(card)}</Text>
+          <Text
+            style={[s.num, { color: t.fg }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+          >
+            {formatTotal(card)}
+          </Text>
           <Text style={[s.sub, { color: t.fg2 }]}>{card.records.length} records</Text>
         </View>
       );

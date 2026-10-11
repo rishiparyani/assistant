@@ -522,3 +522,11 @@ The owner isn't an active developer: he sends a message about once a day and loo
 - **Old gig data and code**: the owner never used the gig app for real work ("basic testing, very few records; I don't care if they move forward"). The old `gigs` and `music` module code and their objects' data may be deleted when the Expo app covers gigs from the blocks; no migration of that data is needed. The space data (lists, chats, groups) made since is kept.
 - **Delivery**: a short "what's new, what to try" note reaches the owner after each merge (in the app or as a message); the agent keeps the simulator screenshots and a nightly prod check as part of HF2.
 - Still the owner's call when reached: the Google Play developer account (Android), the new name before the public listing, and whether the repository goes private (see the note under "Private repository" when decided).
+
+## 2026-10-12: CI signs the simulator app in through a localhost-only route
+
+**Decision:** the simulator screenshots sign in by opening `gigspree://test?email=…&password=…&path=…` (`apps/mobile/app/test.tsx`), which uses the email/password sign-in that exists only on the local test server; the route checks that the app was built for `http://localhost` and otherwise only redirects home. The seed script prints the test person's email and password.
+
+**Why:** the Capacitor shell took a `-testCookie` launch argument read in Swift; the Expo app has no Swift of its own yet, and a deep link is what the simulator can open without typing. Baking a cookie into the JS bundle would mean seeding before every build and one build per signed-in state. Nothing on a real server accepts the route, so it opens no new way in.
+
+**Also:** the iOS pipeline builds `apps/mobile` with `expo prebuild` on the runner (the native project is generated, never committed); the Capacitor shell is no longer built and goes with the old gig code. A nightly `prod-check` workflow curls the real app so a dead deploy shows up before the owner opens the app.

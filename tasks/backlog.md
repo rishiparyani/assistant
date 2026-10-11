@@ -4,11 +4,11 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
-**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: HF2 below.
+**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: HF3 below (the home's gestures and confirm cards in the chat).
 
 ## HF Home first (docs/design/home-first.md §7)
 
-1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1, PR pending the owner's OK on the sign-in plugin); TestFlight + simulator screenshots moved over (HF2).
+1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1); ~~TestFlight + simulator screenshots moved over~~ (HF2).
 2. Home: pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar and pull-down, dock; Now page ranking.
 3. Chat sheet with card context; What changed + Undo; collaborator homes; per-person assistant switch in the admin panel.
 4. Processes: roles, waiting on, nudges, loops; client-by-link step; process card and detail.
