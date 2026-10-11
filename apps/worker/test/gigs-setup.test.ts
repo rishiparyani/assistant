@@ -2,7 +2,13 @@
 // blocks with no gig code: fee, payments and balance; a status flow; "confirmed needs a show";
 // players see the gig without its money and only their own payouts. Fake data only.
 import { describe, expect, it } from "vitest";
-import type { CreatedShare, RecordView, SharedCardView, SharedListView } from "@assistant/shared";
+import type {
+  CreatedShare,
+  RecordView,
+  SharedCardView,
+  SharedListView,
+  WorkflowView,
+} from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -11,6 +17,15 @@ const api =
   (path: string, init: Parameters<typeof call>[1] = {}) =>
     call(`/api${path}`, { cookie: u.cookie, ...init });
 const tokenOf = (link: string) => link.slice(link.indexOf("#") + 1);
+
+async function until(check: () => Promise<boolean>, ms = 8000) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if (await check()) return true;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return false;
+}
 
 /** The Gigs setup, as the assistant would propose it (one card, one write). */
 const GIGS_SETUP = {
@@ -44,8 +59,17 @@ const GIGS_SETUP = {
       fields: [
         { name: "Title", type: "text" },
         { name: "Gig", type: "link", required: true, options: { target: "Gigs", on_delete: "cascade" } },
-        { name: "Kind", type: "choice", options: { choices: ["Show", "Rehearsal", "Hold"] } },
+        { name: "Kind", type: "choice", options: { choices: ["Show", "Rehearsal", "Hold", "Released"] } },
         { name: "Starts", type: "datetime" },
+      ],
+    },
+    {
+      name: "Lineup",
+      fields: [
+        { name: "Role", type: "text" },
+        { name: "Gig", type: "link", required: true, options: { target: "Gigs", on_delete: "cascade" } },
+        { name: "Player", type: "person", required: true },
+        { name: "Share", type: "money" },
       ],
     },
     {
@@ -172,5 +196,85 @@ describe("gigs from the blocks", () => {
     // Done, and nothing moves after that.
     expect((await set(gig.id, { Status: "Done" })).status).toBe(200);
     expect((await set(gig.id, { Status: "Cancelled" })).status).toBe(400);
+  });
+
+  it("tells the lineup when a gig is confirmed and releases the other date holds", async () => {
+    const manager = await signUp("Test Manager", undefined, { lists: false });
+    expect((await api(manager)("/setups", { body: GIGS_SETUP })).status).toBe(201);
+    const add = async (collection: string, values: Record<string, unknown>) =>
+      json<RecordView>(await api(manager)(`/collections/${collection}/records`, { body: { values } }));
+    const kind = async (id: string) =>
+      (await json<RecordView>(await api(manager)(`/records/${id}`))).named.Kind;
+
+    // Two players the manager knows (they joined something of theirs).
+    const [asha, dev] = [await signUp("Test Asha"), await signUp("Test Dev")];
+    const gig = await add("Gigs", { Title: "Test Sangeet", Fee: "40000", Status: "Enquiry" });
+    const card = await json<CreatedShare>(await api(manager)("/shares", { body: { record_id: gig.id } }));
+    for (const u of [asha, dev]) await api(u)("/cards/join", { body: { token: tokenOf(card.link) } });
+    for (const u of [asha, dev]) await add("Lineup", { Role: "Guitar", Gig: gig.id, Player: u.id });
+
+    // Date options are holds; the client picks one, which becomes the show.
+    const [first, second, third] = [
+      await add("Events", { Title: "Test option 1", Gig: gig.id, Kind: "Hold", Starts: "2026-12-10T19:00" }),
+      await add("Events", { Title: "Test option 2", Gig: gig.id, Kind: "Hold", Starts: "2026-12-11T19:00" }),
+      await add("Events", { Title: "Test option 3", Gig: gig.id, Kind: "Hold", Starts: "2026-12-12T19:00" }),
+    ];
+
+    const wf = await api(manager)("/workflows", {
+      body: {
+        name: "Test gig confirmed",
+        when: { event: "changed", collection: "Gigs", field: "Status" },
+        check: [{ field: "Status", op: "eq", value: "Confirmed" }],
+        then: [
+          { do: "notify", text: "You're on {Title}", to: ["{Lineup.Player}"] },
+          {
+            do: "set",
+            via: "Events",
+            where: [{ field: "Kind", op: "eq", value: "Hold" }],
+            field: "Kind",
+            value: "Released",
+          },
+        ],
+        enabled: true,
+      },
+    });
+    expect(wf.status).toBe(201);
+    // Linked people must be a person field there; filters only fit a set on linked records.
+    const bad = (then: unknown[]) =>
+      api(manager)("/workflows", {
+        body: { name: "Test bad", when: { event: "added", collection: "Gigs" }, then },
+      });
+    expect((await bad([{ do: "notify", text: "x", to: ["{Lineup.Role}"] }])).status).toBe(400);
+    expect((await bad([{ do: "notify", text: "x", to: ["{Nowhere.Player}"] }])).status).toBe(400);
+    expect(
+      (await bad([{ do: "set", field: "Client", value: "x", where: [{ field: "Status", op: "empty" }] }]))
+        .status,
+    ).toBe(400);
+    const words = (await json<WorkflowView>(wf)).words;
+    expect(words).toContain("Tell {Lineup.Player}: “You're on {Title}”");
+    expect(words).toContain("Set Kind to Released on its Events where Kind is Hold");
+
+    await api(manager)(`/records/${second.id}`, { method: "PATCH", body: { values: { Kind: "Show" } } });
+    expect(
+      (
+        await api(manager)(`/records/${gig.id}`, {
+          method: "PATCH",
+          body: { values: { Status: "Confirmed" } },
+        })
+      ).status,
+    ).toBe(200);
+
+    const inbox = async (u: User) =>
+      (await json<{ items: { body: string | null }[] }>(await api(u)("/me/notifications"))).items;
+    for (const u of [asha, dev])
+      expect(await until(async () => (await inbox(u)).some((n) => n.body === "You're on Test Sangeet"))).toBe(
+        true,
+      );
+    expect(
+      await until(async () => (await kind(first.id)) === "Released" && (await kind(third.id)) === "Released"),
+    ).toBe(true);
+    expect(await kind(second.id)).toBe("Show");
+    // The manager isn't in the lineup, so isn't told.
+    expect((await inbox(manager)).some((n) => n.body === "You're on Test Sangeet")).toBe(false);
   });
 });

@@ -47,13 +47,30 @@ export const WorkflowActionInput = z.discriminatedUnion("do", [
       .max(10)
       .default(["me"])
       .describe(
-        '"me", people you know (names or ids), or {Field} for the person in that person field of the record',
+        '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Lineup.Player})',
       ),
   }),
   z.object({
     do: z.literal("set"),
-    field: z.string().trim().min(1).max(80).describe("A field of the record that triggered it"),
+    field: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .describe("A field of the record that triggered it (or, with via, of the linked records)"),
     value: z.unknown().describe("The value to set"),
+    via: z
+      .string()
+      .trim()
+      .min(1)
+      .max(160)
+      .optional()
+      .describe('Set it on linked records instead: a link field, or a list that links here (e.g. "Events")'),
+    where: z
+      .array(FilterInput)
+      .max(5)
+      .optional()
+      .describe("With via: only the linked records matching all of these"),
   }),
   z.object({
     do: z.literal("add"),
@@ -102,7 +119,15 @@ export interface WorkflowView {
   wait_minutes: number;
   then: (
     | { do: "notify"; text: string; to: { user_id: string; name: string }[] }
-    | { do: "set"; field_id: string; field: string; value: unknown }
+    | {
+        do: "set";
+        field_id: string;
+        field: string;
+        value: unknown;
+        /** Set on the records linked through this (a link field, or a list linking here). */
+        via?: string;
+        where?: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
+      }
     | { do: "add"; collection_id: string; collection: string; values: Record<string, unknown> }
   )[];
   /** The same definition in plain words, one line per part. */
@@ -177,7 +202,15 @@ export function workflowWords(
   if (w.wait_minutes) out.push(`Wait ${durationWords(w.wait_minutes)}, then check again`);
   for (const a of w.then) {
     if (a.do === "notify") out.push(`Tell ${a.to.map((p) => p.name).join(", ")}: “${a.text}”`);
-    else if (a.do === "set") out.push(`Set ${a.field} to ${show(a.value)}`);
+    else if (a.do === "set" && a.via) {
+      const only = (a.where ?? [])
+        .map(
+          (f) =>
+            `${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`,
+        )
+        .join(" and ");
+      out.push(`Set ${a.field} to ${show(a.value)} on its ${a.via}${only ? ` where ${only}` : ""}`);
+    } else if (a.do === "set") out.push(`Set ${a.field} to ${show(a.value)}`);
     else
       out.push(
         `Add a record to ${a.collection}${
