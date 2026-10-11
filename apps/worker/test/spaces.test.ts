@@ -379,6 +379,19 @@ describe("saved views", () => {
       await api(me)(`/views/${v.id}`, { method: "PATCH", body: { pinned: false, name: "Big ones" } }),
     );
     expect(unpinned).toMatchObject({ name: "Big ones", pinned: false });
+    // The phone's home remembers how big the card is; other changes leave it alone; null clears it.
+    const tall = await json<SavedView>(
+      await api(me)(`/views/${v.id}`, { method: "PATCH", body: { card_size: "l" } }),
+    );
+    expect(tall.card_size).toBe("l");
+    const renamed = await json<SavedView>(
+      await api(me)(`/views/${v.id}`, { method: "PATCH", body: { name: "Big ones" } }),
+    );
+    expect(renamed.card_size).toBe("l");
+    const cleared = await json<SavedView>(
+      await api(me)(`/views/${v.id}`, { method: "PATCH", body: { card_size: null } }),
+    );
+    expect(cleared.card_size).toBeNull();
     expect((await json<SavedView[]>(await api(me)("/views"))).map((x) => x.name)).toEqual(["Big ones"]);
     expect((await api(me)(`/views/${v.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await json<SavedView[]>(await api(me)("/views"))).toEqual([]);

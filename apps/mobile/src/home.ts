@@ -4,7 +4,9 @@
 // money, a plain list otherwise. Read online, kept on the device for offline, changed through
 // the outbox.
 import {
+  ARRANGEMENT_SIZES,
   CardSpec,
+  type CardSize,
   type CollectionView,
   type FindResult,
   type RecordView,
@@ -12,12 +14,14 @@ import {
   type StoredValue,
 } from "@assistant/shared";
 import { request } from "./api.ts";
-import { send } from "./outbox.ts";
+import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
 import { colourFor, type CollectionColour } from "./theme.ts";
 
 export interface HomeCard {
   id: string;
+  /** The saved view this card shows (its order and size live there). */
+  view: SavedView;
   spec: CardSpec;
   collection: CollectionView;
   colour: CollectionColour;
@@ -63,22 +67,28 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
   const money = findField(c, "money");
   const yesNo = findField(c, "boolean");
   const base = { collection: c.id, filters: v.filters, sort: v.sort ?? null };
-  if (yesNo)
-    return CardSpec.parse({
-      title: v.name,
-      arrangement: "list-ticks",
-      size: "m",
-      sources: [{ ...base, answer_field: yesNo.id }],
-    });
-  if (money && /spend|spent|total|month|paid|due/i.test(v.name))
-    return CardSpec.parse({
-      title: v.name,
-      arrangement: "number",
-      size: "s",
-      sources: [{ ...base, sum_field: money.id }],
-    });
-  return CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
+  const spec = yesNo
+    ? CardSpec.parse({
+        title: v.name,
+        arrangement: "list-ticks",
+        size: "m",
+        sources: [{ ...base, answer_field: yesNo.id }],
+      })
+    : money && /spend|spent|total|month|paid|due/i.test(v.name)
+      ? CardSpec.parse({
+          title: v.name,
+          arrangement: "number",
+          size: "s",
+          sources: [{ ...base, sum_field: money.id }],
+        })
+      : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
+  // The person's size wins when the arrangement can be drawn at it.
+  if (v.card_size && sizesFor(spec).includes(v.card_size)) spec.size = v.card_size;
+  return spec;
 }
+
+/** The sizes this card can be drawn at. */
+export const sizesFor = (spec: CardSpec): readonly CardSize[] => ARRANGEMENT_SIZES[spec.arrangement];
 
 function totalOf(spec: CardSpec, records: RecordView[]): number | null {
   const f = spec.sources[0]?.sum_field;
@@ -93,7 +103,10 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       request<SavedView[]>("GET", "/api/views"),
       request<CollectionView[]>("GET", "/api/collections"),
     ]);
-    const pinned = views.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
+    // Changes to views still waiting in the outbox (made offline) win over what the server
+    // says until they are sent; otherwise a load would undo them on the screen.
+    const waiting = withWaitingViewChanges(views);
+    const pinned = waiting.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
     const cards: HomeCard[] = [];
     for (const v of pinned) {
       const c = collections.find((x) => x.id === v.collection_id);
@@ -109,6 +122,7 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       const records = await findAll(c.id, query, spec.arrangement === "number" ? null : LIST_ROWS);
       cards.push({
         id: v.id,
+        view: v,
         spec,
         collection: c,
         colour: colourFor(c.name),
@@ -116,11 +130,12 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
         total: totalOf(spec, records),
       });
     }
-    // Page 1 ("Now") is arranged by the assistant: for now, the cards with something open first.
+    // Page 1 ("Now") is arranged by the assistant: for now, the cards with something open
+    // first. Page 2 ("My day") is the person's: every pinned card, in the order they keep.
     const now = [...cards].sort((a, b) => openCount(b) - openCount(a)).slice(0, 4);
     const pages: HomePage[] = [
       { name: "Now", auto: true, cards: now },
-      { name: "My day", cards: cards.filter((c) => !now.includes(c)) },
+      { name: "My day", cards },
     ];
     writeJson(keyFor(userId), pages);
     return pages;
@@ -129,6 +144,21 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
     if (saved) return saved;
     throw e;
   }
+}
+
+function withWaitingViewChanges(views: SavedView[]): SavedView[] {
+  const byId = new Map(views.map((v) => [v.id, { ...v }]));
+  for (const c of outboxState().waiting) {
+    if (c.kind !== "spaces.update_view") continue;
+    const id = decodeURIComponent(c.path.slice("/api/views/".length));
+    const v = byId.get(id);
+    if (!v) continue;
+    const body = c.body as Partial<Pick<SavedView, "card_size" | "pinned" | "position">>;
+    if (body.card_size !== undefined) v.card_size = body.card_size;
+    if (body.pinned !== undefined) v.pinned = body.pinned;
+    if (body.position !== undefined) v.position = body.position;
+  }
+  return [...byId.values()];
 }
 
 const openCount = (c: HomeCard) => {
@@ -154,4 +184,40 @@ export function tick(card: HomeCard, record: RecordView, value: boolean): Record
 /** Keeps the device copy in step with what the screen shows after a change. */
 export function rememberHome(userId: string, pages: HomePage[]) {
   writeJson(keyFor(userId), pages);
+}
+
+const viewChange = (card: HomeCard, body: object, label: string) =>
+  send({
+    kind: "spaces.update_view",
+    method: "PATCH",
+    path: `/api/views/${enc(card.view.id)}`,
+    body,
+    label: `${label} · ${card.spec.title}`,
+  });
+
+/** A new size from the card's menu: drawn at once, saved on the view through the outbox. */
+export function resize(card: HomeCard, size: CardSize): HomeCard {
+  if (!sizesFor(card.spec).includes(size) || size === card.spec.size) return card;
+  viewChange(card, { card_size: size }, "Size");
+  return { ...card, view: { ...card.view, card_size: size }, spec: { ...card.spec, size } };
+}
+
+/** Takes the card off the home (the view stays; the chat can pin it again). */
+export function unpin(card: HomeCard): void {
+  viewChange(card, { pinned: false }, "Unpin");
+}
+
+/** The order after a drag: each moved card gets its new position (1-based), through the outbox. */
+export function saveOrder(cards: HomeCard[]): HomeCard[] {
+  return cards.map((card, i) => {
+    const position = i + 1;
+    if (card.view.position === position) return card;
+    viewChange(card, { position }, "Move");
+    return { ...card, view: { ...card.view, position } };
+  });
+}
+
+/** The same card on every page it appears on (Now shows some of My day's cards). */
+export function replaceCard(pages: HomePage[], next: HomeCard): HomePage[] {
+  return pages.map((p) => ({ ...p, cards: p.cards.map((c) => (c.id === next.id ? next : c)) }));
 }

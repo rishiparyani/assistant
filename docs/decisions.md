@@ -532,3 +532,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Why:** the Capacitor shell took a `-testCookie` launch argument read in Swift; the Expo app has no Swift of its own yet, and a deep link is what the simulator can open without typing. Baking a cookie into the JS bundle would mean seeding before every build and one build per signed-in state. Nothing on a real server accepts the route, so it opens no new way in.
 
 **Also:** the iOS pipeline builds `apps/mobile` with `expo prebuild` on the runner (the native project is generated, never committed); the Capacitor shell is no longer built and goes with the old gig code. A nightly `prod-check` workflow curls the real app so a dead deploy shows up before the owner opens the app.
+
+## 2026-10-12: A card's size and order live on its saved view
+
+**Decision:** the phone's home stores how big a pinned card is as `card_size` on the saved view (s / m / l; null means the app picks from the arrangement), inside the view's existing settings blob in the space object; the order is the view's `position`. Both change through the app's outbox like any record change, so they work offline and follow the person to every device.
+
+**Why:** today every pinned view is a card (home-first.md §7 step 2); until cards are their own records, the view is the one place that already belongs to the owning object and is shared by the web app, the MCP tools and the phone. No new table, no migration, and the assistant can set a size too ("make the expenses card tall").

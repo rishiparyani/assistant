@@ -1,13 +1,13 @@
-// The home (docs/design/home-first.md §2): pages of cards, the chat bar under them. This first
-// slice has two pages (Now, My day), cards drawn from pinned views, ticks that work offline,
-// and the chat one tap away.
+// The home (docs/design/home-first.md §2): pages of cards, the chat bar under them. Two pages
+// for now: Now (arranged by the assistant) and My day (the person's: hold and move to arrange,
+// hold for the card's menu). Ticks work offline; the chat is one tap away.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Dimensions,
   FlatList,
   Image,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -15,8 +15,21 @@ import {
 } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import type { CardSize } from "@assistant/shared";
 import { Card } from "@/components/Card";
-import { loadHome, rememberHome, tick, type HomePage } from "@/home";
+import { CardGrid } from "@/components/CardGrid";
+import { CardMenu } from "@/components/CardMenu";
+import {
+  loadHome,
+  rememberHome,
+  replaceCard,
+  resize,
+  saveOrder,
+  tick,
+  unpin,
+  type HomeCard,
+  type HomePage,
+} from "@/home";
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { radius, useTheme } from "@/theme";
@@ -24,6 +37,7 @@ import { isOffline } from "@/api";
 
 const logoLight = require("../assets/logo-light.png");
 const logoDark = require("../assets/logo-dark.png");
+const SIDE = 16;
 
 export default function Home() {
   const { me, loaded } = useSession();
@@ -35,13 +49,18 @@ export default function Home() {
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(0);
+  const [menu, setMenu] = useState<HomeCard | null>(null);
   const list = useRef<FlatList<HomePage>>(null);
   const [failed, setFailed] = useState(() => outboxState().failed);
   const userId = me?.user.id ?? null;
 
+  // Loaded while changes were still waiting to be sent (offline): load again once they are,
+  // so the screen shows what the server now has.
+  const loadedWithWaiting = useRef(false);
   const load = useCallback(async () => {
     if (!userId) return;
     try {
+      loadedWithWaiting.current = outboxState().waiting.length > 0;
       setPages(await loadHome(userId));
       setError("");
     } catch (e) {
@@ -58,10 +77,13 @@ export default function Home() {
     if (userId) void load();
   }, [userId, load]);
   // A change the server refused: say so, and show the home as the server has it.
+  const waitingBefore = useRef(outboxState().waiting.length);
   useEffect(
     () =>
       subscribe(() => {
-        const now = outboxState().failed;
+        const { failed: now, waiting } = outboxState();
+        if (waitingBefore.current > 0 && waiting.length === 0 && loadedWithWaiting.current) void load();
+        waitingBefore.current = waiting.length;
         setFailed((prev) => {
           if (now.length > prev.length) void load();
           return now;
@@ -70,30 +92,55 @@ export default function Home() {
     [load],
   );
 
+  // Every change to the pages shows at once and is kept on the device. Worked out from the
+  // latest pages here (not in a state updater: the changes also queue outbox sends).
+  const pagesRef = useRef<HomePage[] | null>(null);
+  pagesRef.current = pages;
+  const update = useCallback(
+    (fn: (prev: HomePage[]) => HomePage[]) => {
+      const prev = pagesRef.current;
+      if (!prev) return;
+      const next = fn(prev);
+      pagesRef.current = next;
+      setPages(next);
+      if (userId) rememberHome(userId, next);
+    },
+    [userId],
+  );
+
   if (loaded && !me) return <Redirect href="/login" />;
 
-  const onTick =
-    (pageIndex: number, cardId: string) => (record: Parameters<typeof tick>[1], value: boolean) => {
-      setPages((prev) => {
-        if (!prev) return prev;
-        const next = prev.map((p, i) =>
-          i !== pageIndex
-            ? p
-            : {
-                ...p,
-                cards: p.cards.map((c) =>
-                  c.id !== cardId
-                    ? c
-                    : { ...c, records: c.records.map((r) => (r.id === record.id ? tick(c, r, value) : r)) },
-                ),
-              },
-        );
-        if (userId) rememberHome(userId, next);
-        return next;
-      });
-    };
+  const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) =>
+    update((prev) => {
+      const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
+      const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
+      return replaceCard(prev, { ...current, records });
+    });
+  const ask = (card: HomeCard, prompt?: string) =>
+    router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
+  const menuActions = {
+    ask,
+    resize: (card: HomeCard, size: CardSize) => update((prev) => replaceCard(prev, resize(card, size))),
+    unpin: (card: HomeCard) => {
+      unpin(card);
+      update((prev) => prev.map((p) => ({ ...p, cards: p.cards.filter((c) => c.id !== card.id) })));
+    },
+  };
+  const reorder = (pageIndex: number) => (from: number, to: number) =>
+    update((prev) =>
+      prev.map((p, i) => {
+        if (i !== pageIndex) return p;
+        const cards = [...p.cards];
+        const [moved] = cards.splice(from, 1);
+        if (moved) cards.splice(to, 0, moved);
+        return { ...p, cards };
+      }),
+    );
+  const dropped = (pageIndex: number) => () =>
+    update((prev) => prev.map((p, i) => (i !== pageIndex ? p : { ...p, cards: saveOrder(p.cards) })));
 
   const pageWidth = width;
+  const gridWidth = width - SIDE * 2;
   return (
     <View style={[s.root, { backgroundColor: t.canvas }]}>
       <FlatList
@@ -105,53 +152,55 @@ export default function Home() {
         keyExtractor={(p) => p.name}
         onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
         renderItem={({ item, index }) => (
-          <View style={{ width: pageWidth, paddingTop: insets.top + 12, paddingHorizontal: 16, gap: 10 }}>
+          <ScrollView
+            style={{ width: pageWidth }}
+            contentContainerStyle={{
+              paddingTop: insets.top + 12,
+              paddingHorizontal: SIDE,
+              paddingBottom: insets.bottom + 150,
+              gap: 10,
+            }}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await load();
+                  setRefreshing(false);
+                }}
+                tintColor={t.fg2}
+              />
+            }
+          >
             <View style={s.pageHead}>
               <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
-              {item.auto ? (
-                <View style={s.meta}>
-                  <View style={[s.pulse, { backgroundColor: t.accent }]} />
-                  <Text style={[s.metaText, { color: t.fg2 }]}>arranged for you</Text>
-                </View>
-              ) : null}
+              <View style={s.meta}>
+                {item.auto ? <View style={[s.pulse, { backgroundColor: t.accent }]} /> : null}
+                <Text style={[s.metaText, { color: t.fg2 }]}>
+                  {item.auto ? "arranged for you" : "hold a card to arrange"}
+                </Text>
+              </View>
             </View>
-            <FlatList
-              data={item.cards}
-              keyExtractor={(c) => c.id}
-              numColumns={2}
-              columnWrapperStyle={{ gap: 10 }}
-              contentContainerStyle={{ gap: 10, paddingBottom: insets.bottom + 150 }}
-              refreshControl={
-                <RefreshControl
-                  refreshing={refreshing}
-                  onRefresh={async () => {
-                    setRefreshing(true);
-                    await load();
-                    setRefreshing(false);
-                  }}
-                  tintColor={t.fg2}
-                />
-              }
-              renderItem={({ item: card }) => (
-                <View
-                  style={{ flex: card.spec.size === "s" ? 1 : 2, height: card.spec.size === "l" ? 322 : 156 }}
-                >
-                  <Card
-                    card={card}
-                    onTick={onTick(index, card.id)}
-                    onOpen={() => router.push({ pathname: "/chat", params: { card: card.spec.title } })}
-                  />
-                </View>
-              )}
-              ListEmptyComponent={
-                <View style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}>
-                  <Text style={[s.sub, { color: t.fg2 }]}>
-                    {error || (pages ? "Nothing here yet. Ask the chat to pin something." : "Loading…")}
-                  </Text>
-                </View>
-              }
-            />
-          </View>
+            {item.cards.length ? (
+              <CardGrid
+                cards={item.cards}
+                width={gridWidth}
+                arrangeable={!item.auto}
+                onHold={setMenu}
+                onReorder={reorder(index)}
+                onDrop={dropped(index)}
+                renderCard={(card, canOpen) => (
+                  <Card card={card} onTick={onTick(card)} onOpen={() => canOpen() && ask(card)} />
+                )}
+              />
+            ) : (
+              <View style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                <Text style={[s.sub, { color: t.fg2 }]}>
+                  {error || (pages ? "Nothing here yet. Ask the chat to pin something." : "Loading…")}
+                </Text>
+              </View>
+            )}
+          </ScrollView>
         )}
       />
 
@@ -194,6 +243,7 @@ export default function Home() {
           <Text style={[s.barText, { color: t.fg2 }]}>Ask, add or arrange…</Text>
         </Pressable>
       </View>
+      <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
     </View>
   );
 }
@@ -215,7 +265,6 @@ const s = StyleSheet.create({
     padding: 24,
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: "center",
-    width: Dimensions.get("window").width - 32,
   },
   sub: { fontSize: 14, textAlign: "center" },
   bottom: {
