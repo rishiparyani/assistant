@@ -40,8 +40,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setError("");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
+        // The session has ended: forget the person and everything kept for them on this device.
+        clearOutbox();
+        for (const k of kv.keys("gigspree:")) kv.remove(k);
         setMe(null);
-        kv.remove(KEY);
       } else if (!me) setError(e instanceof Error ? e.message : String(e));
       // Otherwise (offline, server busy): keep showing the saved user and data.
     } finally {

@@ -36,6 +36,8 @@ export default function Chat() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const list = useRef<FlatList<ChatItem>>(null);
+  // Opened from a card: the first message from this sheet names it, whatever the chat holds.
+  const attached = useRef(false);
 
   useEffect(() => {
     request<ChatView>("GET", `/api/chats/${MAIN}`)
@@ -54,7 +56,8 @@ export default function Chat() {
   const say = async (raw: string) => {
     const body = raw.trim();
     if (!body || busy) return;
-    const msg = card && view?.items.length === 0 ? `About "${card}": ${body}` : body;
+    const msg = card && !attached.current ? `About "${card}": ${body}` : body;
+    attached.current = true;
     setText("");
     const mine: ChatItem = {
       id: `local-${Date.now()}`,

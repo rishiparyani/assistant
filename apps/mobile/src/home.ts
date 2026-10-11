@@ -30,8 +30,32 @@ export interface HomePage {
   cards: HomeCard[];
 }
 
-const KEY = "gigspree:home";
+// The device copy is per person: another account on the same device never sees it.
+const keyFor = (userId: string) => `gigspree:home:${userId}`;
 const enc = encodeURIComponent;
+const LIST_ROWS = 12;
+const MAX_PAGES = 25;
+
+/** All matching records, page by page (a total must count every record, not the first page). */
+async function findAll(collectionId: string, query: object, limit: number | null): Promise<RecordView[]> {
+  const items: RecordView[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const result: FindResult = await request<FindResult>(
+      "POST",
+      `/api/collections/${enc(collectionId)}/find`,
+      {
+        ...query,
+        limit: limit ?? 100,
+        ...(cursor ? { cursor } : {}),
+      },
+    );
+    items.push(...result.items);
+    cursor = result.next_cursor;
+    if (!cursor || (limit !== null && items.length >= limit)) break;
+  }
+  return items;
+}
 
 const findField = (c: CollectionView, type: string) => c.fields.find((f) => f.type === type);
 
@@ -63,7 +87,7 @@ function totalOf(spec: CardSpec, records: RecordView[]): number | null {
 }
 
 /** Loads the home from the server; falls back to the copy on the device. */
-export async function loadHome(): Promise<HomePage[]> {
+export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
     const [views, collections] = await Promise.all([
       request<SavedView[]>("GET", "/api/views"),
@@ -76,19 +100,20 @@ export async function loadHome(): Promise<HomePage[]> {
       if (!c) continue;
       const spec = specFor(v, c);
       const src = spec.sources[0]!;
-      const result = await request<FindResult>("POST", `/api/collections/${enc(c.id)}/find`, {
+      const query = {
         filters: src.filters ?? [],
         sort: src.sort ?? undefined,
         search: v.search ?? undefined,
-        limit: 12,
-      });
+      };
+      // A number card adds up every matching record; a list shows the first rows.
+      const records = await findAll(c.id, query, spec.arrangement === "number" ? null : LIST_ROWS);
       cards.push({
         id: v.id,
         spec,
         collection: c,
         colour: colourFor(c.name),
-        records: result.items,
-        total: totalOf(spec, result.items),
+        records: spec.arrangement === "number" ? records.slice(0, LIST_ROWS) : records,
+        total: totalOf(spec, records),
       });
     }
     // Page 1 ("Now") is arranged by the assistant: for now, the cards with something open first.
@@ -97,10 +122,10 @@ export async function loadHome(): Promise<HomePage[]> {
       { name: "Now", auto: true, cards: now },
       { name: "My day", cards: cards.filter((c) => !now.includes(c)) },
     ];
-    writeJson(KEY, pages);
+    writeJson(keyFor(userId), pages);
     return pages;
   } catch (e) {
-    const saved = readJson<HomePage[]>(KEY);
+    const saved = readJson<HomePage[]>(keyFor(userId));
     if (saved) return saved;
     throw e;
   }
@@ -127,6 +152,6 @@ export function tick(card: HomeCard, record: RecordView, value: boolean): Record
 }
 
 /** Keeps the device copy in step with what the screen shows after a change. */
-export function rememberHome(pages: HomePage[]) {
-  writeJson(KEY, pages);
+export function rememberHome(userId: string, pages: HomePage[]) {
+  writeJson(keyFor(userId), pages);
 }

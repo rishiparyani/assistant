@@ -17,6 +17,7 @@ import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Card } from "@/components/Card";
 import { loadHome, rememberHome, tick, type HomePage } from "@/home";
+import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
@@ -35,10 +36,13 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(0);
   const list = useRef<FlatList<HomePage>>(null);
+  const [failed, setFailed] = useState(() => outboxState().failed);
+  const userId = me?.user.id ?? null;
 
   const load = useCallback(async () => {
+    if (!userId) return;
     try {
-      setPages(await loadHome());
+      setPages(await loadHome(userId));
       setError("");
     } catch (e) {
       setError(
@@ -49,10 +53,22 @@ export default function Home() {
             : String(e),
       );
     }
-  }, []);
+  }, [userId]);
   useEffect(() => {
-    if (me) void load();
-  }, [me, load]);
+    if (userId) void load();
+  }, [userId, load]);
+  // A change the server refused: say so, and show the home as the server has it.
+  useEffect(
+    () =>
+      subscribe(() => {
+        const now = outboxState().failed;
+        setFailed((prev) => {
+          if (now.length > prev.length) void load();
+          return now;
+        });
+      }),
+    [load],
+  );
 
   if (loaded && !me) return <Redirect href="/login" />;
 
@@ -72,7 +88,7 @@ export default function Home() {
                 ),
               },
         );
-        rememberHome(next);
+        if (userId) rememberHome(userId, next);
         return next;
       });
     };
@@ -140,6 +156,19 @@ export default function Home() {
       />
 
       <View style={[s.bottom, { paddingBottom: insets.bottom + 10 }]} pointerEvents="box-none">
+        {failed[0] ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+            onPress={() => dropFailed(failed[0]!.id)}
+            style={[s.failed, { backgroundColor: t.cell, borderColor: t.danger }]}
+          >
+            <Text style={[s.failedText, { color: t.fg }]} numberOfLines={2}>
+              Couldn't save “{failed[0].label}”: {failed[0].reason}
+            </Text>
+            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 13 }}>OK</Text>
+          </Pressable>
+        ) : null}
         <View style={s.dots}>
           {(pages ?? []).map((p, i) => (
             <View
@@ -211,4 +240,14 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
   },
   barText: { fontSize: 15, fontWeight: "600" },
+  failed: {
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  failedText: { flex: 1, fontSize: 13 },
 });

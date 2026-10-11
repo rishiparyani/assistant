@@ -2,6 +2,7 @@
 // at once, and is sent in order when there's a connection. Each change keeps one
 // Idempotency-Key, so sending it again is safe. A refused change is kept under "failed" with
 // the reason. One owner at a time (the signed-in user), kept on the device.
+import { AppState, Platform } from "react-native";
 import { ApiError, request } from "./api.ts";
 import { kv, readJson, writeJson } from "./storage.ts";
 
@@ -87,6 +88,22 @@ export async function flush(): Promise<void> {
   } finally {
     sending = false;
   }
+}
+
+// Waiting changes go out again when the app comes back to the front or the network returns.
+AppState.addEventListener("change", (s) => {
+  if (s === "active") void flush();
+});
+if (Platform.OS === "web") {
+  if (typeof window !== "undefined") window.addEventListener("online", () => void flush());
+} else {
+  import("expo-network")
+    .then((n) =>
+      n.addNetworkStateListener((state) => {
+        if (state.isConnected) void flush();
+      }),
+    )
+    .catch(() => undefined);
 }
 
 export function dropFailed(id: string) {
