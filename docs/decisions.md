@@ -513,6 +513,8 @@ First slice of home-first.md §7 step 1. New dependencies (mobile only unless no
 - The bundle id stays `in.gigspree.assistant`, so TestFlight continues the same app when the Expo build replaces the Capacitor one.
 - The server side of sign-in from the app (Better Auth's `expo()` plugin, `gigspree://` as a trusted origin) is a new way in and waits for the owner's explicit OK before it merges; Google inside the app stays off (`EXPO_PUBLIC_GOOGLE_IN_APP`) until the same OK.
 
+**Added 2026-10-12:** `babel-preset-expo` (57.0.14) as the app's own dev dependency. Expo expects it declared in the app; with pnpm's strict layout the Xcode bundle phase could not resolve it from `babel.config.js` and the TestFlight/simulator build failed (`Cannot find module 'babel-preset-expo'`), while `expo export` from the command line happened to work.
+
 ## 2026-10-11: Owner's standing OKs (so the daily loop doesn't wait on him)
 
 The owner isn't an active developer: he sends a message about once a day and looks at the app when he can; the agent builds, verifies and delivers. To keep that loop moving he gave these OKs in chat (2026-10-11):
