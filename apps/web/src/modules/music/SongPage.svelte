@@ -3,7 +3,19 @@
   import Maximize from "@lucide/svelte/icons/maximize";
   import Minus from "@lucide/svelte/icons/minus";
   import Plus from "@lucide/svelte/icons/plus";
-  import { Button, EmptyState, NotSaved, PageHeader, Pill, Skeleton, toast } from "../../core/ui/index.ts";
+  import Trash from "@lucide/svelte/icons/trash-2";
+  import {
+    Button,
+    EmptyState,
+    NotSaved,
+    PageHeader,
+    Pill,
+    Skeleton,
+    confirm,
+    toast,
+  } from "../../core/ui/index.ts";
+  import { connection } from "../../core/offline.svelte.ts";
+  import { navigate } from "../../core/router.svelte.ts";
   import { isOfflineError } from "../../core/offline.svelte.ts";
   import { createQuery, dropCache } from "../../core/query.svelte.ts";
   import { ApiError } from "../../core/api.ts";
@@ -66,6 +78,32 @@
   const shownKey = $derived(song?.key ? transposeKey(song.key, steps) : null);
 
   let stage = $state(false);
+
+  // Deleting is using, not making: it stays on the screen (decision "Chat makes, screens use").
+  async function remove() {
+    if (!song) return;
+    if (!connection.online) {
+      toast.error("Deleting a song needs a connection.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Delete “${song.title}”?`,
+      message: "It goes from your Songbook on every device.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await musicApi.remove(songId);
+      dropCache(`song:${songId}`);
+      dropCache("songs:list:");
+      await deleteMany(libraryScope(), [songId]).catch(() => {});
+      toast.success("Deleted");
+      navigate("/songs", { replace: true });
+    } catch (e) {
+      toast.error(e);
+    }
+  }
 </script>
 
 {#if !song}
@@ -80,7 +118,13 @@
   {/if}
 {:else}
   <!-- Songs are added and changed in the chat; here they're played. -->
-  <PageHeader title={song.title} subtitle={song.artist ?? undefined} back="/songs" backLabel="Songbook" />
+  <PageHeader title={song.title} subtitle={song.artist ?? undefined} back="/songs" backLabel="Songbook">
+    {#snippet actions()}
+      <Button variant="ghost" onclick={remove} aria-label="Delete">
+        {#snippet icon()}<Trash />{/snippet}
+      </Button>
+    {/snippet}
+  </PageHeader>
 
   <div class="facts">
     {#if song.key}

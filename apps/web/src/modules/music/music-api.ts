@@ -11,6 +11,8 @@ const base = (id: string) => `/api/songs/${encodeURIComponent(id)}`;
 export const musicApi = {
   songs: (q?: string) => request<SongSummary[]>("GET", `/api/songs${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   song: (id: string) => request<SongView>("GET", base(id)),
+  // online-only: removing a song needs the server (the saved copy goes after).
+  remove: (id: string) => request<{ removed: true }>("DELETE", base(id)),
   all: () => request<SongView[]>("GET", "/api/songs-all", undefined, { quiet: true }),
 };
 

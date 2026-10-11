@@ -201,8 +201,7 @@
 <div class="dock">
   {#if assistantOff}
     <p class="off">
-      The assistant isn't on for you. Add to your lists with +, and find what people share with you in the
-      menu.
+      The assistant isn't on for you. Open your lists and what people share with you from the menu.
     </p>
   {/if}
   <div class="suggest" aria-label="Try one" hidden={assistantOff}>
