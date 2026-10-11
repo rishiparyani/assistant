@@ -16,6 +16,10 @@
 - Keep dependencies (especially Better Auth) updated.
 - `shortcuts/` never contains tokens.
 
+## Home-first additions
+
+See `docs/design/home-first.md` §6 (AI boundary, phone app storage, per-person search indexes, process links, export/import, dependency pinning, the no-E2E trade). Every PR touching auth, sharing, search or the AI ticks that list.
+
 ## Public repository
 
 The repo is public: anyone can read the code, commit history, issues, PRs, Actions logs and workflow artifacts. Git history is permanent, so a leaked secret must be **rotated**, not just deleted.
