@@ -4,6 +4,9 @@ _Updated: 2026-10-11_
 
 ## Last done
 
+- **CM3: chat messages typed offline wait** (decision "Chat makes, screens use"): offline, a message goes into the device's outbox (`queueMessage` in `assistant/chat-api.ts`, kind `assistant.message`), shows at once in the chat marked "Waiting to send", and is sent to the assistant when the connection is back (in order, once: the server claims each message by its key). The box says "Offline: it's sent when you're back online". Browser-checked at 390: offline send, then back online, and the assistant answered.
+  - Gotcha: if a resend arrives while the first try is still being answered, the server says 409 and the outbox lists it under "Couldn't sync" (rare: only when the first request timed out on the device mid-answer).
+
 - **CM1: chat makes, screens use** (owner's decision 2026-10-11, replacing "Assistant first"): the by-hand builders and forms are gone from the web app: the workflow builder (and "By hand" on Workflows), "Start one/another by hand" in Your lists, "Edit by hand" in a list's pop-up (Add a record, Rules), the Edit button and the edit form on live cards and record pages, "Add to …" under linked records, the chat's **+** menu (add to a list, ask people, workflow by hand), and Songbook's Add and Edit sheets (`RecordSheet`, `RulesSheet`, `AskSheet`, `WorkflowBuilder`, `SongSheet`, `SongPicker` deleted). What stays on screens is using: open, search, tick done, Pick, delete, share, comments, stage mode, transpose. Empty states point to the chat. AGENTS.md priorities and chat-first.md updated. The server's operations are unchanged (the assistant and MCP use them).
   - Next: CM2, quick-add screens made by chat (a saved, pinned add box with the fields the person chose); CM3, chat messages typed offline wait and run when back online.
 

@@ -15,7 +15,15 @@
   import { createQuery, publish, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
   import { router } from "../router.svelte.ts";
-  import { CHATS_KEY, MAIN_CHAT, chatApi, chatKey, SUGGESTIONS } from "./chat-api.ts";
+  import {
+    CHATS_KEY,
+    MAIN_CHAT,
+    chatApi,
+    chatKey,
+    isWaiting,
+    queueMessage,
+    SUGGESTIONS,
+  } from "./chat-api.ts";
 
   // The app's home: the chat with the assistant (docs/design/chat-first.md). Pinned views are
   // in the side menu.
@@ -51,7 +59,15 @@
     const t = message.trim();
     if (!t || sending) return;
     if (!connection.online) {
-      toast.error("The assistant needs a connection. Collections work offline.");
+      // It waits on the device and goes when the connection is back.
+      text = "";
+      try {
+        chat.set(await queueMessage(chatId, t));
+        toast.success("Saved; it's sent when you're back online");
+      } catch (e) {
+        text = t;
+        toast.error(e);
+      }
       return;
     }
     sending = t;
@@ -116,7 +132,9 @@
   <ol class="messages" bind:this={list} aria-live="polite">
     {#each items as m (m.id)}
       {#if m.role === "user"}
-        <li class="msg mine" in:fly={calm(fromMe)}>{m.text}</li>
+        <li class="msg mine" class:waiting={isWaiting(m)} in:fly={calm(fromMe)}>
+          {m.text}{#if isWaiting(m)}<span class="wait">Waiting to send</span>{/if}
+        </li>
       {:else if m.role === "card" && m.card}
         <li class="card" class:closed={m.card.status !== "waiting"} in:fly={calm(fromThem)}>
           <div class="card-head">
@@ -218,7 +236,7 @@
           ? "The assistant is off for you"
           : connection.online
             ? "Message Gigspree"
-            : "Offline: the assistant needs a connection"}
+            : "Offline: it's sent when you're back online"}
         aria-label="Message the assistant"></textarea>
       <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending}>
         <ArrowUp size={20} />
@@ -504,6 +522,15 @@
   textarea:focus-visible {
     outline: none;
     box-shadow: none;
+  }
+  .msg.waiting {
+    opacity: 0.75;
+  }
+  .wait {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-xs);
+    opacity: 0.85;
   }
   .send {
     flex: none;
