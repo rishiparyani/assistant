@@ -23,6 +23,9 @@ const PATTERNS: [string, RegExp][] = [
   // A card (record) opened full screen, from a pinned view or a link.
   ["record", /^\/c\/(?<collectionId>[^/]+)\/(?<recordId>[^/]+)$/],
   ["help", /^\/help$/],
+  // Songbook (the music app): the library and one song, with its chart and stage mode.
+  ["songs", /^\/songs$/],
+  ["song", /^\/songs\/(?<songId>[^/]+)$/],
   // A saved view by name (Siri's "Show a Gigspree view").
   ["open_view", /^\/open-view$/],
   // Cards others shared with me; /join#<token> joins one.

@@ -18,6 +18,10 @@
   import WorkflowsPage from "./workflows/WorkflowsPage.svelte";
   import GroupPage from "./groups/GroupPage.svelte";
   import WorkflowPage from "./workflows/WorkflowPage.svelte";
+  // Apps plug in here (the composition root); core screens never import them.
+  import SongsPage from "../modules/music/SongsPage.svelte";
+  import SongPage from "../modules/music/SongPage.svelte";
+  import { saveSongsAhead } from "../modules/music/music-api.ts";
   import { ConfirmHost, Spinner, Toaster, TopProgress, toast } from "./ui/index.ts";
   import AppShell from "./shell/AppShell.svelte";
   import Login from "./pages/Login.svelte";
@@ -36,6 +40,8 @@
   // Offline first (docs/design/offline.md): save the space and shared cards ahead.
   saveAheadWith(saveSpacesAhead);
   saveAheadWith(saveSharedAhead);
+  // Songs and charts open offline (on stage).
+  saveAheadWith(saveSongsAhead);
   const signedIn = startOffline(() => !!session.me);
   $effect(() => signedIn(!!session.me));
   // Send changes made offline whenever there's a chance.
@@ -91,6 +97,12 @@
         {/key}
       {:else if route.name === "memory"}
         <MemoryPage />
+      {:else if route.name === "songs"}
+        <SongsPage />
+      {:else if route.name === "song"}
+        {#key route.params.songId}
+          <SongPage songId={route.params.songId!} />
+        {/key}
       {:else if route.name === "workflows"}
         <WorkflowsPage />
       {:else if route.name === "workflow"}

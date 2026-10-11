@@ -129,7 +129,9 @@ function toolSpec(op: AnyOperation): ToolSpec {
 
 function toolsFor(level: Level, ops: readonly AnyOperation[]): { specs: ToolSpec[]; allowed: Set<string> } {
   const names = level === 1 ? EVERYDAY : [...EVERYDAY, ...SETUP];
-  const allowed = new Set(names);
+  // Apps' actions, offered by the apps themselves (core never names them).
+  const fromApps = ops.filter((o) => o.assistant && o.assistant.level <= level).map((o) => o.tool);
+  const allowed = new Set([...names, ...fromApps]);
   const specs = ops.filter((o) => allowed.has(o.tool) && !o.sessionOnly).map(toolSpec);
   specs.push(level === 1 ? HAND_OVER : HAND_BACK);
   return { specs, allowed };
@@ -161,7 +163,16 @@ function setupSummary(cols: CollectionView[]): string {
     .join("\n");
 }
 
-function systemPrompt(ctx: OpUserCtx, level: Level, cols: CollectionView[], memories: MemoryRow[]): string {
+function systemPrompt(
+  ctx: OpUserCtx,
+  level: Level,
+  cols: CollectionView[],
+  memories: MemoryRow[],
+  ops: readonly AnyOperation[] = [],
+): string {
+  const apps = ops.flatMap((o) =>
+    o.assistant?.hint && o.assistant.level <= level ? [`- ${o.assistant.hint}`] : [],
+  );
   const lines = [
     `You are the assistant in Gigspree, a personal assistant app. You're talking with ${ctx.user.name}.`,
     `Now: ${nowIst()} (India time, IST).`,
@@ -169,6 +180,7 @@ function systemPrompt(ctx: OpUserCtx, level: Level, cols: CollectionView[], memo
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
     "Their collections:",
     setupSummary(cols) || "(none yet)",
+    ...(apps.length ? ["Apps they have:", ...apps] : []),
     "- If they ask for a note, a reminder, an event or an expense and that list isn't there yet, start it with start_list (it's made at once and shown to them), then add the record.",
     "Rules:",
     '- Money in rupees ("450" or "₹450"). Dates as YYYY-MM-DD; date and time as YYYY-MM-DDTHH:MM in India time.',
@@ -332,7 +344,13 @@ function liveFrom(
   args: Record<string, unknown>,
   result: unknown,
   cols: CollectionView[],
+  op?: AnyOperation,
 ): LiveRef | null {
+  // An app's own card: a link to its screen.
+  if (op?.assistant?.card) {
+    const c = op.assistant.card(result) as { title: string; subtitle?: string | null; href: string } | null;
+    return c ? { kind: "app", app: op.id.split(".")[0]!, ...c } : null;
+  }
   const r = (result ?? {}) as Record<string, unknown>;
   if (["add_record", "update_record", "get_record"].includes(tool)) {
     if (typeof r.id === "string" && typeof r.collection_id === "string")
@@ -397,7 +415,9 @@ const liveKey = (l: LiveRef) =>
         ? `q:${l.question_id}`
         : l.kind === "workflow"
           ? `w:${l.workflow_id}`
-          : `l:${JSON.stringify(l)}`;
+          : l.kind === "app"
+            ? `a:${l.href}`
+            : `l:${JSON.stringify(l)}`;
 
 /** The person's chats: "main" (their first, which also keeps the list and memory) or another. */
 const MAIN = "main";
@@ -501,7 +521,7 @@ async function answerMessage(
   steps: for (let step = 0; step < MAX_STEPS; step++) {
     const { specs, allowed } = toolsFor(level, ops);
     const messages: ChatMessage[] = [
-      { role: "system", content: systemPrompt(ctx, level, cols, memories) },
+      { role: "system", content: systemPrompt(ctx, level, cols, memories, ops) },
       ...history,
       ...turn,
     ];
@@ -658,7 +678,7 @@ async function runTool(
     return {
       kind: "ran",
       text: text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}…(cut)` : text,
-      live: liveFrom(name, args, result, cols),
+      live: liveFrom(name, args, result, cols, op),
     };
   } catch (e) {
     return { kind: "error", text: errorText(e) };
@@ -752,7 +772,7 @@ export async function confirmAction(
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;
-    live = liveFrom(a.tool, {}, result, []);
+    live = liveFrom(a.tool, {}, result, [], op);
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     note = `Done: ${a.title}.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";

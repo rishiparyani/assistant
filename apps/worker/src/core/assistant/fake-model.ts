@@ -40,6 +40,12 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // "Test: share <record id> with <name>": a share card for that record.
   const share = /^Test: share (\S+) with (.+)$/.exec(lastUser);
   if (share) return call("share_with", { record_id: share[1], people: [share[2]], access: "edit" });
+  // "Test: open song <id>": an app's tool (Songbook), shown as the app's card.
+  if (lastUser.startsWith("Test: open song "))
+    return call("get_song", { song_id: lastUser.slice("Test: open song ".length) });
+  // "Test: which apps": whether the apps' lines reached the instructions.
+  if (lastUser === "Test: which apps")
+    return say(String(messages[0]?.content ?? "").includes("Songbook:") ? "Songbook is here." : "No apps.");
   // "Test: ask <name> if they're free": a question card with Yes / No.
   const ask = /^Test: ask (.+) if they're free$/.exec(lastUser);
   if (ask)

@@ -84,3 +84,9 @@ export function matchesSongSearch(song: { title: string; artist: string | null }
   const have = songWords(`${song.title} ${song.artist ?? ""}`);
   return songWords(search).every((q) => have.some((w) => w.startsWith(q)));
 }
+
+/** "G · 96 bpm · capo 2" */
+export const songFacts = (s: { key: string | null; tempo_bpm: number | null; capo?: number | null }) =>
+  [s.key, s.tempo_bpm ? `${s.tempo_bpm} bpm` : null, s.capo ? `capo ${s.capo}` : null]
+    .filter(Boolean)
+    .join(" · ");

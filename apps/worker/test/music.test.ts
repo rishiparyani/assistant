@@ -105,3 +105,25 @@ describe("song library", () => {
     expect(g.lists[0]!.items.map((i) => i.song_id)).toEqual([song.id, null, song.id]);
   });
 });
+
+describe("Songbook in the chat", () => {
+  it("offers the app's tools to the assistant, and shows a song as the app's card", async () => {
+    const me = await signUp("Test Singer");
+    const song = await json<SongView>(
+      await as(me)("/songs", {
+        body: { title: "Test Chat Song", artist: "Test Band", key: "D", tempo_bpm: 120 },
+      }),
+    );
+    type Chat = { items: { role: string; text: string; live?: Record<string, unknown> }[] };
+    const apps = await json<Chat>(await as(me)("/chat", { body: { text: "Test: which apps" } }));
+    expect(apps.items.at(-1)!.text).toBe("Songbook is here.");
+    const opened = await json<Chat>(await as(me)("/chat", { body: { text: `Test: open song ${song.id}` } }));
+    expect(opened.items.find((i) => i.role === "live")?.live).toEqual({
+      kind: "app",
+      app: "music",
+      title: "Test Chat Song",
+      subtitle: "Test Band · D · 120 bpm",
+      href: `/songs/${song.id}`,
+    });
+  });
+});
