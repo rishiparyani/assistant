@@ -4,9 +4,9 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
-**Order now follows [docs/design/chat-first.md](../docs/design/chat-first.md) §5 (approved 2026-10-10).** Next: step 6, setups by chat and the fam jam (C1–C5 done).
+**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: HF2 below.
 
-## HF Home first (docs/design/home-first.md §5)
+## HF Home first (docs/design/home-first.md §7)
 
 1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1, PR pending the owner's OK on the sign-in plugin); TestFlight + simulator screenshots moved over (HF2).
 2. Home: pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar and pull-down, dock; Now page ranking.
@@ -16,6 +16,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 6. First run conversation; setup sharing; memory page.
 7. Web target until it matches today's site, then the switch; laptop layout.
 8. Swift: widgets from pinned cards, App Intents, Share extension, on-device model; Android later.
+9. Encrypt the nightly backup with an owner-held key (restore takes the same key); until then backups are gzipped JSON in the owner's private Drive.
 
 ## C1 New look and the chat-first shell
 

@@ -64,7 +64,7 @@ From the "Gigspree Concept Home" mockup. Tokens go in the shared theme; names ar
 - **Search:** one index per person, built only from what they can see, re-checked on display; Vectorize queried only with the person filter.
 - **Processes by link:** a step link grants that step's answer only, expires with the step, rate-limited like forms.
 - **Setup sharing and export:** as in §5.4. A received setup never carries code: formulas through our parser, workflows as engine shapes; nothing is made before Make it.
-- **At rest:** Cloudflare encrypts Durable Object and D1 storage; the nightly backup file is additionally encrypted with a key only the owner holds (Worker secret) before it goes to Drive; on the phone, tokens in Keychain/Keystore and the local database under the OS's strict file-protection class. Field-level encryption per space is a later option for named sensitive fields (kept out of search and the AI by design).
+- **At rest:** Cloudflare encrypts Durable Object and D1 storage. **To do (HF, before the Expo app ships to TestFlight):** encrypt the nightly backup file with a key only the owner holds (a Worker secret) before it goes to Drive, with the restore script taking the same key; today `runBackup` only gzips it. On the phone, tokens in Keychain/Keystore and the local database under the OS's strict file-protection class. Field-level encryption per space is a later option for named sensitive fields (kept out of search and the AI by design).
 - **Dependencies** pinned and updated on a schedule; Actions pinned to SHAs.
 - **Stated trade:** no end-to-end encryption (search by meaning, workflows and the assistant read data on the server); say so in the privacy note.
 
