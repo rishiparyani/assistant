@@ -373,6 +373,9 @@ function liveFrom(
   }
   if (tool === "ask_people" || tool === "get_question")
     return typeof r.id === "string" ? { kind: "question", question_id: r.id } : null;
+  // A view just saved or changed (a quick add the person asked for shows its add box).
+  if ((tool === "save_view" || tool === "update_view") && typeof r.id === "string" && "collection_id" in r)
+    return { kind: "view", view_id: r.id };
   if (tool === "show_view") {
     const view = r.view as { id?: unknown } | undefined;
     return typeof view?.id === "string" ? { kind: "view", view_id: view.id } : null;

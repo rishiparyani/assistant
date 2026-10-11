@@ -305,7 +305,7 @@ export const spaceOperations = [
     id: "core.save_view",
     tool: "save_view",
     description:
-      'Save a view of a collection (filters like find_records; periods such as "this_month" stay relative). pinned puts it on the shortcuts bar.',
+      'Save a view of a collection (filters like find_records; periods such as "this_month" stay relative). pinned puts it on the shortcuts bar. When the person asks for a quick add (an add box) for a list, save a pinned view with add_fields: it shows an add box with just those fields.',
     kind: "write",
     http: { method: "POST", path: "/views", status: 201 },
     input: SaveViewInput,
@@ -320,13 +320,15 @@ export const spaceOperations = [
         sort: i.sort,
         mode: i.mode,
         pinned: i.pinned,
+        add_fields: i.add_fields,
       });
     },
   }),
   defineOperation({
     id: "core.update_view",
     tool: "update_view",
-    description: "Rename a saved view, change its filters or sort, or pin / unpin it.",
+    description:
+      "Rename a saved view, change its filters or sort, pin / unpin it, or give it a quick add (add_fields; [] removes it).",
     kind: "write",
     http: { method: "PATCH", path: "/views/:view_id" },
     input: UpdateViewInput,
@@ -340,6 +342,7 @@ export const spaceOperations = [
         mode: i.mode,
         pinned: i.pinned,
         position: i.position,
+        add_fields: i.add_fields,
       });
     },
   }),

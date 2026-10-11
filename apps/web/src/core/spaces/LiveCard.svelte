@@ -30,6 +30,7 @@
     type FindQuery,
   } from "./spaces-api.ts";
   import ShareSheet from "./ShareSheet.svelte";
+  import QuickAdd from "./QuickAdd.svelte";
 
   // A live card in the chat (docs/design/chat-first.md step 2): a record, a list or a saved
   // view the assistant worked with, loaded fresh (and from the offline copy), so a change made
@@ -213,6 +214,9 @@
       <Skeleton rows={2} label="Loading" />
     {/if}
   {:else if collection && (live.kind === "list" ? list.data : view.data)}
+    {#if live.kind === "view" && view.data?.view.add_fields?.length}
+      <QuickAdd collection={view.data.collection} fieldIds={view.data.view.add_fields} />
+    {/if}
     {#if moneyField && rows.length}
       <p class="col">{moneyField.name} total</p>
       <div class="amount">
