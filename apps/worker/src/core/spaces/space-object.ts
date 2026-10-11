@@ -369,6 +369,8 @@ type ViewQuery = {
   sort: { field: string; dir: "asc" | "desc" } | null;
   /** A quick add the person asked for: the fields its add box fills in (ids). */
   add?: string[];
+  /** The card's size on the phone's home, when the person set one. */
+  card_size?: "s" | "m" | "l";
 };
 type ViewInput = {
   filters?: Filter[];
@@ -376,6 +378,8 @@ type ViewInput = {
   sort?: { field: string; dir: "asc" | "desc" } | null;
   mode?: ViewMode;
   add_fields?: string[];
+  /** null clears it (the app picks again). */
+  card_size?: "s" | "m" | "l" | null;
 };
 type ViewRow = {
   id: string;
@@ -2454,6 +2458,7 @@ export class SpaceObject extends DurableObject<Env> {
         search: input.search === undefined ? before.search : input.search,
         sort: input.sort === undefined ? before.sort : input.sort,
         add_fields: input.add_fields ?? current.add_fields,
+        card_size: input.card_size === undefined ? current.card_size : input.card_size,
       });
       this.sql.exec(
         `update views set name = ?, name_key = ?, query_json = ?, mode = ?, pinned = ?, position = ?, updated_at = ? where id = ?`,
@@ -2557,7 +2562,13 @@ export class SpaceObject extends DurableObject<Env> {
       const problem = this.quickAddProblem(fields, add);
       if (problem) throw new ObjectError("validation_failed", problem);
     }
-    return { filters, search: q.search?.trim() || null, sort, ...(add ? { add } : {}) };
+    return {
+      filters,
+      search: q.search?.trim() || null,
+      sort,
+      ...(add ? { add } : {}),
+      ...(q.card_size ? { card_size: q.card_size } : {}),
+    };
   }
 
   private requireView(ref: string): ViewRow {
@@ -2616,6 +2627,7 @@ export class SpaceObject extends DurableObject<Env> {
       mode: v.mode,
       pinned: v.pinned === 1,
       position: v.position,
+      card_size: q.card_size ?? null,
       updated_at: v.updated_at,
     };
   }

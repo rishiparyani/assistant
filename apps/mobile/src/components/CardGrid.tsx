@@ -1,0 +1,319 @@
+// The cards of one page, laid out by the app (docs/design/home-first.md §2.3): the model never
+// positions anything. Hold a card for its menu; on the person's pages, hold and move to arrange:
+// the card lifts and follows the finger, the others slide to make room, the order is saved on
+// drop. The grid places every card itself (rows of half- or full-width cards), so a card's
+// element never moves while a finger is on it.
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
+import type { HomeCard } from "../home.ts";
+import { radius, useTheme } from "../theme.ts";
+
+export type Rect = { x: number; y: number; w: number; h: number };
+export const CARD_GAP = 10;
+export const cardHeight = (card: HomeCard) => (card.spec.size === "l" ? 322 : 156);
+export const cardWidth = (card: HomeCard, width: number) =>
+  card.spec.size === "s" ? Math.floor((width - CARD_GAP) / 2) : width;
+
+const HOLD_MS = 380;
+const MOVE_PX = 6;
+const SPRING = { damping: 18, stiffness: 220, mass: 0.6 };
+const SETTLE = { damping: 20, stiffness: 260, mass: 0.7 };
+
+/** Where each card goes: left to right, a new row when one doesn't fit. */
+export function layoutCards(cards: HomeCard[], width: number): { rects: Map<string, Rect>; height: number } {
+  const rects = new Map<string, Rect>();
+  let x = 0;
+  let y = 0;
+  let rowH = 0;
+  for (const card of cards) {
+    const w = cardWidth(card, width);
+    const h = cardHeight(card);
+    if (x > 0 && x + w > width) {
+      x = 0;
+      y += rowH + CARD_GAP;
+      rowH = 0;
+    }
+    rects.set(card.id, { x, y, w, h });
+    x += w + CARD_GAP;
+    rowH = Math.max(rowH, h);
+  }
+  return { rects, height: cards.length ? y + rowH : 0 };
+}
+
+export function CardGrid({
+  cards,
+  width,
+  arrangeable,
+  renderCard,
+  onHold,
+  onReorder,
+  onDrop,
+}: {
+  cards: HomeCard[];
+  width: number;
+  /** The person's page: hold and move arranges. The Now page only shows the menu. */
+  arrangeable: boolean;
+  /** `canOpen` is false right after a hold, so letting go of a lifted card never opens it. */
+  renderCard: (card: HomeCard, canOpen: () => boolean) => ReactNode;
+  onHold: (card: HomeCard) => void;
+  onReorder?: (from: number, to: number) => void;
+  onDrop?: () => void;
+}) {
+  const { t } = useTheme();
+  const { rects, height } = useMemo(() => layoutCards(cards, width), [cards, width]);
+  // Elements keep the order they first appeared in; only their places change.
+  const stable = useRef<string[]>([]);
+  const ids = new Set(cards.map((c) => c.id));
+  stable.current = [
+    ...stable.current.filter((id) => ids.has(id)),
+    ...cards.filter((c) => !stable.current.includes(c.id)).map((c) => c.id),
+  ];
+  const byId = new Map(cards.map((c) => [c.id, c]));
+
+  // When a card was last held: a tap that ends a hold is not a tap (the web's touch system
+  // would otherwise still count it as one).
+  const heldAt = useRef(0);
+  const canOpen = useCallback(() => Date.now() - heldAt.current > 800, []);
+  const held = useCallback(
+    (card: HomeCard) => {
+      heldAt.current = Date.now();
+      onHold(card);
+    },
+    [onHold],
+  );
+
+  const [dragging, setDragging] = useState<{ card: HomeCard; start: Rect } | null>(null);
+  // The gesture callbacks read these through refs: a running gesture keeps its first closures.
+  const draggingRef = useRef(dragging);
+  draggingRef.current = dragging;
+  const cardsRef = useRef(cards);
+  cardsRef.current = cards;
+  const rectsRef = useRef(rects);
+  rectsRef.current = rects;
+  const tx = useSharedValue(0);
+  const ty = useSharedValue(0);
+  const scale = useSharedValue(1);
+
+  const lift = useCallback(
+    (card: HomeCard) => {
+      const start = rectsRef.current.get(card.id);
+      if (!start) return;
+      heldAt.current = Date.now();
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
+      tx.value = 0;
+      ty.value = 0;
+      scale.value = withSpring(1.05, SPRING);
+      draggingRef.current = { card, start };
+      setDragging({ card, start });
+    },
+    [tx, ty, scale],
+  );
+
+  // Where the finger is now decides which place the card takes; the others move aside.
+  const hover = useCallback(
+    (card: HomeCard, start: Rect, dx: number, dy: number) => {
+      const cx = start.x + start.w / 2 + dx;
+      const cy = start.y + start.h / 2 + dy;
+      const list = cardsRef.current;
+      const from = list.findIndex((c) => c.id === card.id);
+      const to = list.findIndex((c) => {
+        const r = rectsRef.current.get(c.id);
+        return r && cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
+      });
+      if (from >= 0 && to >= 0 && to !== from) {
+        void Haptics.selectionAsync().catch(() => undefined);
+        onReorder?.(from, to);
+      }
+    },
+    [onReorder],
+  );
+
+  const settle = useCallback(
+    (card: HomeCard, start: Rect) => {
+      // Into its place (wherever that is now), then the real card shows again.
+      const r = rectsRef.current.get(card.id) ?? start;
+      const done = () => {
+        draggingRef.current = null;
+        setDragging(null);
+        onDrop?.();
+      };
+      scale.value = withTiming(1, { duration: 120 });
+      tx.value = withSpring(r.x - start.x, SETTLE);
+      ty.value = withSpring(r.y - start.y, SETTLE, (finished) => {
+        if (finished) runOnJS(done)();
+      });
+    },
+    [tx, ty, scale, onDrop],
+  );
+
+  const move = useCallback(
+    (dx: number, dy: number) => {
+      tx.value = dx;
+      ty.value = dy;
+      const d = draggingRef.current;
+      if (d) hover(d.card, d.start, dx, dy);
+    },
+    [tx, ty, hover],
+  );
+  const release = useCallback(
+    (moved: boolean) => {
+      const d = draggingRef.current;
+      if (!d) return;
+      heldAt.current = Date.now();
+      if (moved) settle(d.card, d.start);
+      else {
+        draggingRef.current = null;
+        setDragging(null);
+        onHold(d.card);
+      }
+    },
+    [settle, onHold],
+  );
+
+  const overlayStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
+  }));
+
+  return (
+    <View style={[s.grid, { width, height }]}>
+      {stable.current.map((id) => {
+        const card = byId.get(id);
+        const rect = rects.get(id);
+        if (!card || !rect) return null;
+        return (
+          <Slot
+            key={id}
+            card={card}
+            rect={rect}
+            hidden={dragging?.card.id === id}
+            arrangeable={arrangeable}
+            onHold={held}
+            lift={lift}
+            move={move}
+            release={release}
+            placeholderColour={t.fg3}
+          >
+            {renderCard(card, canOpen)}
+          </Slot>
+        );
+      })}
+      {dragging ? (
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            s.overlay,
+            {
+              left: dragging.start.x,
+              top: dragging.start.y,
+              width: dragging.start.w,
+              height: dragging.start.h,
+              shadowColor: t.shadow,
+            },
+            overlayStyle,
+          ]}
+        >
+          {renderCard(dragging.card, () => false)}
+        </Animated.View>
+      ) : null}
+    </View>
+  );
+}
+
+function Slot({
+  card,
+  rect,
+  hidden,
+  arrangeable,
+  onHold,
+  lift,
+  move,
+  release,
+  placeholderColour,
+  children,
+}: {
+  card: HomeCard;
+  rect: Rect;
+  hidden: boolean;
+  arrangeable: boolean;
+  onHold: (card: HomeCard) => void;
+  lift: (card: HomeCard) => void;
+  move: (dx: number, dy: number) => void;
+  release: (moved: boolean) => void;
+  placeholderColour: string;
+  children: ReactNode;
+}) {
+  // The place slides when the order changes (not on first show).
+  const left = useSharedValue(rect.x);
+  const top = useSharedValue(rect.y);
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      left.value = rect.x;
+      top.value = rect.y;
+    } else {
+      left.value = withSpring(rect.x, SETTLE);
+      top.value = withSpring(rect.y, SETTLE);
+    }
+  }, [rect.x, rect.y, left, top]);
+  const place = useAnimatedStyle(() => ({ left: left.value, top: top.value }));
+
+  const moved = useSharedValue(false);
+  // Hold: the card lifts. Let go without moving: its menu. Move: it follows the finger.
+  const pan = Gesture.Pan()
+    .activateAfterLongPress(HOLD_MS)
+    .enabled(arrangeable)
+    .onStart(() => {
+      moved.value = false;
+      runOnJS(lift)(card);
+    })
+    .onUpdate((e) => {
+      if (!moved.value && Math.hypot(e.translationX, e.translationY) > MOVE_PX) moved.value = true;
+      if (moved.value) runOnJS(move)(e.translationX, e.translationY);
+    })
+    .onEnd(() => {
+      runOnJS(release)(moved.value);
+    });
+  const hold = Gesture.LongPress()
+    .minDuration(HOLD_MS)
+    .enabled(!arrangeable)
+    .onStart(() => {
+      runOnJS(onHold)(card);
+    });
+  return (
+    <GestureDetector gesture={Gesture.Exclusive(pan, hold)}>
+      <Animated.View style={[s.slot, { width: rect.w, height: rect.h }, place]}>
+        {hidden ? (
+          <View style={[StyleSheet.absoluteFill, s.placeholder, { borderColor: placeholderColour }]} />
+        ) : null}
+        {/* Lifted: the card under the finger takes no tap, so letting go never opens it. */}
+        <View style={[s.fill, hidden && { opacity: 0 }]} pointerEvents={hidden ? "none" : "auto"}>
+          {children}
+        </View>
+      </Animated.View>
+    </GestureDetector>
+  );
+}
+
+const s = StyleSheet.create({
+  grid: { position: "relative" },
+  slot: { position: "absolute" },
+  fill: { flex: 1 },
+  placeholder: { borderRadius: radius.card, borderWidth: 1.5, borderStyle: "dashed", opacity: 0.6 },
+  overlay: {
+    position: "absolute",
+    shadowOpacity: 1,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 12,
+  },
+});

@@ -321,6 +321,7 @@ export const spaceOperations = [
         mode: i.mode,
         pinned: i.pinned,
         add_fields: i.add_fields,
+        card_size: i.card_size,
       });
     },
   }),
@@ -343,6 +344,7 @@ export const spaceOperations = [
         pinned: i.pinned,
         position: i.position,
         add_fields: i.add_fields,
+        card_size: i.card_size,
       });
     },
   }),

@@ -1,5 +1,6 @@
-// The chat, one pull away from the home. Opened from a card it knows which one. Messages typed
-// offline wait in the outbox and go when the connection is back.
+// The chat, one pull away from the home. Opened from a card it knows which one (and a card's
+// menu can start the message: "Share this with "). Confirm cards are answered here. Messages
+// typed offline wait in the outbox and go when the connection is back.
 import { useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -19,6 +20,7 @@ import { send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
 
 const MAIN = "main";
+const enc = encodeURIComponent;
 const SUGGEST = [
   "What's due this week?",
   "Spent 450 on chai",
@@ -30,9 +32,9 @@ export default function Chat() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { card } = useLocalSearchParams<{ card?: string }>();
+  const { card, ask } = useLocalSearchParams<{ card?: string; ask?: string }>();
   const [view, setView] = useState<ChatView | null>(null);
-  const [text, setText] = useState("");
+  const [text, setText] = useState(ask ?? "");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const list = useRef<FlatList<ChatItem>>(null);
@@ -88,6 +90,20 @@ export default function Chat() {
     }
   };
 
+  // online-only: a confirm card runs (or drops) its action on the server, once.
+  const answer = async (actionId: string, what: "confirm" | "cancel") => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      setView(await request<ChatView>("POST", `/api/chats/${MAIN}/actions/${enc(actionId)}/${what}`, {}));
+      setNote("");
+    } catch (e) {
+      setNote(isOffline(e) ? "Confirming needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -108,7 +124,7 @@ export default function Chat() {
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ padding: 14, gap: 4 }}
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
-        renderItem={({ item }) => <Bubble item={item} />}
+        renderItem={({ item }) => <Bubble item={item} onAnswer={answer} busy={busy} />}
         ListEmptyComponent={
           <Text style={[s.sys, { color: t.fg2 }]}>
             {note || (view ? "Say anything. Ask, add, or arrange your home." : "Loading…")}
@@ -134,6 +150,7 @@ export default function Chat() {
       />
       <View style={[s.compose, { paddingBottom: insets.bottom + 8 }]}>
         <TextInput
+          autoFocus={!!ask}
           accessibilityLabel="Message Gigspree"
           placeholder={card ? `Ask about ${card}` : "Ask, add or arrange"}
           placeholderTextColor={t.fg2}
@@ -157,7 +174,15 @@ export default function Chat() {
   );
 }
 
-function Bubble({ item }: { item: ChatItem }) {
+function Bubble({
+  item,
+  onAnswer,
+  busy,
+}: {
+  item: ChatItem;
+  onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
+  busy: boolean;
+}) {
   const { t } = useTheme();
   if (item.role === "user")
     return (
@@ -177,9 +202,35 @@ function Bubble({ item }: { item: ChatItem }) {
         ))}
         {item.text ? <Text style={[s.bubText, { color: t.fg2 }]}>{item.text}</Text> : null}
         {item.card?.status === "waiting" ? (
+          <View style={s.answers}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => onAnswer(item.card!.action_id, "confirm")}
+              style={[s.answer, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+            >
+              <Text style={{ color: t.onAccent, fontWeight: "700", fontSize: 14 }}>Confirm</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => onAnswer(item.card!.action_id, "cancel")}
+              style={[s.answer, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+            >
+              <Text style={{ color: t.fg, fontWeight: "600", fontSize: 14 }}>Not now</Text>
+            </Pressable>
+          </View>
+        ) : item.card && item.card.status !== "done" ? (
           <Text style={[s.sys, { color: t.fg2, textAlign: "left", padding: 0 }]}>
-            Open the website to confirm this one; confirm cards come to the app next.
+            {item.card.status === "cancelled"
+              ? "Not done."
+              : item.card.status === "expired"
+                ? "Expired."
+                : "Failed."}
+            {item.card.result ? ` ${item.card.result}` : ""}
           </Text>
+        ) : item.card?.result ? (
+          <Text style={[s.sys, { color: t.fg2, textAlign: "left", padding: 0 }]}>{item.card.result}</Text>
         ) : null}
       </View>
     );
@@ -218,6 +269,14 @@ const s = StyleSheet.create({
     marginVertical: 4,
   },
   cardTitle: { fontSize: 12, fontWeight: "700" },
+  answers: { flexDirection: "row", gap: 8, marginTop: 6 },
+  answer: {
+    height: 36,
+    paddingHorizontal: 16,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sys: { fontSize: 12, fontWeight: "600", textAlign: "center", padding: 6 },
   chip: {
     height: 34,

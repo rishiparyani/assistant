@@ -431,6 +431,8 @@ export interface SavedView {
   /** On the shortcuts bar (and, later, as an iPhone widget). */
   pinned: boolean;
   position: number;
+  /** How big its card is on the phone's home (null: the app picks). */
+  card_size: "s" | "m" | "l" | null;
   updated_at: string;
 }
 
@@ -444,6 +446,12 @@ const viewQuery = {
 };
 
 /** Only when the person asks for one: a quick add on the view (an add box with these fields). */
+/** The card's size on the home: s half width, m full width, l tall; null lets the app pick. */
+const cardSize = z
+  .enum(["s", "m", "l"])
+  .nullish()
+  .describe("Size of its card on the home: s (half width), m (full width), l (tall)");
+
 const addFields = z
   .array(z.string().trim().min(1).max(80))
   .max(10)
@@ -459,6 +467,7 @@ export const SaveViewInput = SpaceRef.extend({
   ...viewQuery,
   pinned: z.boolean().optional().describe("Put it on the shortcuts bar"),
   add_fields: addFields,
+  card_size: cardSize,
 });
 
 export const ViewRef = SpaceRef.extend({
@@ -471,6 +480,7 @@ export const UpdateViewInput = ViewRef.extend({
   pinned: z.boolean().optional(),
   position: z.number().optional(),
   add_fields: addFields,
+  card_size: cardSize,
 });
 
 export const OpenViewInput = ViewRef.extend({
