@@ -441,13 +441,22 @@ type ShareRow = {
   revoked_at: string | null;
 };
 
+/** Records reached from the triggering one through a link (either way). */
+type LinkPath = { field_id: string; dir: "out" | "in" };
 type WorkflowDef = {
   when: { event: WorkflowEvent; field_id: string | null; offset_minutes: number };
   check: Filter[];
   wait_minutes: number;
   then: (
-    | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
-    | { do: "set"; field_id: string; value: unknown }
+    | {
+        do: "notify";
+        text: string;
+        to: Person[];
+        to_fields?: string[];
+        /** The people in a person field of linked records ({Lineup.Player}). */
+        to_linked?: (LinkPath & { person_field_id: string })[];
+      }
+    | { do: "set"; field_id: string; value: unknown; via?: LinkPath; where?: Filter[] }
     | { do: "add"; collection_id: string; values: Record<string, unknown> }
   )[];
 };
@@ -480,7 +489,7 @@ export type WorkflowSpec = {
   wait_minutes: number;
   then: (
     | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
-    | { do: "set"; field: string; value: unknown }
+    | { do: "set"; field: string; value: unknown; via?: string; where?: Filter[] }
     | { do: "add"; collection: string; values: Record<string, unknown> }
   )[];
   enabled: boolean;
@@ -488,6 +497,8 @@ export type WorkflowSpec = {
 /** At most this many workflows per space, and this many workflow steps in a chain. */
 const MAX_WORKFLOWS = 100;
 const MAX_WORKFLOW_DEPTH = 3;
+/** A workflow sets a field on at most this many linked records at once. */
+const MAX_LINKED_SETS = 100;
 const DAY_TIME_IST = "09:00:00+05:30";
 
 type RuleDef = {
@@ -1012,39 +1023,7 @@ export class SpaceObject extends DurableObject<Env> {
       return { formula: o.formula.trim() };
     }
     const r = o.rollup!;
-    // The link: one of this collection's link fields, or a link elsewhere that points here.
-    const own = fields.find((f) => f.type === "link" && (f.id === r.via || f.name_key === nameKey(r.via)));
-    let via: FieldRow;
-    let dir: "out" | "in";
-    if (own) {
-      via = own;
-      dir = "out";
-    } else {
-      const incoming = this.sql
-        .exec<FieldRow & { collection_name: string }>(
-          `select f.*, c.name as collection_name from fields f join collections c on c.id = f.collection_id
-           where f.type = 'link' and f.deleted_at is null and c.deleted_at is null`,
-        )
-        .toArray()
-        .filter((f) => toField(f).options.target === collectionId)
-        .filter(
-          (f) =>
-            f.id === r.via ||
-            nameKey(f.collection_name) === nameKey(r.via) ||
-            nameKey(`${f.collection_name} ${f.name}`) === nameKey(r.via.replace(/[.:]/g, " ")),
-        );
-      if (incoming.length > 1)
-        throw new ObjectError("ambiguous", `More than one link from ${r.via}; which one?`, {
-          candidates: incoming.map((f) => ({ id: f.id, name: `${f.collection_name}: ${f.name}` })),
-        });
-      if (!incoming.length)
-        throw new ObjectError(
-          "validation_failed",
-          `"${r.via}" isn't a link field here or a collection that links here`,
-        );
-      via = incoming[0]!;
-      dir = "in";
-    }
+    const { via, dir } = this.resolveVia(collectionId, r.via, fields);
     const linkedCollection = dir === "out" ? toField(via).options.target : via.collection_id;
     let of: string | null = null;
     if (r.fn === "count") {
@@ -1064,7 +1043,99 @@ export class SpaceObject extends DurableObject<Env> {
         throw new ObjectError("validation_failed", `${f.name} is ${t}, but this field is ${type}`);
       of = f.id;
     }
-    return { rollup: { via: via.id, dir, fn: r.fn, of } };
+    let where: RuleFilter[] | undefined;
+    if (r.where?.length) {
+      if (!linkedCollection)
+        throw new ObjectError(
+          "validation_failed",
+          "That link can point anywhere; pick a link to one collection to filter it",
+        );
+      // Stored values are worked out in writes, so nothing that changes by itself: no
+      // "today"-style periods, and no "me" (whose?).
+      for (const w of r.where)
+        if (w.op === "period" || w.value === "me")
+          throw new ObjectError(
+            "validation_failed",
+            "A calculated field can't filter by a period like today or by “me”; use fixed values",
+          );
+      where = this.checkViewQuery(this.requireCollection(linkedCollection), { filters: r.where })
+        .filters as RuleFilter[];
+    }
+    return { rollup: { via: via.id, dir, fn: r.fn, of, ...(where ? { where } : {}) } };
+  }
+
+  /**
+   * A link that reaches other records from this collection's records: one of its link
+   * fields ("out"), or a link field elsewhere that points here, named by its collection
+   * ("Payments") or collection and field ("Payments Gig") ("in").
+   */
+  private resolveVia(
+    collectionId: string,
+    ref: string,
+    fields = this.fieldRows(collectionId),
+  ): { via: FieldRow; dir: "out" | "in"; target: string | null } {
+    // The link: one of this collection's link fields, or a link elsewhere that points here.
+    const own = fields.find((f) => f.type === "link" && (f.id === ref || f.name_key === nameKey(ref)));
+    if (own) return { via: own, dir: "out", target: toField(own).options.target ?? null };
+    const incoming = this.sql
+      .exec<FieldRow & { collection_name: string }>(
+        `select f.*, c.name as collection_name from fields f join collections c on c.id = f.collection_id
+           where f.type = 'link' and f.deleted_at is null and c.deleted_at is null`,
+      )
+      .toArray()
+      .filter((f) => toField(f).options.target === collectionId)
+      .filter(
+        (f) =>
+          f.id === ref ||
+          nameKey(f.collection_name) === nameKey(ref) ||
+          nameKey(`${f.collection_name} ${f.name}`) === nameKey(ref.replace(/[.:]/g, " ")),
+      );
+    if (incoming.length > 1)
+      throw new ObjectError("ambiguous", `More than one link from ${ref}; which one?`, {
+        candidates: incoming.map((f) => ({ id: f.id, name: `${f.collection_name}: ${f.name}` })),
+      });
+    if (!incoming.length)
+      throw new ObjectError(
+        "validation_failed",
+        `"${ref}" isn't a link field here or a collection that links here`,
+      );
+    return { via: incoming[0]!, dir: "in", target: incoming[0]!.collection_id };
+  }
+
+  /** A link to one collection's records, for workflows (a link that can point anywhere won't do). */
+  private linkPath(collectionId: string, ref: string): LinkPath & { target: string } {
+    const { via, dir, target } = this.resolveVia(collectionId, ref.trim());
+    if (!target)
+      throw new ObjectError("validation_failed", `${via.name} can point anywhere; use a link to one list`);
+    return { field_id: via.id, dir, target };
+  }
+
+  /** A link's name as people see it: the field here, or the list that links here. */
+  private linkPathName(p: LinkPath): string {
+    const f = this.liveField(p.field_id);
+    if (!f) return "(removed link)";
+    if (p.dir === "out") return f.name;
+    return (
+      this.sql
+        .exec<{ name: string }>(`select name from collections where id = ?`, f.collection_id)
+        .toArray()[0]?.name ?? f.name
+    );
+  }
+
+  /** The live records linked to or from a record through a link. */
+  private linkedIds(via: string, dir: "out" | "in", recordId: string): string[] {
+    return this.sql
+      .exec<{ id: string }>(
+        dir === "in"
+          ? `select l.from_id as id from links l join records x on x.id = l.from_id
+             where l.field_id = ? and l.to_id = ? and x.deleted_at is null`
+          : `select l.to_id as id from links l join records x on x.id = l.to_id
+             where l.field_id = ? and l.from_id = ? and x.deleted_at is null`,
+        via,
+        recordId,
+      )
+      .toArray()
+      .map((x) => x.id);
   }
 
   /** The calculated fields of a collection (none for most). */
@@ -1096,18 +1167,9 @@ export class SpaceObject extends DurableObject<Env> {
     for (const f of computed) {
       const ru = toField(f).options.rollup;
       if (!ru) continue;
-      const ids = this.sql
-        .exec<{ id: string }>(
-          ru.dir === "in"
-            ? `select l.from_id as id from links l join records x on x.id = l.from_id
-               where l.field_id = ? and l.to_id = ? and x.deleted_at is null`
-            : `select l.to_id as id from links l join records x on x.id = l.to_id
-               where l.field_id = ? and l.from_id = ? and x.deleted_at is null`,
-          ru.via,
-          r.id,
-        )
-        .toArray()
-        .map((x) => x.id);
+      let ids = this.linkedIds(ru.via, ru.dir ?? "out", r.id);
+      // Only the linked records that match (e.g. the shows among a gig's events).
+      if (ru.where?.length && ids.length) ids = this.matching(ru, ids);
       if (ru.fn === "count") {
         next[f.id] = ids.length;
         continue;
@@ -1148,6 +1210,33 @@ export class SpaceObject extends DurableObject<Env> {
         );
     }
     return true;
+  }
+
+  /** The ids, among linked records, that match a rollup's filters (in chunks: few SQL args). */
+  private matching(ru: NonNullable<FieldOptions["rollup"]>, ids: string[]): string[] {
+    const via = this.liveField(ru.via);
+    const target = via ? (ru.dir === "in" ? via.collection_id : toField(via).options.target) : null;
+    return target ? this.matchingIn(target, (ru.where ?? []) as Filter[], ids) : [];
+  }
+
+  /** The ids, among these records of a collection, matching all the filters (few SQL args each). */
+  private matchingIn(
+    collectionId: string,
+    filters: Filter[],
+    ids: string[],
+    actor: Actor = { userId: null, source: "system" },
+  ): string[] {
+    const c = this.sql
+      .exec<CollectionRow>(`select * from collections where id = ? and deleted_at is null`, collectionId)
+      .toArray()[0];
+    if (!c) return [];
+    if (!filters.length) return ids;
+    const out: string[] = [];
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
+      out.push(...this.findRows(actor, c, { filters, ids: part, limit: part.length }).rows.map((x) => x.id));
+    }
+    return out;
   }
 
   /** Records whose links a write just removed (their rollups change too). */
@@ -1418,6 +1507,32 @@ export class SpaceObject extends DurableObject<Env> {
           "conflict",
           `${f.name} is used by a rule (${this.ruleView(user).words}); remove the rule first`,
           { reason: "rule", rule_id: user.id },
+        );
+      // So would a rollup elsewhere that filters by it, or a workflow that picks linked
+      // records by it: those go (or change) first.
+      const rollup = this.sql
+        .exec<FieldRow>(`select * from fields where deleted_at is null and options_json like '%"where"%'`)
+        .toArray()
+        .find((g) => (toField(g).options.rollup?.where ?? []).some((w) => w.field === f.id));
+      if (rollup)
+        throw new ObjectError(
+          "conflict",
+          `${f.name} is used by the calculated field ${rollup.name}; change or remove it first`,
+          { reason: "rollup", field_id: rollup.id },
+        );
+      const flow = this.sql
+        .exec<WorkflowRow>(`select * from workflows where deleted_at is null`)
+        .toArray()
+        .find((w) =>
+          (JSON.parse(w.def_json) as WorkflowDef).then.some(
+            (a) => a.do === "set" && (a.where ?? []).some((x) => x.field === f.id),
+          ),
+        );
+      if (flow)
+        throw new ObjectError(
+          "conflict",
+          `${f.name} is used by the workflow ${flow.name}; change or remove it first`,
+          { reason: "workflow", workflow_id: flow.id },
         );
       this.sql.exec(`update fields set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, f.id);
       this.sql.exec(`delete from record_values where field_id = ?`, f.id);
@@ -1859,6 +1974,9 @@ export class SpaceObject extends DurableObject<Env> {
   private personValue(f: FieldRow, raw: unknown, actor: Actor | null): StoredValue {
     if (typeof raw === "string" && nameKey(raw) === "me" && actor?.userId)
       return { user_id: actor.userId, name: this.personNames([actor.userId]).get(actor.userId) ?? "me" };
+    // An account id of someone the space knows (from list_people) is that person.
+    if (typeof raw === "string" && this.knownPerson(raw.trim()))
+      return { user_id: raw.trim(), name: this.personNames([raw.trim()]).get(raw.trim()) ?? raw.trim() };
     const v = normalizeValue(toField(f), raw);
     if (v && typeof v === "object" && !Array.isArray(v) && v.user_id && !this.knownPerson(v.user_id))
       return { user_id: null, name: v.name };
@@ -3056,16 +3174,60 @@ export class SpaceObject extends DurableObject<Env> {
     const then = spec.then.map((a): WorkflowDef["then"][number] => {
       if (a.do === "notify") {
         // {Who}: the person named in that field of the record (someone in the space or its shares).
-        const to_fields = (a.to_fields ?? []).map((ref) => {
-          const f = this.matchField(fields, ref);
+        const person = (f: FieldRow) => {
           if (f.type !== "person" || toField(f).options.personal)
             throw new ObjectError("validation_failed", `${f.name} isn't a person field`);
           return f.id;
-        });
-        if (!a.to.length && !to_fields.length) throw new ObjectError("validation_failed", "Say who to tell");
-        return { do: "notify", text: a.text, to: a.to, ...(to_fields.length ? { to_fields } : {}) };
+        };
+        const to_fields: string[] = [];
+        const to_linked: NonNullable<Extract<WorkflowDef["then"][number], { do: "notify" }>["to_linked"]> =
+          [];
+        for (const ref of a.to_fields ?? []) {
+          const own = fields.find((f) => f.id === ref || f.name_key === nameKey(ref));
+          const dot = ref.indexOf(".");
+          if (own || dot < 0) {
+            to_fields.push(person(this.matchField(fields, ref)));
+            continue;
+          }
+          // {Lineup.Player}: the people in a person field of the records linked through Lineup.
+          const path = this.linkPath(c.id, ref.slice(0, dot));
+          const target = this.fieldRows(path.target);
+          to_linked.push({
+            field_id: path.field_id,
+            dir: path.dir,
+            person_field_id: person(this.matchField(target, ref.slice(dot + 1))),
+          });
+        }
+        if (!a.to.length && !to_fields.length && !to_linked.length)
+          throw new ObjectError("validation_failed", "Say who to tell");
+        return {
+          do: "notify",
+          text: a.text,
+          to: a.to,
+          ...(to_fields.length ? { to_fields } : {}),
+          ...(to_linked.length ? { to_linked } : {}),
+        };
       }
       if (a.do === "set") {
+        if (a.via) {
+          // Set a field on the linked records (those matching `where`), e.g. release the holds.
+          const path = this.linkPath(c.id, a.via);
+          const tc = this.requireCollection(path.target);
+          const tf = this.fieldRows(tc.id);
+          const f = this.matchField(tf, a.field);
+          noLinks(f);
+          this.readValues(tf, { [f.id]: a.value });
+          const where = this.checkViewQuery(tc, { filters: a.where ?? [] }).filters;
+          return {
+            do: "set",
+            field_id: f.id,
+            value: a.value,
+            via: { field_id: path.field_id, dir: path.dir },
+            ...(where.length ? { where } : {}),
+          };
+        }
+        if (a.where?.length)
+          throw new ObjectError("validation_failed", "A filter only fits a set on linked records (via)");
         const f = this.matchField(fields, a.field);
         noLinks(f);
         this.readValues(fields, { [f.id]: a.value });
@@ -3136,10 +3298,31 @@ export class SpaceObject extends DurableObject<Env> {
               to: [
                 ...a.to,
                 ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
+                ...(a.to_linked ?? []).map((l) => ({
+                  user_id: "",
+                  name: `{${this.linkPathName(l)}.${fieldName(l.person_field_id)}}`,
+                })),
               ],
             }
           : a.do === "set"
-            ? { do: "set", field_id: a.field_id, field: fieldName(a.field_id), value: a.value }
+            ? {
+                do: "set",
+                field_id: a.field_id,
+                field: fieldName(a.field_id),
+                value: a.value,
+                ...(a.via
+                  ? {
+                      via: this.linkPathName(a.via),
+                      where: (a.where ?? []).map((f) => ({
+                        field_id: f.field,
+                        field: fieldName(f.field),
+                        op: f.op,
+                        value: f.value ?? null,
+                        ...this.shownValue(f),
+                      })),
+                    }
+                  : {}),
+              }
             : {
                 do: "add",
                 collection_id: a.collection_id,
@@ -3375,7 +3558,17 @@ export class SpaceObject extends DurableObject<Env> {
           const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
           return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
         });
-        const people = [...a.to, ...named];
+        // The people in a person field of linked records (everyone in the Lineup), once each.
+        const linked = (a.to_linked ?? []).flatMap((l) =>
+          this.linkedIds(l.field_id, l.dir, r.id).flatMap((id) => {
+            const v = this.currentValues(id)[l.person_field_id];
+            const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
+            return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
+          }),
+        );
+        const people = [...a.to, ...named, ...linked].filter(
+          (p, i, all) => !p.user_id || all.findIndex((q) => q.user_id === p.user_id) === i,
+        );
         for (const p of people)
           if (p.user_id)
             tell.push({
@@ -3386,6 +3579,21 @@ export class SpaceObject extends DurableObject<Env> {
           people.length
             ? `Told ${people.map((p) => p.name).join(", ")}: “${body}”`
             : "Nobody to tell: the record names nobody in the space",
+        );
+      } else if (a.do === "set" && a.via) {
+        const field = this.liveField(a.field_id);
+        const ids = field
+          ? this.matchingIn(
+              field.collection_id,
+              a.where ?? [],
+              this.linkedIds(a.via.field_id, a.via.dir, r.id),
+              actor, // as the workflow's maker, like its check ("me" is them)
+            ).slice(0, MAX_LINKED_SETS)
+          : [];
+        for (const id of ids)
+          this.changeRecord(actor, ts, this.requireRecord(id), { values: { [a.field_id]: a.value } });
+        did.push(
+          `Set ${field?.name ?? "a field"} on ${ids.length} linked record${ids.length === 1 ? "" : "s"} (${this.linkPathName(a.via)})`,
         );
       } else if (a.do === "set") {
         this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });

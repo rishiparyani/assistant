@@ -77,10 +77,18 @@ export function setupWords(s: SetupDef): string[] {
       else if (f.options?.formula) out.push(`${f.name} in ${c.name} = ${f.options.formula}`);
       else if (f.options?.rollup) {
         const r = f.options.rollup;
+        const only = (r.where ?? [])
+          .map((w) =>
+            w.op === "empty" || w.op === "not_empty"
+              ? `${w.field} ${w.op === "empty" ? "is empty" : "isn't empty"}`
+              : `${w.field} ${w.op === "eq" ? "is" : w.op === "ne" ? "isn't" : w.op} ${Array.isArray(w.value) ? w.value.join(" or ") : String(w.value ?? "")}`,
+          )
+          .join(" and ");
         out.push(
-          r.fn === "count"
+          (r.fn === "count"
             ? `${f.name} in ${c.name} counts the records linked through ${r.via}`
-            : `${f.name} in ${c.name} is the ${r.fn === "sum" ? "total" : r.fn === "min" ? "lowest" : "highest"} ${r.of ?? "?"} of the records linked through ${r.via}`,
+            : `${f.name} in ${c.name} is the ${r.fn === "sum" ? "total" : r.fn === "min" ? "lowest" : "highest"} ${r.of ?? "?"} of the records linked through ${r.via}`) +
+            (only ? ` where ${only}` : ""),
         );
       }
     }
