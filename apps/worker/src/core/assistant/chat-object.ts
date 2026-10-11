@@ -16,6 +16,11 @@ import {
   outboxFailed,
   outboxNote,
   setMeta,
+  backupTables,
+  exportTables,
+  importTables,
+  hasData,
+  type ObjectDump,
   type Actor,
   type Migrations,
 } from "../objects/storage.ts";
@@ -450,6 +455,31 @@ export class ChatObject extends DurableObject<Env> {
   async ownTitle(userId: string): Promise<string | null> {
     this.own(userId);
     return getMeta(this.sql, "title");
+  }
+
+  /** Everything needed to restore this chat (not idempotency records or the outbox). */
+  async exportData(): Promise<ObjectDump | null> {
+    const used =
+      this.sql.exec(`select 1 from messages limit 1`).toArray().length ||
+      this.sql.exec(`select 1 from sqlite_master where name = 'chats'`).toArray().length;
+    if (!used) return null;
+    return exportTables(this.sql, backupTables(this.sql));
+  }
+
+  /** Restores a backup into this chat if it holds nothing yet; never overwrites anything. */
+  async importData(dump: ObjectDump): Promise<boolean> {
+    // Not just messages: a cleared chat still keeps memories, its list of chats and history.
+    if (hasData(this.sql)) return false;
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables), MIGRATIONS);
+    return true;
+  }
+
+  /** The other chats' ids (for backups). */
+  async chatIds(): Promise<string[]> {
+    return this.sql
+      .exec<{ id: string }>(`select id from chats`)
+      .toArray()
+      .map((r) => r.id);
   }
 
   override async alarm(): Promise<void> {

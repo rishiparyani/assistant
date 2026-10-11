@@ -208,6 +208,21 @@ export interface ObjectDump {
   tables: TableDump;
 }
 
+/**
+ * The tables worth keeping in a backup: everything the object made, plus its meta and audit
+ * history; not idempotency records, the outbox or the schema row (made again on restore).
+ */
+export function backupTables(sql: SqlStorage): string[] {
+  return sql
+    .exec<{ name: string }>(
+      `select name from sqlite_master where type = 'table' and name not like 'sqlite_%'
+       and substr(name, 1, 4) != '_cf_' and name not in ('_idempotency', '_outbox', '_schema')
+       order by name`,
+    )
+    .toArray()
+    .map((r) => r.name);
+}
+
 /** Every row of the given tables, with the object's schema version. */
 export function exportTables(sql: SqlStorage, tables: readonly string[]): ObjectDump {
   const version = Number(sql.exec(`select version from _schema`).one().version);
@@ -217,15 +232,38 @@ export function exportTables(sql: SqlStorage, tables: readonly string[]): Object
 }
 
 /**
- * Puts a dump back into an empty object (same schema version). Rows are inserted as-is,
- * inside one transaction; nothing is overwritten.
+ * Puts a dump back into an empty object. Rows are inserted as-is, inside one transaction;
+ * nothing is overwritten. A dump from an older schema version is put into that version's
+ * tables and then brought up to date by the later migrations, as if it had been there all
+ * along; a dump from a newer version is refused.
  */
-export function importTables(storage: DurableObjectStorage, dump: ObjectDump, tables: readonly string[]) {
+export function importTables(
+  storage: DurableObjectStorage,
+  dump: ObjectDump,
+  tables: readonly string[],
+  migrations: Migrations,
+) {
   const sql = storage.sql;
   const version = Number(sql.exec(`select version from _schema`).one().version);
-  if (dump.version !== version)
-    throw new Error(`Backup is from schema version ${dump.version}; this object is at ${version}`);
+  if (dump.version > version || dump.version < 1)
+    throw new ObjectError(
+      "validation_failed",
+      `Backup is from schema version ${dump.version}; this object is at ${version}`,
+    );
   storage.transactionSync(() => {
+    if (dump.version < version) {
+      // Start again from nothing (the object is empty), up to the backup's version.
+      const own = sql
+        .exec<{ name: string }>(
+          `select name from sqlite_master where type = 'table' and name not like 'sqlite_%'
+           and substr(name, 1, 4) != '_cf_' and name != '_schema'`,
+        )
+        .toArray()
+        .map((r) => r.name);
+      for (const t of own) sql.exec(`drop table if exists ${t}`);
+      sql.exec(`update _schema set version = 0`);
+      migrate(sql, migrations.slice(0, dump.version));
+    }
     for (const t of tables) {
       for (const row of dump.tables[t] ?? []) {
         const cols = Object.keys(row);
@@ -236,5 +274,11 @@ export function importTables(storage: DurableObjectStorage, dump: ObjectDump, ta
         );
       }
     }
+    migrate(sql, migrations);
   });
+}
+
+/** Whether an object holds anything worth keeping (any row in the tables a backup takes). */
+export function hasData(sql: SqlStorage): boolean {
+  return backupTables(sql).some((t) => sql.exec(`select 1 from ${t} limit 1`).toArray().length > 0);
 }

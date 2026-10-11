@@ -14,7 +14,11 @@ import {
   nowIso,
   outboxFailed,
   outboxNote,
+  backupTables,
+  exportTables,
+  importTables,
   type Actor,
+  type ObjectDump,
   type Migrations,
 } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
@@ -66,6 +70,19 @@ export class GroupObject extends DurableObject<Env> {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+  }
+
+  /** Everything needed to restore this group (not idempotency records or the outbox). */
+  async exportData(): Promise<ObjectDump | null> {
+    if (!this.sql.exec(`select 1 from grp`).toArray().length) return null;
+    return exportTables(this.sql, backupTables(this.sql));
+  }
+
+  /** Restores a backup into this group if it's empty; never overwrites anything. */
+  async importData(dump: ObjectDump): Promise<boolean> {
+    if (this.sql.exec(`select 1 from grp`).toArray().length) return false;
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables), MIGRATIONS);
+    return true;
   }
 
   /**
