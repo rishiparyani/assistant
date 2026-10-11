@@ -25,6 +25,20 @@ export const AddRuleInput = CollectionRef.extend({
     .max(3)
     .optional()
     .describe("unique: the fields that together may not repeat, e.g. Song and Instrument"),
+  at_most: z
+    .number()
+    .int()
+    .min(1)
+    .max(100_000)
+    .optional()
+    .describe("unique: allow up to this many per those fields instead of one (e.g. 3 guests per Host)"),
+  of: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("unique with at_most: add up this number field instead of counting records (e.g. Heads)"),
   only_if: z
     .array(FilterInput)
     .max(5)
@@ -49,6 +63,9 @@ export interface RuleView {
   collection: string;
   require: { field_id: string; field: string; op: FilterOp; value: RuleFilter["value"] | null }[];
   fields: { id: string; name: string }[];
+  /** unique: how many may share the fields (1: only one), and the number field added up, if any. */
+  at_most?: number;
+  of?: { id: string; name: string } | null;
   only_if: { field_id: string; field: string; op: FilterOp; value: RuleFilter["value"] | null }[];
   field: { id: string; name: string } | null;
   moves: Record<string, string[]>;
@@ -82,8 +99,12 @@ export function ruleWords(
 ): string {
   const where = r.only_if.length ? ` when ${r.only_if.map(cond).join(" and ")}` : "";
   if (r.kind === "check") return `In ${r.collection}${where}: ${r.require.map(cond).join(" and ")}`;
-  if (r.kind === "unique")
-    return `In ${r.collection}, only one record${where} per ${r.fields.map((f) => f.name).join(" and ")}`;
+  if (r.kind === "unique") {
+    const per = r.fields.map((f) => f.name).join(" and ");
+    if (r.of) return `In ${r.collection}, at most ${r.at_most ?? 1} ${r.of.name} in all${where} per ${per}`;
+    if ((r.at_most ?? 1) > 1) return `In ${r.collection}, at most ${r.at_most} records${where} per ${per}`;
+    return `In ${r.collection}, only one record${where} per ${per}`;
+  }
   const moves = Object.entries(r.moves)
     .map(([from, to]) => `${from} → ${to.length ? to.join(" or ") : "nothing"}`)
     .join("; ");

@@ -504,6 +504,9 @@ const DAY_TIME_IST = "09:00:00+05:30";
 type RuleDef = {
   require: Filter[];
   fields: string[];
+  /** unique: how many may share the fields (default 1), and a number field added up instead. */
+  at_most?: number;
+  of?: string | null;
   only_if: Filter[];
   field: string | null;
   moves: Record<string, string[]>;
@@ -543,6 +546,8 @@ interface RuleInput {
   kind: RuleKind;
   require?: Filter[];
   fields?: string[];
+  at_most?: number;
+  of?: string;
   only_if?: Filter[];
   field?: string;
   moves?: Record<string, string[]>;
@@ -2330,12 +2335,13 @@ export class SpaceObject extends DurableObject<Env> {
     const value = (raw: unknown): unknown => {
       if (f.type === "person") {
         if (raw === "me") return `user:${actor.userId}`;
+        // A stored person value (rules compare records' own values), or an id or a name.
+        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+          const p = raw as { user_id?: string | null; name?: string };
+          return p.user_id ? `user:${p.user_id}` : `name:${nameKey(p.name ?? "")}`;
+        }
         const s = String(raw);
-        const member = this.sql
-          .exec<{ user_id: string }>(`select user_id from members`)
-          .toArray()
-          .find((m) => m.user_id === s);
-        return member ? `user:${s}` : `name:${nameKey(s)}`;
+        return this.knownPerson(s) ? `user:${s}` : `name:${nameKey(s)}`;
       }
       const v = normalizeValue(toField(f), raw);
       if (v === null) throw new ObjectError("validation_failed", `${f.name}: a value is needed`);
@@ -2820,7 +2826,23 @@ export class SpaceObject extends DurableObject<Env> {
           throw new ObjectError("validation_failed", `${f.name} can't be part of a uniqueness rule`);
         return f.id;
       });
-      def = { require: [], fields: [...new Set(ids)], only_if, field: null, moves: {} };
+      let of: string | null = null;
+      if (input.of) {
+        const f = this.matchField(fields, input.of);
+        if (f.type !== "number" && f.type !== "money")
+          throw new ObjectError("validation_failed", `${f.name} isn't a number to add up`);
+        if (!input.at_most) throw new ObjectError("validation_failed", `Say at most how much ${f.name}`);
+        of = f.id;
+      }
+      def = {
+        require: [],
+        fields: [...new Set(ids)],
+        ...((input.at_most ?? 1) > 1 || of ? { at_most: input.at_most } : {}),
+        ...(of ? { of } : {}),
+        only_if,
+        field: null,
+        moves: {},
+      };
     } else {
       if (!input.field || !input.moves)
         throw new ObjectError("validation_failed", "Say the field and its moves");
@@ -2922,6 +2944,9 @@ export class SpaceObject extends DurableObject<Env> {
       collection,
       require: def.require.map(cond),
       fields: def.fields.map((id) => ({ id, name: name(id) })),
+      ...(r.kind === "unique"
+        ? { at_most: def.at_most ?? 1, of: def.of ? { id: def.of, name: name(def.of) } : null }
+        : {}),
       only_if: def.only_if.map(cond),
       field: def.field ? { id: def.field, name: name(def.field) } : null,
       moves: def.moves,
@@ -2991,6 +3016,24 @@ export class SpaceObject extends DurableObject<Env> {
             : (after[fid] ?? null);
         return v === null ? { field: fid, op: "empty" } : { field: fid, op: "eq", value: v };
       });
+      if (def.of || (def.at_most ?? 1) > 1) {
+        // "At most N per …": count the records sharing the fields (this one included), or add
+        // up a number field across them.
+        const rows = this.findRows(system, c, { filters: [...def.only_if, ...same], limit: 1000 }).rows;
+        const total = def.of
+          ? rows.reduce((n, x) => {
+              const v = (JSON.parse(x.values_json) as Record<string, StoredValue>)[def.of!];
+              return n + (typeof v === "number" ? v : 0);
+            }, 0)
+          : rows.length;
+        if (total > (def.at_most ?? 1))
+          throw new ObjectError(
+            "conflict",
+            say(`${existing ? `“${title()}” already goes past this. ` : ""}Rule: ${this.ruleView(r).words}.`),
+            { reason: "limit", rule_id: r.id },
+          );
+        return;
+      }
       const others = this.findRows(system, c, { filters: [...def.only_if, ...same], limit: 6 }).rows.filter(
         (x) => x.id !== recordId,
       );
@@ -4314,6 +4357,15 @@ export class SpaceObject extends DurableObject<Env> {
         for (const id of ids)
           if (typeof id !== "string" || !this.reachable(actor, id))
             throw new ObjectError("forbidden", `You can't link ${f.name} to that here`);
+      }
+      // Through a share, a person field names only the writer ("me"): nobody adds a guest,
+      // a sign-up or a task in someone else's name.
+      if (f.type === "person") {
+        const other =
+          typeof v === "string"
+            ? v.trim() !== actor.userId && this.knownPerson(v.trim())
+            : !!v && typeof v === "object" && "user_id" in v && !!v.user_id && v.user_id !== actor.userId;
+        if (other) throw new ObjectError("forbidden", `Here ${f.name} can only be you`);
       }
       out[f.id] = v;
     }
