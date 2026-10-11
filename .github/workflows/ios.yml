@@ -127,7 +127,9 @@ jobs:
           xcodebuild -workspace Gigspree.xcworkspace -scheme Gigspree -configuration Release \
             -destination "platform=iOS Simulator,id=$PHONE" -derivedDataPath "$RUNNER_TEMP/dd" \
             CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/build.log" 2>&1 \
-            || { grep -iE "error|failed" -B8 -A3 "$RUNNER_TEMP/build.log" | tail -120; exit 1; }
+            || { echo "--- bundle phase output ---"; \
+                 awk '/PhaseScriptExecution.*Bundle/{p=1} p && !/^ *export /{print}' "$RUNNER_TEMP/build.log" | head -150; \
+                 echo "--- errors ---"; grep -E "^.*error:" "$RUNNER_TEMP/build.log" | grep -v "export " | head -20; exit 1; }
           tail -3 "$RUNNER_TEMP/build.log"
 
       - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
