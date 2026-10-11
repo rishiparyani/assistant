@@ -55,4 +55,51 @@ describe("quick adds", () => {
     );
     expect(plain.add_fields).toEqual([]);
   });
+
+  it("refuses one a list's required links would break, and hides one a later change breaks", async () => {
+    const me = await signUp("Test Quick Links", undefined, { lists: false });
+    await api(me)("/collections", { body: { name: "Gigs", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections", {
+      body: {
+        name: "Payments",
+        fields: [
+          { name: "Note", type: "text" },
+          { name: "Amount", type: "money" },
+          { name: "Gig", type: "link", required: true, options: { target: "Gigs" } },
+        ],
+      },
+    });
+    // A required link can't be filled by a quick add.
+    expect(
+      (
+        await api(me)("/views", {
+          body: { name: "Test pay", collection: "Payments", add_fields: ["Note", "Amount"] },
+        })
+      ).status,
+    ).toBe(400);
+
+    await api(me)("/collections", {
+      body: {
+        name: "Notes2",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Body", type: "long_text" },
+        ],
+      },
+    });
+    const view = await json<SavedView>(
+      await api(me)("/views", { body: { name: "Test notes", collection: "Notes2", add_fields: ["Title"] } }),
+    );
+    expect(view.add_fields).toHaveLength(1);
+    // A new required field it doesn't fill: the add box is hidden instead of failing.
+    expect(
+      (
+        await api(me)("/collections/Notes2/fields", {
+          body: { field: { name: "Tag", type: "text", required: true } },
+        })
+      ).status,
+    ).toBe(201);
+    const after = await json<{ view: SavedView }>(await api(me)(`/views/${view.id}`));
+    expect(after.view.add_fields).toEqual([]);
+  });
 });

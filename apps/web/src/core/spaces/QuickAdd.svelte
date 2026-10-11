@@ -1,7 +1,8 @@
 <script lang="ts">
   import { ValueError, type CollectionView, type StoredValue } from "@assistant/shared";
-  import { Button, toast } from "../ui/index.ts";
+  import { Button, Pill, toast } from "../ui/index.ts";
   import { connection } from "../offline.svelte.ts";
+  import { outbox } from "../outbox.svelte.ts";
   import ValueField from "./ValueField.svelte";
   import { addRecord, formValue, readForm } from "./spaces-api.ts";
 
@@ -18,6 +19,11 @@
   let form = $state<Record<string, unknown>>({});
   let errors = $state<Record<string, string>>({});
   let busy = $state(false);
+  // What this box added that hasn't reached the server yet (offline): shown here at once.
+  let added = $state<{ id: string; title: string }[]>([]);
+  const waiting = $derived(
+    added.filter((a) => outbox.waiting.some((c) => (c.args as { id?: string } | undefined)?.id === a.id)),
+  );
   $effect(() => {
     void fieldIds;
     form = blank();
@@ -39,7 +45,9 @@
     if (Object.keys(e).length) return;
     busy = true;
     try {
-      await addRecord(collection, { values, links: {} });
+      const title = String(values[collection.title_field_id] ?? "New record");
+      const id = await addRecord(collection, { values, links: {} });
+      added = [...added, { id, title }];
       toast.success(connection.online ? "Added" : "Saved on this device; it syncs when you're back online");
       form = blank();
     } catch (err) {
@@ -61,9 +69,31 @@
     {#if f.id in form}<ValueField field={f} bind:value={form[f.id]} error={errors[f.id]} />{/if}
   {/each}
   <Button variant="primary" type="submit" loading={busy}>Add</Button>
+  {#if waiting.length}
+    <ul class="waiting" aria-label="Waiting to sync">
+      {#each waiting as w (w.id)}
+        <li><span>{w.title}</span><Pill tone="amber">Waiting</Pill></li>
+      {/each}
+    </ul>
+  {/if}
 </form>
 
 <style>
+  .waiting {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2);
+  }
+  .waiting li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-2);
+  }
   .quick {
     display: grid;
     gap: var(--space-3);

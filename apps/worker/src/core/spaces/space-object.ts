@@ -2518,6 +2518,28 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** Filters and sort must name real fields (kept by id, so renames don't break views). */
+  /**
+   * Why a quick add can't work with these fields (or null if it can): it fills in only plain
+   * fields, and every required one (a required link or person can't be filled, so no quick
+   * add there). Checked when saved, and again when read, so a field change since then hides
+   * a quick add that would fail instead of showing it.
+   */
+  private quickAddProblem(fields: FieldRow[], add: string[]): string | null {
+    for (const id of add) {
+      const f = fields.find((x) => x.id === id);
+      if (!f) continue;
+      const o = toField(f).options;
+      if (f.type === "link" || f.type === "person" || o.personal || o.formula || o.rollup)
+        return `A quick add can't fill in ${f.name}; ask the assistant instead`;
+    }
+    const missing = fields.filter((f) => f.required && !add.includes(f.id));
+    if (missing.length)
+      return missing.some((f) => f.type === "link" || f.type === "person")
+        ? `${missing.map((f) => f.name).join(", ")} must be filled in, and a quick add can't; ask the assistant instead`
+        : `A quick add needs ${missing.map((f) => f.name).join(", ")} (required)`;
+    return null;
+  }
+
   private checkViewQuery(c: CollectionRow, q: ViewInput): ViewQuery {
     const fields = this.fieldRows(c.id);
     const filters = (q.filters ?? []).map((f) => {
@@ -2532,21 +2554,8 @@ export class SpaceObject extends DurableObject<Env> {
     let add: string[] | undefined;
     if (q.add_fields?.length) {
       add = [...new Set(q.add_fields.map((ref) => this.matchField(fields, ref).id))];
-      for (const id of add) {
-        const f = fields.find((x) => x.id === id)!;
-        const o = toField(f).options;
-        if (f.type === "link" || f.type === "person" || o.personal || o.formula || o.rollup)
-          throw new ObjectError(
-            "validation_failed",
-            `A quick add can't fill in ${f.name}; ask the assistant instead`,
-          );
-      }
-      const missing = fields.filter((f) => f.required && f.type !== "link" && !add!.includes(f.id));
-      if (missing.length)
-        throw new ObjectError(
-          "validation_failed",
-          `A quick add needs ${missing.map((f) => f.name).join(", ")} (required)`,
-        );
+      const problem = this.quickAddProblem(fields, add);
+      if (problem) throw new ObjectError("validation_failed", problem);
     }
     return { filters, search: q.search?.trim() || null, sort, ...(add ? { add } : {}) };
   }
@@ -2591,7 +2600,10 @@ export class SpaceObject extends DurableObject<Env> {
     );
     q.filters = q.filters.filter((f) => live.has(f.field));
     if (q.sort && !live.has(q.sort.field)) q.sort = null;
-    const add = (q.add ?? []).filter((id) => live.has(id));
+    // A quick add that a field change since has broken (a new required field, a field now
+    // calculated) is hidden rather than shown to fail.
+    let add = (q.add ?? []).filter((id) => live.has(id));
+    if (add.length && this.quickAddProblem(this.fieldRows(v.collection_id), add)) add = [];
     return {
       id: v.id,
       name: v.name,
