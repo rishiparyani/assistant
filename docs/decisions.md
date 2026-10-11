@@ -538,3 +538,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Decision:** the phone's home stores how big a pinned card is as `card_size` on the saved view (s / m / l; null means the app picks from the arrangement), inside the view's existing settings blob in the space object; the order is the view's `position`. Both change through the app's outbox like any record change, so they work offline and follow the person to every device.
 
 **Why:** today every pinned view is a card (home-first.md §7 step 2); until cards are their own records, the view is the one place that already belongs to the owning object and is shared by the web app, the MCP tools and the phone. No new table, no migration, and the assistant can set a size too ("make the expenses card tall").
+
+## 2026-10-12: A link alone never edits existing data (confirmed)
+
+**Decision (owner, 2026-10-12, after seeing other products do the same):** anyone holding only a link can read a shared view or add through a form (append-only, recorded with who submitted when, limited); changing existing records needs a signed-in person who was shared with by name, with a role. The venue door link stays the one exception, and sets the shape of any future one: one field (Arrived), one list, one revocable link, rate-limited.
+
+**Why:** a link holder is anonymous. A writable public link invites spam and vandalism with nobody to hold responsible, leaves no usable audit trail, and can't be revoked for one person without cutting everyone off. Named sharing gives the audit log, per-person revoke and the row rules (architecture rule 3).
