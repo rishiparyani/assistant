@@ -41,6 +41,7 @@
       { "name": "CHATS", "class_name": "ChatObject" },
       { "name": "BUDGET", "class_name": "BudgetObject" },
       { "name": "LIVE", "class_name": "LiveObject" },
+      { "name": "GROUPS", "class_name": "GroupObject" },
     ],
   },
   "migrations": [
@@ -68,6 +69,11 @@
     {
       "tag": "v6",
       "new_sqlite_classes": ["LiveObject"],
+    },
+    // Group chats, one per group (chat-first step 7).
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["GroupObject"],
     },
   ],
   // Outbox notes travel here; the deploy workflow creates the queues if missing.
@@ -131,6 +137,7 @@
           { "name": "CHATS", "class_name": "ChatObject" },
           { "name": "BUDGET", "class_name": "BudgetObject" },
           { "name": "LIVE", "class_name": "LiveObject" },
+          { "name": "GROUPS", "class_name": "GroupObject" },
         ],
       },
       "migrations": [
@@ -157,6 +164,10 @@
         {
           "tag": "v6",
           "new_sqlite_classes": ["LiveObject"],
+        },
+        {
+          "tag": "v7",
+          "new_sqlite_classes": ["GroupObject"],
         },
       ],
       // Outbox notes travel here; the deploy workflow creates the queues if missing.

@@ -34,6 +34,7 @@ export { SpaceObject } from "./core/spaces/space-object.ts";
 export { ChatObject } from "./core/assistant/chat-object.ts";
 export { BudgetObject } from "./core/assistant/budget-object.ts";
 export { LiveObject } from "./core/live/live-object.ts";
+export { GroupObject } from "./core/groups/group-object.ts";
 
 // Core: one inbox (notifications, push devices) per person.
 export { InboxObject } from "./core/push/inbox.ts";

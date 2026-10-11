@@ -187,3 +187,22 @@ export const sharedWith = sqliteTable(
     index("shared_with_space_idx").on(t.spaceId),
   ],
 );
+
+/**
+ * Group chats a person is in (chat-first step 7), for their list: the group's own object
+ * holds the members and messages; this is only the index. Written when people join or leave.
+ */
+export const groupMembers = sqliteTable(
+  "group_members",
+  {
+    groupId: text("group_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at"),
+  },
+  (t) => [
+    uniqueIndex("group_members_pk").on(t.groupId, t.userId),
+    index("group_members_user_idx").on(t.userId),
+  ],
+);

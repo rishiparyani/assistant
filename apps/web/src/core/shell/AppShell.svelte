@@ -9,7 +9,11 @@
   import Brain from "@lucide/svelte/icons/brain";
   import WorkflowIcon from "@lucide/svelte/icons/workflow";
   import Trash from "@lucide/svelte/icons/trash-2";
-  import type { ChatSummary } from "@assistant/shared";
+  import Users from "@lucide/svelte/icons/users";
+  import Plus from "@lucide/svelte/icons/plus";
+  import type { ChatSummary, GroupSummary } from "@assistant/shared";
+  import { GROUPS_KEY, groupsApi } from "../groups/groups-api.ts";
+  import NewGroupSheet from "../groups/NewGroupSheet.svelte";
   import { fade } from "svelte/transition";
   import { AssistantMark, Avatar, calm, confirm, reducedMotion, toast } from "../ui/index.ts";
   import { createQuery } from "../query.svelte.ts";
@@ -86,6 +90,10 @@
     }
   }
 
+  // Group chats (step 7): the band, the family.
+  const groups = createQuery<GroupSummary[]>(() => GROUPS_KEY, groupsApi.list);
+  let newGroup = $state(false);
+
   const LINKS = [
     { href: "/shared", label: "Shared with you", icon: Inbox },
     { href: "/help", label: "Help", icon: CircleHelp },
@@ -155,6 +163,22 @@
       {/each}
     </ul>
 
+    <h3>Groups</h3>
+    <ul class="chats">
+      {#each groups.data ?? [] as g (g.id)}
+        <li class="chat-row">
+          <a class="item" class:active={path === `/g/${g.id}`} href="/g/{g.id}">
+            <span class="ic group"><Users size={16} /></span>
+            <span class="t">{g.name}</span>
+          </a>
+        </li>
+      {/each}
+    </ul>
+    <button class="item" type="button" onclick={() => (newGroup = true)}>
+      <span class="ic"><Plus size={16} /></span>
+      <span class="t">New group</span>
+    </button>
+
     <h3>Pinned</h3>
     <PinnedList onopen={() => (menuOpen = false)} />
 
@@ -190,6 +214,7 @@
     {/if}
   </nav>
 
+  <NewGroupSheet bind:open={newGroup} />
   <main class="content">
     <div class="page" bind:this={page}><OfflineBar />{@render children()}</div>
   </main>
@@ -378,6 +403,18 @@
   .ic.flow {
     background: var(--kind-flow-soft);
     color: var(--kind-flow);
+  }
+  button.item {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ic.group {
+    background: var(--kind-people-soft);
+    color: var(--kind-people);
   }
   .ic.chat {
     background: var(--kind-people-soft);

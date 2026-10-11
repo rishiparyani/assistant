@@ -22,6 +22,7 @@ import { ruleOperations } from "./spaces/rule-operations.ts";
 import { openPublicShare, submitPublicForm } from "./spaces/shares.ts";
 import { PublicShareInput, PublicSubmitInput } from "@assistant/shared";
 import { assistantOperations } from "./assistant/operations.ts";
+import { groupOperations } from "./groups/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
 
 /** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
@@ -46,6 +47,7 @@ export function createApp({ modules }: AppOptions) {
   ];
   // The assistant's tools are the operations above.
   operations.push(...assistantOperations(() => operations));
+  operations.push(...groupOperations(() => operations));
 
   const app = new Hono<AppEnv>();
 
