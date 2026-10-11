@@ -81,7 +81,7 @@ export class GroupObject extends DurableObject<Env> {
   /** Restores a backup into this group if it's empty; never overwrites anything. */
   async importData(dump: ObjectDump): Promise<boolean> {
     if (this.sql.exec(`select 1 from grp`).toArray().length) return false;
-    importTables(this.ctx.storage, dump, Object.keys(dump.tables));
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables), MIGRATIONS);
     return true;
   }
 

@@ -1937,7 +1937,7 @@ export class BookingObject extends DurableObject<Env> {
   /** Restores a backup into this (empty) gig, then re-announces it so Homes catch up. */
   async importData(dump: ObjectDump): Promise<boolean> {
     if (this.gigRow()) return false; // never overwrite a gig that exists
-    importTables(this.ctx.storage, dump, BACKUP_TABLES);
+    importTables(this.ctx.storage, dump, BACKUP_TABLES, MIGRATIONS);
     this.ctx.storage.transactionSync(() => {
       // In a fresh environment the month registry and pending lists don't know this gig.
       setMeta(this.sql, "registered", "0");

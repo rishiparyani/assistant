@@ -1,6 +1,7 @@
 // Nightly backups to Google Drive (fake Drive here) and restore. Fake data only.
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import type { BookingView } from "@assistant/shared";
 import type { DriveClient } from "../src/core/backup/drive.ts";
 import {
@@ -119,6 +120,58 @@ describe("backups", () => {
     const dump = await restored.exportData();
     expect((dump!.tables.records ?? []).some((r) => String(r.title).includes("Test kept note"))).toBe(true);
     expect((await restoreBackup(env, modules, copy)).core).toBe(0);
+  });
+
+  it("restores backups made before later changes to the storage, and never into a used chat", async () => {
+    // A group backed up when it had only its first tables (version 1) still comes back, and
+    // the later changes are applied after it.
+    const old = {
+      version: 1,
+      tables: {
+        _audit: [
+          {
+            id: 1,
+            at: "2026-01-01T00:00:00.000Z",
+            actor_user_id: "test-user",
+            source: "web",
+            action: "test_action",
+            entity_type: "group",
+            entity_id: "test",
+            before_json: null,
+            after_json: null,
+          },
+        ],
+      },
+    };
+    const g = env.GROUPS.getByName("group:test-old-version");
+    expect(await g.importData(old)).toBe(true);
+    await runInDurableObject(g, (_i, state) => {
+      const sql = state.storage.sql;
+      expect(Number(sql.exec(`select version from _schema`).one().version)).toBe(2);
+      expect(sql.exec(`select action from _audit`).toArray()).toEqual([{ action: "test_action" }]);
+      expect(sql.exec(`select count(*) as n from grp`).one().n).toBe(0);
+    });
+    // A backup newer than the code is refused.
+    let refused = "";
+    try {
+      await env.GROUPS.getByName("group:test-new-version").importData({ version: 999, tables: {} });
+    } catch (e) {
+      refused = String(e);
+    }
+    expect(refused).toContain("schema version 999");
+
+    // A chat with no messages but other things kept (a memory) counts as used.
+    const memory = {
+      version: 5,
+      tables: {
+        memories: [
+          { id: "test-memory", text: "Test fact", source: "chat", created_at: "2026-01-01T00:00:00.000Z" },
+        ],
+      },
+    };
+    const chat = env.CHATS.getByName("chat:test-restore-used");
+    expect(await chat.importData(memory)).toBe(true);
+    expect(await chat.importData(memory)).toBe(false);
   });
 
   it("does nothing until Drive is connected; restore is for owners and needs confirming", async () => {

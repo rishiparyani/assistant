@@ -610,7 +610,7 @@ export class SpaceObject extends DurableObject<Env> {
   /** Restores a backup into this space if it's empty; never overwrites anything. */
   async importData(dump: ObjectDump): Promise<boolean> {
     if (this.sql.exec(`select 1 from space`).toArray().length) return false;
-    importTables(this.ctx.storage, dump, Object.keys(dump.tables));
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables), MIGRATIONS);
     await this.wakeForJobs();
     return true;
   }

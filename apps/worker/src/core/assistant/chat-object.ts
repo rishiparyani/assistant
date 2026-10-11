@@ -19,6 +19,7 @@ import {
   backupTables,
   exportTables,
   importTables,
+  hasData,
   type ObjectDump,
   type Actor,
   type Migrations,
@@ -465,10 +466,11 @@ export class ChatObject extends DurableObject<Env> {
     return exportTables(this.sql, backupTables(this.sql));
   }
 
-  /** Restores a backup into this chat if it has no messages yet; never overwrites anything. */
+  /** Restores a backup into this chat if it holds nothing yet; never overwrites anything. */
   async importData(dump: ObjectDump): Promise<boolean> {
-    if (this.sql.exec(`select 1 from messages limit 1`).toArray().length) return false;
-    importTables(this.ctx.storage, dump, Object.keys(dump.tables));
+    // Not just messages: a cleared chat still keeps memories, its list of chats and history.
+    if (hasData(this.sql)) return false;
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables), MIGRATIONS);
     return true;
   }
 
