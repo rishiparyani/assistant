@@ -216,8 +216,10 @@ jobs:
       - name: Build and upload to TestFlight
         if: steps.ready.outputs.ok
         env:
-          # The real app talks to the real server.
+          # The real app talks to the real server, and signs in with Google through the system
+          # sheet (owner's standing OK, decisions.md 2026-10-11).
           EXPO_PUBLIC_API_URL: https://gigspree.in
+          EXPO_PUBLIC_GOOGLE_IN_APP: 1
           CI: 1
         run: |
           set -e
