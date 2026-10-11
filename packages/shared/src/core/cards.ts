@@ -1,0 +1,109 @@
+// Cards on the home (docs/design/home-first.md §2.3, §5.1): a card is components + one named
+// arrangement + a size, bound to a collection and a filter. The model (or a person) picks from
+// this set; the app draws it. `card.v1` is the one shape the server validates, the phone, the
+// website and the widgets draw, so a card that passed validation is drawable everywhere.
+import { z } from "zod";
+import { FilterInput } from "./spaces.ts";
+
+export const CARD_VERSION = "card.v1" as const;
+
+/** The named arrangements the app knows how to draw at every size, light and dark. */
+export const ARRANGEMENTS = [
+  "number",
+  "number-chart",
+  "two-numbers",
+  "two-numbers-list",
+  "list-ticks",
+  "list-plain",
+  "list-counter",
+  "next",
+  "countdown",
+  "question",
+  "quick-add",
+  "process",
+  "memory",
+  "progress",
+] as const;
+export type Arrangement = (typeof ARRANGEMENTS)[number];
+
+export const CARD_SIZES = ["s", "m", "l"] as const;
+export type CardSize = (typeof CARD_SIZES)[number];
+
+/** Grid cells a size takes on a 2-column phone page (6 rows a page). */
+export const CARD_CELLS: Record<CardSize, number> = { s: 1, m: 2, l: 4 };
+
+/** Which sizes each arrangement can be drawn at. */
+export const ARRANGEMENT_SIZES: Record<Arrangement, readonly CardSize[]> = {
+  number: ["s", "m"],
+  "number-chart": ["s", "m", "l"],
+  "two-numbers": ["s", "m"],
+  "two-numbers-list": ["m", "l"],
+  "list-ticks": ["s", "m", "l"],
+  "list-plain": ["s", "m", "l"],
+  "list-counter": ["m", "l"],
+  next: ["s", "m", "l"],
+  countdown: ["s", "m"],
+  question: ["m"],
+  "quick-add": ["m"],
+  process: ["s", "m", "l"],
+  memory: ["s", "m"],
+  progress: ["s", "m"],
+};
+
+/** What a card reads: a collection, optionally filtered and sorted (like a saved view). */
+export const CardSource = z.object({
+  collection: z.string().trim().min(1).max(80).describe("Collection id or name"),
+  filters: z.array(FilterInput).max(10).optional(),
+  sort: z
+    .object({ field: z.string().trim().min(1).max(80), dir: z.enum(["asc", "desc"]).default("asc") })
+    .nullish(),
+  /** For number arrangements: the field to add up; none = count the records. */
+  sum_field: z.string().trim().min(1).max(80).nullish(),
+  /** For list-ticks: the yes/no field a tick sets; for list-counter: the number field + adds to. */
+  answer_field: z.string().trim().min(1).max(80).nullish(),
+  /** For next and countdown: the date field that orders what's coming. */
+  date_field: z.string().trim().min(1).max(80).nullish(),
+});
+export type CardSource = z.infer<typeof CardSource>;
+
+export const CardSpec = z.object({
+  version: z.literal(CARD_VERSION).default(CARD_VERSION),
+  title: z.string().trim().min(1).max(60),
+  arrangement: z.enum(ARRANGEMENTS),
+  size: z.enum(CARD_SIZES).default("m"),
+  /** One source for most arrangements; two for two-numbers (first = left, second = right). */
+  sources: z.array(CardSource).min(1).max(2),
+  /** Rows shown by list arrangements (the size caps it further). */
+  limit: z.number().int().min(1).max(12).optional(),
+});
+export type CardSpec = z.infer<typeof CardSpec>;
+
+/** Why a spec can't be drawn, in words the assistant can pass on. Empty = fine. */
+export function cardProblems(spec: CardSpec): string[] {
+  const out: string[] = [];
+  if (!ARRANGEMENT_SIZES[spec.arrangement].includes(spec.size))
+    out.push(
+      `${spec.arrangement} can't be ${spec.size}; use ${ARRANGEMENT_SIZES[spec.arrangement].join(", ")}`,
+    );
+  const two = spec.arrangement === "two-numbers" || spec.arrangement === "two-numbers-list";
+  if (two && spec.sources.length !== 2) out.push(`${spec.arrangement} needs two sources`);
+  if (!two && spec.sources.length !== 1) out.push(`${spec.arrangement} takes one source`);
+  if (spec.arrangement === "list-ticks" && !spec.sources[0]?.answer_field)
+    out.push("list-ticks needs answer_field (the yes/no field a tick sets)");
+  if (spec.arrangement === "list-counter" && !spec.sources[0]?.answer_field)
+    out.push("list-counter needs answer_field (the number field + adds to)");
+  if ((spec.arrangement === "next" || spec.arrangement === "countdown") && !spec.sources[0]?.date_field)
+    out.push(`${spec.arrangement} needs date_field`);
+  return out;
+}
+
+/** The nearest arrangement that fits the sources given, when the asked one doesn't. */
+export function nearestArrangement(spec: CardSpec): Arrangement {
+  if (!cardProblems(spec).length) return spec.arrangement;
+  const s = spec.sources[0];
+  if (spec.sources.length === 2) return "two-numbers";
+  if (s?.answer_field) return "list-ticks";
+  if (s?.date_field) return "next";
+  if (s?.sum_field) return "number";
+  return "list-plain";
+}

@@ -8,7 +8,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 ## HF Home first (docs/design/home-first.md §5)
 
-1. Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox, TestFlight + simulator screenshots moved over; dependencies recorded.
+1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1, PR pending the owner's OK on the sign-in plugin); TestFlight + simulator screenshots moved over (HF2).
 2. Home: pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar and pull-down, dock; Now page ranking.
 3. Chat sheet with card context; What changed + Undo; collaborator homes; per-person assistant switch in the admin panel.
 4. Processes: roles, waiting on, nudges, loops; client-by-link step; process card and detail.

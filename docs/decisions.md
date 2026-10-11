@@ -504,3 +504,11 @@ Owner's decisions, made in chat with the design model after three mockups ("Gigs
 - **Look:** cool neutrals, indigo accent, a colour per collection, Plus Jakarta Sans, 22 px cards, glass bars, spring motion; the owner rejected a serif/warm direction ("a little modern look", "both light and dark"). The logo (script gs) is the assistant's mark.
 - **Name:** Gigspree stays for now (domain bought); it changes before the public listing. Bundle ID stays.
 - New dependencies to come with the first Expo PR (Expo SDK, React Native, Reanimated, Gesture Handler, expo-router; recorded there with versions).
+
+## 2026-10-11: The phone app is an Expo project in the workspace (`apps/mobile`)
+
+First slice of home-first.md §7 step 1. New dependencies (mobile only unless noted): `expo` 57.0.27, `react-native` 0.86.3, `react` 19.2.3, `expo-router` 57.0.25, `react-native-reanimated` 4.5.1 with `react-native-worklets` 0.10.1, `react-native-gesture-handler` 2.32, `react-native-screens` 4.26, `react-native-safe-area-context` 5.7, `react-native-web` 0.21 and `react-dom` 19.2.3 (the web target), `expo-secure-store`, `expo-sqlite` (its key-value store holds the device copy and the outbox), `expo-haptics`, `expo-web-browser`, `expo-linking`, `expo-constants`, `expo-network`, `expo-splash-screen`, `expo-font`, `expo-system-ui`, `expo-status-bar`; `@better-auth/expo` 1.7.7 on both the app and the Worker (Better Auth bumped to 1.7.7 across the repo for it). Versions come from Expo's SDK 57 table (`bundledNativeModules.json`), not from `expo install`, which can't reach Expo's API from the agents' network.
+
+- The app is a normal workspace package (`@assistant/mobile`): `pnpm typecheck` and `pnpm lint` cover it; CI also bundles its web target. No `node-linker` change: Metro is pointed at the repo root and symlinks instead.
+- The bundle id stays `in.gigspree.assistant`, so TestFlight continues the same app when the Expo build replaces the Capacitor one.
+- The server side of sign-in from the app (Better Auth's `expo()` plugin, `gigspree://` as a trusted origin) is a new way in and waits for the owner's explicit OK before it merges; Google inside the app stays off (`EXPO_PUBLIC_GOOGLE_IN_APP`) until the same OK.

@@ -17,7 +17,8 @@
     "better-auth": "catalog:",
     "drizzle-orm": "catalog:",
     "hono": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "@better-auth/expo": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "catalog:",

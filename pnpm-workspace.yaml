@@ -23,9 +23,10 @@ catalog:
   "@types/node": ^22.0.0
   drizzle-kit: 0.31.11
   drizzle-orm: 0.45.3
-  better-auth: 1.7.6
-  "@better-auth/oauth-provider": 1.7.6
-  "@better-auth/passkey": 1.7.6
+  better-auth: 1.7.7
+  "@better-auth/expo": 1.7.7
+  "@better-auth/oauth-provider": 1.7.7
+  "@better-auth/passkey": 1.7.7
   eslint: 10.11.0
   eslint-plugin-svelte: 3.23.0
   globals: 17.12.0

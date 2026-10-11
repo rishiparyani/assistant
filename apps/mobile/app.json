@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Gigspree",
+    "slug": "gigspree",
+    "scheme": "gigspree",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": { "image": "./assets/splash-icon.png", "resizeMode": "contain", "backgroundColor": "#e9eaee" },
+    "ios": {
+      "bundleIdentifier": "in.gigspree.assistant",
+      "supportsTablet": true,
+      "infoPlist": { "ITSAppUsesNonExemptEncryption": false },
+      "associatedDomains": ["webcredentials:gigspree.in"]
+    },
+    "android": {
+      "package": "in.gigspree.assistant",
+      "adaptiveIcon": {
+        "backgroundColor": "#e9eaee",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": { "bundler": "metro", "output": "single", "favicon": "./assets/favicon.png" },
+    "plugins": ["expo-router", "expo-secure-store", "expo-sqlite", "expo-web-browser", "expo-splash-screen"],
+    "experiments": { "typedRoutes": true }
+  }
+}

@@ -69,6 +69,10 @@ Spike deploy (T00): `.github/workflows/spike-t00.yml` runs on pushes touching `s
 
 Not secret, fine to commit: D1 database names and IDs, Worker names, the public app URL. They can't be used without the API token.
 
+## Phone app (Expo, `apps/mobile`)
+
+No accounts beyond Apple's (below). Locally: `pnpm --filter @assistant/mobile start` (Expo dev server; press `w` for the web target, `i` for the simulator on a Mac) with `EXPO_PUBLIC_API_URL=http://localhost:8787` and `pnpm dev` running. Sign in on the local server with the test email/password (`apps/mobile/test/seed.mjs` makes a person with fake data and prints the cookie). `pnpm --filter @assistant/mobile build:web` bundles the website target into `apps/mobile/dist`.
+
 ## iPhone app (Apple)
 
 The Apple Developer Program (owner, 2026-09-29). The iOS workflow (`.github/workflows/ios.yml`) signs and uploads to TestFlight with an App Store Connect API key; these secrets are GitHub Actions secrets (never in chat or the repo).

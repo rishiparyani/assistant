@@ -21,3 +21,9 @@ backups/
 /*.sql
 dump*.sql
 export*.sql
+
+# Expo (apps/mobile)
+.expo/
+apps/mobile/dist/
+apps/mobile/ios/
+apps/mobile/android/

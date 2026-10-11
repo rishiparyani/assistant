@@ -4,6 +4,7 @@ import type { BetterAuthOptions } from "better-auth";
 import { jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { passkey } from "@better-auth/passkey";
+import { expo } from "@better-auth/expo";
 import { ulid } from "@assistant/shared";
 
 export const AUTH_BASE_PATH = "/auth";
@@ -32,7 +33,11 @@ export function authOptions(cfg: AuthConfig) {
     socialProviders: cfg.google
       ? { google: { clientId: cfg.google.clientId, clientSecret: cfg.google.clientSecret } }
       : {},
+    // The phone app (apps/mobile): its deep-link scheme may receive sign-in redirects, and the
+    // session cookie travels as a header (phones don't keep cookies reliably).
+    trustedOrigins: ["gigspree://"],
     plugins: [
+      expo(),
       passkey({ rpID: url.hostname, rpName: "Gigspree", origin: url.origin }),
       jwt(),
       oauthProvider({
