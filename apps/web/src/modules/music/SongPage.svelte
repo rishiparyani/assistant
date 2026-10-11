@@ -8,7 +8,9 @@
   import { isOfflineError } from "../../core/offline.svelte.ts";
   import { createQuery, dropCache } from "../../core/query.svelte.ts";
   import { navigate } from "../../core/router.svelte.ts";
-  import { musicApi, savedSong, saveSongsAhead } from "./music-api.ts";
+  import { ApiError } from "../../core/api.ts";
+  import { deleteMany } from "../../core/device-db.ts";
+  import { libraryScope, musicApi, savedSong, saveSongsAhead } from "./music-api.ts";
   import ChordChart from "./ChordChart.svelte";
   import SongSheet from "./SongSheet.svelte";
   import StageView from "./StageView.svelte";
@@ -28,7 +30,15 @@
       if (id === songId) offlineCopy = s;
     });
   });
-  const song = $derived(q.data ?? offlineCopy);
+  // The server's "not found" wins: a song removed elsewhere doesn't open from a saved copy.
+  const gone = $derived(q.error instanceof ApiError && q.error.status === 404);
+  $effect(() => {
+    if (!gone) return;
+    dropCache(`song:${songId}`);
+    dropCache("songs:list:");
+    void deleteMany(libraryScope(), [songId]).catch(() => {});
+  });
+  const song = $derived(gone ? undefined : (q.data ?? offlineCopy));
   $effect(() => {
     if (q.error && !song) toast.error(q.error);
   });

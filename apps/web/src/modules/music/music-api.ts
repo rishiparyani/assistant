@@ -31,7 +31,8 @@ export const musicApi = {
 
 // The whole library with charts is kept in IndexedDB (it can be large); the list without
 // charts goes in the ordinary cache.
-const scope = () => `library:${session.me?.user.id ?? ""}`;
+export const libraryScope = () => `library:${session.me?.user.id ?? ""}`;
+const scope = libraryScope;
 
 /** A song from the library saved on this device (undefined if not saved), for offline and stage use. */
 export const savedSong = (id: string) => getOne<SongView>(scope(), id);
