@@ -441,6 +441,11 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-11: Apps offer their actions to the assistant themselves
+
+An app's operation says whether the in-app assistant may use it (`assistant: {level, hint, card}`): from which level, one line for the assistant's instructions, and the card its result shows in the chat (a generic "app" card: title, a line of facts, Open to the app's own screen). Core never lists an app's tools or knows its cards. The web app's composition root (`App.svelte`) mounts app screens; core screens never import an app. Songbook is the first: its library, chart and stage-mode screens are back under Apps in the menu, saved ahead for offline and stage use.
+Reason: universal.md §9 (the app contract) and rule 15; the chat shows songs as cards without core knowing what a song is.
+
 ## 2026-10-11: Through a share, a person field can only be you
 
 A collaborator writing through a share (a form, an editable view or card) may set a person field only to themselves ("me"), to nobody, or to a name without an account; naming someone else's account is refused (403). Owners and members set anyone the space knows.

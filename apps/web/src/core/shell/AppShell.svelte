@@ -11,6 +11,7 @@
   import Trash from "@lucide/svelte/icons/trash-2";
   import Users from "@lucide/svelte/icons/users";
   import Plus from "@lucide/svelte/icons/plus";
+  import Music from "@lucide/svelte/icons/music";
   import type { ChatSummary, GroupSummary } from "@assistant/shared";
   import { GROUPS_KEY, groupsApi } from "../groups/groups-api.ts";
   import NewGroupSheet from "../groups/NewGroupSheet.svelte";
@@ -184,6 +185,12 @@
 
     <h3>Your lists</h3>
     <ListsMenu onopen={() => (menuOpen = false)} />
+
+    <h3>Apps</h3>
+    <a class="item" class:active={path.startsWith("/songs")} href="/songs">
+      <span class="ic note"><Music size={16} /></span>
+      <span class="t">Songbook</span>
+    </a>
 
     <h3>The assistant</h3>
     <a class="item" class:active={path === "/memory"} href="/memory">
@@ -399,6 +406,10 @@
     opacity: 1;
     color: var(--red);
     background: var(--surface-hover);
+  }
+  .ic.note {
+    background: var(--kind-note-soft);
+    color: var(--kind-note);
   }
   .ic.flow {
     background: var(--kind-flow-soft);

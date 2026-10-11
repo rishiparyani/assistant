@@ -1,8 +1,22 @@
 // The music module's operations: each is a REST route and an AI tool (docs/modules.md).
 import { z } from "zod";
-import { CreateSongInput, FindSongsInput, SongRef, UpdateSongInput } from "@assistant/shared";
+import {
+  CreateSongInput,
+  FindSongsInput,
+  SongRef,
+  UpdateSongInput,
+  songFacts,
+  type SongView,
+} from "@assistant/shared";
 import { defineOperation } from "../../core/operations.ts";
 import * as s from "./services/songs.ts";
+
+/** A song in the chat: its title and facts, opening its chart (and stage mode). */
+const songCard = (song: SongView) => ({
+  title: song.title,
+  subtitle: [song.artist, songFacts(song)].filter(Boolean).join(" · ") || null,
+  href: `/songs/${song.id}`,
+});
 
 export const musicOperations = [
   defineOperation({
@@ -14,6 +28,10 @@ export const musicOperations = [
     http: { method: "GET", path: "/songs" },
     input: FindSongsInput,
     handler: (ctx, input) => s.findSongs(ctx, input),
+    assistant: {
+      level: 1,
+      hint: "Songbook: their songs with chord charts (find_songs, get_song, create_song, update_song). A song's card opens its chart and stage mode.",
+    },
   }),
   defineOperation({
     id: "music.get_song",
@@ -23,6 +41,7 @@ export const musicOperations = [
     http: { method: "GET", path: "/songs/:song_id" },
     input: SongRef,
     handler: (ctx, input) => s.getSong(ctx, input.song_id),
+    assistant: { level: 1, card: songCard },
   }),
   defineOperation({
     id: "music.all_songs",
@@ -43,6 +62,7 @@ export const musicOperations = [
     http: { method: "POST", path: "/songs", status: 201 },
     input: CreateSongInput,
     handler: (ctx, input) => s.createSong(ctx, input),
+    assistant: { level: 1, card: songCard },
   }),
   defineOperation({
     id: "music.update_song",
@@ -52,6 +72,7 @@ export const musicOperations = [
     http: { method: "PATCH", path: "/songs/:song_id" },
     input: UpdateSongInput,
     handler: (ctx, input) => s.updateSong(ctx, input),
+    assistant: { level: 1, card: songCard },
   }),
   defineOperation({
     id: "music.remove_song",
@@ -62,5 +83,6 @@ export const musicOperations = [
     http: { method: "DELETE", path: "/songs/:song_id" },
     input: SongRef,
     handler: (ctx, input) => s.removeSong(ctx, input.song_id),
+    assistant: { level: 1 },
   }),
 ];

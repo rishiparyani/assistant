@@ -49,6 +49,17 @@ export interface OperationDef<S extends z.ZodType = z.ZodType, O = unknown> {
   confirmWhen?: (ctx: OpUserCtx, input: z.output<S>) => Promise<boolean>;
   input: S;
   handler: (ctx: OpUserCtx, input: z.output<S>) => Promise<O>;
+  /**
+   * Apps (design §9) offer their actions to the in-app assistant here, so core never names
+   * them: from which level (1 everyday, 2 setting up), a line for its instructions, and the
+   * card a result shows in the chat (a link to the app's own screen).
+   */
+  assistant?: {
+    level: 1 | 2;
+    hint?: string;
+    // A method, so operations with different results still fit one registry.
+    card?(result: O): { title: string; subtitle?: string | null; href: string } | null;
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- heterogeneous registry

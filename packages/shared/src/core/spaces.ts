@@ -697,7 +697,9 @@ export type LiveRef =
   /** A question sent to people (chat-first step 4): answers arrive live. */
   | { kind: "question"; question_id: string }
   /** A workflow (chat-first step 5): diagram, plain words, on/off. */
-  | { kind: "workflow"; workflow_id: string };
+  | { kind: "workflow"; workflow_id: string }
+  /** Something in an app (a Songbook song): what it was then, opening the app's own screen. */
+  | { kind: "app"; app: string; title: string; subtitle?: string | null; href: string };
 
 export interface ChatItem {
   id: string;
