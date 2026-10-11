@@ -13,5 +13,8 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules"),
 ];
 config.resolver.unstable_enableSymlinks = true;
+// One-shot bundles on CI (GitHub's Mac runners ship Watchman, which has failed there with the
+// whole repo as the watch root): crawl the files with Node instead.
+if (process.env.CI) config.resolver.useWatchman = false;
 
 module.exports = config;
