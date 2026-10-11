@@ -13,5 +13,18 @@ config.resolver.nodeModulesPaths = [
   path.resolve(workspaceRoot, "node_modules"),
 ];
 config.resolver.unstable_enableSymlinks = true;
+// The generated native projects (ios/Pods alone is hundreds of thousands of files) are never
+// JS sources: keep them out of Metro's file map.
+config.resolver.blockList = [
+  ...(Array.isArray(config.resolver.blockList)
+    ? config.resolver.blockList
+    : [config.resolver.blockList]
+  ).filter(Boolean),
+  new RegExp(`${path.join(projectRoot, "ios").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/.*`),
+  new RegExp(`${path.join(projectRoot, "android").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/.*`),
+];
+// One-shot bundles on CI (GitHub's Mac runners ship Watchman, which has failed there with the
+// whole repo as the watch root): crawl the files with Node instead.
+if (process.env.CI) config.resolver.useWatchman = false;
 
 module.exports = config;

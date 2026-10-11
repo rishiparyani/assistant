@@ -71,11 +71,11 @@ Not secret, fine to commit: D1 database names and IDs, Worker names, the public 
 
 ## Phone app (Expo, `apps/mobile`)
 
-No accounts beyond Apple's (below). Locally: `pnpm --filter @assistant/mobile start` (Expo dev server; press `w` for the web target, `i` for the simulator on a Mac) with `EXPO_PUBLIC_API_URL=http://localhost:8787` and `pnpm dev` running. Sign in on the local server with the test email/password (`apps/mobile/test/seed.mjs` makes a person with fake data and prints the cookie). `pnpm --filter @assistant/mobile build:web` bundles the website target into `apps/mobile/dist`.
+No accounts beyond Apple's (below). Locally: `pnpm --filter @assistant/mobile start` (Expo dev server; press `w` for the web target, `i` for the simulator on a Mac) with `EXPO_PUBLIC_API_URL=http://localhost:8787` and `pnpm dev` running. Sign in on the local server with the test email/password (`apps/mobile/test/seed.mjs` makes a person with fake data and prints the cookie). `pnpm --filter @assistant/mobile build:web` bundles the website target into `apps/mobile/dist`. On a Mac, `pnpm --filter @assistant/mobile ios` runs `expo prebuild` + Xcode for the simulator (`apps/mobile/ios` is generated and git-ignored). CI does the same on GitHub's Mac runners (`.github/workflows/ios.yml`): simulator screenshots on PRs (the app signs in through its `/test` route, which works only against localhost), TestFlight on `main`. A nightly check (`.github/workflows/prod-check.yml`) curls the real app and goes red (GitHub emails the owner) if it doesn't answer.
 
 ## iPhone app (Apple)
 
-The Apple Developer Program (owner, 2026-09-29). The iOS workflow (`.github/workflows/ios.yml`) signs and uploads to TestFlight with an App Store Connect API key; these secrets are GitHub Actions secrets (never in chat or the repo).
+The Apple Developer Program (owner, 2026-09-29). The iOS workflow (`.github/workflows/ios.yml`) builds the Expo app (`apps/mobile`), signs it and uploads to TestFlight with an App Store Connect API key; these secrets are GitHub Actions secrets (never in chat or the repo).
 
 | Secret          | What                                                                                                  |
 | --------------- | ----------------------------------------------------------------------------------------------------- |

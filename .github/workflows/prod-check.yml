@@ -1,0 +1,34 @@
+# Nightly check that the real app is up (owner's wish: find out before he opens the app).
+# Curls the health route and the website; a failing run shows red in Actions and GitHub emails
+# the owner (and the Worker's own alerts post to Telegram). No secrets, nothing printed but
+# status codes.
+name: Prod check
+
+on:
+  schedule:
+    - cron: "30 0 * * *" # 06:00 IST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Health
+        run: |
+          body="$(curl -sS --max-time 20 https://gigspree.in/api/health)" || { echo "health: no answer"; exit 1; }
+          echo "$body" | grep -q '"ok":true' || { echo "health: not ok"; exit 1; }
+          echo "health ok"
+      - name: Website
+        run: |
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://gigspree.in/)"
+          echo "website $code"
+          [ "$code" = "200" ]
+      - name: Sign-in route
+        run: |
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://gigspree.in/auth/ok)"
+          echo "auth $code"
+          [ "$code" = "200" ]

@@ -1,18 +1,16 @@
 // Fake data for the app's screenshots (local test server only): a fake person with a Reminders
 // list (three to tick), an Expenses list (a few amounts), and both pinned as views, so the home
-// shows a list-with-ticks card and a number card. Prints `cookie=…`. Never point at a real server.
+// shows a list-with-ticks card and a number card. Prints `cookie=…`, `email=…` and `password=…` (the app's /test route signs in with them on localhost). Never point at a real server.
 const BASE = process.env.BASE ?? "http://localhost:8787";
 if (!BASE.startsWith("http://localhost")) throw new Error("seed.mjs only runs against localhost");
 
 const origin = { origin: BASE };
+const EMAIL = `mobile-${Date.now()}@example.com`;
+const PASSWORD = "test-password-123";
 const up = await fetch(`${BASE}/auth/sign-up/email`, {
   method: "POST",
   headers: { ...origin, "content-type": "application/json" },
-  body: JSON.stringify({
-    name: "Test Person",
-    email: `mobile-${Date.now()}@example.com`,
-    password: "test-password-123",
-  }),
+  body: JSON.stringify({ name: "Test Person", email: EMAIL, password: PASSWORD }),
 });
 if (!up.ok) throw new Error(`sign-up failed: ${up.status}`);
 const cookie = up.headers
@@ -70,3 +68,5 @@ await api("POST", "/api/views", {
 });
 
 console.log(`cookie=${cookie}`);
+console.log(`email=${EMAIL}`);
+console.log(`password=${PASSWORD}`);
