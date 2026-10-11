@@ -54,9 +54,13 @@ export default function Home() {
   const [failed, setFailed] = useState(() => outboxState().failed);
   const userId = me?.user.id ?? null;
 
+  // Loaded while changes were still waiting to be sent (offline): load again once they are,
+  // so the screen shows what the server now has.
+  const loadedWithWaiting = useRef(false);
   const load = useCallback(async () => {
     if (!userId) return;
     try {
+      loadedWithWaiting.current = outboxState().waiting.length > 0;
       setPages(await loadHome(userId));
       setError("");
     } catch (e) {
@@ -73,10 +77,13 @@ export default function Home() {
     if (userId) void load();
   }, [userId, load]);
   // A change the server refused: say so, and show the home as the server has it.
+  const waitingBefore = useRef(outboxState().waiting.length);
   useEffect(
     () =>
       subscribe(() => {
-        const now = outboxState().failed;
+        const { failed: now, waiting } = outboxState();
+        if (waitingBefore.current > 0 && waiting.length === 0 && loadedWithWaiting.current) void load();
+        waitingBefore.current = waiting.length;
         setFailed((prev) => {
           if (now.length > prev.length) void load();
           return now;
@@ -85,15 +92,19 @@ export default function Home() {
     [load],
   );
 
-  // Every change to the pages shows at once and is kept on the device.
+  // Every change to the pages shows at once and is kept on the device. Worked out from the
+  // latest pages here (not in a state updater: the changes also queue outbox sends).
+  const pagesRef = useRef<HomePage[] | null>(null);
+  pagesRef.current = pages;
   const update = useCallback(
-    (fn: (prev: HomePage[]) => HomePage[]) =>
-      setPages((prev) => {
-        if (!prev) return prev;
-        const next = fn(prev);
-        if (userId) rememberHome(userId, next);
-        return next;
-      }),
+    (fn: (prev: HomePage[]) => HomePage[]) => {
+      const prev = pagesRef.current;
+      if (!prev) return;
+      const next = fn(prev);
+      pagesRef.current = next;
+      setPages(next);
+      if (userId) rememberHome(userId, next);
+    },
     [userId],
   );
 

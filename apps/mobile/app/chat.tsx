@@ -271,9 +271,9 @@ const s = StyleSheet.create({
   cardTitle: { fontSize: 12, fontWeight: "700" },
   answers: { flexDirection: "row", gap: 8, marginTop: 6 },
   answer: {
-    height: 36,
-    paddingHorizontal: 16,
-    borderRadius: 18,
+    minHeight: 44,
+    paddingHorizontal: 18,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -178,6 +178,14 @@ export function CardGrid({
     },
     [settle, onHold],
   );
+  // The system took the touch away (a call, a parent gesture): the card goes back into its
+  // place (the order it reached so far stays), and no menu opens.
+  const cancel = useCallback(() => {
+    const d = draggingRef.current;
+    if (!d) return;
+    heldAt.current = Date.now();
+    settle(d.card, d.start);
+  }, [settle]);
 
   const overlayStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.value }, { translateY: ty.value }, { scale: scale.value }],
@@ -200,6 +208,7 @@ export function CardGrid({
             lift={lift}
             move={move}
             release={release}
+            cancel={cancel}
             placeholderColour={t.fg3}
           >
             {renderCard(card, canOpen)}
@@ -237,6 +246,7 @@ function Slot({
   lift,
   move,
   release,
+  cancel,
   placeholderColour,
   children,
 }: {
@@ -248,6 +258,7 @@ function Slot({
   lift: (card: HomeCard) => void;
   move: (dx: number, dy: number) => void;
   release: (moved: boolean) => void;
+  cancel: () => void;
   placeholderColour: string;
   children: ReactNode;
 }) {
@@ -282,6 +293,9 @@ function Slot({
     })
     .onEnd(() => {
       runOnJS(release)(moved.value);
+    })
+    .onFinalize((_e, success) => {
+      if (!success) runOnJS(cancel)();
     });
   const hold = Gesture.LongPress()
     .minDuration(HOLD_MS)

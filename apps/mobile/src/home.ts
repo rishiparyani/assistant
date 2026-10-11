@@ -14,7 +14,7 @@ import {
   type StoredValue,
 } from "@assistant/shared";
 import { request } from "./api.ts";
-import { send } from "./outbox.ts";
+import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
 import { colourFor, type CollectionColour } from "./theme.ts";
 
@@ -103,7 +103,10 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       request<SavedView[]>("GET", "/api/views"),
       request<CollectionView[]>("GET", "/api/collections"),
     ]);
-    const pinned = views.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
+    // Changes to views still waiting in the outbox (made offline) win over what the server
+    // says until they are sent; otherwise a load would undo them on the screen.
+    const waiting = withWaitingViewChanges(views);
+    const pinned = waiting.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
     const cards: HomeCard[] = [];
     for (const v of pinned) {
       const c = collections.find((x) => x.id === v.collection_id);
@@ -141,6 +144,21 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
     if (saved) return saved;
     throw e;
   }
+}
+
+function withWaitingViewChanges(views: SavedView[]): SavedView[] {
+  const byId = new Map(views.map((v) => [v.id, { ...v }]));
+  for (const c of outboxState().waiting) {
+    if (c.kind !== "spaces.update_view") continue;
+    const id = decodeURIComponent(c.path.slice("/api/views/".length));
+    const v = byId.get(id);
+    if (!v) continue;
+    const body = c.body as Partial<Pick<SavedView, "card_size" | "pinned" | "position">>;
+    if (body.card_size !== undefined) v.card_size = body.card_size;
+    if (body.pinned !== undefined) v.pinned = body.pinned;
+    if (body.position !== undefined) v.position = body.position;
+  }
+  return [...byId.values()];
 }
 
 const openCount = (c: HomeCard) => {
