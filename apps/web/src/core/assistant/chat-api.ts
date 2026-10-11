@@ -2,6 +2,7 @@
 // No logic here. "main" is the person's first chat.
 import { ulid, type ChatSummary, type ChatView, type Memory } from "@assistant/shared";
 import { request } from "../api.ts";
+import { applyWith, send } from "../outbox.svelte.ts";
 import { publish } from "../query.svelte.ts";
 import { navigate } from "../router.svelte.ts";
 import { toast } from "../ui/index.ts";
@@ -38,6 +39,35 @@ export const chatApi = {
   // online-only: memory lives with the assistant on the server.
   forget: (id: string) => request<Memory>("DELETE", `/api/memories/${enc(id)}`),
 };
+
+/**
+ * Offline (decision "Chat makes, screens use"): the message waits on the device and goes to
+ * the assistant when the connection is back (in order, once, by its key); it shows at once.
+ */
+export function queueMessage(id: string, text: string) {
+  return send<ChatView>({
+    kind: "assistant.message",
+    scope: chatKey(id),
+    method: "POST",
+    path: `/api/chats/${enc(id)}`,
+    body: { text },
+    label: "Message to the assistant",
+  });
+}
+applyWith("assistant.message", (data, c) => {
+  const view = data as ChatView;
+  const item = {
+    id: `waiting-${c.id}`,
+    role: "user" as const,
+    text: (c.body as { text: string }).text,
+    created_at: new Date(c.at).toISOString(),
+    waiting: true,
+  };
+  return { ...view, items: [...view.items, item] };
+});
+
+/** A message still waiting on this device to be sent. */
+export const isWaiting = (item: object) => (item as { waiting?: boolean }).waiting === true;
 
 /** "New chat": a fresh chat, opened at once (the old ones stay in the menu). */
 export async function startNewChat(): Promise<void> {

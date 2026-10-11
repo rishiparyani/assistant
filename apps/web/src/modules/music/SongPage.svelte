@@ -1,18 +1,27 @@
 <script lang="ts">
   import { transposeKey, type SongView } from "@assistant/shared";
-  import Pencil from "@lucide/svelte/icons/pencil";
   import Maximize from "@lucide/svelte/icons/maximize";
   import Minus from "@lucide/svelte/icons/minus";
   import Plus from "@lucide/svelte/icons/plus";
-  import { Button, EmptyState, NotSaved, PageHeader, Pill, Skeleton, toast } from "../../core/ui/index.ts";
+  import Trash from "@lucide/svelte/icons/trash-2";
+  import {
+    Button,
+    EmptyState,
+    NotSaved,
+    PageHeader,
+    Pill,
+    Skeleton,
+    confirm,
+    toast,
+  } from "../../core/ui/index.ts";
+  import { connection } from "../../core/offline.svelte.ts";
+  import { navigate } from "../../core/router.svelte.ts";
   import { isOfflineError } from "../../core/offline.svelte.ts";
   import { createQuery, dropCache } from "../../core/query.svelte.ts";
-  import { navigate } from "../../core/router.svelte.ts";
   import { ApiError } from "../../core/api.ts";
   import { deleteMany } from "../../core/device-db.ts";
-  import { libraryScope, musicApi, savedSong, saveSongsAhead } from "./music-api.ts";
+  import { libraryScope, musicApi, savedSong } from "./music-api.ts";
   import ChordChart from "./ChordChart.svelte";
-  import SongSheet from "./SongSheet.svelte";
   import StageView from "./StageView.svelte";
 
   // One song: details, notes and the chart, transposable; stage mode full screen.
@@ -68,13 +77,32 @@
   }
   const shownKey = $derived(song?.key ? transposeKey(song.key, steps) : null);
 
-  let editing = $state(false);
   let stage = $state(false);
 
-  function saved(s: SongView) {
-    q.set(s);
-    dropCache("songs:list:");
-    void saveSongsAhead().catch(() => {});
+  // Deleting is using, not making: it stays on the screen (decision "Chat makes, screens use").
+  async function remove() {
+    if (!song) return;
+    if (!connection.online) {
+      toast.error("Deleting a song needs a connection.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Delete “${song.title}”?`,
+      message: "It goes from your Songbook on every device.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await musicApi.remove(songId);
+      dropCache(`song:${songId}`);
+      dropCache("songs:list:");
+      await deleteMany(libraryScope(), [songId]).catch(() => {});
+      toast.success("Deleted");
+      navigate("/songs", { replace: true });
+    } catch (e) {
+      toast.error(e);
+    }
   }
 </script>
 
@@ -89,11 +117,11 @@
     <Skeleton rows={8} label="Loading the song" />
   {/if}
 {:else}
+  <!-- Songs are added and changed in the chat; here they're played. -->
   <PageHeader title={song.title} subtitle={song.artist ?? undefined} back="/songs" backLabel="Songbook">
     {#snippet actions()}
-      <Button onclick={() => (editing = true)}>
-        {#snippet icon()}<Pencil />{/snippet}
-        Edit
+      <Button variant="ghost" onclick={remove} aria-label="Delete">
+        {#snippet icon()}<Trash />{/snippet}
       </Button>
     {/snippet}
   </PageHeader>
@@ -125,17 +153,10 @@
       <ChordChart chart={song.chart} {steps} toKey={shownKey} />
     {:else}
       <p class="empty">
-        No chords yet. <button class="link" onclick={() => (editing = true)}>Add them</button>
+        No chords yet. Paste them in the chat: “add these chords to {song.title}”.
       </p>
     {/if}
   </div>
-
-  <SongSheet
-    bind:open={editing}
-    {song}
-    onsaved={saved}
-    onremoved={() => navigate("/songs", { replace: true })}
-  />
 
   {#if stage}
     <StageView songs={[{ ...song, steps }]} onclose={() => (stage = false)} />
@@ -181,8 +202,7 @@
     font-size: var(--text-xs);
     color: var(--text-3);
   }
-  .reset,
-  .link {
+  .reset {
     border: 0;
     background: none;
     color: var(--accent-text);

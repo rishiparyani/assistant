@@ -1,26 +1,14 @@
 <script lang="ts">
   import { matchesSongSearch, type SongSummary } from "@assistant/shared";
-  import Plus from "@lucide/svelte/icons/plus";
   import Search from "@lucide/svelte/icons/search";
   import Music from "@lucide/svelte/icons/music";
-  import {
-    Button,
-    EmptyState,
-    ListGroup,
-    ListRow,
-    PageHeader,
-    Skeleton,
-    toast,
-  } from "../../core/ui/index.ts";
+  import { EmptyState, ListGroup, ListRow, PageHeader, Skeleton, toast } from "../../core/ui/index.ts";
   import { createQuery, readCache } from "../../core/query.svelte.ts";
-  import { navigate } from "../../core/router.svelte.ts";
   import { musicApi, songFacts } from "./music-api.ts";
-  import SongSheet from "./SongSheet.svelte";
 
   // My song library: search, open a song, add one.
   let query = $state("");
   let search = $state("");
-  let adding = $state(false);
 
   $effect(() => {
     const q = query.trim();
@@ -64,15 +52,8 @@
 
 <PageHeader
   title="Songbook"
-  subtitle="Your songs with keys, tempos and chord charts. Open one for its chart and stage mode, or ask the assistant."
->
-  {#snippet actions()}
-    <Button variant="primary" onclick={() => (adding = true)}>
-      {#snippet icon()}<Plus />{/snippet}
-      Add
-    </Button>
-  {/snippet}
-</PageHeader>
+  subtitle="Your songs with keys, tempos and chord charts. Ask the assistant to add or change one; open one for its chart and stage mode."
+/>
 
 <label class="search">
   <Search size={18} />
@@ -91,12 +72,9 @@
     title={query ? "No matches" : "No songs yet"}
     text={query
       ? "Try part of the title or the artist."
-      : "Add the songs you play: key, tempo and the chords. Paste a chart from any chord site and it's tidied up."}
+      : "Tell the assistant a song you play, with its key, tempo and chords (paste a chart from any chord site), and it's added here."}
   >
     {#snippet icon()}<Music size={26} />{/snippet}
-    {#snippet action()}
-      {#if !query}<Button variant="primary" onclick={() => (adding = true)}>Add a song</Button>{/if}
-    {/snippet}
   </EmptyState>
 {:else}
   <div class="groups">
@@ -116,14 +94,6 @@
     {/each}
   </div>
 {/if}
-
-<SongSheet
-  bind:open={adding}
-  onsaved={(s) => {
-    list.refresh();
-    navigate(`/songs/${s.id}`);
-  }}
-/>
 
 <style>
   .search {

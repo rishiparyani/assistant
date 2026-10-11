@@ -3,8 +3,8 @@
   import Hand from "@lucide/svelte/icons/hand";
   import { Card, PageHeader } from "../ui/index.ts";
 
-  // How to use Gigspree: a few examples for the assistant, and how to do things by tapping
-  // (everything works by tapping too). Examples open the chat with the text filled in.
+  // How to use Gigspree: you make and change things by asking (examples open the chat with
+  // the text filled in); screens are for using what's there.
   const ASK: { title: string; items: string[] }[] = [
     {
       title: "Everyday",
@@ -22,6 +22,8 @@
         "Make a collection for fam jam sign-ups: name, song, instrument, and which jam",
         "Add a ‘Paid with’ field to Expenses: cash, UPI or card",
         "Link rehearsals to gigs, and delete them when the gig is deleted",
+        "Tell me when an expense is over ₹5,000",
+        "Add a song: Test Blue Song in G, 96 bpm, with these chords …",
       ],
     },
     {
@@ -35,23 +37,28 @@
   ];
   const TAP: { title: string; text: string; href?: string }[] = [
     {
-      title: "Pinned views",
-      text: "Open the menu (top left): pinned views open in a pop-up; tap a row to open it as a card.",
+      title: "Your lists and pinned views",
+      text: "Open the menu (top left): lists and pinned views open in a pop-up; tap a row to open it as a card.",
     },
     {
-      title: "Edit a card",
-      text: "On a card, tap Edit. Linked sections have “Add to …”; Share sends it to someone.",
+      title: "Using a card",
+      text: "Tick things done, share, comment or delete. To add or change something, ask in the chat.",
+    },
+    {
+      title: "Songbook",
+      text: "Apps → Songbook: open a song for its chart, transpose it, or play it in stage mode (works offline).",
+      href: "/songs",
     },
     {
       title: "Offline",
-      text: "What you've opened works offline. New and changed records wait and sync when you're back online.",
+      text: "What you've opened works offline: lists, cards and songs.",
     },
   ];
 </script>
 
 <PageHeader
   title="Help"
-  subtitle="A few examples of what you can ask, and how to do it by tapping."
+  subtitle="Ask for anything you want made or changed; use the screens for what's there."
   back="/"
   backLabel="Chat"
 />
@@ -61,8 +68,9 @@
     <div class="intro">
       <span class="icon"><MessageCircle size={20} /></span>
       <p>
-        Say what you want in the chat, in English or Hinglish: tap an example to try it. Everything also works
-        by tapping, and new setups (like a new collection) use the smart model once AI credit is added.
+        Say what you want in the chat, in English or Hinglish: tap an example to try it. Lists, fields,
+        workflows and songs are all made and changed this way; new setups use the smart model once AI credit
+        is added.
       </p>
     </div>
   </Card>
@@ -79,7 +87,7 @@
   {/each}
 
   <section>
-    <h2>By tapping</h2>
+    <h2>Using what's there</h2>
     <ul class="card">
       {#each TAP as t (t.title)}
         <li class="tap">

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import type { CollectionView, LinkedRef, RecordView } from "@assistant/shared";
-  import Pencil from "@lucide/svelte/icons/pencil";
+  import type { CollectionView, RecordView } from "@assistant/shared";
   import Trash from "@lucide/svelte/icons/trash-2";
   import Share2 from "@lucide/svelte/icons/share-2";
   import {
@@ -26,7 +25,6 @@
     showValue,
     spacesApi,
   } from "./spaces-api.ts";
-  import RecordSheet from "./RecordSheet.svelte";
   import LinkedSection from "./LinkedSection.svelte";
   import ShareSheet from "./ShareSheet.svelte";
   import Comments from "./Comments.svelte";
@@ -49,11 +47,8 @@
   const all = createQuery<CollectionView[]>(() => COLLECTIONS_KEY, spacesApi.collections);
   const gone = $derived(!!(record as (RecordView & { deleted?: boolean }) | undefined)?.deleted);
 
-  let editing = $state(false);
+  // Changes are made in the chat (decision "Chat makes, screens use"); here: share, delete.
   let sharing = $state(false);
-  // Adding a record in another collection that links back to this one.
-  let addTo = $state<{ collection: CollectionView; links: Record<string, LinkedRef[]> } | null>(null);
-  let addOpen = $state(false);
 
   const filled = $derived(
     collection && record
@@ -87,15 +82,6 @@
       toast.error(e);
     }
   }
-
-  function addLinked(target: CollectionView, fieldId: string) {
-    if (!record) return;
-    addTo = {
-      collection: target,
-      links: { [fieldId]: [{ id: record.id, collection_id: record.collection_id, title: record.title }] },
-    };
-    addOpen = true;
-  }
 </script>
 
 {#if !collection || !record || gone}
@@ -115,10 +101,6 @@
       </Button>
       <Button variant="ghost" onclick={() => (sharing = true)} aria-label="Share">
         {#snippet icon()}<Share2 />{/snippet}
-      </Button>
-      <Button variant="primary" onclick={() => (editing = true)}>
-        {#snippet icon()}<Pencil />{/snippet}
-        Edit
       </Button>
     {/snippet}
   </PageHeader>
@@ -141,7 +123,7 @@
         {/each}
       </ListGroup>
     {:else}
-      <Card><p class="empty">Nothing filled in yet. Tap Edit to add details.</p></Card>
+      <Card><p class="empty">Nothing filled in yet. Ask in the chat to add details.</p></Card>
     {/if}
 
     {#each personalFields as f (f.id)}
@@ -154,7 +136,7 @@
               >{/snippet}
           </ListRow>
         {:else}
-          <ListRow title="No answers yet" subtitle="Tap Edit to give yours" chevron={false} />
+          <ListRow title="No answers yet" subtitle="Tell the assistant yours" chevron={false} />
         {/each}
       </ListGroup>
     {/each}
@@ -180,7 +162,6 @@
             ? `${lf.collection} (${lf.field})`
             : lf.collection}
           recordId={record.id}
-          onadd={() => addLinked(target, lf.field_id)}
         />
       {/if}
     {/each}
@@ -195,11 +176,7 @@
     />
   </div>
 
-  <RecordSheet bind:open={editing} {collection} {record} onsaved={() => void rec.refresh()} />
   <ShareSheet bind:open={sharing} {collection} target={{ kind: "card", record }} />
-  {#if addTo}
-    <RecordSheet bind:open={addOpen} collection={addTo.collection} links={addTo.links} />
-  {/if}
 {/if}
 
 <style>

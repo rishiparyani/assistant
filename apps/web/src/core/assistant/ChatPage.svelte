@@ -3,23 +3,27 @@
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
-  import Plus from "@lucide/svelte/icons/plus";
   import type { CollectionView } from "@assistant/shared";
-  import ActionSheet from "../ui/ActionSheet.svelte";
-  import RecordSheet from "../spaces/RecordSheet.svelte";
   import LiveCard from "../spaces/LiveCard.svelte";
   import QuestionCard from "../spaces/QuestionCard.svelte";
   import WorkflowCard from "../workflows/WorkflowCard.svelte";
   import AppCard from "./AppCard.svelte";
-  import AskSheet from "../spaces/AskSheet.svelte";
   import { COLLECTIONS_KEY, spacesApi } from "../spaces/spaces-api.ts";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
   import { AssistantMark, Button, Pill, calm, toast } from "../ui/index.ts";
   import { createQuery, publish, refreshAll } from "../query.svelte.ts";
   import { connection } from "../offline.svelte.ts";
-  import { navigate, router } from "../router.svelte.ts";
-  import { CHATS_KEY, MAIN_CHAT, chatApi, chatKey, SUGGESTIONS } from "./chat-api.ts";
+  import { router } from "../router.svelte.ts";
+  import {
+    CHATS_KEY,
+    MAIN_CHAT,
+    chatApi,
+    chatKey,
+    isWaiting,
+    queueMessage,
+    SUGGESTIONS,
+  } from "./chat-api.ts";
 
   // The app's home: the chat with the assistant (docs/design/chat-first.md). Pinned views are
   // in the side menu.
@@ -38,33 +42,8 @@
   // Collaborators have no assistant unless the owner switches it on (step 4); + still works.
   const assistantOff = $derived(chat.data?.assistant_on === false);
 
-  // "+": add to any list by tapping, without the assistant (and offline).
+  // The chat's collections (one request for all live cards).
   const collections = createQuery<CollectionView[]>(() => COLLECTIONS_KEY, spacesApi.collections);
-  let picking = $state(false);
-  let adding = $state(false);
-  let addTo = $state<CollectionView | null>(null);
-  // Ask people a question (step 4); its card goes into this chat.
-  let asking = $state(false);
-  // The question's card is already in the chat (same request); show it.
-  async function asked() {
-    try {
-      chat.set(await chatApi.get(chatId));
-    } catch (e) {
-      toast.error(e);
-    }
-  }
-
-  const addActions = $derived([
-    { label: "Ask people…", onclick: () => (asking = true) },
-    { label: "Workflow by hand…", onclick: () => navigate("/workflows?new=1") },
-    ...(collections.data ?? []).map((c) => ({
-      label: c.name,
-      onclick: () => {
-        addTo = c;
-        adding = true;
-      },
-    })),
-  ]);
   // New messages float up from the side they come from.
   const fromMe = { y: 12, x: 12, duration: 320, easing: backOut };
   const fromThem = { y: 12, x: -12, duration: 320, easing: backOut };
@@ -80,7 +59,15 @@
     const t = message.trim();
     if (!t || sending) return;
     if (!connection.online) {
-      toast.error("The assistant needs a connection. Collections work offline.");
+      // It waits on the device and goes when the connection is back.
+      text = "";
+      try {
+        chat.set(await queueMessage(chatId, t));
+        toast.success("Saved; it's sent when you're back online");
+      } catch (e) {
+        text = t;
+        toast.error(e);
+      }
       return;
     }
     sending = t;
@@ -145,7 +132,9 @@
   <ol class="messages" bind:this={list} aria-live="polite">
     {#each items as m (m.id)}
       {#if m.role === "user"}
-        <li class="msg mine" in:fly={calm(fromMe)}>{m.text}</li>
+        <li class="msg mine" class:waiting={isWaiting(m)} in:fly={calm(fromMe)}>
+          {m.text}{#if isWaiting(m)}<span class="wait">Waiting to send</span>{/if}
+        </li>
       {:else if m.role === "card" && m.card}
         <li class="card" class:closed={m.card.status !== "waiting"} in:fly={calm(fromThem)}>
           <div class="card-head">
@@ -212,8 +201,7 @@
 <div class="dock">
   {#if assistantOff}
     <p class="off">
-      The assistant isn't on for you. Add to your lists with +, and find what people share with you in the
-      menu.
+      The assistant isn't on for you. Open your lists and what people share with you from the menu.
     </p>
   {/if}
   <div class="suggest" aria-label="Try one" hidden={assistantOff}>
@@ -237,14 +225,6 @@
       </label>
     {/if}
     <div class="box">
-      <button
-        type="button"
-        class="plus"
-        aria-label="Add to a list or ask people"
-        onclick={() => (picking = true)}
-      >
-        <Plus size={20} />
-      </button>
       <textarea
         bind:value={text}
         onkeydown={onKey}
@@ -255,7 +235,7 @@
           ? "The assistant is off for you"
           : connection.online
             ? "Message Gigspree"
-            : "Offline: the assistant needs a connection"}
+            : "Offline: it's sent when you're back online"}
         aria-label="Message the assistant"></textarea>
       <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending}>
         <ArrowUp size={20} />
@@ -263,18 +243,6 @@
     </div>
   </form>
 </div>
-
-<ActionSheet bind:open={picking} title="Add or ask" actions={addActions} />
-<AskSheet bind:open={asking} {chatId} onasked={asked} />
-{#if addTo}
-  {#key addTo.id}
-    <RecordSheet
-      bind:open={adding}
-      collection={addTo}
-      onsaved={() => toast.success(`Added to ${addTo?.name}`)}
-    />
-  {/key}
-{/if}
 
 <style>
   .suggest[hidden] {
@@ -554,21 +522,14 @@
     outline: none;
     box-shadow: none;
   }
-  .plus {
-    flex: none;
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    border: 0;
-    background: var(--surface-hover);
-    color: var(--text-2);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    transition: transform var(--dur) var(--ease-spring);
+  .msg.waiting {
+    opacity: 0.75;
   }
-  .plus:active {
-    transform: scale(0.9);
+  .wait {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-xs);
+    opacity: 0.85;
   }
   .send {
     flex: none;
