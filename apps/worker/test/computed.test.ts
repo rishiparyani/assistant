@@ -227,5 +227,22 @@ describe("calculated fields", () => {
       options: { rollup: { via: "Payments", fn: "count", where: [{ field: "Nope", op: "empty" }] } },
     });
     expect(bad.status).toBe(400);
+    // Nothing that changes by itself (stored values only move in writes).
+    for (const w of [
+      { field: "Amount", op: "period", value: "today" },
+      { field: "Title", op: "eq", value: "me" },
+    ])
+      expect(
+        (
+          await add({
+            name: "Moving",
+            type: "number",
+            options: { rollup: { via: "Payments", fn: "count", where: [w] } },
+          })
+        ).status,
+      ).toBe(400);
+    // A field a filtered rollup uses can't be removed until the rollup changes.
+    const removed = await api(me)("/collections/Payments/fields/Amount", { method: "DELETE" });
+    expect(removed.status).toBe(409);
   });
 });

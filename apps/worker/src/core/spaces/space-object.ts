@@ -1050,6 +1050,14 @@ export class SpaceObject extends DurableObject<Env> {
           "validation_failed",
           "That link can point anywhere; pick a link to one collection to filter it",
         );
+      // Stored values are worked out in writes, so nothing that changes by itself: no
+      // "today"-style periods, and no "me" (whose?).
+      for (const w of r.where)
+        if (w.op === "period" || w.value === "me")
+          throw new ObjectError(
+            "validation_failed",
+            "A calculated field can't filter by a period like today or by “me”; use fixed values",
+          );
       where = this.checkViewQuery(this.requireCollection(linkedCollection), { filters: r.where })
         .filters as RuleFilter[];
     }
@@ -1212,17 +1220,21 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** The ids, among these records of a collection, matching all the filters (few SQL args each). */
-  private matchingIn(collectionId: string, filters: Filter[], ids: string[]): string[] {
+  private matchingIn(
+    collectionId: string,
+    filters: Filter[],
+    ids: string[],
+    actor: Actor = { userId: null, source: "system" },
+  ): string[] {
     const c = this.sql
       .exec<CollectionRow>(`select * from collections where id = ? and deleted_at is null`, collectionId)
       .toArray()[0];
     if (!c) return [];
     if (!filters.length) return ids;
     const out: string[] = [];
-    const system: Actor = { userId: null, source: "system" };
     for (let i = 0; i < ids.length; i += 50) {
       const part = ids.slice(i, i + 50);
-      out.push(...this.findRows(system, c, { filters, ids: part, limit: part.length }).rows.map((x) => x.id));
+      out.push(...this.findRows(actor, c, { filters, ids: part, limit: part.length }).rows.map((x) => x.id));
     }
     return out;
   }
@@ -1495,6 +1507,32 @@ export class SpaceObject extends DurableObject<Env> {
           "conflict",
           `${f.name} is used by a rule (${this.ruleView(user).words}); remove the rule first`,
           { reason: "rule", rule_id: user.id },
+        );
+      // So would a rollup elsewhere that filters by it, or a workflow that picks linked
+      // records by it: those go (or change) first.
+      const rollup = this.sql
+        .exec<FieldRow>(`select * from fields where deleted_at is null and options_json like '%"where"%'`)
+        .toArray()
+        .find((g) => (toField(g).options.rollup?.where ?? []).some((w) => w.field === f.id));
+      if (rollup)
+        throw new ObjectError(
+          "conflict",
+          `${f.name} is used by the calculated field ${rollup.name}; change or remove it first`,
+          { reason: "rollup", field_id: rollup.id },
+        );
+      const flow = this.sql
+        .exec<WorkflowRow>(`select * from workflows where deleted_at is null`)
+        .toArray()
+        .find((w) =>
+          (JSON.parse(w.def_json) as WorkflowDef).then.some(
+            (a) => a.do === "set" && (a.where ?? []).some((x) => x.field === f.id),
+          ),
+        );
+      if (flow)
+        throw new ObjectError(
+          "conflict",
+          `${f.name} is used by the workflow ${flow.name}; change or remove it first`,
+          { reason: "workflow", workflow_id: flow.id },
         );
       this.sql.exec(`update fields set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, f.id);
       this.sql.exec(`delete from record_values where field_id = ?`, f.id);
@@ -3549,6 +3587,7 @@ export class SpaceObject extends DurableObject<Env> {
               field.collection_id,
               a.where ?? [],
               this.linkedIds(a.via.field_id, a.via.dir, r.id),
+              actor, // as the workflow's maker, like its check ("me" is them)
             ).slice(0, MAX_LINKED_SETS)
           : [];
         for (const id of ids)

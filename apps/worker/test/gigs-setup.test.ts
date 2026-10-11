@@ -274,6 +274,39 @@ describe("gigs from the blocks", () => {
       await until(async () => (await kind(first.id)) === "Released" && (await kind(third.id)) === "Released"),
     ).toBe(true);
     expect(await kind(second.id)).toBe("Show");
+
+    // Linked records are picked as the workflow's maker: "me" in its filter is the manager.
+    const mine = await api(manager)("/workflows", {
+      body: {
+        name: "Test my parts",
+        when: { event: "changed", collection: "Gigs", field: "Client" },
+        then: [
+          {
+            do: "set",
+            via: "Lineup",
+            where: [{ field: "Player", op: "eq", value: "me" }],
+            field: "Role",
+            value: "Leader",
+          },
+        ],
+        enabled: true,
+      },
+    });
+    expect(mine.status).toBe(201);
+    const own = await add("Lineup", { Role: "Keys", Gig: gig.id, Player: "me" });
+    await api(manager)(`/records/${gig.id}`, {
+      method: "PATCH",
+      body: { values: { Client: "Test Client" } },
+    });
+    const role = async (id: string) =>
+      (await json<RecordView>(await api(manager)(`/records/${id}`))).named.Role;
+    expect(await until(async () => (await role(own.id)) === "Leader")).toBe(true);
+    const lineup = await json<{ items: RecordView[] }>(
+      await api(manager)("/collections/Lineup/find", { body: {} }),
+    );
+    expect(lineup.items.filter((r) => r.named.Role === "Leader").map((r) => r.id)).toEqual([own.id]);
+    // The field it picks by can't be removed while it does.
+    expect((await api(manager)("/collections/Lineup/fields/Player", { method: "DELETE" })).status).toBe(409);
     // The manager isn't in the lineup, so isn't told.
     expect((await inbox(manager)).some((n) => n.body === "You're on Test Sangeet")).toBe(false);
   });
