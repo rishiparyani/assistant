@@ -1,8 +1,12 @@
 # Status
 
-_Updated: 2026-10-11_
+_Updated: 2026-10-11 (evening)_
 
 ## Last done
+
+- **HF0: home-first design approved** (owner, 2026-10-11, with the design model; decision "Home first; cards from components and arrangements; React Native with Expo"): the brief for the next agent is `docs/design/home-first.md`: home first (pages of pinned cards, Now arranged by the assistant, chat one pull away with card context), cards = components + arrangement + size, collaborator homes, processes with roles, hybrid search with one index per person, Inbox, This week proposals, What changed + Undo, first run as a conversation, the design system (tokens, type, grid, motion) and the build order for a React Native (Expo) app that also becomes the website. Mockups are in the owner's claude.ai account ("Gigspree Concept Home" is the one to build). No code changed. Agreed engineering rules (card schema, rendered catalogue, vertical slice + Svelte freeze, export/import, unmet-asks log, budget card, 14 Dec acceptance test) are home-first.md §5; security additions §6.
+  - **Next (for the building agent):** home-first.md §7 step 1: the Expo scaffold in `apps/mobile` with sign-in, the shared data layer and outbox, and the TestFlight pipeline; record the new dependencies with versions in decisions.md in that PR. Google sign-in inside the app waits for the owner's OK (security change). Then step 2, the home.
+  - Still waiting on the owner: the venue door link; moving gig data and removing the old gig code.
 
 - **CM2: quick adds made by chat** (decision "Chat makes, screens use"): when someone asks for one ("give me a quick add for expenses"), the assistant saves a pinned view with `add_fields` (setup level, confirm card; `save_view`/`update_view`, also in `make_setup` views, whose card words say "with a quick add for …"). The view's pop-up and its chat card show an add box with just those fields (`QuickAdd.svelte`, adding through the outbox, so it works offline). Checked when saved: the required fields must be in it (a list with a required link or person can't have one); links, people, personal answers and calculated fields can't be in it (400); `[]` removes it; changing filters keeps it. Checked again when read: one a later field change breaks is hidden (`add_fields: []`) rather than shown to fail. After "Make it", the new view shows as a card in the chat with its add box. Offline, what the box added is listed under it as "Waiting" until it syncs. Stored inside the view's query (no storage change). Tests: `quick-add.test.ts` (2). Browser-checked at 390, light and dark (added "Test chai ₹40" through it).
 
