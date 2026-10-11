@@ -6,6 +6,17 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 **Order now follows [docs/design/chat-first.md](../docs/design/chat-first.md) §5 (approved 2026-10-10).** Next: step 6, setups by chat and the fam jam (C1–C5 done).
 
+## HF Home first (docs/design/home-first.md §5)
+
+1. Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox, TestFlight + simulator screenshots moved over; dependencies recorded.
+2. Home: pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar and pull-down, dock; Now page ranking.
+3. Chat sheet with card context; What changed + Undo; collaborator homes; per-person assistant switch in the admin panel.
+4. Processes: roles, waiting on, nudges, loops; client-by-link step; process card and detail.
+5. Search (one index per person: FTS5 + Vectorize), Inbox (share sheet, Siri capture), This week proposals.
+6. First run conversation; setup sharing; memory page.
+7. Web target until it matches today's site, then the switch; laptop layout.
+8. Swift: widgets from pinned cards, App Intents, Share extension, on-device model; Android later.
+
 ## C1 New look and the chat-first shell
 
 Colour tokens per kind of card (lists amber, money green, people indigo, workflows violet, forms rose), the gradient assistant mark, a top bar with a side menu (chats, pinned, what it remembers, workflows, settings, help), the chat full screen. Remove the tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports and their pages); keep shared-with-you, join/link pages, settings, help, admin.

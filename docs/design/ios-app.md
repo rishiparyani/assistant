@@ -1,5 +1,7 @@
 # The iPhone app
 
+_2026-10-11: superseded in part by [home-first.md](home-first.md) §2.18 and §5: the app moves to React Native with Expo (iPhone, Android and the website from one codebase). The Capacitor shell below stays until the Expo app reaches TestFlight; the pipeline, passkey sign-in notes, App Intents and the widget plan carry over._
+
 Owner, 2026-09-29: bought the Apple Developer Program. "You start." The plan agreed in chat: Capacitor (the web app in a native shell) plus native Swift for what only an app can do, delivered through TestFlight.
 
 ## How it's built
