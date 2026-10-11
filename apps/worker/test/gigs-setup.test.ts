@@ -438,5 +438,7 @@ describe("gigs from the blocks", () => {
     expect((await json<RecordView>(await api(manager)(`/records/${a.id}`))).named["Still to come"]).toBe("1");
     expect((await arrive(2)).status).toBe(200);
     expect((await arrive(3)).status).toBe(400);
+    // The field the per-player limit adds up can't be removed while the rule uses it.
+    expect((await api(manager)("/collections/Guests/fields/Heads", { method: "DELETE" })).status).toBe(409);
   });
 });

@@ -1503,6 +1503,7 @@ export class SpaceObject extends DurableObject<Env> {
         const d = JSON.parse(r.def_json) as RuleDef;
         return (
           d.field === f.id ||
+          d.of === f.id ||
           d.fields.includes(f.id) ||
           [...d.require, ...d.only_if].some((x) => x.field === f.id)
         );
@@ -3019,13 +3020,17 @@ export class SpaceObject extends DurableObject<Env> {
       if (def.of || (def.at_most ?? 1) > 1) {
         // "At most N per …": count the records sharing the fields (this one included), or add
         // up a number field across them.
-        const rows = this.findRows(system, c, { filters: [...def.only_if, ...same], limit: 1000 }).rows;
-        const total = def.of
-          ? rows.reduce((n, x) => {
-              const v = (JSON.parse(x.values_json) as Record<string, StoredValue>)[def.of!];
-              return n + (typeof v === "number" ? v : 0);
-            }, 0)
-          : rows.length;
+        // Every match counts, page by page; stop as soon as the cap is passed.
+        let total = 0;
+        let cursor: string | undefined;
+        do {
+          const page = this.findRows(system, c, { filters: [...def.only_if, ...same], limit: 500, cursor });
+          for (const x of page.rows) {
+            const v = def.of ? (JSON.parse(x.values_json) as Record<string, StoredValue>)[def.of] : 1;
+            total += typeof v === "number" ? v : 0;
+          }
+          cursor = page.next_cursor ?? undefined;
+        } while (cursor && total <= (def.at_most ?? 1));
         if (total > (def.at_most ?? 1))
           throw new ObjectError(
             "conflict",
