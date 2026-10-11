@@ -151,15 +151,17 @@ Plain routes, not operations (never MCP tools or Siri actions). Admins are the e
 
 ### Saved views
 
-| Method | Path                  | What                                                                        |
-| ------ | --------------------- | --------------------------------------------------------------------------- |
-| GET    | `/api/views`          | Saved views (pinned first)                                                  |
-| GET    | `/api/views/:view_id` | Open a view (id or name): `{ view, collection, result }`                    |
-| POST   | `/api/views`          | Save `{ name, collection, filters?, search?, sort?, mode?, pinned? }` (201) |
-| PATCH  | `/api/views/:view_id` | Rename, change the query, pin / unpin, move                                 |
-| DELETE | `/api/views/:view_id` | Delete the view (records stay); needs confirmation from MCP                 |
+| Method | Path                  | What                                                                                     |
+| ------ | --------------------- | ---------------------------------------------------------------------------------------- |
+| GET    | `/api/views`          | Saved views (pinned first)                                                               |
+| GET    | `/api/views/:view_id` | Open a view (id or name): `{ view, collection, result }`                                 |
+| POST   | `/api/views`          | Save `{ name, collection, filters?, search?, sort?, mode?, pinned?, add_fields? }` (201) |
+| PATCH  | `/api/views/:view_id` | Rename, change the query, pin / unpin, move                                              |
+| DELETE | `/api/views/:view_id` | Delete the view (records stay); needs confirmation from MCP                              |
 
 Filters use the find language; periods ("this_month") and "me" are kept as written, so the view stays current. Fields are kept by id, so renaming a field doesn't break a view.
+
+A **quick add** (only when the person asks the chat for one): `add_fields: ["What", "Amount"]` on save or update puts an add box with just those fields on the view (its pop-up and its chat card). It must include the collection's required fields and can't use links, people, personal answers or calculated fields (400); `[]` removes it. Views answer `add_fields` (field ids; `[]` when none).
 
 ### Chat with the assistant (session only)
 

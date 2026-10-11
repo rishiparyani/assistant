@@ -4,6 +4,8 @@ _Updated: 2026-10-11_
 
 ## Last done
 
+- **CM2: quick adds made by chat** (decision "Chat makes, screens use"): when someone asks for one ("give me a quick add for expenses"), the assistant saves a pinned view with `add_fields` (setup level, confirm card; `save_view`/`update_view`, also in `make_setup` views, whose card words say "with a quick add for …"). The view's pop-up and its chat card show an add box with just those fields (`QuickAdd.svelte`, adding through the outbox, so it works offline). Checked when saved: the required fields must be in it; links, people, personal answers and calculated fields can't be (400); `[]` removes it; changing filters keeps it. Stored inside the view's query (no storage change). Tests: `quick-add.test.ts` (1). Browser-checked at 390, light and dark (added "Test chai ₹40" through it).
+
 - **CM3: chat messages typed offline wait** (decision "Chat makes, screens use"): offline, a message goes into the device's outbox (`queueMessage` in `assistant/chat-api.ts`, kind `assistant.message`), shows at once in the chat marked "Waiting to send", and is sent to the assistant when the connection is back (in order, once: the server claims each message by its key). The box says "Offline: it's sent when you're back online". Browser-checked at 390: offline send, then back online, and the assistant answered.
   - Gotcha: if a resend arrives while the first try is still being answered, the server says 409 and the outbox lists it under "Couldn't sync" (rare: only when the first request timed out on the device mid-answer).
 

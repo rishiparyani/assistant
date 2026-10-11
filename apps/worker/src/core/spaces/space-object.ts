@@ -367,12 +367,15 @@ type ViewQuery = {
   filters: Filter[];
   search: string | null;
   sort: { field: string; dir: "asc" | "desc" } | null;
+  /** A quick add the person asked for: the fields its add box fills in (ids). */
+  add?: string[];
 };
 type ViewInput = {
   filters?: Filter[];
   search?: string | null;
   sort?: { field: string; dir: "asc" | "desc" } | null;
   mode?: ViewMode;
+  add_fields?: string[];
 };
 type ViewRow = {
   id: string;
@@ -2450,6 +2453,7 @@ export class SpaceObject extends DurableObject<Env> {
         filters: input.filters ?? before.filters,
         search: input.search === undefined ? before.search : input.search,
         sort: input.sort === undefined ? before.sort : input.sort,
+        add_fields: input.add_fields ?? current.add_fields,
       });
       this.sql.exec(
         `update views set name = ?, name_key = ?, query_json = ?, mode = ?, pinned = ?, position = ?, updated_at = ? where id = ?`,
@@ -2523,7 +2527,28 @@ export class SpaceObject extends DurableObject<Env> {
       return { ...f, field: field.id };
     });
     const sort = q.sort ? { field: this.matchField(fields, q.sort.field).id, dir: q.sort.dir } : null;
-    return { filters, search: q.search?.trim() || null, sort };
+    // A quick add: plain fields people type in (not links, people, answers or calculated
+    // ones), and every required field, so what it adds can be saved.
+    let add: string[] | undefined;
+    if (q.add_fields?.length) {
+      add = [...new Set(q.add_fields.map((ref) => this.matchField(fields, ref).id))];
+      for (const id of add) {
+        const f = fields.find((x) => x.id === id)!;
+        const o = toField(f).options;
+        if (f.type === "link" || f.type === "person" || o.personal || o.formula || o.rollup)
+          throw new ObjectError(
+            "validation_failed",
+            `A quick add can't fill in ${f.name}; ask the assistant instead`,
+          );
+      }
+      const missing = fields.filter((f) => f.required && f.type !== "link" && !add!.includes(f.id));
+      if (missing.length)
+        throw new ObjectError(
+          "validation_failed",
+          `A quick add needs ${missing.map((f) => f.name).join(", ")} (required)`,
+        );
+    }
+    return { filters, search: q.search?.trim() || null, sort, ...(add ? { add } : {}) };
   }
 
   private requireView(ref: string): ViewRow {
@@ -2566,6 +2591,7 @@ export class SpaceObject extends DurableObject<Env> {
     );
     q.filters = q.filters.filter((f) => live.has(f.field));
     if (q.sort && !live.has(q.sort.field)) q.sort = null;
+    const add = (q.add ?? []).filter((id) => live.has(id));
     return {
       id: v.id,
       name: v.name,
@@ -2574,6 +2600,7 @@ export class SpaceObject extends DurableObject<Env> {
       filters: q.filters,
       search: q.search,
       sort: q.sort,
+      add_fields: add,
       mode: v.mode,
       pinned: v.pinned === 1,
       position: v.position,

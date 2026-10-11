@@ -16,8 +16,10 @@
   import { createQuery } from "../query.svelte.ts";
   import { navigate } from "../router.svelte.ts";
   import { filterLabel, isPending, spacesApi, summaryOf, viewKey } from "./spaces-api.ts";
+  import QuickAdd from "./QuickAdd.svelte";
 
-  // A saved view as a pop-up (design §10): its records, open in full, pin or unpin, delete.
+  // A saved view as a pop-up (design §10): its quick add if the person asked for one, its
+  // records, open in full, pin or unpin, delete.
   let {
     open = $bindable(false),
     view,
@@ -64,6 +66,9 @@
 
 <Sheet bind:open title={view.name}>
   {#if data}
+    {#if data.view.add_fields?.length}
+      <QuickAdd collection={data.collection} fieldIds={data.view.add_fields} />
+    {/if}
     {#if data.view.filters.length || data.view.search}
       <p class="what">
         {view.collection}:

@@ -425,6 +425,8 @@ export interface SavedView {
   filters: Filter[];
   search: string | null;
   sort: { field: string; dir: "asc" | "desc" } | null;
+  /** A quick add the person asked for (field ids it fills in); [] when it has none. */
+  add_fields: string[];
   mode: ViewMode;
   /** On the shortcuts bar (and, later, as an iPhone widget). */
   pinned: boolean;
@@ -441,12 +443,22 @@ const viewQuery = {
   mode: z.enum(VIEW_MODES).optional(),
 };
 
+/** Only when the person asks for one: a quick add on the view (an add box with these fields). */
+const addFields = z
+  .array(z.string().trim().min(1).max(80))
+  .max(10)
+  .optional()
+  .describe(
+    'Only if the person asks for a quick add (an add box): the fields it fills in, e.g. ["What", "Amount"]; include the required ones; [] removes it',
+  );
+
 export const SaveViewInput = SpaceRef.extend({
   id: clientId,
   name: name("View name, e.g. Unpaid this month"),
   collection: nameOrId("Collection"),
   ...viewQuery,
   pinned: z.boolean().optional().describe("Put it on the shortcuts bar"),
+  add_fields: addFields,
 });
 
 export const ViewRef = SpaceRef.extend({
@@ -458,6 +470,7 @@ export const UpdateViewInput = ViewRef.extend({
   ...viewQuery,
   pinned: z.boolean().optional(),
   position: z.number().optional(),
+  add_fields: addFields,
 });
 
 export const OpenViewInput = ViewRef.extend({

@@ -115,6 +115,8 @@ export function setupWords(s: SetupDef): string[] {
     );
   }
   for (const v of s.views ?? [])
-    out.push(`A view “${v.name}” of ${v.collection}${v.pinned ? ", on the shortcuts bar" : ""}`);
+    out.push(
+      `A view “${v.name}” of ${v.collection}${v.pinned ? ", on the shortcuts bar" : ""}${v.add_fields?.length ? `, with a quick add for ${v.add_fields.join(", ")}` : ""}`,
+    );
   return out;
 }
