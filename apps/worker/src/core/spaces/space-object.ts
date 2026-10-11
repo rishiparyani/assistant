@@ -1064,7 +1064,17 @@ export class SpaceObject extends DurableObject<Env> {
         throw new ObjectError("validation_failed", `${f.name} is ${t}, but this field is ${type}`);
       of = f.id;
     }
-    return { rollup: { via: via.id, dir, fn: r.fn, of } };
+    let where: RuleFilter[] | undefined;
+    if (r.where?.length) {
+      if (!linkedCollection)
+        throw new ObjectError(
+          "validation_failed",
+          "That link can point anywhere; pick a link to one collection to filter it",
+        );
+      where = this.checkViewQuery(this.requireCollection(linkedCollection), { filters: r.where })
+        .filters as RuleFilter[];
+    }
+    return { rollup: { via: via.id, dir, fn: r.fn, of, ...(where ? { where } : {}) } };
   }
 
   /** The calculated fields of a collection (none for most). */
@@ -1096,7 +1106,7 @@ export class SpaceObject extends DurableObject<Env> {
     for (const f of computed) {
       const ru = toField(f).options.rollup;
       if (!ru) continue;
-      const ids = this.sql
+      let ids = this.sql
         .exec<{ id: string }>(
           ru.dir === "in"
             ? `select l.from_id as id from links l join records x on x.id = l.from_id
@@ -1108,6 +1118,8 @@ export class SpaceObject extends DurableObject<Env> {
         )
         .toArray()
         .map((x) => x.id);
+      // Only the linked records that match (e.g. the shows among a gig's events).
+      if (ru.where?.length && ids.length) ids = this.matching(ru, ids);
       if (ru.fn === "count") {
         next[f.id] = ids.length;
         continue;
@@ -1148,6 +1160,31 @@ export class SpaceObject extends DurableObject<Env> {
         );
     }
     return true;
+  }
+
+  /** The ids, among linked records, that match a rollup's filters (in chunks: few SQL args). */
+  private matching(ru: NonNullable<FieldOptions["rollup"]>, ids: string[]): string[] {
+    const via = this.liveField(ru.via);
+    const target = via ? (ru.dir === "in" ? via.collection_id : toField(via).options.target) : null;
+    const c = target
+      ? this.sql
+          .exec<CollectionRow>(`select * from collections where id = ? and deleted_at is null`, target)
+          .toArray()[0]
+      : undefined;
+    if (!c) return [];
+    const out: string[] = [];
+    const system: Actor = { userId: null, source: "system" };
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
+      out.push(
+        ...this.findRows(system, c, {
+          filters: ru.where as Filter[],
+          ids: part,
+          limit: part.length,
+        }).rows.map((x) => x.id),
+      );
+    }
+    return out;
   }
 
   /** Records whose links a write just removed (their rollups change too). */
@@ -1859,6 +1896,9 @@ export class SpaceObject extends DurableObject<Env> {
   private personValue(f: FieldRow, raw: unknown, actor: Actor | null): StoredValue {
     if (typeof raw === "string" && nameKey(raw) === "me" && actor?.userId)
       return { user_id: actor.userId, name: this.personNames([actor.userId]).get(actor.userId) ?? "me" };
+    // An account id of someone the space knows (from list_people) is that person.
+    if (typeof raw === "string" && this.knownPerson(raw.trim()))
+      return { user_id: raw.trim(), name: this.personNames([raw.trim()]).get(raw.trim()) ?? raw.trim() };
     const v = normalizeValue(toField(f), raw);
     if (v && typeof v === "object" && !Array.isArray(v) && v.user_id && !this.knownPerson(v.user_id))
       return { user_id: null, name: v.name };

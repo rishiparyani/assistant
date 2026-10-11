@@ -195,4 +195,37 @@ describe("calculated fields", () => {
     }
     expect(seen).toBe(true);
   });
+
+  it("counts or sums only the linked records that match", async () => {
+    const me = await signUp("Test Filter");
+    const { gig, pay, read } = await gigsWithPayments(me);
+    const add = (field: unknown) => api(me)("/collections/Gigs/fields", { body: { field } });
+    const big = await add({
+      name: "Big payments",
+      type: "money",
+      options: {
+        rollup: {
+          via: "Payments",
+          fn: "sum",
+          of: "Amount",
+          where: [{ field: "Amount", op: "gte", value: 10000 }],
+        },
+      },
+    });
+    expect(big.status).toBe(201);
+    const p = await pay("Test small", "500");
+    await pay("Test big", "12000");
+    expect((await read()).named["Big payments"]).toBe("₹12,000");
+    // A payment that grows past the line starts counting.
+    await api(me)(`/records/${p.id}`, { method: "PATCH", body: { values: { Amount: "15000" } } });
+    expect((await read()).named["Big payments"]).toBe("₹27,000");
+    expect(gig.id).toBeTruthy();
+    // Filters name fields of the linked list.
+    const bad = await add({
+      name: "Wrong",
+      type: "number",
+      options: { rollup: { via: "Payments", fn: "count", where: [{ field: "Nope", op: "empty" }] } },
+    });
+    expect(bad.status).toBe(400);
+  });
 });

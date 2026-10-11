@@ -59,7 +59,14 @@ export interface FieldOptions {
    * sum, smallest or largest of one of their fields. `via` is a link field of this record, or
    * a link field elsewhere that points here.
    */
-  rollup?: { via: string; dir?: "out" | "in"; fn: RollupFn; of?: string | null };
+  rollup?: {
+    via: string;
+    dir?: "out" | "in";
+    fn: RollupFn;
+    of?: string | null;
+    /** Only linked records matching all of these (fields of the linked collection, by id). */
+    where?: RuleFilter[];
+  };
 }
 
 export const ROLLUP_FNS = ["count", "sum", "min", "max"] as const;
@@ -169,6 +176,21 @@ export const SpaceRef = z.object({
   space: nameOrId("Space").optional().describe("Space name or id; leave out for your Personal space"),
 });
 
+export const FILTER_OPS = [
+  "eq",
+  "ne",
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+  "contains",
+  "in",
+  "empty",
+  "not_empty",
+  "period",
+] as const;
+export type FilterOp = (typeof FILTER_OPS)[number];
+
 const choicesSchema = z.array(z.string().trim().min(1).max(80)).max(SPACE_LIMITS.choices);
 
 export const FieldOptionsInput = z
@@ -217,6 +239,27 @@ export const FieldOptionsInput = z
           .max(80)
           .optional()
           .describe("sum / min / max: the field of the linked records"),
+        where: z
+          .array(
+            z.object({
+              field: z.string().trim().min(1).max(80),
+              op: z.enum(FILTER_OPS),
+              value: z
+                .union([
+                  z.string(),
+                  z.number(),
+                  z.boolean(),
+                  z.null(),
+                  z.array(z.union([z.string(), z.number()])),
+                ])
+                .optional(),
+            }),
+          )
+          .max(5)
+          .optional()
+          .describe(
+            'Only the linked records matching all of these, e.g. [{field: "Kind", op: "eq", value: "Show"}]',
+          ),
       })
       .optional()
       .describe("number / money / date: a total over linked records, e.g. sum of Amount over Payments"),
@@ -318,21 +361,6 @@ export const UnlinkRecordsInput = RecordRef.extend({
   field: nameOrId("Link field"),
   to: z.array(z.string().trim().min(1).max(40)).min(1).max(50).describe("Record ids to unlink"),
 });
-
-export const FILTER_OPS = [
-  "eq",
-  "ne",
-  "lt",
-  "lte",
-  "gt",
-  "gte",
-  "contains",
-  "in",
-  "empty",
-  "not_empty",
-  "period",
-] as const;
-export type FilterOp = (typeof FILTER_OPS)[number];
 
 export const PERIODS = [
   "today",

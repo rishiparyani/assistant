@@ -441,6 +441,11 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-11: Gigs is checked against the blocks, gaps fixed in the engine
+
+Step 8 rebuilds the gig app as a setup and checks it with a test per behaviour (`gigs-setup.test.ts`). Where a behaviour can't be built, a generic block is added, never gig code: so far rollups that filter the linked records (count only the shows) and person fields that take a known person's account id. The old gig code stays until every behaviour the owner uses passes, and is removed only with the owner's OK.
+Reason: universal.md §7; one engine for everything, and nothing the owner relies on is lost.
+
 ## 2026-10-10: Backups include every space, chat and group object
 
 The nightly backup also holds each space, chat and group object as a dump of all its tables (except idempotency records, the outbox, the schema row and Cloudflare's internal tables), found through D1 (spaces, group members, users) and each person's main chat (their other chats). Restore only fills empty objects.
