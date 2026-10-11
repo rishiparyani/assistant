@@ -512,3 +512,13 @@ First slice of home-first.md §7 step 1. New dependencies (mobile only unless no
 - The app is a normal workspace package (`@assistant/mobile`): `pnpm typecheck` and `pnpm lint` cover it; CI also bundles its web target. No `node-linker` change: Metro is pointed at the repo root and symlinks instead.
 - The bundle id stays `in.gigspree.assistant`, so TestFlight continues the same app when the Expo build replaces the Capacitor one.
 - The server side of sign-in from the app (Better Auth's `expo()` plugin, `gigspree://` as a trusted origin) is a new way in and waits for the owner's explicit OK before it merges; Google inside the app stays off (`EXPO_PUBLIC_GOOGLE_IN_APP`) until the same OK.
+
+## 2026-10-11: Owner's standing OKs (so the daily loop doesn't wait on him)
+
+The owner isn't an active developer: he sends a message about once a day and looks at the app when he can; the agent builds, verifies and delivers. To keep that loop moving he gave these OKs in chat (2026-10-11):
+
+- **Sign-in from the app**: Better Auth's `expo()` plugin, `gigspree://` as a trusted origin, and Google sign-in inside the app through the system sheet are approved (merged in #95; Google in the app may be switched on). Sign-in methods **for the owner himself** are approved in general; anything that opens data to **other people** (new share kinds, link-only writes, tokens for others) still waits for his explicit OK.
+- **The venue door link** (a link-only view where the venue edits only Arrived, no sign-in) is approved.
+- **Old gig data and code**: the owner never used the gig app for real work ("basic testing, very few records; I don't care if they move forward"). The old `gigs` and `music` module code and their objects' data may be deleted when the Expo app covers gigs from the blocks; no migration of that data is needed. The space data (lists, chats, groups) made since is kept.
+- **Delivery**: a short "what's new, what to try" note reaches the owner after each merge (in the app or as a message); the agent keeps the simulator screenshots and a nightly prod check as part of HF2.
+- Still the owner's call when reached: the Google Play developer account (Android), the new name before the public listing, and whether the repository goes private (see the note under "Private repository" when decided).
