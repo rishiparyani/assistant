@@ -11,6 +11,8 @@ export default ts.config(
       "**/.wrangler/",
       "**/worker-configuration.d.ts",
       "docs/archive/",
+      "**/.expo/",
+      "apps/mobile/expo-env.d.ts",
     ],
   },
   js.configs.recommended,
@@ -25,6 +27,16 @@ export default ts.config(
   {
     files: ["**/*.svelte", "**/*.svelte.ts"],
     languageOptions: { parserOptions: { parser: ts.parser } },
+  },
+  {
+    // The Expo app: CommonJS config files, native requires.
+    files: ["apps/mobile/*.config.js", "apps/mobile/test/*.cjs"],
+    languageOptions: { sourceType: "commonjs" },
+    rules: { "@typescript-eslint/no-require-imports": "off" },
+  },
+  {
+    files: ["apps/mobile/**/*.tsx"],
+    rules: { "@typescript-eslint/no-require-imports": "off" },
   },
   {
     // Throwaway spike: keep it linted for obvious bugs, not style.

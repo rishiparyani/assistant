@@ -30,3 +30,8 @@ jobs:
       - run: pnpm lint
       - run: pnpm test
       - run: pnpm build
+      # The phone app's web target bundles (no device needed); the API URL is baked in.
+      - run: pnpm --filter @assistant/mobile build:web
+        env:
+          EXPO_PUBLIC_API_URL: https://gigspree.in
+          CI: 1

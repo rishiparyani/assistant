@@ -6,3 +6,5 @@ worker-configuration.d.ts
 docs/archive/
 spikes/t00/migrations/
 apps/worker/migrations/
+apps/mobile/expo-env.d.ts
+.expo/
