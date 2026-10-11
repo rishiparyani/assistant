@@ -310,4 +310,135 @@ describe("gigs from the blocks", () => {
     // The manager isn't in the lineup, so isn't told.
     expect((await inbox(manager)).some((n) => n.body === "You're on Test Sangeet")).toBe(false);
   });
+
+  it("runs guest lists: players add their own, limits per player and in all, arrivals in parts", async () => {
+    const manager = await signUp("Test Manager", undefined, { lists: false });
+    const made = await api(manager)("/setups", {
+      body: {
+        name: "Test guest lists",
+        collections: [
+          {
+            name: "Gigs",
+            fields: [
+              { name: "Title", type: "text" },
+              { name: "Guest limit", type: "number" },
+              {
+                name: "Guest heads",
+                type: "number",
+                options: { rollup: { via: "Guests", fn: "sum", of: "Heads" } },
+              },
+              { name: "Spare", type: "number", options: { formula: "{Guest limit} - {Guest heads}" } },
+            ],
+          },
+          {
+            name: "Guests",
+            fields: [
+              { name: "Name", type: "text" },
+              {
+                name: "Gig",
+                type: "link",
+                required: true,
+                options: { target: "Gigs", on_delete: "cascade" },
+              },
+              { name: "Host", type: "person", required: true },
+              { name: "Plus ones", type: "number", required: true },
+              { name: "Heads", type: "number", options: { formula: "{Plus ones} + 1" } },
+              { name: "Arrived", type: "number" },
+              { name: "Still to come", type: "number", options: { formula: "{Plus ones} + 1 - {Arrived}" } },
+            ],
+          },
+        ],
+        rules: [
+          {
+            collection: "Gigs",
+            kind: "check",
+            require: [{ field: "Spare", op: "gte", value: 0 }],
+            only_if: [{ field: "Guest limit", op: "not_empty" }],
+            message: "The guest list is full",
+          },
+          { collection: "Guests", kind: "unique", fields: ["Gig", "Host"], at_most: 3, of: "Heads" },
+          {
+            collection: "Guests",
+            kind: "check",
+            require: [{ field: "Still to come", op: "gte", value: 0 }],
+            only_if: [{ field: "Arrived", op: "not_empty" }],
+            message: "More arrived than the group",
+          },
+        ],
+        views: [{ name: "Test my guests", collection: "Guests" }],
+      },
+    });
+    expect(made.status, await made.clone().text()).toBe(201);
+    const gig = await json<RecordView>(
+      await api(manager)("/collections/Gigs/records", {
+        body: { values: { Title: "Test Club Night", "Guest limit": 6 } },
+      }),
+    );
+
+    // Players join the gig's card, a sign-in form for guests, and a view of only their own.
+    const [player, other] = [await signUp("Test Player"), await signUp("Test Other")];
+    const card = await json<CreatedShare>(await api(manager)("/shares", { body: { record_id: gig.id } }));
+    const form = await json<CreatedShare>(
+      await api(manager)("/shares", { body: { form: "Guests", hide_fields: ["Arrived"] } }),
+    );
+    const mine = await json<CreatedShare>(
+      await api(manager)("/shares", {
+        body: { view: "Test my guests", access: "edit", hide_fields: ["Arrived"] },
+      }),
+    );
+    await api(manager)(`/shares/${mine.share.id}/rules/*`, {
+      method: "PUT",
+      body: { filters: [{ field: "Host", op: "eq", value: "me" }] },
+    });
+    for (const u of [player, other])
+      for (const sh of [card, form, mine])
+        expect((await api(u)("/cards/join", { body: { token: tokenOf(sh.link) } })).status).toBe(200);
+    const addGuest = (u: User, name: string, plus: number, host: unknown = "me") =>
+      api(u)(`/cards/${form.share.id}/records`, {
+        body: { section: "form", values: { Name: name, Gig: gig.id, Host: host, "Plus ones": plus } },
+      });
+
+    expect((await addGuest(player, "Test Guest A", 1)).status).toBe(201);
+    // Not in someone else's name.
+    expect((await addGuest(player, "Test Guest X", 0, other.id)).status).toBe(403);
+    expect((await addGuest(other, "Test Guest C", 0)).status).toBe(201);
+    // At most 3 heads per player: A (2) + B (2) is too many; B alone is fine.
+    expect((await addGuest(player, "Test Guest B", 1)).status).toBe(409);
+    expect((await addGuest(player, "Test Guest B", 0)).status).toBe(201);
+
+    // Each player sees only their own guests, and can't mark arrivals.
+    const seen = async (u: User) =>
+      (await json<SharedListView>(await api(u)(`/cards/${mine.share.id}`))).records
+        .map((r) => r.title)
+        .sort();
+    expect(await seen(player)).toEqual(["Test Guest A", "Test Guest B"]);
+    expect(await seen(other)).toEqual(["Test Guest C"]);
+    const all = await json<{ items: RecordView[] }>(
+      await api(manager)("/collections/Guests/find", { body: {} }),
+    );
+    const a = all.items.find((r) => r.title === "Test Guest A")!;
+    expect(
+      (
+        await api(player)(`/cards/${mine.share.id}/records/${a.id}`, {
+          method: "PATCH",
+          body: { values: { Arrived: 1 } },
+        })
+      ).status,
+    ).toBe(403);
+
+    // The whole list is full at 6 heads (4 so far): a group of 3 doesn't fit.
+    expect((await json<RecordView>(await api(manager)(`/records/${gig.id}`))).named["Guest heads"]).toBe("4");
+    expect((await addGuest(other, "Test Guest D", 2)).status).toBe(400);
+    expect((await addGuest(other, "Test Guest D", 1)).status).toBe(201);
+
+    // Arrivals in parts: one of A's two, then both; never more than the group.
+    const arrive = (n: number) =>
+      api(manager)(`/records/${a.id}`, { method: "PATCH", body: { values: { Arrived: n } } });
+    expect((await arrive(1)).status).toBe(200);
+    expect((await json<RecordView>(await api(manager)(`/records/${a.id}`))).named["Still to come"]).toBe("1");
+    expect((await arrive(2)).status).toBe(200);
+    expect((await arrive(3)).status).toBe(400);
+    // The field the per-player limit adds up can't be removed while the rule uses it.
+    expect((await api(manager)("/collections/Guests/fields/Heads", { method: "DELETE" })).status).toBe(409);
+  });
 });

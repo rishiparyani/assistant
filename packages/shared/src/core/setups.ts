@@ -106,6 +106,8 @@ export function setupWords(s: SetupDef): string[] {
         collection: r.collection,
         require: filters(r.require),
         fields: (r.fields ?? []).map((n) => ({ id: "", name: n })),
+        at_most: r.at_most ?? 1,
+        of: r.of ? { id: "", name: r.of } : null,
         only_if: filters(r.only_if),
         field: r.field ? { id: "", name: r.field } : null,
         moves: r.moves ?? {},
