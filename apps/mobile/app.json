@@ -42,7 +42,14 @@
       "output": "single",
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-sqlite", "expo-web-browser", "expo-splash-screen"],
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-web-browser",
+      "expo-splash-screen",
+      "./plugins/with-app-intents.js"
+    ],
     "experiments": {
       "typedRoutes": true
     }

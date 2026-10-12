@@ -182,6 +182,9 @@ jobs:
             shot "$dev" "$label-light-3-chat-typing"
             go "$dev" "/memory"
             shot "$dev" "$label-light-4-memory"
+            # What "Add to Gigspree" (Siri) lands on: the capture screen against the test server.
+            go "$dev" "/capture?text=Strings%20450%20at%20Furtados"
+            shot "$dev" "$label-light-5-capture"
             xcrun simctl terminate "$dev" "$BUNDLE_ID" || true
             xcrun simctl ui "$dev" appearance dark
             go "$dev" "/"
