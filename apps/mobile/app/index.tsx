@@ -233,9 +233,14 @@ export default function Home() {
                 canOpen() &&
                 (card.memory
                   ? router.push("/memory")
-                  : card.shared?.kind === "form"
-                    ? openOnWeb(card)
-                    : ask(card))
+                  : card.waiting
+                    ? router.push({
+                        pathname: "/process",
+                        params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
+                      })
+                    : card.shared?.kind === "form"
+                      ? openOnWeb(card)
+                      : ask(card))
               }
               onAnswer={
                 card.waiting

@@ -357,6 +357,7 @@ function sharedCard(share: SharedWithMe, o: SharedOpened, waiting: WaitingItem[]
     return {
       ...processCard({
         id: share.share_id,
+        space_id: "",
         workflow_id: "",
         workflow: `Question from ${share.owner}`,
         record_id: "",
@@ -498,7 +499,8 @@ export function answerWaiting(w: WaitingItem, answer: string): Promise<unknown> 
 }
 /** Asks again, now, the people a process of mine is waiting on. */
 export function nudgeWaiting(w: WaitingItem): Promise<WaitingItem> {
-  return request<WaitingItem>("POST", `/api/waiting/${enc(w.id)}/nudge`);
+  const space = w.space_id ? `?space=${enc(w.space_id)}` : "";
+  return request<WaitingItem>("POST", `/api/waiting/${enc(w.id)}/nudge${space}`);
 }
 
 /** Keeps the device copy in step with what the screen shows after a change. */

@@ -107,6 +107,11 @@ describe("processes", () => {
     // Rahul's own view of it names his share; Priya wasn't asked and sees nothing.
     const mine = await json<WaitingItem[]>(await api(rahul)("/waiting"));
     expect(mine[0]?.share_id).toBe(q.share_id);
+    // Each item names its space, so the process loads there (the owner's own, by id).
+    expect(mine[0]?.space_id).toBe(waiting[0]!.space_id);
+    expect(
+      (await api(owner)(`/workflows/${waiting[0]!.workflow_id}?space=${waiting[0]!.space_id}`)).status,
+    ).toBe(200);
     expect(await json<WaitingItem[]>(await api(priya)("/waiting"))).toEqual([]);
 
     // A nudge now: Rahul hears it again, nobody else.
