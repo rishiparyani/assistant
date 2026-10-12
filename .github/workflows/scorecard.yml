@@ -1,0 +1,53 @@
+# The model scorecard (apps/worker/scorecard): real requests through the whole app on fake
+# data, with only the AI calls going to Workers AI on the owner's account. Started by hand
+# (or by an agent through the API); prints the scorecard table, which an agent copies into
+# docs/scorecard/. The free model uses the daily allowance (about 1,000 neurons a run);
+# setups run only when a paid gateway is named, and then spend prepaid credit within the cap.
+name: Scorecard
+
+on:
+  workflow_dispatch:
+    inputs:
+      paid_gateway:
+        description: "Unified-billing gateway id for the smart model (empty: everyday cases only)"
+        required: false
+        default: ""
+      only:
+        description: "Comma-separated case ids to run (empty: all)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scorecard
+  cancel-in-progress: false
+
+jobs:
+  scorecard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - name: Run the scorecard
+        working-directory: apps/worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          AI_PAID_GATEWAY: ${{ inputs.paid_gateway }}
+          SCORECARD_ONLY: ${{ inputs.only }}
+        # Only the table and per-case lines are printed (fake data); the token stays in env.
+        run: |
+          set -o pipefail
+          pnpm exec vitest run -c vitest.scorecard.config.ts --silent=false --reporter=verbose 2>&1 | tee scorecard.log
+          sed -n '/=== SCORECARD ===/,/=== END ===/p' scorecard.log | sed '1d;$d' >> "$GITHUB_STEP_SUMMARY"

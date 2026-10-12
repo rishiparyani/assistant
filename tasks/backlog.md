@@ -17,6 +17,9 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 7. ~~Web target served with the website (`/app`); laptop layout~~ (HF11); the switch once the new home matches today's site.
 8. Swift: ~~App Intents~~ (HF12); widgets from pinned cards, Share extension, on-device model; Android later.
 9. ~~Encrypt the nightly backup with an owner-held key (restore takes the same key)~~ (HF 9: `BACKUP_KEY`; without it backups stay gzipped JSON in the owner's private Drive).
+10. Model scorecard: everyday cases on the free model (HF15); setups once AI credit is loaded (re-run the Scorecard workflow with `paid_gateway`).
+11. Cards package (`packages/cards`): card format + parts + drawing + the assistant's catalogue + a gallery screen (decision 2026-10-12).
+12. Google Calendar connector: per-person connect, read upcoming events, propose new ones as cards, a calendar card (decision 2026-10-12); Gmail next.
 
 ## C1 New look and the chat-first shell
 

@@ -108,7 +108,9 @@
   // The free route is the auto-created "default" gateway (Standard billing: the daily free
   // allowance, then it stops). AI_PAID_GATEWAY names a Unified-billing gateway with prepaid
   // credit; empty means paid models stay off. The cap is enforced by the app.
-  "ai": { "binding": "AI" },
+  // remote: always the real Workers AI, also from local runs (the scorecard; tests use the
+  // scripted model and turn remote bindings off).
+  "ai": { "binding": "AI", "remote": true },
   "vars": {
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://dev.gigspree.in",

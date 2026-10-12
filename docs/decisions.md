@@ -606,3 +606,21 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Decision:** when the `BACKUP_KEY` secret is set, the nightly backup is encrypted (AES-256-GCM, key from PBKDF2 of the passphrase with a fresh salt per file) before it goes to the owner's Drive; restore opens it with the Worker's key or a key typed in. Without the secret, backups stay gzipped JSON. The key is the owner's: it lives in GitHub secrets and their password manager, never in the repo or the database, and nobody can recover a backup without it.
 
 **Why:** the backup holds everything (every space, chat and gig); Drive is private but a file copied out of it should give nothing away. A passphrase-derived key means the same string works wherever the file is read (the admin panel today, a script later), with no key file to lose.
+
+## 2026-10-12: A model scorecard decides what the assistant can be trusted with (owner's OK)
+
+**Decision:** a fixed set of real requests (`apps/worker/scorecard/cases.ts`: everyday English and Hinglish, money and deletes that must wait for a tap, handovers, setups and home cards) runs through the whole app on fake data, with only the model calls going to Workers AI (remote AI binding in `vitest.scorecard.config.ts`). Each case is graded by what the app ended up with (records, cards waiting, the reply), and the run reports right/wrong, time, tokens, neurons and rupees per level and language. It's started by hand from the **Scorecard** workflow (`workflow_dispatch`, the deploy token, no new secret) and the table goes in `docs/scorecard/`. The everyday level runs now on the free allowance (about 1,000 neurons a run); setups run once the owner has AI credit (the workflow's `paid_gateway` input). Re-run when models, prompts or prices change, and before choosing the models for a new level.
+
+**Why:** the owner asked how far the cheap models go and what a message really costs (for pricing at ₹99–299 a month); guesses aren't good enough for either. Grading the outcome rather than the model's text measures what a person would see, and keeps working when tools or prompts change.
+
+## 2026-10-12: Cards become their own package, with a catalogue the assistant reads (owner's OK)
+
+**Decision:** the card format, its parts and recipes, and the code that draws them move into **`packages/cards`** in this repo (not a separate repo or a published library): the `card.v1` schema and arrangements (from `packages/shared`), the React Native components (from `apps/mobile/src/components`), a one-line-per-part **catalogue** generated from the same definitions for the assistant, and a **gallery** screen showing every part at every size, light and dark (the simulator screenshots it). The assistant keeps describing cards as data that the app checks and draws; it never writes HTML or code for a card. Rarely used parts' details are looked up on demand, so the assistant's context stays small as the set grows.
+
+**Why:** built-in parts open instantly and offline, work in widgets and on every screen size, keep one look, cost the model a few hundred tokens instead of thousands, and can't run code (the "no code execution" rule). One package keeps the definitions, the drawing and the assistant's catalogue from drifting apart, and adding a part touches one place.
+
+## 2026-10-12: Connectors start with Google Calendar (owner's OK)
+
+**Decision:** the first outside connector (universal.md §10 "Connectors") is **Google Calendar**: each person connects their own Google account once (OAuth with the calendar scope, the token kept encrypted in that person's own object, revocable from the app), the assistant can read upcoming events and propose new ones, and a card can show calendar events. Reading is allowed; adding or changing an event is always a card to tap. Connector tools are offered to the model only when a request needs them; what comes back is data, never instructions. Gmail is next.
+
+**Why:** everyone already signs in with Google, and gigs and rehearsals belong on the calendar people already use. The owner approved the new access in chat (2026-10-12); it stays per person and opt-in.

@@ -44,6 +44,7 @@ const MIGRATIONS: Migrations = [
   );
   create index calls_at_idx on calls (at);
   `,
+  `create index calls_user_at_idx on calls (user_id, at);`,
 ];
 
 /** Months and days in India time (the cap resets on the 1st, IST). */
@@ -185,6 +186,38 @@ export class BudgetObject extends DurableObject<Env> {
     );
     // Keep 90 days of call logs.
     this.sql.exec(`delete from calls where at < ?`, new Date(Date.now() - 90 * 86400_000).toISOString());
+  }
+
+  /** One person's model calls since a time, oldest first (the scorecard reads its test users'). */
+  async callsFor(userId: string, since: string): Promise<CallLog[]> {
+    return this.sql
+      .exec<{
+        level: number;
+        model: string;
+        input_tokens: number;
+        output_tokens: number;
+        cost_paise: number;
+        neurons: number;
+        ms: number;
+        outcome: string;
+      }>(
+        `select level, model, input_tokens, output_tokens, cost_paise, neurons, ms, outcome
+         from calls where user_id = ? and at >= ? order by at`,
+        userId,
+        since,
+      )
+      .toArray()
+      .map((r) => ({
+        userId,
+        level: r.level,
+        model: r.model,
+        inputTokens: r.input_tokens,
+        outputTokens: r.output_tokens,
+        costPaise: r.cost_paise,
+        neurons: r.neurons,
+        ms: r.ms,
+        outcome: r.outcome,
+      }));
   }
 
   async view(capPaise: number): Promise<BudgetView> {
