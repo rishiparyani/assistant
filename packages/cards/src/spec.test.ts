@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CardSpec, cardProblems, nearestArrangement, nowScore } from "./cards.ts";
+import { CardSpec, cardProblems, nearestArrangement, nowScore } from "./spec.ts";
 
 describe("card.v1", () => {
   it("accepts a plain list card and fills the defaults", () => {

@@ -7,8 +7,7 @@ import { isOffline } from "../api.ts";
 import { tick, type HomeCard } from "../home.ts";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
-import { Card } from "./Card.tsx";
-import { cardHeight } from "./CardGrid.tsx";
+import { Card, cardHeight } from "@assistant/cards/native";
 
 export function LiveCard({
   live,

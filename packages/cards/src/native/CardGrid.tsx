@@ -14,8 +14,8 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import type { HomeCard } from "../home.ts";
-import { radius, useTheme } from "../theme.ts";
+import type { HomeCard } from "./model.ts";
+import { radius, useTheme } from "./theme.ts";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 export const CARD_GAP = 10;

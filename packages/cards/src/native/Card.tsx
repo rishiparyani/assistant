@@ -4,8 +4,8 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { RecordView } from "@assistant/shared";
-import type { HomeCard } from "../home.ts";
-import { radius, useTheme } from "../theme.ts";
+import type { HomeCard } from "./model.ts";
+import { radius, useTheme } from "./theme.ts";
 
 const ROWS = { s: 2, m: 3, l: 8 } as const;
 
@@ -145,6 +145,54 @@ export function Card({
         </View>
       );
       break;
+    case "countdown": {
+      // Days to the soonest item still ahead (by the source's date field).
+      const df = card.spec.sources[0]?.date_field;
+      const today = new Date().toISOString().slice(0, 10);
+      const ahead = card.records
+        .map((r) => ({ r, d: df ? String(r.values[df] ?? "").slice(0, 10) : "" }))
+        .filter((x) => x.d >= today)
+        .sort((a, b) => a.d.localeCompare(b.d))[0];
+      const days = ahead ? Math.round((Date.parse(ahead.d) - Date.parse(today)) / 86_400_000) : null;
+      body = (
+        <View style={s.grow}>
+          <Text
+            style={[s.num, { color: t.fg }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+          >
+            {days === null ? "–" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}
+          </Text>
+          <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={size === "s" ? 1 : 2}>
+            {ahead ? ahead.r.title : "Nothing coming up"}
+          </Text>
+        </View>
+      );
+      break;
+    }
+    case "progress": {
+      // Done out of all (by the source's yes/no field).
+      const done = field ? card.records.filter((r) => r.values[field] === true).length : 0;
+      const all = card.records.length;
+      body = (
+        <View style={s.grow}>
+          <Text style={[s.num, { color: t.fg }]} numberOfLines={1}>
+            {done}
+            <Text style={[s.of, { color: t.fg2 }]}> / {all}</Text>
+          </Text>
+          <View style={[s.bar, { backgroundColor: t.fill }]}>
+            <View
+              style={[s.barIn, { backgroundColor: c, width: `${all ? Math.round((done / all) * 100) : 0}%` }]}
+            />
+          </View>
+          <Text style={[s.sub, { color: t.fg2 }]}>
+            {all - done ? `${all - done} to go` : all ? "All done" : "Nothing yet"}
+          </Text>
+        </View>
+      );
+      break;
+    }
     case "list-ticks":
       body = (
         <View style={s.grow}>
@@ -261,6 +309,10 @@ function formatTotal(card: HomeCard) {
 function secondLine(card: HomeCard, r: RecordView): string {
   // The first readable value that isn't the title: "₹450", "Sat 14 Dec".
   if (!card.collection) return "";
+  // A card ordered by date shows the date.
+  const dated = card.collection.fields.find((f) => f.id === card.spec.sources[0]?.date_field);
+  const when = dated ? r.named[dated.name] : null;
+  if (typeof when === "string" && when) return when;
   const title = card.collection.fields.find((f) => f.id === card.collection!.title_field_id)?.name;
   for (const f of card.collection.fields) {
     if (f.name === title) continue;
@@ -307,6 +359,9 @@ const s = StyleSheet.create({
   answerText: { fontSize: 14, fontWeight: "700" },
   num: { fontSize: 30, fontWeight: "800", letterSpacing: -1.2, fontVariant: ["tabular-nums"] },
   sub: { fontSize: 12, fontWeight: "500" },
+  of: { fontSize: 16, fontWeight: "700", letterSpacing: 0 },
+  bar: { height: 8, borderRadius: 4, overflow: "hidden", marginVertical: 4 },
+  barIn: { height: 8, borderRadius: 4 },
   row: {
     flexDirection: "row",
     alignItems: "center",

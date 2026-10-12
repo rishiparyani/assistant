@@ -10,13 +10,14 @@ import {
   nowScore,
   type CardSignals,
   type CardSize,
+} from "@assistant/cards";
+import { colourFor, type HomeCard } from "@assistant/cards/native";
+import {
   type CollectionView,
   type FindResult,
   type Memory,
   type RecordView,
   type SavedView,
-  type ShareAccess,
-  type ShareKind,
   type SharedOpened,
   type SharedWithMe,
   type StoredValue,
@@ -25,33 +26,9 @@ import {
 import { request } from "./api.ts";
 import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
-import { colourFor, type CollectionColour } from "./theme.ts";
 
-export interface HomeCard {
-  id: string;
-  /** The saved view this card shows (its order and size live there); null for a list the
-   *  chat shows that isn't saved as a view, and for a process card. */
-  view: SavedView | null;
-  spec: CardSpec;
-  /** The list the records come from; null for a process card. */
-  collection: CollectionView | null;
-  colour: CollectionColour;
-  records: RecordView[];
-  total: number | null;
-  /** A process card (home-first.md §2 point 9): the step waiting on people. */
-  waiting?: WaitingItem;
-  /** The memory card (home-first.md §2 point 16): what the assistant remembers for me. */
-  memory?: Memory[];
-  /** Something shared with me (collaborator homes, home-first.md §2 point 8). */
-  shared?: {
-    share_id: string;
-    kind: ShareKind;
-    access: ShareAccess;
-    owner: string;
-    /** A shared record's fields, shown as rows. */
-    fields?: { name: string; display: string }[];
-  };
-}
+export type { HomeCard };
+
 export interface HomePage {
   name: string;
   auto?: boolean;

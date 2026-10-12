@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@assistant/cards": "workspace:*",
     "@assistant/shared": "workspace:*",
     "@better-auth/expo": "catalog:",
     "@expo/metro-runtime": "~57.0.16",

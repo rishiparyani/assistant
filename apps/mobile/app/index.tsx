@@ -17,9 +17,8 @@ import {
 } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { CardSize } from "@assistant/shared";
-import { Card } from "@/components/Card";
-import { CardGrid } from "@/components/CardGrid";
+import type { CardSize } from "@assistant/cards";
+import { Card, CardGrid } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { SearchSheet } from "@/components/SearchSheet";
 import { API_URL } from "@/config";

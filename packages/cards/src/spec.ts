@@ -3,7 +3,7 @@
 // this set; the app draws it. `card.v1` is the one shape the server validates, the phone, the
 // website and the widgets draw, so a card that passed validation is drawable everywhere.
 import { z } from "zod";
-import { FilterInput } from "./spaces.ts";
+import { FilterInput } from "@assistant/shared";
 
 export const CARD_VERSION = "card.v1" as const;
 

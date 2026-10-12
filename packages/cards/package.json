@@ -1,0 +1,35 @@
+{
+  "name": "@assistant/cards",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./native": "./src/native/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@assistant/shared": "workspace:*",
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "expo-haptics": "*",
+    "react": "*",
+    "react-native": "*",
+    "react-native-gesture-handler": "*",
+    "react-native-reanimated": "*"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "expo-haptics": "~57.0.3",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-gesture-handler": "~2.32.0",
+    "react-native-reanimated": "4.5.1",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

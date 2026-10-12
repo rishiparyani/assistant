@@ -73,6 +73,7 @@ apps/web/        Vite + Svelte app; src/core/ + src/modules/<name>/
 apps/mobile/     the phone app and the future website: Expo (React Native) + expo-router (docs/design/home-first.md)
 apps/ios/        the old iPhone shell (Capacitor) and its Swift parts; retired once the Expo app reaches TestFlight
 packages/shared/ Zod schemas, types, money/date helpers; src/core/ + src/modules/<name>/
+packages/cards/  the card format, the assistant's card catalogue, and the cards' React Native drawing + theme ("/native")
 shortcuts/       Siri Shortcuts docs (never commit tokens)
 scripts/         backup, seed
 ```
