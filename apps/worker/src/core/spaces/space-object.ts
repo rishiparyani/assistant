@@ -4864,6 +4864,7 @@ export class SpaceObject extends DurableObject<Env> {
     const me = on.find((p) => p.user_id === actor.userId);
     return {
       id: wait.id,
+      space_id: this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "",
       workflow_id: w.id,
       workflow: w.name,
       record_id: wait.record_id,

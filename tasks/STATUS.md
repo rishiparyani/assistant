@@ -5,6 +5,7 @@ _Updated: 2026-10-12_
 ## Last done
 
 - **HF14: a process screen on the phone** (backlog step 4, "process detail"). Tapping a **process card** on the home opens `/process` (`apps/mobile/app/process.tsx`): the workflow in plain words with on/off and how often it ran, **Waiting on** (each open question: the record, the question, everyone asked with their answer so far, when it was asked and how often nudged; the choices to tap when it waits on me, **Nudge** when it waits on others) and **What happened** (the last runs in plain words, failures in red). Read fresh from `GET /api/workflows/:id`; a process of someone else's (their space answers 404 to me) shows the step waiting on me from the card. Answering or nudging reads again after a moment, like the card.
+  - **Review fixes:** the parsed waiting item is kept once (`useMemo`) so loading doesn't loop; on someone else's process the screen re-reads `/api/waiting` after an answer (shows "Nothing is waiting on you here now" once it moves on); `WaitingItem` now carries `space_id`, and the screen loads the workflow (and nudges) in that space.
   - **Verified here:** typecheck, lint; the web build against the local server: the owner's "Confirm with Rahul" opens with its words, the wait on Rahul and Nudge; Rahul's opens with Yes / No.
   - **Not in this slice:** turning a process on or off from the phone (the chat or the website); a list of all processes (the home shows the ones waiting).
   - **Next:** widgets and the Share extension (step 8), the web switch when the new home covers the site.

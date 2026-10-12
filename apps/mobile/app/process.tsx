@@ -2,7 +2,7 @@
 // workflow in plain words, what it's waiting on right now (answer or nudge from here), and its
 // last runs in plain words. Read fresh from the server; the card on the home stays the quick way.
 // online-only: a process's state lives in its space's object.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -17,29 +17,29 @@ export default function Process() {
   const router = useRouter();
   const { id, waiting: given } = useLocalSearchParams<{ id?: string; waiting?: string }>();
   // The step waiting on me (from the card), shown even when the process itself is someone
-  // else's (their space answers 404 to me).
-  const mine = parseWaiting(given);
+  // else's (their space answers 404 to me). Parsed once; refreshed from /api/waiting after I act.
+  const fromCard = useMemo(() => parseWaiting(given), [given]);
+  const [mine, setMine] = useState<WaitingItem | null>(fromCard);
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
+  const space = fromCard?.space_id;
   const load = useCallback(async () => {
     if (!id) return;
+    const where = space ? `?space=${encodeURIComponent(space)}` : "";
     try {
-      setDetail(await request<WorkflowDetail>("GET", `/api/workflows/${encodeURIComponent(id)}`));
+      setDetail(await request<WorkflowDetail>("GET", `/api/workflows/${encodeURIComponent(id)}${where}`));
       setNote("");
     } catch (e) {
-      setNote(
-        isOffline(e)
-          ? "This needs a connection."
-          : mine
-            ? "" // someone else's process: the question below is all I can see
-            : e instanceof Error
-              ? e.message
-              : String(e),
-      );
+      if (isOffline(e)) return setNote("This needs a connection.");
+      if (!fromCard) return setNote(e instanceof Error ? e.message : String(e));
+      // Someone else's process: the question waiting on me is all I can see; read it fresh.
+      setNote("");
+      const all = await request<WaitingItem[]>("GET", "/api/waiting").catch(() => null);
+      if (all) setMine(all.find((w) => w.id === fromCard.id) ?? null);
     }
-  }, [id, mine]);
+  }, [id, space, fromCard]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -59,7 +59,7 @@ export default function Process() {
   };
 
   const waiting: WaitingItem[] = detail?.waiting ?? (mine ? [mine] : []);
-  const title = detail?.workflow.name ?? mine?.workflow ?? "Process";
+  const title = detail?.workflow.name ?? mine?.workflow ?? fromCard?.workflow ?? "Process";
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 8 }]}>
       <View style={s.head}>
@@ -141,7 +141,11 @@ export default function Process() {
           })
         ) : (
           <Text style={[s.label, { color: t.fg2 }]}>
-            {detail ? "Nothing right now." : note || "Loading…"}
+            {detail
+              ? "Nothing right now."
+              : fromCard && !mine
+                ? "Nothing is waiting on you here now."
+                : note || "Loading…"}
           </Text>
         )}
 

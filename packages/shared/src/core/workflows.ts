@@ -224,6 +224,8 @@ export interface WorkflowRun {
 /** A process step waiting on people's answers (home-first.md §2 point 9). */
 export interface WaitingItem {
   id: string;
+  /** The space the process lives in (load it and act on it there). */
+  space_id: string;
   workflow_id: string;
   workflow: string;
   record_id: string;
