@@ -287,24 +287,39 @@ export default function Home() {
             />
           ))}
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
-          onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
-          style={({ pressed }) => [
-            s.bar,
-            { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <Image
-            source={dark ? logoDark : logoLight}
-            style={{ width: 28, height: 28 }}
-            accessibilityIgnoresInvertColors
-          />
-          <Text style={[s.barText, { color: t.fg2 }]}>
-            {assistant ? "Ask, add or arrange…" : "Search your cards"}
-          </Text>
-        </Pressable>
+        <View style={s.barRow}>
+          {assistant ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Search"
+              onPress={() => setSearch(true)}
+              style={({ pressed }) => [
+                s.searchBtn,
+                { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Text style={{ color: t.fg2, fontSize: 18, lineHeight: 20 }}>⌕</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
+            onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
+            style={({ pressed }) => [
+              s.bar,
+              { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Image
+              source={dark ? logoDark : logoLight}
+              style={{ width: 28, height: 28 }}
+              accessibilityIgnoresInvertColors
+            />
+            <Text style={[s.barText, { color: t.fg2 }]}>
+              {assistant ? "Ask, add or arrange…" : "Search your cards"}
+            </Text>
+          </Pressable>
+        </View>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
       {search ? (
@@ -313,7 +328,16 @@ export default function Home() {
           onClose={() => setSearch(false)}
           onOpen={(card) => {
             setSearch(false);
-            openOnWeb(card);
+            if (assistant) ask(card);
+            else openOnWeb(card);
+          }}
+          onOpenResult={(hit) => {
+            setSearch(false);
+            if (assistant)
+              router.push({
+                pathname: "/chat",
+                params: { ask: `About "${hit.title}" in ${hit.collection}: ` },
+              });
           }}
         />
       ) : null}
@@ -351,8 +375,17 @@ const s = StyleSheet.create({
   },
   dots: { flexDirection: "row", gap: 6, alignItems: "center" },
   dotI: { height: 7, borderRadius: 4 },
+  searchBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  barRow: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 8 },
   bar: {
-    alignSelf: "stretch",
+    flex: 1,
     height: 48,
     borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,

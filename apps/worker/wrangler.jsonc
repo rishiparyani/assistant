@@ -42,6 +42,7 @@
       { "name": "BUDGET", "class_name": "BudgetObject" },
       { "name": "LIVE", "class_name": "LiveObject" },
       { "name": "GROUPS", "class_name": "GroupObject" },
+      { "name": "SEARCH", "class_name": "SearchObject" },
     ],
   },
   "migrations": [
@@ -74,6 +75,11 @@
     {
       "tag": "v7",
       "new_sqlite_classes": ["GroupObject"],
+    },
+    // Search: one full-text index per person (home-first.md §4).
+    {
+      "tag": "v8",
+      "new_sqlite_classes": ["SearchObject"],
     },
   ],
   // Outbox notes travel here; the deploy workflow creates the queues if missing.
@@ -138,6 +144,7 @@
           { "name": "BUDGET", "class_name": "BudgetObject" },
           { "name": "LIVE", "class_name": "LiveObject" },
           { "name": "GROUPS", "class_name": "GroupObject" },
+          { "name": "SEARCH", "class_name": "SearchObject" },
         ],
       },
       "migrations": [
