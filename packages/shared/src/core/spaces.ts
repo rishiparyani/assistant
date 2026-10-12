@@ -428,7 +428,7 @@ export const HistoryInput = SpaceRef.extend({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 export const UndoInput = SpaceRef.extend({
-  change_id: z.string().trim().min(1).max(20).describe("The entry's id from the history"),
+  change_id: z.string().trim().min(1).max(40).describe("The entry's id from the history"),
 });
 
 export const ChangesInput = SpaceRef.extend({

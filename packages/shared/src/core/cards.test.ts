@@ -60,7 +60,10 @@ describe("nowScore", () => {
     expect([...scores].sort((a, b) => b - a)).toEqual(scores);
     expect(nowScore(none)).toBe(0);
   });
-  it("doesn't let a long list outrank one overdue item", () => {
+  it("never lets many items of a lower tier outrank one of a higher tier", () => {
     expect(nowScore({ ...none, open: 40 })).toBeLessThan(nowScore({ ...none, overdue: 1 }));
+    expect(nowScore({ ...none, overdue: 50 })).toBeLessThan(nowScore({ ...none, waiting: 1 }));
+    expect(nowScore({ ...none, due_today: 50 })).toBeLessThan(nowScore({ ...none, overdue: 1 }));
+    expect(nowScore({ ...none, due_soon: 50 })).toBeLessThan(nowScore({ ...none, due_today: 1 }));
   });
 });

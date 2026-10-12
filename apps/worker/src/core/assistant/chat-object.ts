@@ -86,6 +86,9 @@ const MIGRATIONS: Migrations = [
   );
   create index memories_created_idx on memories (deleted_at, created_at);
   `,
+  // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
+  `alter table _audit add column change_id text;
+   create index _audit_change_idx on _audit (change_id);`,
 ];
 
 /** What the assistant remembers for a person (chat-first step 3). */

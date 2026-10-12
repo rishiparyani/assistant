@@ -39,6 +39,9 @@ const MIGRATIONS: Migrations = [
      primary key (word, song_id)
    ) without rowid;
    create index song_words_song_idx on song_words (song_id);`,
+  // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
+  `alter table _audit add column change_id text;
+   create index _audit_change_idx on _audit (change_id);`,
 ];
 
 type SongRow = {

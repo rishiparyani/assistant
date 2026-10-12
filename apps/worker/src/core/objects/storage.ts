@@ -3,6 +3,7 @@
 // migrations run when the object wakes, writes are idempotent and audited, and changes
 // that others must hear about go through a one-row outbox.
 
+import { ulid } from "@assistant/shared";
 import { ObjectError } from "./errors.ts";
 
 /** Ordered schema migrations; index + 1 is the version. Never edit one that has shipped. */
@@ -78,10 +79,13 @@ export interface AuditEntry {
   after?: unknown;
 }
 
-export function audit(sql: SqlStorage, actor: Actor, entry: AuditEntry) {
+/** Writes one audit entry and returns its id (a ULID; "what changed" and Undo use it). */
+export function audit(sql: SqlStorage, actor: Actor, entry: AuditEntry): string {
+  const id = ulid();
   sql.exec(
-    `insert into _audit (at, actor_user_id, source, action, entity_type, entity_id, before_json, after_json)
-     values (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `insert into _audit (change_id, at, actor_user_id, source, action, entity_type, entity_id, before_json, after_json)
+     values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id,
     nowIso(),
     actor.userId,
     actor.source,
@@ -91,6 +95,7 @@ export function audit(sql: SqlStorage, actor: Actor, entry: AuditEntry) {
     entry.before === undefined ? null : JSON.stringify(entry.before),
     entry.after === undefined ? null : JSON.stringify(entry.after),
   );
+  return id;
 }
 
 // --- Idempotency (architecture rule 8), stored with the data it protects -------------

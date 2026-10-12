@@ -367,8 +367,9 @@ export const spaceOperations = [
     id: "core.undo",
     tool: "undo_change",
     description:
-      "Undo one entry from what_changed: a changed record gets its earlier values back, an added record is removed.",
+      "Undo one entry from what_changed: a changed record gets its earlier values back, an added record is removed. Needs confirmation.",
     kind: "write",
+    confirm: true,
     http: { method: "POST", path: "/history/:change_id/undo" },
     input: UndoInput,
     handler: async (ctx, i) => {

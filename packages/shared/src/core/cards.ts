@@ -128,5 +128,9 @@ export interface CardSignals {
  * stays off Now.
  */
 export function nowScore(s: CardSignals): number {
-  return s.waiting * 10 + s.overdue * 5 + s.due_today * 3 + s.due_soon * 1 + Math.min(s.open, 5) * 0.5;
+  // Tiers never overlap: one item of a higher tier outranks any count of a lower one.
+  const cap = (n: number) => Math.min(Math.max(n, 0), 99);
+  return (
+    cap(s.waiting) * 1e8 + cap(s.overdue) * 1e6 + cap(s.due_today) * 1e4 + cap(s.due_soon) * 1e2 + cap(s.open)
+  );
 }

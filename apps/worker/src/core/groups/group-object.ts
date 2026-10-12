@@ -53,6 +53,9 @@ const MIGRATIONS: Migrations = [
   -- People who just left still get one ping, so their open app drops the group.
   create table live_extra (user_id text primary key);
   `,
+  // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
+  `alter table _audit add column change_id text;
+   create index _audit_change_idx on _audit (change_id);`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */

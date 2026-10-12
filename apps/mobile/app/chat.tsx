@@ -80,7 +80,9 @@ export default function Chat() {
       setNote("");
       // What this reply changed, from the audit log, with Undo.
       fetchChanges(5)
-        .then((items) => setChanged(items.filter((i) => i.at >= sentAt && i.undoable)))
+        // Only this person's changes since the message went (another person's work in the
+        // same space while the assistant was answering isn't this reply's).
+        .then((items) => setChanged(items.filter((i) => i.at >= sentAt && i.by === "you" && i.undoable)))
         .catch(() => undefined);
     } catch (e) {
       if (isOffline(e)) {
