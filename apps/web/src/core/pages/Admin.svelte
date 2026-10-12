@@ -271,7 +271,7 @@
           <ListRow
             title="Encryption"
             subtitle={backup.encrypted
-              ? "Every file is sealed with your key; a restore needs the same key."
+              ? "New backups are sealed with your key; a restore needs the same key. Older files made before the key stay plain until they age out."
               : "Not sealed yet: add the BACKUP_KEY secret (steps in docs/setup.md)."}
           >
             {#snippet trailing()}<Pill tone={backup!.encrypted ? "green" : "amber"}
@@ -320,7 +320,7 @@
               {backupBusy === "restore" ? "Restoring…" : "Restore from a file"}
               <input
                 type="file"
-                accept=".gz,.json,application/gzip,application/json"
+                accept=".gz,.json,.enc,application/gzip,application/json,application/octet-stream"
                 onchange={restoreFile}
               />
             </label>
