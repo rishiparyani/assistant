@@ -3,6 +3,7 @@
 // hold for the card's menu). Ticks work offline; the chat is one tap away.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Linking,
   FlatList,
   Image,
   Pressable,
@@ -19,6 +20,8 @@ import type { CardSize } from "@assistant/shared";
 import { Card } from "@/components/Card";
 import { CardGrid } from "@/components/CardGrid";
 import { CardMenu } from "@/components/CardMenu";
+import { SearchSheet } from "@/components/SearchSheet";
+import { API_URL } from "@/config";
 import {
   answerWaiting,
   loadHome,
@@ -120,8 +123,17 @@ export default function Home() {
       const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
       return replaceCard(prev, { ...current, records });
     });
-  const ask = (card: HomeCard, prompt?: string) =>
+  const assistant = me?.assistant !== false;
+  // online-only: the website's shared pages (a form to fill in, a card's parts) open in the browser.
+  const openOnWeb = (card: HomeCard) =>
+    card.shared && void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(card.shared.share_id)}`);
+  const ask = (card: HomeCard, prompt?: string) => {
+    // No assistant (a collaborator): a shared card opens on the website instead of in the chat.
+    if (!assistant && card.shared) return openOnWeb(card);
+    if (!assistant) return;
     router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
+  };
+  const [search, setSearch] = useState(false);
   // Process cards: my answer, or a nudge; then the home reads again (the run went on).
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
@@ -213,7 +225,7 @@ export default function Home() {
                   <Card
                     card={card}
                     onTick={onTick(card)}
-                    onOpen={() => canOpen() && ask(card)}
+                    onOpen={() => canOpen() && (card.shared?.kind === "form" ? openOnWeb(card) : ask(card))}
                     onAnswer={
                       card.waiting
                         ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
@@ -265,8 +277,8 @@ export default function Home() {
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Ask Gigspree"
-          onPress={() => router.push("/chat")}
+          accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
+          onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
           style={({ pressed }) => [
             s.bar,
             { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
@@ -277,10 +289,22 @@ export default function Home() {
             style={{ width: 28, height: 28 }}
             accessibilityIgnoresInvertColors
           />
-          <Text style={[s.barText, { color: t.fg2 }]}>Ask, add or arrange…</Text>
+          <Text style={[s.barText, { color: t.fg2 }]}>
+            {assistant ? "Ask, add or arrange…" : "Search your cards"}
+          </Text>
         </Pressable>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
+      {search ? (
+        <SearchSheet
+          cards={pagesRef.current?.flatMap((p) => p.cards) ?? []}
+          onClose={() => setSearch(false)}
+          onOpen={(card) => {
+            setSearch(false);
+            openOnWeb(card);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

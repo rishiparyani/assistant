@@ -5,6 +5,7 @@ import { defineOperation } from "./operations.ts";
 import { calendarOperations } from "./calendar/operations.ts";
 import { apiTokenOperations } from "./api-tokens.ts";
 import { notificationOperations } from "./push/operations.ts";
+import { assistantAllowed } from "./assistant/access.ts";
 
 export const coreOperations = [
   defineOperation({
@@ -14,7 +15,7 @@ export const coreOperations = [
     kind: "read",
     http: { method: "GET", path: "/me" },
     input: z.object({}),
-    handler: async (ctx): Promise<MeResponse> => ({ user: ctx.user }),
+    handler: async (ctx): Promise<MeResponse> => ({ user: ctx.user, assistant: await assistantAllowed(ctx) }),
   }),
   ...calendarOperations,
   ...apiTokenOperations,

@@ -14,6 +14,10 @@ import {
   type FindResult,
   type RecordView,
   type SavedView,
+  type ShareAccess,
+  type ShareKind,
+  type SharedOpened,
+  type SharedWithMe,
   type StoredValue,
   type WaitingItem,
 } from "@assistant/shared";
@@ -35,6 +39,15 @@ export interface HomeCard {
   total: number | null;
   /** A process card (home-first.md §2 point 9): the step waiting on people. */
   waiting?: WaitingItem;
+  /** Something shared with me (collaborator homes, home-first.md §2 point 8). */
+  shared?: {
+    share_id: string;
+    kind: ShareKind;
+    access: ShareAccess;
+    owner: string;
+    /** A shared record's fields, shown as rows. */
+    fields?: { name: string; display: string }[];
+  };
 }
 export interface HomePage {
   name: string;
@@ -149,11 +162,13 @@ function totalOf(spec: CardSpec, records: RecordView[]): number | null {
 /** Loads the home from the server; falls back to the copy on the device. */
 export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
-    const [views, collections, waiting] = await Promise.all([
+    const [views, collections, waiting, shares] = await Promise.all([
       request<SavedView[]>("GET", "/api/views"),
       request<CollectionView[]>("GET", "/api/collections"),
       // What processes are waiting on (mine, and others' on me); the home works without it.
       request<WaitingItem[]>("GET", "/api/waiting").catch(() => [] as WaitingItem[]),
+      // What's shared with me: a collaborator's whole home, an owner's third page.
+      request<SharedWithMe[]>("GET", "/api/cards").catch(() => [] as SharedWithMe[]),
     ]);
     // Changes to views still waiting in the outbox (made offline) win over what the server
     // says until they are sent; otherwise a load would undo them on the screen.
@@ -185,15 +200,18 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
     // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in
     // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My day")
     // is the person's: every pinned card, in the order they keep.
-    const scored = [...waiting.map(processCard), ...cards]
+    const sharedCards = await loadShared(shares, waiting);
+    const scored = [...waiting.map(processCard), ...cards, ...sharedCards]
       .map((c) => ({ c, score: nowScore(signalsOf(c)) }))
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .map((x) => x.c);
-    const now = (scored.length ? scored : cards).slice(0, 4);
+    const now = (scored.length ? scored : [...cards, ...sharedCards]).slice(0, 4);
     const pages: HomePage[] = [
       { name: "Now", auto: true, cards: now },
-      { name: "My day", cards },
+      // A person with nothing of their own (a collaborator) has no page to arrange.
+      ...(cards.length || !sharedCards.length ? [{ name: "My day", cards }] : []),
+      ...(sharedCards.length ? [{ name: "Shared with you", cards: sharedCards }] : []),
     ];
     writeJson(keyFor(userId), pages);
     return pages;
@@ -217,6 +235,144 @@ function withWaitingViewChanges(views: SavedView[]): SavedView[] {
     if (body.position !== undefined) v.position = body.position;
   }
   return [...byId.values()];
+}
+
+const SHARED_CARDS = 12;
+
+/** What's shared with me, as cards: lists to tick, records to read, questions to answer. */
+async function loadShared(shares: SharedWithMe[], waiting: WaitingItem[]): Promise<HomeCard[]> {
+  const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
+  const opened = await Promise.all(
+    shares.slice(0, SHARED_CARDS).map((share) =>
+      request<SharedOpened>("GET", `/api/cards/${enc(share.share_id)}`)
+        .then((o) => ({ share, o }))
+        .catch(() => null),
+    ),
+  );
+  const out: HomeCard[] = [];
+  for (const x of opened) {
+    if (!x) continue;
+    const { share, o } = x;
+    const base = { share_id: share.share_id, kind: share.kind, access: share.access, owner: share.owner };
+    if (o.share.kind === "view" && "records" in o) {
+      // A shared list is drawn like one of mine: the share stands in for the collection.
+      const fields = o.fields.map((f) => ({
+        id: f.id,
+        name: f.name,
+        type: f.type,
+        options: f.options,
+        required: f.required,
+        aliases: [] as string[],
+      }));
+      const collection: CollectionView = {
+        id: `share:${share.share_id}`,
+        name: share.title,
+        description: null,
+        title_field_id: fields.find((f) => f.type === "text")?.id ?? "",
+        fields,
+        linked_from: [],
+        updated_at: "",
+      };
+      const tick = o.fields.find((f) => f.type === "boolean" && f.editable && share.access === "edit");
+      const spec: CardSpec = {
+        version: CARD_VERSION,
+        title: share.title,
+        arrangement: tick ? "list-ticks" : "list-plain",
+        size: "m",
+        sources: [{ collection: collection.id, ...(tick ? { answer_field: tick.id } : {}) }],
+      };
+      const records = o.records.map((r): RecordView => ({
+        id: r.id,
+        collection_id: collection.id,
+        title: r.title,
+        values: Object.fromEntries(r.fields.map((f) => [f.id, f.value])),
+        named: Object.fromEntries(r.fields.map((f) => [f.name, f.display])),
+        links: {},
+        created_at: "",
+        updated_at: "",
+        version: 0,
+      }));
+      out.push({
+        id: `share:${share.share_id}`,
+        view: null,
+        spec,
+        collection,
+        colour: colourFor(share.title),
+        records,
+        total: null,
+        shared: base,
+      });
+    } else if (o.share.kind === "card" && "record" in o) {
+      out.push({
+        id: `share:${share.share_id}`,
+        view: null,
+        spec: {
+          version: CARD_VERSION,
+          title: o.record.title,
+          arrangement: "list-plain",
+          size: "m",
+          sources: [],
+        },
+        collection: null,
+        colour: colourFor(share.title),
+        records: [],
+        total: null,
+        shared: {
+          ...base,
+          fields: o.record.fields
+            .filter((f) => !f.title && f.display !== null && f.display !== "")
+            .slice(0, 4)
+            .map((f) => ({
+              name: f.name,
+              display: Array.isArray(f.display) ? f.display.join(", ") : f.display!,
+            })),
+        },
+      });
+    } else if (o.share.kind === "question" && "choices" in o) {
+      // A process's question is already on the home as the step waiting on me.
+      if (fromProcess.has(share.share_id) || o.closed) continue;
+      out.push({
+        ...processCard({
+          id: share.share_id,
+          workflow_id: "",
+          workflow: `Question from ${share.owner}`,
+          record_id: "",
+          record: "",
+          text: o.text,
+          choices: o.choices,
+          on: [{ user_id: "me", name: "you", answer: o.mine }],
+          asked_at: share.joined_at,
+          nudges: 0,
+          next_nudge_at: null,
+          share_id: share.share_id,
+          mine: o.mine,
+        }),
+        id: `share:${share.share_id}`,
+        shared: base,
+      });
+    } else if (o.share.kind === "form") {
+      out.push({
+        id: `share:${share.share_id}`,
+        view: null,
+        spec: {
+          version: CARD_VERSION,
+          title: share.title,
+          arrangement: "list-plain",
+          size: "s",
+          sources: [],
+        },
+        collection: null,
+        colour: colourFor(share.title),
+        records: [],
+        total: null,
+        shared: {
+          ...base,
+          fields: [{ name: `Form from ${share.owner}`, display: "Fill it in on the website" }],
+        },
+      });
+    }
+  }
+  return out;
 }
 
 /** A process step waiting on people, drawn as a card: the question, who, and a way to answer. */
@@ -263,13 +419,24 @@ export function tick(card: HomeCard, record: RecordView, value: boolean): Record
   const field = card.spec.sources[0]?.answer_field;
   if (!field || !card.collection) return record;
   const values: Record<string, StoredValue> = { [field]: value };
-  send({
-    kind: "spaces.update_record",
-    method: "PATCH",
-    path: `/api/records/${enc(record.id)}`,
-    body: { values },
-    label: `${record.title} · ${card.collection.name}`,
-  });
+  // A row of a list shared with me goes through the share (the owner's object checks it).
+  send(
+    card.shared
+      ? {
+          kind: "spaces.update_shared_record",
+          method: "PATCH",
+          path: `/api/cards/${enc(card.shared.share_id)}/records/${enc(record.id)}`,
+          body: { values },
+          label: `${record.title} · ${card.collection.name}`,
+        }
+      : {
+          kind: "spaces.update_record",
+          method: "PATCH",
+          path: `/api/records/${enc(record.id)}`,
+          body: { values },
+          label: `${record.title} · ${card.collection.name}`,
+        },
+  );
   return { ...record, values: { ...record.values, ...values } };
 }
 

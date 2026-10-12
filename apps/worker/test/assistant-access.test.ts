@@ -126,3 +126,18 @@ describe("assistant access", () => {
     ).toBe(400);
   });
 });
+
+describe("who I am", () => {
+  it("says whether the assistant is on for me", async () => {
+    const me = await signUp("Test Someone", undefined, { assistant: false });
+    const r = await json<{ user: { name: string }; assistant: boolean }>(
+      await call("/api/me", { cookie: me.cookie }),
+    );
+    expect(r.user.name).toBe("Test Someone");
+    expect(r.assistant).toBe(false);
+    const o = await theOwner();
+    expect((await json<{ assistant: boolean }>(await call("/api/me", { cookie: o.cookie }))).assistant).toBe(
+      true,
+    );
+  });
+});

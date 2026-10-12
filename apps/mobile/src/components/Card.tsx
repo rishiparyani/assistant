@@ -162,7 +162,24 @@ export function Card({
       );
       break;
     default:
-      body = (
+      body = card.shared?.fields ? (
+        // A record shared with me: its fields as rows ("Fee: ₹15,000").
+        <View style={s.grow}>
+          {card.shared.fields.slice(0, ROWS[size]).map((f) => (
+            <View key={f.name} style={[s.row, { borderBottomColor: t.sep }]}>
+              <Text style={[s.rowText, { color: t.fg2 }]} numberOfLines={1}>
+                {f.name}
+              </Text>
+              <Text style={[s.end, { color: t.fg }]} numberOfLines={1}>
+                {f.display}
+              </Text>
+            </View>
+          ))}
+          <Text style={[s.sub, { color: t.fg3 }]} numberOfLines={1}>
+            From {card.shared.owner}
+          </Text>
+        </View>
+      ) : (
         <View style={s.grow}>
           {card.records.slice(0, ROWS[size]).map((r) => (
             <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
@@ -175,6 +192,11 @@ export function Card({
             </View>
           ))}
           {card.records.length === 0 ? <Text style={[s.sub, { color: t.fg2 }]}>Nothing yet.</Text> : null}
+          {card.shared ? (
+            <Text style={[s.sub, { color: t.fg3 }]} numberOfLines={1}>
+              From {card.shared.owner}
+            </Text>
+          ) : null}
         </View>
       );
   }
