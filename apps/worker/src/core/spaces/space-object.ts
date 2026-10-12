@@ -434,8 +434,6 @@ type CommentRow = {
   created_at: string;
   deleted_at: string | null;
 };
-/** Answers a link-only form takes a day, so a leaked link can't flood a space. */
-const PUBLIC_FORM_DAILY = 500;
 type ShareRow = {
   id: string;
   record_id: string;
@@ -2847,6 +2845,13 @@ export class SpaceObject extends DurableObject<Env> {
         include = this.resolveIncludes(c, input.include);
         targetId = r.id;
       } else {
+        // Every write needs a signed-in person (decision 2026-10-12): a link can show a view,
+        // never take a form.
+        if (input.public && input.kind === "form")
+          throw new ObjectError(
+            "validation_failed",
+            "A form needs people to sign in: share it with them by name, or send them its join link",
+          );
         if (input.include.length)
           throw new ObjectError("validation_failed", "Only cards include linked parts");
         if (input.kind === "view") {
@@ -4227,50 +4232,9 @@ export class SpaceObject extends DurableObject<Env> {
   /** A link-only view or form, opened without signing in; null unless the link is live. */
   async openPublicShare(tokenHash: string, cursor?: string): Promise<SharedOpened | null> {
     const s = this.shareByHash(tokenHash);
-    if (!s || !s.public) return null;
+    // A link opens a view only: forms shared by link before 2026-10-12 no longer open.
+    if (!s || !s.public || s.kind !== "view") return null;
     return this.opened(s, { userId: null, source: "web" }, cursor);
-  }
-
-  /** Someone without an account fills in a link-only form (a few hundred a day at most). */
-  async submitPublicForm(
-    tokenHash: string,
-    key: string | null,
-    input: { id?: string | null; values: Record<string, unknown> },
-  ): Promise<{ id: string } | null> {
-    const s = this.shareByHash(tokenHash);
-    if (!s || !s.public || s.kind !== "form") return null;
-    const actor: Actor = { userId: null, source: "web" };
-    return this.write(
-      actor,
-      key ? `link:${key}` : null,
-      ["submit_form", s.id, input],
-      (ts) => {
-        const day = ts.slice(0, 10);
-        const used =
-          this.sql
-            .exec<{ count: number }>(
-              `select count from share_counts where share_id = ? and day = ?`,
-              s.id,
-              day,
-            )
-            .toArray()[0]?.count ?? 0;
-        if (used >= PUBLIC_FORM_DAILY)
-          throw new ObjectError("rate_limited", "This form has had a lot of answers today; try tomorrow");
-        this.sql.exec(
-          `insert into share_counts (share_id, day, count) values (?, ?, 1)
-           on conflict (share_id, day) do update set count = count + 1`,
-          s.id,
-          day,
-        );
-        const c = this.requireCollection(s.target_id);
-        const r = this.insertRecord(actor, ts, c, {
-          id: input.id ?? null,
-          values: this.sharedValues(s, c.id, input.values, actor),
-        });
-        return { id: r.id };
-      },
-      () => {},
-    );
   }
 
   async updateSharedRecord(

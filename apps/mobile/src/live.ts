@@ -3,7 +3,7 @@
 // drawing as the home; ticks go through the outbox.
 import type { CollectionView, FindResult, LiveRef, OpenedView, RecordView } from "@assistant/shared";
 import { request } from "./api.ts";
-import { cardFor, type HomeCard } from "./home.ts";
+import { cardFor, findAll, type HomeCard } from "./home.ts";
 
 const enc = encodeURIComponent;
 const ROWS = 8;
@@ -37,19 +37,20 @@ export async function loadLive(
       ]);
       const collection = cols.find((c) => c.id === ref.collection_id);
       if (!collection) throw new Error("That list is gone");
-      return {
-        kind: "card",
-        card: cardFor(collection, result.items, null, ref.title),
-        more: !!result.next_cursor,
-      };
+      return withWholeTotal(
+        cardFor(collection, result.items, null, ref.title),
+        ref.query,
+        !!result.next_cursor,
+      );
     }
     case "view": {
       const opened = await request<OpenedView>("GET", `/api/views/${enc(ref.view_id)}`);
-      return {
-        kind: "card",
-        card: cardFor(opened.collection, opened.result.items, opened.view),
-        more: !!opened.result.next_cursor,
-      };
+      const v = opened.view;
+      return withWholeTotal(
+        cardFor(opened.collection, opened.result.items, v),
+        { filters: v.filters, sort: v.sort ?? undefined, search: v.search ?? undefined },
+        !!opened.result.next_cursor,
+      );
     }
     case "question":
       return {
@@ -62,4 +63,11 @@ export async function loadLive(
     case "app":
       return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null };
   }
+}
+
+/** A number card adds up every matching record, not just the first page. */
+async function withWholeTotal(card: HomeCard, query: object, more: boolean): Promise<LiveData> {
+  if (card.spec.arrangement !== "number" || !more) return { kind: "card", card, more };
+  const all = await findAll(card.collection.id, query, null);
+  return { kind: "card", card: cardFor(card.collection, all, card.view, card.spec.title), more: false };
 }

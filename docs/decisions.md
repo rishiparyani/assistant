@@ -559,4 +559,4 @@ The owner isn't an active developer: he sends a message about once a day and loo
 
 **Why:** signing in with Google or a passkey takes seconds, and in return every change carries a name, shows in What changed, can be undone and can be revoked for one person. Nothing here is gig-specific: the blocks (a shared view, a row rule, one editable field) stay generic; only the way in changes.
 
-**Follows:** link-only views stay read-only (as today); the "link" actor source stays for reads; no code path lets `source: "link"` write. The guest-list test keeps its sign-in form.
+**Follows (done the same day):** `POST /api/link/submit` and the object's `submitPublicForm` are removed; a form can't be shared by link any more (`public: true` is refused for forms, 400) and a form shared by link earlier no longer opens; link-only views stay read-only. The website's `/s#token` page shows views only. The guest-list test keeps its sign-in form.

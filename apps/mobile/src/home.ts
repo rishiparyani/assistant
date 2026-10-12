@@ -44,7 +44,11 @@ const LIST_ROWS = 12;
 const MAX_PAGES = 25;
 
 /** All matching records, page by page (a total must count every record, not the first page). */
-async function findAll(collectionId: string, query: object, limit: number | null): Promise<RecordView[]> {
+export async function findAll(
+  collectionId: string,
+  query: object,
+  limit: number | null,
+): Promise<RecordView[]> {
   const items: RecordView[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < MAX_PAGES; i++) {

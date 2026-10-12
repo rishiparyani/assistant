@@ -1110,11 +1110,6 @@ export const PublicShareInput = z.object({
   token: z.string().trim().min(20).max(200),
   cursor: z.string().max(200).optional(),
 });
-export const PublicSubmitInput = z.object({
-  token: z.string().trim().min(20).max(200),
-  id: clientId,
-  values: z.record(z.string(), z.unknown()),
-});
 export const JoinShareInput = z.object({ token: z.string().trim().min(20).max(200) });
 export const SharedRef = z.object({ share_id: z.string().trim().min(1).max(40) });
 export const OpenSharedInput = SharedRef.extend({ cursor: z.string().max(200).optional() });
