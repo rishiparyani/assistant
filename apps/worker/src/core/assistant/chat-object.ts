@@ -89,6 +89,8 @@ const MIGRATIONS: Migrations = [
   // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
   `alter table _audit add column change_id text;
    create index _audit_change_idx on _audit (change_id);`,
+  // A card that waits for the person (This week's proposals) lasts longer than a confirm card.
+  `alter table actions add column expires_at text;`,
 ];
 
 /** What the assistant remembers for a person (chat-first step 3). */
@@ -127,6 +129,8 @@ export interface ActionRow {
   status: "waiting" | "running" | "done" | "cancelled" | "failed" | "expired";
   result: string | null;
   created_at: string;
+  /** When it stops being tappable (null: ACTION_MINUTES after created_at). */
+  expires_at: string | null;
 }
 
 type MessageRow = {
@@ -144,6 +148,9 @@ type MessageRow = {
 
 /** Confirm cards expire like MCP confirm tokens. */
 const ACTION_MINUTES = 30;
+const expired = (a: { created_at: string; expires_at: string | null }) =>
+  Date.parse(a.expires_at ?? "") < Date.now() ||
+  (!a.expires_at && Date.parse(a.created_at) < Date.now() - ACTION_MINUTES * 60_000);
 
 export class ChatObject extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -334,20 +341,31 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /** Claims a once-only key (this week's proposals): false when it was claimed before. */
+  async claimOnce(userId: string, key: string): Promise<boolean> {
+    this.own(userId);
+    if (getMeta(this.sql, `claim:${key}`)) return false;
+    setMeta(this.sql, `claim:${key}`, nowIso());
+    return true;
+  }
+
   async addAction(
     userId: string,
     a: { tool: string; args: Record<string, unknown>; title: string; details: string[] },
+    /** How long it can be tapped; the confirm-card default when left out. */
+    ttlMinutes: number | null = null,
   ): Promise<string> {
     this.own(userId);
     const id = ulid();
     this.sql.exec(
-      `insert into actions (id, tool, args_json, title, details_json, status, created_at) values (?, ?, ?, ?, ?, 'waiting', ?)`,
+      `insert into actions (id, tool, args_json, title, details_json, status, created_at, expires_at) values (?, ?, ?, ?, ?, 'waiting', ?, ?)`,
       id,
       a.tool,
       JSON.stringify(a.args),
       a.title,
       JSON.stringify(a.details),
       nowIso(),
+      ttlMinutes ? new Date(Date.now() + ttlMinutes * 60_000).toISOString() : null,
     );
     return id;
   }
@@ -357,7 +375,7 @@ export class ChatObject extends DurableObject<Env> {
     this.own(userId);
     const a = this.action(id);
     if (a.status !== "waiting") throw new ObjectError("conflict", "This was already answered");
-    if (Date.parse(a.created_at) < Date.now() - ACTION_MINUTES * 60_000) {
+    if (expired(a)) {
       this.sql.exec(`update actions set status = 'expired' where id = ?`, id);
       throw new ObjectError("conflict", "This waited too long; ask again");
     }
@@ -599,6 +617,7 @@ export class ChatObject extends DurableObject<Env> {
         status: ActionRow["status"];
         result: string | null;
         created_at: string;
+        expires_at: string | null;
       }>(`select * from actions where id = ?`, id)
       .toArray()[0];
     if (!r) throw new ObjectError("not_found", "Not found");
@@ -611,6 +630,7 @@ export class ChatObject extends DurableObject<Env> {
       status: r.status,
       result: r.result,
       created_at: r.created_at,
+      expires_at: r.expires_at ?? null,
     };
   }
 
@@ -631,11 +651,7 @@ export class ChatObject extends DurableObject<Env> {
         title: a.title,
         details: a.details,
         status:
-          a.status === "waiting" && Date.parse(a.created_at) < Date.now() - ACTION_MINUTES * 60_000
-            ? "expired"
-            : a.status === "running"
-              ? "waiting"
-              : a.status,
+          a.status === "waiting" && expired(a) ? "expired" : a.status === "running" ? "waiting" : a.status,
         ...(a.result ? { result: a.result } : {}),
       };
     }

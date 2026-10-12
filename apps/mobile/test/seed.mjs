@@ -65,22 +65,7 @@ for (const [t, n] of seeded
     ])
   await api("POST", `/api/collections/${expenses.id}/records`, { values: { [what.id]: t, [amount.id]: n } });
 
-if (!seeded) {
-  await api("POST", "/api/views", {
-    name: "Today",
-    collection: reminders.id,
-    pinned: true,
-    filters: [],
-    mode: "list",
-  });
-  await api("POST", "/api/views", {
-    name: "Spent this month",
-    collection: expenses.id,
-    pinned: true,
-    filters: [],
-    mode: "list",
-  });
-}
+// The lists come with their cards (Today, Spent this month) when started.
 
 // A process waiting on someone (home-first.md §2 point 9): Rahul, who joined a shared note,
 // is asked about a booking; the home's Now page shows it as a process card.
@@ -159,6 +144,10 @@ if (!(await api("GET", "/api/waiting")).length)
   await api("POST", `/api/collections/${bookings.id}/records`, {
     values: { [bTitle.id]: "Test wedding", [bDate.id]: "2026-12-12" },
   });
+
+// Something captured (the Inbox card on the home).
+if (!(await api("GET", "/api/views")).some((v) => v.name === "Inbox"))
+  await api("POST", "/api/inbox", { text: "Strings ₹450 at Furtados", source: "siri" });
 
 console.log(`cookie=${cookie}`);
 console.log(`email=${EMAIL}`);

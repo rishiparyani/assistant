@@ -255,11 +255,30 @@ export default function Home() {
                 )}
               />
             ) : (
-              <View style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}>
-                <Text style={[s.sub, { color: t.fg2 }]}>
-                  {error || (pages ? "Nothing here yet. Ask the chat to pin something." : "Loading…")}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Tell me about your week"
+                disabled={!pages || !assistant}
+                onPress={() => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } })}
+                style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}
+              >
+                <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
+                  {error
+                    ? error
+                    : !pages
+                      ? "Loading…"
+                      : assistant
+                        ? "Tell me about your week"
+                        : "Nothing shared with you yet"}
                 </Text>
-              </View>
+                {pages && !error ? (
+                  <Text style={[s.sub, { color: t.fg2 }]}>
+                    {assistant
+                      ? "What you do, what you keep forgetting, what money moves. The lists you need start from that, each with a card here."
+                      : "When someone shares a list, a card or a question with you, it shows here."}
+                  </Text>
+                ) : null}
+              </Pressable>
             )}
           </ScrollView>
         )}

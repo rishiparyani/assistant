@@ -173,9 +173,17 @@ export default function Chat() {
             />
           )}
           ListEmptyComponent={
-            <Text style={[s.sys, { color: t.fg2 }]}>
-              {note || (view ? "Say anything. Ask, add, or arrange your home." : "Loading…")}
-            </Text>
+            view && !note ? (
+              // The first run (home-first.md §2 point 15): a conversation about the week.
+              <View style={[s.bub, s.them, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 8 }]}>
+                <Text style={[s.bubText, { color: t.fg }]}>
+                  Hi! Tell me about your week: what you do, what you keep forgetting, what money moves. I'll
+                  start the lists you need, each with a card on your home.
+                </Text>
+              </View>
+            ) : (
+              <Text style={[s.sys, { color: t.fg2 }]}>{note || "Loading…"}</Text>
+            )
           }
         />
         {changed.length ? <Changes items={changed} inline onChange={setChanged} /> : null}

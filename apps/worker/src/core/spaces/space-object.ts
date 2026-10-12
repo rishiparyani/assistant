@@ -548,6 +548,15 @@ type WaitRow = {
   until: "all" | "first";
 };
 type Loops = Record<string, number>;
+/** A proposal for the week (home-first.md §2 point 13): what to make, as a confirm card. */
+export type Proposal = {
+  kind: "quick_add" | "nudge" | "finished";
+  title: string;
+  why: string;
+  tool: string;
+  args: Record<string, unknown>;
+  details: string[];
+};
 /** A workflow as asked for: names (resolved here) and the people to tell (resolved before). */
 export type WorkflowSpec = {
   name: string;
@@ -572,6 +581,15 @@ export type WorkflowSpec = {
   )[];
   enabled: boolean;
 };
+/** The card each everyday list starts with (name and filter; the rest is the list's). */
+const STARTER_CARDS: Partial<Record<StarterKind, { name: string; filters: Filter[] }>> = {
+  reminders: { name: "Today", filters: [{ field: "Done", op: "ne", value: true }] },
+  expenses: { name: "Spent this month", filters: [{ field: "Date", op: "period", value: "this_month" }] },
+  events: { name: "Coming up", filters: [{ field: "Starts", op: "period", value: "future" }] },
+  notes: { name: "Notes", filters: [] },
+  inbox: { name: "Inbox", filters: [{ field: "Sorted", op: "ne", value: true }] },
+};
+
 /** At most this many workflows per space, and this many workflow steps in a chain. */
 const MAX_WORKFLOWS = 100;
 const MAX_WORKFLOW_DEPTH = 3;
@@ -956,6 +974,146 @@ export class SpaceObject extends DurableObject<Env> {
       if (batch.length < 200) break;
     }
     return n;
+  }
+
+  // --- This week (home-first.md §2 point 13) ------------------------------------------
+  // Once a week, proposals from the data, never actions: a quick add for a list the person
+  // keeps adding to by hand, a reminder workflow for dates that go by unnoticed, a finished
+  // card to take off the home. Each is a confirm card in the chat; the person taps.
+
+  async proposals(actor: Actor, since: string): Promise<Proposal[]> {
+    this.role(actor);
+    const out: Proposal[] = [];
+    const views = this.sql
+      .exec<ViewRow>(`select * from views where deleted_at is null`)
+      .toArray()
+      .flatMap((v) => this.viewOf(v) ?? []);
+    // 1. Lists added to by hand, a lot, with a pinned card but no quick add.
+    const adds = this.sql
+      .exec<{ collection_id: string; n: number }>(
+        `select r.collection_id, count(*) as n from _audit a join records r on r.id = a.entity_id
+         where a.action = 'add_record' and a.actor_user_id = ? and a.source in ('web', 'app') and a.at >= ?
+         group by r.collection_id having n >= 5`,
+        actor.userId,
+        since,
+      )
+      .toArray();
+    for (const a of adds) {
+      const view = views.find((v) => v.collection_id === a.collection_id && v.pinned && !v.add_fields.length);
+      if (!view) continue;
+      const all = this.fieldRows(a.collection_id);
+      const fillable = (f: FieldRow) =>
+        f.type !== "link" &&
+        f.type !== "person" &&
+        !toField(f).options.personal &&
+        !toField(f).options.formula &&
+        !toField(f).options.rollup;
+      // The required fields first (a quick add must fill them in), then the others up to three;
+      // a list whose required fields a quick add can't fill gets no proposal.
+      const required = all.filter((f) => f.required);
+      if (required.some((f) => !fillable(f)) || required.length > 10) continue;
+      const pick = [...required, ...all.filter((f) => !f.required && fillable(f))].slice(
+        0,
+        Math.max(3, required.length),
+      );
+      if (
+        !pick.length ||
+        this.quickAddProblem(
+          all,
+          pick.map((f) => f.id),
+        )
+      )
+        continue;
+      const names = pick.map((f) => f.name);
+      out.push({
+        kind: "quick_add",
+        title: `A quick add for ${view.collection}`,
+        why: `You added ${a.n} to ${view.collection} by hand this week.`,
+        tool: "update_view",
+        args: { view_id: view.id, add_fields: names },
+        details: [`On the ${view.name} card: ${names.join(", ")}`],
+      });
+    }
+    // 2. A date that goes by with nobody told: a collection with a date field and records
+    //    whose date passed this week, and no workflow watching that date.
+    const workflows = this.sql
+      .exec<WorkflowRow>(`select * from workflows where deleted_at is null`)
+      .toArray()
+      .map((w) => ({ w, def: JSON.parse(w.def_json) as WorkflowDef }));
+    for (const c of this.sql
+      .exec<CollectionRow>(`select * from collections where deleted_at is null`)
+      .toArray()) {
+      const fields = this.fieldRows(c.id);
+      const date = fields.find(
+        (f) => (f.type === "date" || f.type === "datetime") && !toField(f).options.personal,
+      );
+      const money = fields.find((f) => f.type === "money");
+      if (!date || !money) continue;
+      if (
+        workflows.some(
+          (x) => x.w.collection_id === c.id && x.def.when.event === "date" && x.def.when.field_id === date.id,
+        )
+      )
+        continue;
+      const passed = this.sql
+        .exec<{ n: number }>(
+          `select count(*) as n from record_values v join records r on r.id = v.record_id
+           where r.collection_id = ? and r.deleted_at is null and v.field_id = ? and v.txt >= ? and v.txt <= ?`,
+          c.id,
+          date.id,
+          since.slice(0, 10),
+          nowIso().slice(0, 10),
+        )
+        .toArray()[0];
+      if (!passed || !passed.n) continue;
+      const title = fields.find((f) => f.id === c.title_field_id)?.name ?? "Title";
+      out.push({
+        kind: "nudge",
+        title: `A reminder when ${date.name} comes in ${c.name}`,
+        why: `${passed.n} ${c.name} record${passed.n === 1 ? "" : "s"} had ${date.name} go by this week.`,
+        tool: "create_workflow",
+        args: {
+          name: `${c.name}: ${date.name} is here`,
+          when: { event: "date", collection: c.id, field: date.name, offset_minutes: 0 },
+          then: [{ do: "notify", text: `{${title}}: ${date.name} is today ({${money.name}})`, to: ["me"] }],
+        },
+        details: [
+          `At the ${date.name} of each ${c.name} record, tell me`,
+          "Saved off: turn it on from its card",
+        ],
+      });
+    }
+    // 3. A finished card: a pinned list with ticks where everything is ticked.
+    for (const v of views) {
+      if (!v.pinned) continue;
+      const fields = this.fieldRows(v.collection_id);
+      const done = fields.find((f) => f.type === "boolean");
+      if (!done) continue;
+      const open = this.sql
+        .exec<{ n: number }>(
+          `select count(*) as n from records r left join record_values x on x.record_id = r.id and x.field_id = ?
+           where r.collection_id = ? and r.deleted_at is null and coalesce(x.num, 0) = 0`,
+          done.id,
+          v.collection_id,
+        )
+        .toArray()[0];
+      const total = this.sql
+        .exec<{ n: number }>(
+          `select count(*) as n from records where collection_id = ? and deleted_at is null`,
+          v.collection_id,
+        )
+        .toArray()[0];
+      if (!total?.n || open?.n) continue;
+      out.push({
+        kind: "finished",
+        title: `Take “${v.name}” off the home`,
+        why: `Everything on it is done (${total.n}).`,
+        tool: "update_view",
+        args: { view_id: v.id, pinned: false },
+        details: ["The list stays; the chat can pin it again"],
+      });
+    }
+    return out.slice(0, 5);
   }
 
   /** The records among these the person may still see, with their current titles (a hit's re-check). */
@@ -4666,10 +4824,33 @@ export class SpaceObject extends DurableObject<Env> {
           nameKey(spec.name),
         )
         .toArray()[0];
-      if (have) return this.collectionView(have);
-      const { kind: _k, ...input } = spec;
-      const id = this.insertCollection(actor, { ...input, id: null }, ts);
-      if (kind === "reminders") this.remindersWorkflow(id, ts);
+      let id: string;
+      if (have) id = have.id;
+      else {
+        const { kind: _k, ...input } = spec;
+        id = this.insertCollection(actor, { ...input, id: null }, ts);
+        if (kind === "reminders") this.remindersWorkflow(id, ts);
+      }
+      // Every everyday list comes with its card on the home (home-first.md §2 point 15: the
+      // first run is a conversation, and what it starts shows up at once). A list made before
+      // cards existed gets its card the next time it's started; once by name, so a card the
+      // person took off or renamed isn't forced back.
+      const card = STARTER_CARDS[kind];
+      if (
+        card &&
+        !getMeta(this.sql, `starter_card:${kind}`) &&
+        !this.sql
+          .exec(`select 1 from views where name_key = ? and deleted_at is null`, nameKey(card.name))
+          .toArray().length
+      )
+        try {
+          this.insertView(actor, { ...card, collection: id, pinned: true, mode: "list" }, ts);
+        } catch (e) {
+          // A list made by hand may lack the field the card reads (Expenses without a Date):
+          // the list still starts, without its card.
+          if (!(e instanceof ObjectError)) throw e;
+        }
+      if (card) setMeta(this.sql, `starter_card:${kind}`, "1");
       return this.collectionView(this.requireCollection(id));
     });
   }
