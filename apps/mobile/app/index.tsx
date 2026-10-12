@@ -20,7 +20,9 @@ import { Card } from "@/components/Card";
 import { CardGrid } from "@/components/CardGrid";
 import { CardMenu } from "@/components/CardMenu";
 import {
+  answerWaiting,
   loadHome,
+  nudgeWaiting,
   rememberHome,
   replaceCard,
   resize,
@@ -120,6 +122,19 @@ export default function Home() {
     });
   const ask = (card: HomeCard, prompt?: string) =>
     router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
+  // Process cards: my answer, or a nudge; then the home reads again (the run went on).
+  const [busyCard, setBusyCard] = useState<string | null>(null);
+  const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
+    setBusyCard(card.id);
+    try {
+      await go();
+      await load();
+    } catch (e) {
+      setError(isOffline(e) ? "Answering needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyCard(null);
+    }
+  };
   const menuActions = {
     ask,
     resize: (card: HomeCard, size: CardSize) => update((prev) => replaceCard(prev, resize(card, size))),
@@ -192,7 +207,24 @@ export default function Home() {
                 onReorder={reorder(index)}
                 onDrop={dropped(index)}
                 renderCard={(card, canOpen) => (
-                  <Card card={card} onTick={onTick(card)} onOpen={() => canOpen() && ask(card)} />
+                  <Card
+                    card={card}
+                    onTick={onTick(card)}
+                    onOpen={() => canOpen() && ask(card)}
+                    onAnswer={
+                      card.waiting
+                        ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
+                        : undefined
+                    }
+                    onNudge={
+                      card.waiting?.share_id
+                        ? undefined
+                        : card.waiting
+                          ? processAction(card, () => nudgeWaiting(card.waiting!))
+                          : undefined
+                    }
+                    busy={busyCard === card.id}
+                  />
                 )}
               />
             ) : (

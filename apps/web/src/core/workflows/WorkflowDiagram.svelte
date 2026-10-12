@@ -6,12 +6,18 @@
   import Bell from "@lucide/svelte/icons/bell";
   import PenLine from "@lucide/svelte/icons/pen-line";
   import Plus from "@lucide/svelte/icons/plus";
+  import MessageCircleQuestionMark from "@lucide/svelte/icons/message-circle-question-mark";
+  import Repeat2 from "@lucide/svelte/icons/repeat-2";
 
   // A workflow as a diagram (chat-first step 5): one box per part, in order, each with its
   // plain words. Both come from the saved definition, so the picture is what runs.
   let { workflow }: { workflow: WorkflowView } = $props();
 
-  type Step = { kind: "when" | "check" | "wait" | "notify" | "set" | "add"; label: string; text: string };
+  type Step = {
+    kind: "when" | "check" | "wait" | "notify" | "set" | "add" | "ask" | "repeat";
+    label: string;
+    text: string;
+  };
   const steps = $derived.by((): Step[] => {
     const w = workflow;
     const words = [...w.words];
@@ -19,7 +25,12 @@
     for (let i = 0; i < w.check.length; i++)
       out.push({ kind: "check", label: "Check", text: words.shift() ?? "" });
     if (w.wait_minutes) out.push({ kind: "wait", label: "Wait", text: words.shift() ?? "" });
-    for (const a of w.then) out.push({ kind: a.do, label: "Then", text: words.shift() ?? "" });
+    for (const a of w.then)
+      out.push({
+        kind: a.do,
+        label: a.do === "ask" ? "Ask and wait" : a.do === "repeat" ? "Go back" : "Then",
+        text: words.shift() ?? "",
+      });
     return out;
   });
 </script>
@@ -32,7 +43,11 @@
             size={16}
           />{:else if s.kind === "wait"}<Hourglass size={16} />{:else if s.kind === "notify"}<Bell
             size={16}
-          />{:else if s.kind === "set"}<PenLine size={16} />{:else}<Plus size={16} />{/if}
+          />{:else if s.kind === "set"}<PenLine
+            size={16}
+          />{:else if s.kind === "ask"}<MessageCircleQuestionMark
+            size={16}
+          />{:else if s.kind === "repeat"}<Repeat2 size={16} />{:else}<Plus size={16} />{/if}
       </span>
       <span class="body">
         <span class="label">{s.label}</span>

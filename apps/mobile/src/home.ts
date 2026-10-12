@@ -4,6 +4,7 @@
 // money, a plain list otherwise. Read online, kept on the device for offline, changed through
 // the outbox.
 import {
+  CARD_VERSION,
   ARRANGEMENT_SIZES,
   CardSpec,
   nowScore,
@@ -14,6 +15,7 @@ import {
   type RecordView,
   type SavedView,
   type StoredValue,
+  type WaitingItem,
 } from "@assistant/shared";
 import { request } from "./api.ts";
 import { outboxState, send } from "./outbox.ts";
@@ -23,13 +25,16 @@ import { colourFor, type CollectionColour } from "./theme.ts";
 export interface HomeCard {
   id: string;
   /** The saved view this card shows (its order and size live there); null for a list the
-   *  chat shows that isn't saved as a view. */
+   *  chat shows that isn't saved as a view, and for a process card. */
   view: SavedView | null;
   spec: CardSpec;
-  collection: CollectionView;
+  /** The list the records come from; null for a process card. */
+  collection: CollectionView | null;
   colour: CollectionColour;
   records: RecordView[];
   total: number | null;
+  /** A process card (home-first.md §2 point 9): the step waiting on people. */
+  waiting?: WaitingItem;
 }
 export interface HomePage {
   name: string;
@@ -144,14 +149,16 @@ function totalOf(spec: CardSpec, records: RecordView[]): number | null {
 /** Loads the home from the server; falls back to the copy on the device. */
 export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
-    const [views, collections] = await Promise.all([
+    const [views, collections, waiting] = await Promise.all([
       request<SavedView[]>("GET", "/api/views"),
       request<CollectionView[]>("GET", "/api/collections"),
+      // What processes are waiting on (mine, and others' on me); the home works without it.
+      request<WaitingItem[]>("GET", "/api/waiting").catch(() => [] as WaitingItem[]),
     ]);
     // Changes to views still waiting in the outbox (made offline) win over what the server
     // says until they are sent; otherwise a load would undo them on the screen.
-    const waiting = withWaitingViewChanges(views);
-    const pinned = waiting.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
+    const known = withWaitingViewChanges(views);
+    const pinned = known.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
     const cards: HomeCard[] = [];
     for (const v of pinned) {
       const c = collections.find((x) => x.id === v.collection_id);
@@ -178,7 +185,7 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
     // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in
     // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My day")
     // is the person's: every pinned card, in the order they keep.
-    const scored = cards
+    const scored = [...waiting.map(processCard), ...cards]
       .map((c) => ({ c, score: nowScore(signalsOf(c)) }))
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
@@ -212,13 +219,30 @@ function withWaitingViewChanges(views: SavedView[]): SavedView[] {
   return [...byId.values()];
 }
 
+/** A process step waiting on people, drawn as a card: the question, who, and a way to answer. */
+export function processCard(w: WaitingItem): HomeCard {
+  return {
+    id: `wait:${w.id}`,
+    view: null,
+    spec: { version: CARD_VERSION, title: w.workflow, arrangement: "process", size: "m", sources: [] },
+    collection: null,
+    colour: colourFor(w.workflow),
+    records: [],
+    total: null,
+    waiting: w,
+  };
+}
+
 /** What a card has going on, from the records it shows (dates from its first date field). */
 export function signalsOf(c: HomeCard, today = new Date()): CardSignals {
+  const s: CardSignals = { open: 0, overdue: 0, due_today: 0, due_soon: 0, waiting: 0 };
+  // A process waits on someone: me (my answer is the next step) or people I asked.
+  if (c.waiting) return { ...s, waiting: c.waiting.on.some((p) => p.answer === null) ? 1 : 0 };
+  if (!c.collection) return s;
   const done = c.spec.sources[0]?.answer_field;
   const dateField = c.collection.fields.find((f) => f.type === "date" || f.type === "datetime");
   const day = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
   const t0 = day(today);
-  const s: CardSignals = { open: 0, overdue: 0, due_today: 0, due_soon: 0, waiting: 0 };
   for (const r of c.records) {
     if (done && r.values[done] === true) continue;
     if (done) s.open++;
@@ -237,7 +261,7 @@ export function signalsOf(c: HomeCard, today = new Date()): CardSignals {
 /** A tick on a list-ticks card: shows at once, syncs through the outbox. */
 export function tick(card: HomeCard, record: RecordView, value: boolean): RecordView {
   const field = card.spec.sources[0]?.answer_field;
-  if (!field) return record;
+  if (!field || !card.collection) return record;
   const values: Record<string, StoredValue> = { [field]: value };
   send({
     kind: "spaces.update_record",
@@ -247,6 +271,18 @@ export function tick(card: HomeCard, record: RecordView, value: boolean): Record
     label: `${record.title} · ${card.collection.name}`,
   });
   return { ...record, values: { ...record.values, ...values } };
+}
+
+// online-only: answering a process question and nudging are handled by the space's object
+// (the run goes on from there), so they need a connection; the card says so when there is none.
+/** My answer to the question a process is waiting on me for. */
+export function answerWaiting(w: WaitingItem, answer: string): Promise<unknown> {
+  if (!w.share_id) return Promise.reject(new Error("This one isn't waiting on you"));
+  return request("POST", `/api/cards/${enc(w.share_id)}/answer`, { answer });
+}
+/** Asks again, now, the people a process of mine is waiting on. */
+export function nudgeWaiting(w: WaitingItem): Promise<WaitingItem> {
+  return request<WaitingItem>("POST", `/api/waiting/${enc(w.id)}/nudge`);
 }
 
 /** Keeps the device copy in step with what the screen shows after a change. */

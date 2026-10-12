@@ -3,6 +3,11 @@
 // something (tell someone, set a field, add a record). Definitions are data, never code. The
 // plain words people read are made here from the saved definition, so what they read is what
 // runs.
+//
+// Processes (home-first.md §2 point 9) are workflows with steps that belong to people: an
+// "ask" step waits for the people asked to answer (nudging them after a while), keeps the
+// answer on the record, and only then goes on; a "repeat" step loops back while a condition
+// holds. Same engine, plus "who" and "waiting on".
 import { z } from "zod";
 import { FilterInput, SpaceRef, type FilterOp } from "./spaces.ts";
 
@@ -79,6 +84,59 @@ export const WorkflowActionInput = z.discriminatedUnion("do", [
       .record(z.string(), z.unknown())
       .describe("Values for the new record; text may use {Field} from the triggering record"),
   }),
+  z.object({
+    do: z.literal("ask"),
+    who: z
+      .array(z.string().trim().min(1).max(80))
+      .min(1)
+      .max(10)
+      .describe(
+        'Who to ask: "me", people you know (names or ids), {Field} for the person in that field of the record, or {Link.Field} for the people in a person field of linked records',
+      ),
+    text: z
+      .string()
+      .trim()
+      .min(1)
+      .max(300)
+      .describe('The question; {Field} puts in a value, e.g. "Can you play {Title} on {Date}?"'),
+    choices: z
+      .array(z.string().trim().min(1).max(40))
+      .min(2)
+      .max(6)
+      .optional()
+      .describe('Answers to tap, e.g. ["Yes", "No"]; left out, they write an answer'),
+    save_to: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .optional()
+      .describe(
+        "A text or choice field of the record that keeps the answer, so later steps and checks can use it",
+      ),
+    nudge_minutes: z
+      .number()
+      .int()
+      .min(5)
+      .max(43_200)
+      .optional()
+      .describe("Ask again every so long while there's no answer (at most 30 days apart)"),
+    until: z
+      .enum(["all", "first"])
+      .default("all")
+      .describe('"all": go on once everyone asked has answered; "first": once anyone has'),
+  }),
+  z.object({
+    do: z.literal("repeat"),
+    if: z.array(FilterInput).min(1).max(5).describe("Go back while the record matches all of these"),
+    from: z
+      .number()
+      .int()
+      .min(1)
+      .max(5)
+      .describe("The step to go back to (1 is the first step after the check)"),
+    at_most: z.number().int().min(1).max(20).default(3).describe("How many times at most"),
+  }),
 ]);
 
 export const CreateWorkflowInput = SpaceRef.extend({
@@ -129,6 +187,22 @@ export interface WorkflowView {
         where?: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
       }
     | { do: "add"; collection_id: string; collection: string; values: Record<string, unknown> }
+    | {
+        do: "ask";
+        text: string;
+        choices: string[] | null;
+        who: { user_id: string; name: string }[];
+        save_to_id: string | null;
+        save_to: string | null;
+        nudge_minutes: number | null;
+        until: "all" | "first";
+      }
+    | {
+        do: "repeat";
+        if: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
+        from: number;
+        at_most: number;
+      }
   )[];
   /** The same definition in plain words, one line per part. */
   words: string[];
@@ -147,10 +221,34 @@ export interface WorkflowRun {
   detail: string;
 }
 
+/** A process step waiting on people's answers (home-first.md §2 point 9). */
+export interface WaitingItem {
+  id: string;
+  workflow_id: string;
+  workflow: string;
+  record_id: string;
+  record: string;
+  /** The question as asked (fields filled in). */
+  text: string;
+  choices: string[] | null;
+  /** Everyone asked, with their answer so far. */
+  on: { user_id: string; name: string; answer: string | null }[];
+  asked_at: string;
+  nudges: number;
+  next_nudge_at: string | null;
+  /** The share to answer through, when I'm one of the people asked. */
+  share_id: string | null;
+  /** My answer so far, when I'm asked. */
+  mine: string | null;
+}
+
 export interface WorkflowDetail {
   workflow: WorkflowView;
   history: WorkflowRun[];
+  waiting: WaitingItem[];
 }
+
+export const WaitRef = SpaceRef.extend({ wait_id: z.string().trim().min(1).max(40) });
 
 const OP_WORDS: Record<FilterOp, string> = {
   eq: "is",
@@ -200,8 +298,27 @@ export function workflowWords(
       `Only if ${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`,
     );
   if (w.wait_minutes) out.push(`Wait ${durationWords(w.wait_minutes)}, then check again`);
+  const cond = (f: { field: string; op: FilterOp; value: unknown; shown?: string }) =>
+    `${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`;
   for (const a of w.then) {
     if (a.do === "notify") out.push(`Tell ${a.to.map((p) => p.name).join(", ")}: “${a.text}”`);
+    else if (a.do === "ask") {
+      const who = a.who.map((p) => p.name).join(", ");
+      const parts = [
+        `Ask ${who}: “${a.text}”${a.choices ? ` (${a.choices.join(" / ")})` : ""}`,
+        a.who.length > 1 || a.until === "first"
+          ? a.until === "first"
+            ? "wait for the first answer"
+            : "wait for everyone's answer"
+          : "wait for the answer",
+      ];
+      if (a.nudge_minutes) parts.push(`nudge every ${durationWords(a.nudge_minutes)}`);
+      if (a.save_to) parts.push(`keep it in ${a.save_to}`);
+      out.push(parts.join(", "));
+    } else if (a.do === "repeat")
+      out.push(
+        `Go back to step ${a.from} while ${a.if.map(cond).join(" and ")} (at most ${a.at_most} time${a.at_most === 1 ? "" : "s"})`,
+      );
     else if (a.do === "set" && a.via) {
       const only = (a.where ?? [])
         .map(
