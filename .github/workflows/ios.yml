@@ -124,9 +124,11 @@ jobs:
         run: |
           cd apps/mobile/ios
           pod install > "$RUNNER_TEMP/pods.log" 2>&1 || { tail -40 "$RUNNER_TEMP/pods.log"; exit 1; }
+          # Ad-hoc signed (not unsigned): the Keychain refuses an app without entitlements, and
+          # the session cookie lives there.
           xcodebuild -workspace Gigspree.xcworkspace -scheme Gigspree -configuration Release \
             -destination "platform=iOS Simulator,id=$PHONE" -derivedDataPath "$RUNNER_TEMP/dd" \
-            CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/build.log" 2>&1 \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build > "$RUNNER_TEMP/build.log" 2>&1 \
             || { echo "--- bundle phase output ---"; \
                  awk '/PhaseScriptExecution.*Bundle/{p=1} p && !/^ *export /{print}' "$RUNNER_TEMP/build.log" | head -150; \
                  echo "--- errors ---"; grep -E "^.*error:" "$RUNNER_TEMP/build.log" | grep -v "export " | head -20; exit 1; }
@@ -150,7 +152,14 @@ jobs:
           EMAIL="$(sed -n 's/^email=//p' "$RUNNER_TEMP/seed.txt")"
           PASSWORD="$(sed -n 's/^password=//p' "$RUNNER_TEMP/seed.txt")"
           OUT="$RUNNER_TEMP/screens"; mkdir -p "$OUT"
-          open_url() { xcrun simctl openurl "$1" "$2" > /dev/null; sleep "${3:-4}"; }
+          # `simctl openurl` with the app's scheme asks "Open in Gigspree?" on recent iOS, which
+          # nothing here can tap; the app is launched with the test sign-in as launch arguments
+          # instead (read by the home against the local test server only, see app/test.tsx).
+          go() {
+            xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
+            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" > /dev/null
+            sleep "${3:-14}"
+          }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
           for dev in "$PHONE" "$SMALL"; do
             [ -n "$dev" ] || continue
@@ -163,20 +172,47 @@ jobs:
             xcrun simctl ui "$dev" appearance light
             xcrun simctl launch "$dev" "$BUNDLE_ID" > /dev/null; sleep 6
             shot "$dev" "$label-light-0-login"
-            open_url "$dev" "gigspree://test?email=$EMAIL&password=$PASSWORD&path=/" 8
+            go "$dev" "/"
             shot "$dev" "$label-light-1-home"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
-            open_url "$dev" "gigspree://chat"
+            go "$dev" "/chat"
             shot "$dev" "$label-light-2-chat"
+            # The chat with a message started: the keyboard is up, the message box must clear it.
+            go "$dev" "/chat?ask=Spent 450 on chai"
+            shot "$dev" "$label-light-3-chat-typing"
             xcrun simctl terminate "$dev" "$BUNDLE_ID" || true
             xcrun simctl ui "$dev" appearance dark
-            xcrun simctl launch "$dev" "$BUNDLE_ID" > /dev/null; sleep 6
+            go "$dev" "/"
             shot "$dev" "$label-dark-1-home"
-            open_url "$dev" "gigspree://chat"
+            go "$dev" "/chat"
             shot "$dev" "$label-dark-2-chat"
+            # What the app and the server said (no secrets: fake data, cookies and tokens cut).
+            echo "::group::app log"
+            xcrun simctl spawn "$dev" log show --last 12m --style compact \
+              --predicate 'processImagePath CONTAINS "Gigspree"' 2>/dev/null | grep -v -i "cookie\|token" | tail -150 || true
+            echo "::endgroup::"
             xcrun simctl shutdown "$dev"
           done
+          echo "::group::server log"
+          tail -60 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token" || true
+          echo "::endgroup::"
           ls "$OUT"
+
+      # Agent sessions can't download artifacts, so the large phone's shots also go in the log
+      # as small JPEGs (base64): copy the lines between the markers and decode them.
+      - name: Screenshots in the log
+        if: always()
+        run: |
+          for f in "$RUNNER_TEMP"/screens/phone-*.png; do
+            [ -e "$f" ] || continue
+            n=$(basename "$f" .png)
+            sips -Z 720 -s format jpeg -s formatOptions 55 "$f" --out "$RUNNER_TEMP/$n.jpg" > /dev/null
+            echo "::group::$n"
+            echo "-----BEGIN $n-----"
+            base64 -b 76 -i "$RUNNER_TEMP/$n.jpg"
+            echo "-----END $n-----"
+            echo "::endgroup::"
+          done
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

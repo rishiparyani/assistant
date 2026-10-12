@@ -13,10 +13,10 @@ export default function Layout() {
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
-          <Stack.Screen
-            name="chat"
-            options={{ presentation: "formSheet", sheetAllowedDetents: [0.92], sheetGrabberVisible: true }}
-          />
+          {/* A page sheet (UIKit's own), not a form sheet with custom detents: the form sheet
+              laid its content out wrong once the keyboard had been up (bubbles under the
+              header, under the message box). */}
+          <Stack.Screen name="chat" options={{ presentation: "modal" }} />
         </Stack>
       </SessionProvider>
     </GestureHandlerRootView>
