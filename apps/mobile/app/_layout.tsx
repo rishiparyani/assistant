@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Stack, usePathname, useRouter } from "expo-router";
+import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SessionProvider, useSession } from "@/session";
@@ -12,11 +12,24 @@ import { useTheme } from "@/theme";
 function SessionGate() {
   const { me, loaded } = useSession();
   const path = usePathname();
+  const params = useGlobalSearchParams();
+  const segments = useSegments();
   const router = useRouter();
   useEffect(() => {
     if (!loaded || me || path === "/login" || path === "/test") return;
-    router.replace({ pathname: "/login", params: path && path !== "/" ? { next: path } : {} });
-  }, [loaded, me, path, router]);
+    // Keep the query (e.g. /capture?text=… from Siri) so nothing asked for is lost at sign-in;
+    // route segments like [id] are already in the path.
+    const inPath = new Set(segments.map((s) => /^\[(?:\.\.\.)?(.+)\]$/.exec(s)?.[1]).filter(Boolean));
+    // (Built by hand: React Native's URLSearchParams lacks parts of the web one.)
+    const query: string[] = [];
+    for (const [k, v] of Object.entries(params)) {
+      if (inPath.has(k)) continue;
+      for (const one of Array.isArray(v) ? v : [v])
+        if (typeof one === "string") query.push(`${encodeURIComponent(k)}=${encodeURIComponent(one)}`);
+    }
+    const next = query.length ? `${path}?${query.join("&")}` : path;
+    router.replace({ pathname: "/login", params: next && next !== "/" ? { next } : {} });
+  }, [loaded, me, path, params, segments, router]);
   return null;
 }
 

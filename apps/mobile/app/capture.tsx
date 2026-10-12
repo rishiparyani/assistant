@@ -6,7 +6,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline, request } from "@/api";
-import { send } from "@/outbox";
+import { newId, send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
 
 type Captured = { record: { id: string; title: string }; guess: string | null };
@@ -24,7 +24,10 @@ export default function Capture() {
   useEffect(() => {
     if (!text) return;
     let gone = false;
-    request<Captured>("POST", "/api/inbox", { text, source: "siri" })
+    // One key for the online try and the queued retry: if the first reached the server and
+    // only the answer was lost, the retry is the same capture, not a second one.
+    const key = newId();
+    request<Captured>("POST", "/api/inbox", { text, source: "siri" }, key)
       .then((r) => {
         if (gone) return;
         setGuess(typeof r.guess === "string" ? r.guess : "");
@@ -35,6 +38,7 @@ export default function Capture() {
         if (isOffline(e)) {
           // Kept on the device and sent when the connection is back (in order, once).
           send({
+            id: key,
             kind: "core.capture",
             method: "POST",
             path: "/api/inbox",
