@@ -1,5 +1,5 @@
 // CI only: the simulator job's way into a signed-in screen (see app/test.tsx).
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Platform, Settings } from "react-native";
 import { useRouter, type Href } from "expo-router";
 import { API_URL, LOCAL } from "./config.ts";
@@ -10,12 +10,14 @@ import { API_URL, LOCAL } from "./config.ts";
  * open the test sign-in. (`simctl openurl` with the app's scheme asks "Open in Gigspree?" on recent
  * iOS, which nothing in the job can tap.)
  */
+// Once per launch, not per mount: the home mounts again after the sign-in lands on it.
+let launched = false;
+
 export function useTestLaunch() {
   const router = useRouter();
-  const done = useRef(false);
   useEffect(() => {
-    if (done.current || Platform.OS !== "ios" || !LOCAL.test(API_URL)) return;
-    done.current = true;
+    if (launched || Platform.OS !== "ios" || !LOCAL.test(API_URL)) return;
+    launched = true;
     const email = Settings.get("testEmail") as unknown;
     const password = Settings.get("testPassword") as unknown;
     const path = Settings.get("testPath") as unknown;
