@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
-import { tick, type HomeCard } from "../home.ts";
+import { setValue, stillShown, tick, type HomeCard } from "../home.ts";
+import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
-import { Card } from "./Card.tsx";
-import { cardHeight } from "./CardGrid.tsx";
+import { Card, cardHeight } from "@assistant/cards/native";
 
 export function LiveCard({
   live,
@@ -127,6 +127,7 @@ function ListCard({
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();
+  const { me } = useSession();
   const [card, setCard] = useState(given);
   useEffect(() => setCard(given), [given]);
   return (
@@ -138,6 +139,16 @@ function ListCard({
             setCard((c) => ({
               ...c,
               records: c.records.map((r) => (r.id === record.id ? tick(c, r, value) : r)),
+            }))
+          }
+          onSet={(record, field, value) =>
+            setCard((c) => ({
+              ...c,
+              records: c.records.flatMap((r) => {
+                if (r.id !== record.id) return [r];
+                const next = setValue(c, r, field, value);
+                return stillShown(c, next, me?.user.id ?? null) ? [next] : [];
+              }),
             }))
           }
           onOpen={() => onAsk?.(card.spec.title)}

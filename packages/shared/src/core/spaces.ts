@@ -453,6 +453,62 @@ export const VIEW_MODES = ["list", "table"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
 
 /** A collection seen a saved way: its filters, search and sort, as a list or a table. */
+/** The named arrangements a card can have (packages/cards draws them). */
+export const ARRANGEMENTS = [
+  "number",
+  "number-chart",
+  "two-numbers",
+  "two-numbers-list",
+  "list-ticks",
+  "list-plain",
+  "list-counter",
+  "next",
+  "countdown",
+  "question",
+  "quick-add",
+  "process",
+  "memory",
+  "progress",
+] as const;
+export type Arrangement = (typeof ARRANGEMENTS)[number];
+
+/**
+ * Controls on a card's rows (decision 2026-10-12 "Cards have controls"): each is bound to one
+ * field of the list and writes that field when used. tick/switch: a yes/no field; chips: a
+ * choice field; stepper/stars/slider: a number field; button: sets one field to one value.
+ */
+export const CARD_CONTROL_KINDS = [
+  "tick",
+  "switch",
+  "chips",
+  "stepper",
+  "stars",
+  "slider",
+  "button",
+] as const;
+export type CardControlKind = (typeof CARD_CONTROL_KINDS)[number];
+export interface CardControl {
+  /** The field's id. */
+  field: string;
+  as: CardControlKind;
+  /** A button's words. */
+  label?: string;
+  /** What a button sets the field to. */
+  value?: StoredValue;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+/** How a saved view's card looks, when the person (or the assistant) chose. */
+export interface CardConfig {
+  arrangement: Arrangement | null;
+  controls: CardControl[];
+}
+
+/** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
+export const CARD_SIZE_VALUES = ["xs", "s", "bar", "m", "l"] as const;
+export type CardSizeValue = (typeof CARD_SIZE_VALUES)[number];
+
 export interface SavedView {
   id: string;
   name: string;
@@ -468,7 +524,9 @@ export interface SavedView {
   pinned: boolean;
   position: number;
   /** How big its card is on the phone's home (null: the app picks). */
-  card_size: "s" | "m" | "l" | null;
+  card_size: CardSizeValue | null;
+  /** The card's arrangement and controls (null: the app picks). */
+  card: CardConfig | null;
   updated_at: string;
 }
 
@@ -482,11 +540,42 @@ const viewQuery = {
 };
 
 /** Only when the person asks for one: a quick add on the view (an add box with these fields). */
-/** The card's size on the home: s half width, m full width, l tall; null lets the app pick. */
+/** The card's size on the home (packages/cards draws them); null lets the app pick. */
 const cardSize = z
-  .enum(["s", "m", "l"])
+  .enum(CARD_SIZE_VALUES)
   .nullish()
-  .describe("Size of its card on the home: s (half width), m (full width), l (tall)");
+  .describe(
+    "Size of its card on the home: xs (half width, half height: one number), s (half width), bar (full width, half height), m (full width), l (tall)",
+  );
+
+const cardControl = z.object({
+  field: z.string().trim().min(1).max(80).describe("Field name"),
+  as: z
+    .enum(CARD_CONTROL_KINDS)
+    .describe(
+      "tick or switch (yes/no field), chips (choice field), stepper, stars or slider (number field), button (sets the field to value)",
+    ),
+  label: z.string().trim().min(1).max(24).optional().describe("A button's words, e.g. Paid"),
+  value: z
+    .union([z.string().max(200), z.number(), z.boolean(), z.null()])
+    .optional()
+    .describe("What a button sets"),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().positive().optional(),
+});
+const cardConfig = z
+  .object({
+    arrangement: z
+      .enum(ARRANGEMENTS)
+      .nullish()
+      .describe("How the card shows its records (see the card catalogue)"),
+    controls: z.array(cardControl).max(4).optional().describe("Controls on each row, bound to fields"),
+  })
+  .nullish()
+  .describe(
+    "Only when the person asks for a certain card or for buttons, switches and the like on it; null resets",
+  );
 
 const addFields = z
   .array(z.string().trim().min(1).max(80))
@@ -504,6 +593,7 @@ export const SaveViewInput = SpaceRef.extend({
   pinned: z.boolean().optional().describe("Put it on the shortcuts bar"),
   add_fields: addFields,
   card_size: cardSize,
+  card: cardConfig,
 });
 
 export const ViewRef = SpaceRef.extend({
@@ -517,6 +607,7 @@ export const UpdateViewInput = ViewRef.extend({
   position: z.number().optional(),
   add_fields: addFields,
   card_size: cardSize,
+  card: cardConfig,
 });
 
 export const OpenViewInput = ViewRef.extend({

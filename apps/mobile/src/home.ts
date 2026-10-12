@@ -7,16 +7,20 @@ import {
   CARD_VERSION,
   ARRANGEMENT_SIZES,
   CardSpec,
+  cardProblems,
   nowScore,
+  type Arrangement,
   type CardSignals,
   type CardSize,
+} from "@assistant/cards";
+import { colourFor, type HomeCard } from "@assistant/cards/native";
+import {
+  findInRecords,
   type CollectionView,
   type FindResult,
   type Memory,
   type RecordView,
   type SavedView,
-  type ShareAccess,
-  type ShareKind,
   type SharedOpened,
   type SharedWithMe,
   type StoredValue,
@@ -25,33 +29,9 @@ import {
 import { request } from "./api.ts";
 import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
-import { colourFor, type CollectionColour } from "./theme.ts";
 
-export interface HomeCard {
-  id: string;
-  /** The saved view this card shows (its order and size live there); null for a list the
-   *  chat shows that isn't saved as a view, and for a process card. */
-  view: SavedView | null;
-  spec: CardSpec;
-  /** The list the records come from; null for a process card. */
-  collection: CollectionView | null;
-  colour: CollectionColour;
-  records: RecordView[];
-  total: number | null;
-  /** A process card (home-first.md §2 point 9): the step waiting on people. */
-  waiting?: WaitingItem;
-  /** The memory card (home-first.md §2 point 16): what the assistant remembers for me. */
-  memory?: Memory[];
-  /** Something shared with me (collaborator homes, home-first.md §2 point 8). */
-  shared?: {
-    share_id: string;
-    kind: ShareKind;
-    access: ShareAccess;
-    owner: string;
-    /** A shared record's fields, shown as rows. */
-    fields?: { name: string; display: string }[];
-  };
-}
+export type { HomeCard };
+
 export interface HomePage {
   name: string;
   auto?: boolean;
@@ -106,13 +86,43 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
       ? CardSpec.parse({
           title: v.name,
           arrangement: "number",
-          size: "s",
+          size: "xs",
           sources: [{ ...base, sum_field: money.id }],
         })
       : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
+  // A card the person (or the assistant) chose: its arrangement, with the fields it needs
+  // picked from the list, when the list has them; and the controls on its rows.
+  // Controls live on a list's rows: a card with controls is drawn as a list.
+  const LISTS = ["list-plain", "list-ticks", "next"];
+  const wanted =
+    v.card?.controls.length && !LISTS.includes(v.card.arrangement ?? spec.arrangement)
+      ? "list-plain"
+      : (v.card?.arrangement ?? null);
+  const chosen = wanted ? chosenSpec(v, c, wanted) : null;
+  const out = chosen ?? spec;
+  if (v.card?.controls.length) out.controls = v.card.controls;
   // The person's size wins when the arrangement can be drawn at it.
-  if (v.card_size && sizesFor(spec).includes(v.card_size)) spec.size = v.card_size;
-  return spec;
+  if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;
+  else if (!sizesFor(out).includes(out.size)) out.size = sizesFor(out)[0]!;
+  return out;
+}
+
+function chosenSpec(v: SavedView, c: CollectionView, arrangement: Arrangement): CardSpec | null {
+  const of = (...types: string[]) => c.fields.find((f) => types.includes(f.type))?.id ?? null;
+  const base = { collection: c.id, filters: v.filters, sort: v.sort ?? null };
+  const source = {
+    ...base,
+    sum_field: arrangement === "number" ? of("money", "number") : null,
+    answer_field: arrangement === "list-ticks" || arrangement === "progress" ? of("boolean") : null,
+    date_field: arrangement === "next" || arrangement === "countdown" ? of("date", "datetime") : null,
+  };
+  const parsed = CardSpec.safeParse({
+    title: v.name,
+    arrangement,
+    size: ARRANGEMENT_SIZES[arrangement][0],
+    sources: [source],
+  });
+  return parsed.success && !cardProblems(parsed.data).length ? parsed.data : null;
 }
 
 /** The sizes this card can be drawn at. */
@@ -141,6 +151,7 @@ export function cardFor(
           pinned: false,
           position: 0,
           card_size: null,
+          card: null,
           updated_at: "",
         },
         c,
@@ -467,7 +478,26 @@ export function signalsOf(c: HomeCard, today = new Date()): CardSignals {
 /** A tick on a list-ticks card: shows at once, syncs through the outbox. */
 export function tick(card: HomeCard, record: RecordView, value: boolean): RecordView {
   const field = card.spec.sources[0]?.answer_field;
-  if (!field || !card.collection) return record;
+  if (!field) return record;
+  return setValue(card, record, field, value);
+}
+
+/**
+ * Whether a row still belongs on its card after a change (the card's saved filters, run on the
+ * device like the server would). A "Paid" button on an "Unpaid" card takes the row off.
+ */
+export function stillShown(card: HomeCard, record: RecordView, userId: string | null): boolean {
+  if (!card.collection || !card.view?.filters.length) return true;
+  try {
+    return findInRecords(card.collection, [record], { filters: card.view.filters }, { userId }).length > 0;
+  } catch {
+    return true; // a filter the device can't run: leave the row until the next read
+  }
+}
+
+/** A control on a card changed one field of a row: shown at once, sent through the outbox. */
+export function setValue(card: HomeCard, record: RecordView, field: string, value: StoredValue): RecordView {
+  if (!card.collection) return record;
   const values: Record<string, StoredValue> = { [field]: value };
   // A row of a list shared with me goes through the share (the owner's object checks it).
   send(

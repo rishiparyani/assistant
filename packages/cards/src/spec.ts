@@ -3,51 +3,45 @@
 // this set; the app draws it. `card.v1` is the one shape the server validates, the phone, the
 // website and the widgets draw, so a card that passed validation is drawable everywhere.
 import { z } from "zod";
-import { FilterInput } from "./spaces.ts";
+import {
+  ARRANGEMENTS,
+  CARD_CONTROL_KINDS,
+  CARD_SIZE_VALUES,
+  FilterInput,
+  type Arrangement,
+  type StoredValue,
+} from "@assistant/shared";
 
 export const CARD_VERSION = "card.v1" as const;
 
-/** The named arrangements the app knows how to draw at every size, light and dark. */
-export const ARRANGEMENTS = [
-  "number",
-  "number-chart",
-  "two-numbers",
-  "two-numbers-list",
-  "list-ticks",
-  "list-plain",
-  "list-counter",
-  "next",
-  "countdown",
-  "question",
-  "quick-add",
-  "process",
-  "memory",
-  "progress",
-] as const;
-export type Arrangement = (typeof ARRANGEMENTS)[number];
+/** The named arrangements the app knows how to draw at every size, light and dark (the list
+ *  lives in shared, where saved views check it). */
+export { ARRANGEMENTS, type Arrangement };
 
-export const CARD_SIZES = ["s", "m", "l"] as const;
+/** xs: half width, half height · s: half width · bar: full width, half height · m: full width ·
+ *  l: full width, double height (on a 2-column phone page). */
+export const CARD_SIZES = CARD_SIZE_VALUES;
 export type CardSize = (typeof CARD_SIZES)[number];
 
 /** Grid cells a size takes on a 2-column phone page (6 rows a page). */
-export const CARD_CELLS: Record<CardSize, number> = { s: 1, m: 2, l: 4 };
+export const CARD_CELLS: Record<CardSize, number> = { xs: 0.5, s: 1, bar: 1, m: 2, l: 4 };
 
 /** Which sizes each arrangement can be drawn at. */
 export const ARRANGEMENT_SIZES: Record<Arrangement, readonly CardSize[]> = {
-  number: ["s", "m"],
+  number: ["xs", "s", "bar", "m"],
   "number-chart": ["s", "m", "l"],
   "two-numbers": ["s", "m"],
   "two-numbers-list": ["m", "l"],
   "list-ticks": ["s", "m", "l"],
   "list-plain": ["s", "m", "l"],
   "list-counter": ["m", "l"],
-  next: ["s", "m", "l"],
-  countdown: ["s", "m"],
+  next: ["s", "bar", "m", "l"],
+  countdown: ["xs", "s", "bar", "m"],
   question: ["m"],
   "quick-add": ["m"],
   process: ["s", "m", "l"],
   memory: ["s", "m"],
-  progress: ["s", "m"],
+  progress: ["xs", "s", "bar", "m"],
 };
 
 /** What a card reads: a collection, optionally filtered and sorted (like a saved view). */
@@ -75,6 +69,21 @@ export const CardSpec = z.object({
   sources: z.array(CardSource).min(1).max(2),
   /** Rows shown by list arrangements (the size caps it further). */
   limit: z.number().int().min(1).max(12).optional(),
+  /** Controls on each row, bound to fields by id (switches, chips, steppers, stars, buttons…). */
+  controls: z
+    .array(
+      z.object({
+        field: z.string().min(1).max(80),
+        as: z.enum(CARD_CONTROL_KINDS),
+        label: z.string().max(24).optional(),
+        value: z.custom<StoredValue>(() => true).optional(),
+        min: z.number().optional(),
+        max: z.number().optional(),
+        step: z.number().positive().optional(),
+      }),
+    )
+    .max(4)
+    .optional(),
 });
 export type CardSpec = z.infer<typeof CardSpec>;
 

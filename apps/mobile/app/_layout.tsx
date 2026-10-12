@@ -16,7 +16,7 @@ function SessionGate() {
   const segments = useSegments();
   const router = useRouter();
   useEffect(() => {
-    if (!loaded || me || path === "/login" || path === "/test") return;
+    if (!loaded || me || path === "/login" || path === "/test" || path === "/gallery") return;
     // Keep the query (e.g. /capture?text=… from Siri) so nothing asked for is lost at sign-in;
     // route segments like [id] are already in the path.
     const inPath = new Set(segments.map((s) => /^\[(?:\.\.\.)?(.+)\]$/.exec(s)?.[1]).filter(Boolean));
