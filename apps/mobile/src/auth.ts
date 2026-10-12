@@ -5,15 +5,58 @@ import { Platform } from "react-native";
 import { createAuthClient } from "better-auth/react";
 import { expoClient } from "@better-auth/expo/client";
 import * as SecureStore from "expo-secure-store";
-import { API_URL, APP_SCHEME } from "./config.ts";
+import { API_URL, APP_SCHEME, LOCAL } from "./config.ts";
+import { kv } from "./storage.ts";
+
+// Against the local test server only (the simulator job): a build without entitlements has no
+// Keychain ("A required entitlement isn't present"), so the cookie goes to the app's own store
+// instead. Against any other server the Keychain is the only place.
+const storage: typeof SecureStore = LOCAL.test(API_URL)
+  ? {
+      ...SecureStore,
+      getItem: (k) =>
+        tryKeychain(
+          () => SecureStore.getItem(k),
+          () => kv.get(k),
+        ),
+      getItemAsync: (k) =>
+        tryKeychainAsync(
+          () => SecureStore.getItemAsync(k),
+          () => kv.get(k),
+        ),
+      setItem: (k, v) =>
+        tryKeychain(
+          () => SecureStore.setItem(k, v),
+          () => kv.set(k, v),
+        ),
+      setItemAsync: (k, v) =>
+        tryKeychainAsync(
+          () => SecureStore.setItemAsync(k, v),
+          () => kv.set(k, v),
+        ),
+    }
+  : SecureStore;
+
+function tryKeychain<T>(keychain: () => T, fallback: () => T): T {
+  try {
+    return keychain();
+  } catch {
+    return fallback();
+  }
+}
+async function tryKeychainAsync<T>(keychain: () => Promise<T>, fallback: () => T): Promise<T> {
+  try {
+    return await keychain();
+  } catch {
+    return fallback();
+  }
+}
 
 export const authClient = createAuthClient({
   baseURL: API_URL,
   basePath: "/auth",
   plugins:
-    Platform.OS === "web"
-      ? []
-      : [expoClient({ scheme: APP_SCHEME, storagePrefix: APP_SCHEME, storage: SecureStore })],
+    Platform.OS === "web" ? [] : [expoClient({ scheme: APP_SCHEME, storagePrefix: APP_SCHEME, storage })],
 });
 
 /** The Cookie header for API calls from the phone ("" on the web, where the browser sends it). */

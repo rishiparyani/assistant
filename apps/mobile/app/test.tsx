@@ -8,8 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { Redirect, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { signInWithEmail } from "@/auth";
-import { LOCAL } from "@/test-launch";
-import { API_URL } from "@/config";
+import { API_URL, LOCAL } from "@/config";
 import { useSession } from "@/session";
 import { useTheme } from "@/theme";
 

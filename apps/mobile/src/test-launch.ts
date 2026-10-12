@@ -2,10 +2,7 @@
 import { useEffect, useRef } from "react";
 import { Platform, Settings } from "react-native";
 import { useRouter, type Href } from "expo-router";
-import { API_URL } from "./config.ts";
-
-/** The local test server, the only place the test sign-in works. */
-export const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+import { API_URL, LOCAL } from "./config.ts";
 
 /**
  * On the home, once per launch: launch arguments from the simulator job (`simctl launch … -testEmail

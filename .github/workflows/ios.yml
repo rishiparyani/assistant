@@ -124,9 +124,11 @@ jobs:
         run: |
           cd apps/mobile/ios
           pod install > "$RUNNER_TEMP/pods.log" 2>&1 || { tail -40 "$RUNNER_TEMP/pods.log"; exit 1; }
+          # Ad-hoc signed (not unsigned): the Keychain refuses an app without entitlements, and
+          # the session cookie lives there.
           xcodebuild -workspace Gigspree.xcworkspace -scheme Gigspree -configuration Release \
             -destination "platform=iOS Simulator,id=$PHONE" -derivedDataPath "$RUNNER_TEMP/dd" \
-            CODE_SIGNING_ALLOWED=NO build > "$RUNNER_TEMP/build.log" 2>&1 \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO build > "$RUNNER_TEMP/build.log" 2>&1 \
             || { echo "--- bundle phase output ---"; \
                  awk '/PhaseScriptExecution.*Bundle/{p=1} p && !/^ *export /{print}' "$RUNNER_TEMP/build.log" | head -150; \
                  echo "--- errors ---"; grep -E "^.*error:" "$RUNNER_TEMP/build.log" | grep -v "export " | head -20; exit 1; }

@@ -12,3 +12,6 @@ export const API_URL =
     ? window.location.origin
     : "https://gigspree.in");
 export const APP_SCHEME = "gigspree";
+
+/** The local test server, the only place the test sign-in (and its Keychain fallback) works. */
+export const LOCAL = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
