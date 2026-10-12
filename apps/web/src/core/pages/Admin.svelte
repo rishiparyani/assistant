@@ -38,6 +38,8 @@
   let alertBusy = $state(false);
   let backup = $state<AdminBackup | null>(null);
   let backupBusy = $state("");
+  // Only for a file sealed with another key (an earlier one, or another Worker's).
+  let backupKey = $state("");
 
   async function loadBackup() {
     try {
@@ -72,7 +74,7 @@
     await backupAction(
       "restore",
       async () => {
-        const r = await adminApi.restore(file);
+        const r = await adminApi.restore(file, backupKey.trim());
         toast.success(`Restored ${r.rows} rows and ${r.modules.gigs ?? 0} gigs`);
       },
       "Restore finished",
@@ -267,6 +269,16 @@
               >{/snippet}
           </ListRow>
           <ListRow
+            title="Encryption"
+            subtitle={backup.encrypted
+              ? "Every file is sealed with your key; a restore needs the same key."
+              : "Not sealed yet: add the BACKUP_KEY secret (steps in docs/setup.md)."}
+          >
+            {#snippet trailing()}<Pill tone={backup!.encrypted ? "green" : "amber"}
+                >{backup!.encrypted ? "Encrypted" : "Plain"}</Pill
+              >{/snippet}
+          </ListRow>
+          <ListRow
             title="Last backup"
             subtitle={backup.last
               ? `${when(backup.last.at)}${backup.last.ok ? ` · ${Math.max(1, Math.round((backup.last.bytes ?? 0) / 1024))} KB` : ` · ${backup.last.error}`}`
@@ -297,6 +309,13 @@
               <Button size="sm" variant="primary" href="/api/admin/drive/connect">Connect Google Drive</Button
               >
             {/if}
+            <TextField
+              label="Backup key"
+              hint="Only for a file sealed with another key; the app's own key is used otherwise."
+              type="password"
+              autocomplete="off"
+              bind:value={backupKey}
+            />
             <label class="file-btn">
               {backupBusy === "restore" ? "Restoring…" : "Restore from a file"}
               <input

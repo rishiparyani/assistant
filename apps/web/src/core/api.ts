@@ -113,10 +113,11 @@ export const adminApi = {
   backup: () => request<AdminBackup>("GET", "/api/admin/backup"),
   backupNow: () => request<AdminBackup["last"]>("POST", "/api/admin/backup/run", {}),
   disconnectDrive: () => request<{ connected: boolean }>("POST", "/api/admin/drive/disconnect", {}),
-  restore: async (file: File) => {
+  restore: async (file: File, key = "") => {
     const res = await fetch("/api/admin/restore?confirm=RESTORE", {
       method: "POST",
-      headers: { "idempotency-key": crypto.randomUUID() },
+      // An encrypted file opens with the Worker's own key; a key typed in wins over it.
+      headers: { "idempotency-key": crypto.randomUUID(), ...(key ? { "x-backup-key": key } : {}) },
       body: file,
     });
     const body = (await res.json()) as { rows: number; modules: Record<string, number> } & ApiErrorBody;
@@ -128,8 +129,17 @@ export const adminApi = {
 
 export interface AdminBackup {
   google_configured: boolean;
+  /** The BACKUP_KEY secret is set: files in Drive are sealed with it. */
+  encrypted: boolean;
   connected: boolean;
-  last: { at: string; ok: boolean; bytes?: number; file?: string; error?: string } | null;
+  last: {
+    at: string;
+    ok: boolean;
+    bytes?: number;
+    file?: string;
+    error?: string;
+    encrypted?: boolean;
+  } | null;
 }
 
 export interface AdminAlerts {

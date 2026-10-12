@@ -600,3 +600,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Decision:** the Expo app's Swift parts (App Intents now; widgets and the Share extension next) live in `apps/mobile/native/ios/` and are added to the generated Xcode project by local config plugins in `apps/mobile/plugins/` (Expo's own `config-plugins`, no new dependency), run by `expo prebuild` on the Mac runner. An intent hands the app a path through its own defaults; the app opens it when it comes to the front.
 
 **Why:** the Xcode project is generated and never committed (decision 2026-10-11, HF2), so native sources can't be edited in it; a plugin re-applies them on every build. Handing over a path (not running the action from Swift) keeps sign-in, checks and confirm cards in one place, as the Capacitor intents did.
+
+## 2026-10-12: Backups are sealed with an owner-held key
+
+**Decision:** when the `BACKUP_KEY` secret is set, the nightly backup is encrypted (AES-256-GCM, key from PBKDF2 of the passphrase with a fresh salt per file) before it goes to the owner's Drive; restore opens it with the Worker's key or a key typed in. Without the secret, backups stay gzipped JSON. The key is the owner's: it lives in GitHub secrets and their password manager, never in the repo or the database, and nobody can recover a backup without it.
+
+**Why:** the backup holds everything (every space, chat and gig); Drive is private but a file copied out of it should give nothing away. A passphrase-derived key means the same string works wherever the file is read (the admin panel today, a script later), with no key file to lose.
