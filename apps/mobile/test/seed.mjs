@@ -160,6 +160,10 @@ if (!(await api("GET", "/api/waiting")).length)
     values: { [bTitle.id]: "Test wedding", [bDate.id]: "2026-12-12" },
   });
 
+// Something captured (the Inbox card on the home).
+if (!(await api("GET", "/api/views")).some((v) => v.name === "Inbox"))
+  await api("POST", "/api/inbox", { text: "Strings ₹450 at Furtados", source: "siri" });
+
 console.log(`cookie=${cookie}`);
 console.log(`email=${EMAIL}`);
 console.log(`password=${PASSWORD}`);

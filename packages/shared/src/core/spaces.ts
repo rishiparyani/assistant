@@ -287,12 +287,21 @@ export const CreateCollectionInput = SpaceRef.extend({
 });
 
 /** The everyday lists the assistant starts on the spot, the first time they're needed. */
-export const STARTER_KINDS = ["notes", "reminders", "events", "expenses"] as const;
+export const STARTER_KINDS = ["notes", "reminders", "events", "expenses", "inbox"] as const;
 export type StarterKind = (typeof STARTER_KINDS)[number];
 export const StartListInput = SpaceRef.extend({
   kind: z
     .enum(STARTER_KINDS)
-    .describe("notes, reminders (with an alarm at Due), events (things at a time) or expenses"),
+    .describe(
+      "notes, reminders (with an alarm at Due), events (things at a time), expenses, or inbox (things captured that fit no list yet)",
+    ),
+});
+
+/** Something captured (home-first.md §2 point 12): from Siri, the share sheet, a chat, a screenshot's text. */
+export const CAPTURE_SOURCES = ["siri", "share", "chat", "whatsapp", "other"] as const;
+export const CaptureInput = SpaceRef.extend({
+  text: z.string().trim().min(1).max(4000).describe("What was captured, as text"),
+  source: z.enum(CAPTURE_SOURCES).default("other").describe("Where it came from"),
 });
 
 export const CollectionRef = SpaceRef.extend({ collection: nameOrId("Collection") });

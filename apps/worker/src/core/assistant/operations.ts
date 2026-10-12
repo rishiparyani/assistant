@@ -3,6 +3,8 @@
 // because the assistant's tools are those operations.
 import { z } from "zod";
 import {
+  CaptureInput,
+  type RecordView,
   ChatActionIn,
   ChatActionRef,
   ChatRef,
@@ -15,7 +17,7 @@ import {
   RememberInput,
 } from "@assistant/shared";
 import { defineOperation, type AnyOperation } from "../operations.ts";
-import { assistantPeople, setAssistantAccess } from "./access.ts";
+import { assistantAllowed, assistantPeople, setAssistantAccess } from "./access.ts";
 import {
   cancelAction,
   chatView,
@@ -30,6 +32,8 @@ import {
   remember,
   sendMessage,
 } from "./service.ts";
+
+import { spaceOf } from "../spaces/service.ts";
 
 export function assistantOperations(all: () => readonly AnyOperation[]) {
   return [
@@ -52,6 +56,56 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       http: { method: "POST", path: "/chat" },
       input: ChatSendInput,
       handler: (ctx, i) => sendMessage(ctx, all(), i),
+    }),
+    // The Inbox (home-first.md §2 point 12): something captured from Siri, the share sheet,
+    // a chat or a screenshot's text goes in the Inbox list (a card on the home) and, for a
+    // person with the assistant, into the chat, where the assistant proposes where it goes
+    // (a card to tap); its one-line answer is kept on the item as the guess. Sorting is a
+    // sentence in the chat ("put it in Expenses"); ticking Sorted on the card puts it away.
+    defineOperation({
+      id: "core.capture",
+      tool: "capture",
+      description:
+        "Put something captured (from Siri, the share sheet, a chat, a screenshot's text) in the Inbox and ask where it goes.",
+      kind: "write",
+      http: { method: "POST", path: "/inbox", status: 201 },
+      input: CaptureInput,
+      handler: async (ctx, i): Promise<{ record: RecordView; guess: string | null }> => {
+        const { stub, actor } = await spaceOf(ctx, i.space);
+        const inbox = await stub.startList(
+          actor,
+          ctx.idempotencyKey && `${ctx.idempotencyKey}:list`,
+          "inbox",
+        );
+        const source = {
+          siri: "Siri",
+          share: "Share sheet",
+          chat: "Chat",
+          whatsapp: "WhatsApp",
+          other: "Other",
+        }[i.source];
+        let record = await stub.addRecord(actor, ctx.idempotencyKey, inbox.id, {
+          values: { Text: i.text, Source: source, Sorted: false },
+        });
+        let guess: string | null = null;
+        if (await assistantAllowed(ctx)) {
+          const chat = await sendMessage(ctx, all(), {
+            text: `Captured from ${source}: ${i.text}\n(Where should this go? Propose the add; I'll tap.)`,
+          });
+          const reply = [...chat.items].reverse().find((x) => x.role === "assistant" || x.role === "card");
+          guess = reply?.text?.slice(0, 500) ?? null;
+          if (guess)
+            record = await stub.updateRecord(
+              actor,
+              ctx.idempotencyKey && `${ctx.idempotencyKey}:guess`,
+              record.id,
+              {
+                values: { Guess: guess },
+              },
+            );
+        }
+        return { record, guess };
+      },
     }),
     defineOperation({
       id: "core.chat_confirm",

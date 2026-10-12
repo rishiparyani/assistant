@@ -45,6 +45,23 @@ export const STARTER_COLLECTIONS: {
     ],
   },
   {
+    // The Inbox (home-first.md §2 point 12): captured things that fit no list yet; ticking
+    // Sorted puts one away. The assistant's best guess is kept on it.
+    kind: "inbox",
+    name: "Inbox",
+    description: "Things captured from Siri, the share sheet or a chat that fit no list yet",
+    fields: [
+      { name: "Text", type: "text", required: true },
+      {
+        name: "Source",
+        type: "choice",
+        options: { choices: ["Siri", "Share sheet", "Chat", "WhatsApp", "Other"] },
+      },
+      { name: "Guess", type: "long_text" },
+      { name: "Sorted", type: "boolean" },
+    ],
+  },
+  {
     kind: "expenses",
     name: "Expenses",
     description: "Money I spent",

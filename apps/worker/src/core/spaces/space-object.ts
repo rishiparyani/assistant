@@ -4804,6 +4804,19 @@ export class SpaceObject extends DurableObject<Env> {
       const { kind: _k, ...input } = spec;
       const id = this.insertCollection(actor, { ...input, id: null }, ts);
       if (kind === "reminders") this.remindersWorkflow(id, ts);
+      // The Inbox is a card on the home from the start: what's not sorted yet, ticks put away.
+      if (kind === "inbox")
+        this.insertView(
+          actor,
+          {
+            name: "Inbox",
+            collection: id,
+            pinned: true,
+            filters: [{ field: "Sorted", op: "ne", value: true }],
+            mode: "list",
+          },
+          ts,
+        );
       return this.collectionView(this.requireCollection(id));
     });
   }
