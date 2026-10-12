@@ -11,7 +11,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1); ~~TestFlight + simulator screenshots moved over~~ (HF2).
 2. Home: ~~pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar, Now page ranking~~ (HF1, HF3, HF3b); pull-down, dock.
 3. ~~Chat sheet with card context; confirm cards in the app; What changed + Undo; live cards in the stream~~ (HF1, HF3, HF3b, HF3c); ~~collaborator homes~~ (HF5a); ~~per-person assistant switch in the admin panel~~ (the website's Assistant access section; the phone reads it from `/api/me`).
-4. ~~Processes: roles, waiting on, nudges, loops; process card~~ (HF4); ~~client-by-link step~~ (dropped: every write needs a signed-in person); process detail on the phone.
+4. ~~Processes: roles, waiting on, nudges, loops; process card~~ (HF4); ~~client-by-link step~~ (dropped: every write needs a signed-in person); ~~process detail on the phone~~ (HF14).
 5. ~~Search (one index per person: FTS5 + embeddings)~~ (HF6; Vectorize only if a person's index outgrows the object), ~~Inbox~~ (HF8b; the phone's share extension and Siri intent for it are step 8), ~~This week proposals~~ (HF8a).
 6. ~~First run conversation~~ (HF9: everyday lists from the week, each with its card; a whole setup card needs the smart model); ~~setup sharing; memory page~~ (HF10).
 7. ~~Web target served with the website (`/app`); laptop layout~~ (HF11); the switch once the new home matches today's site.
