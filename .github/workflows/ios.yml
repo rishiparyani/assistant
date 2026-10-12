@@ -150,7 +150,14 @@ jobs:
           EMAIL="$(sed -n 's/^email=//p' "$RUNNER_TEMP/seed.txt")"
           PASSWORD="$(sed -n 's/^password=//p' "$RUNNER_TEMP/seed.txt")"
           OUT="$RUNNER_TEMP/screens"; mkdir -p "$OUT"
-          open_url() { xcrun simctl openurl "$1" "$2" > /dev/null; sleep "${3:-4}"; }
+          # `simctl openurl` with the app's scheme asks "Open in Gigspree?" on recent iOS, which
+          # nothing here can tap; the app is launched with the test sign-in as launch arguments
+          # instead (read by the home against the local test server only, see app/test.tsx).
+          go() {
+            xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
+            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" > /dev/null
+            sleep "${3:-9}"
+          }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
           for dev in "$PHONE" "$SMALL"; do
             [ -n "$dev" ] || continue
@@ -163,21 +170,19 @@ jobs:
             xcrun simctl ui "$dev" appearance light
             xcrun simctl launch "$dev" "$BUNDLE_ID" > /dev/null; sleep 6
             shot "$dev" "$label-light-0-login"
-            open_url "$dev" "gigspree://test?email=$EMAIL&password=$PASSWORD&path=/" 8
+            go "$dev" "/"
             shot "$dev" "$label-light-1-home"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
-            open_url "$dev" "gigspree://chat"
+            go "$dev" "/chat"
             shot "$dev" "$label-light-2-chat"
             # The chat with a message started: the keyboard is up, the message box must clear it.
-            xcrun simctl terminate "$dev" "$BUNDLE_ID" || true
-            xcrun simctl launch "$dev" "$BUNDLE_ID" > /dev/null; sleep 6
-            open_url "$dev" "gigspree://chat?ask=Spent%20450%20on%20chai" 6
+            go "$dev" "/chat?ask=Spent 450 on chai"
             shot "$dev" "$label-light-3-chat-typing"
             xcrun simctl terminate "$dev" "$BUNDLE_ID" || true
             xcrun simctl ui "$dev" appearance dark
-            xcrun simctl launch "$dev" "$BUNDLE_ID" > /dev/null; sleep 6
+            go "$dev" "/"
             shot "$dev" "$label-dark-1-home"
-            open_url "$dev" "gigspree://chat"
+            go "$dev" "/chat"
             shot "$dev" "$label-dark-2-chat"
             xcrun simctl shutdown "$dev"
           done

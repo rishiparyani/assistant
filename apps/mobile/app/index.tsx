@@ -34,6 +34,7 @@ import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
+import { useTestLaunch } from "@/test-launch";
 
 const logoLight = require("../assets/logo-light.png");
 const logoDark = require("../assets/logo-dark.png");
@@ -53,6 +54,7 @@ export default function Home() {
   const list = useRef<FlatList<HomePage>>(null);
   const [failed, setFailed] = useState(() => outboxState().failed);
   const userId = me?.user.id ?? null;
+  useTestLaunch();
 
   // Loaded while changes were still waiting to be sent (offline): load again once they are,
   // so the screen shows what the server now has.
