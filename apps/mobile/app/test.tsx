@@ -25,31 +25,30 @@ export default function TestSignIn() {
   // Shown under the spinner, so a screenshot says how far it got.
   const [step, setStep] = useState("Signing in…");
   const allowed = LOCAL.test(API_URL) && !!email && !!password;
-  // Once for the link that opened this screen.
+  // Once for the link that opened this screen. The latest refresh and router live in refs:
+  // `refresh` changes identity when the session changes (right after this sign-in), and an
+  // effect that re-ran on it cancelled its own navigation.
   const started = useRef(false);
+  const latest = useRef({ refresh, router });
+  latest.current = { refresh, router };
 
   useEffect(() => {
     if (!allowed || started.current) return;
     started.current = true;
-    let gone = false;
     (async () => {
       try {
         await signInWithEmail(email!, password!);
         setStep("Signed in, loading you…");
-        await refresh();
-        if (gone) return;
+        await latest.current.refresh();
         setStep(`Going to ${path || "/"}…`);
         // Home first, then the asked-for screen on top of it (the chat is a sheet over the home).
-        router.replace("/");
-        if (path && path.startsWith("/") && path !== "/") router.push(path as Href);
+        latest.current.router.replace("/");
+        if (path && path.startsWith("/") && path !== "/") latest.current.router.push(path as Href);
       } catch (e) {
-        if (!gone) setError(e instanceof Error ? e.message : String(e));
+        setError(e instanceof Error ? e.message : String(e));
       }
     })();
-    return () => {
-      gone = true;
-    };
-  }, [allowed, email, password, path, refresh, router]);
+  }, [allowed, email, password, path]);
 
   if (!allowed) return <Redirect href="/" />;
   return (
