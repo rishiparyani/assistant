@@ -129,6 +129,9 @@ export default function Home() {
     try {
       await go();
       await load();
+      // The run goes on from the space's alarm a moment later (it may ask the next question):
+      // read once more so the next step shows without a pull.
+      setTimeout(() => void load(), 1500);
     } catch (e) {
       setError(isOffline(e) ? "Answering needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {

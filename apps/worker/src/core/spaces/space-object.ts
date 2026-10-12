@@ -387,6 +387,8 @@ const MIGRATIONS: Migrations = [
   create index workflow_waits_workflow_idx on workflow_waits (workflow_id, record_id);
   alter table workflow_jobs add column wait_id text;
   `,
+  // Each "repeat" step counts its own loops (a JSON map by step), not one shared count.
+  `alter table workflow_waits add column loops_json text;`,
 ];
 
 type ViewQuery = {
@@ -537,9 +539,12 @@ type WaitRow = {
   next_nudge_at: string | null;
   nudges: number;
   loops: number;
+  /** How many times each "repeat" step (by index) went back so far, as JSON. */
+  loops_json: string | null;
   depth: number;
   until: "all" | "first";
 };
+type Loops = Record<string, number>;
 /** A workflow as asked for: names (resolved here) and the people to tell (resolved before). */
 export type WorkflowSpec = {
   name: string;
@@ -684,7 +689,7 @@ export class SpaceObject extends DurableObject<Env> {
       .exec<{ at: string | null }>(
         `select min(at) as at from (select min(due_at) as at from workflow_jobs
          union all select min(next_at) as at from workflow_notes
-         union all select min(next_nudge_at) as at from workflow_waits)`,
+         union all select min(next_nudge_at) as at from workflow_waits where next_nudge_at != 'resumed')`,
       )
       .toArray()[0];
     return row?.at ? Date.parse(row.at) : null;
@@ -3409,7 +3414,10 @@ export class SpaceObject extends DurableObject<Env> {
         detail: r.detail,
       }));
     const waiting = this.sql
-      .exec<WaitRow>(`select * from workflow_waits where workflow_id = ? order by asked_at desc`, w.id)
+      .exec<WaitRow>(
+        `select * from workflow_waits where workflow_id = ? and (next_nudge_at is null or next_nudge_at != 'resumed') order by asked_at desc`,
+        w.id,
+      )
       .toArray()
       .map((x) => this.waitingItem(x, actor))
       .filter((x): x is WaitingItem => !!x);
@@ -4020,7 +4028,13 @@ export class SpaceObject extends DurableObject<Env> {
         return [];
       }
       this.wfDepth = j.depth + 1;
-      return this.runSteps(w, def, r, wait.step + 1, wait.loops);
+      return this.runSteps(
+        w,
+        def,
+        r,
+        wait.step + 1,
+        wait.loops_json ? (JSON.parse(wait.loops_json) as Loops) : {},
+      );
     }
     const r = this.liveRecord(j.record_id);
     if (!r) {
@@ -4037,7 +4051,7 @@ export class SpaceObject extends DurableObject<Env> {
       return [];
     }
     this.wfDepth = j.depth + 1;
-    return this.runSteps(w, def, r, 0, 0);
+    return this.runSteps(w, def, r, 0, {});
   }
 
   /** The people a step names: fixed ones, the record's person fields, linked records' people. */
@@ -4067,7 +4081,7 @@ export class SpaceObject extends DurableObject<Env> {
    * The steps from `from` on, in one transaction. An "ask" step stops here: the question goes
    * to the people, a wait is kept, and the run goes on (from the next step) once they answer.
    */
-  private runSteps(w: WorkflowRow, def: WorkflowDef, r: RecordRow, from: number, loops: number): Tell[] {
+  private runSteps(w: WorkflowRow, def: WorkflowDef, r: RecordRow, from: number, loops: Loops): Tell[] {
     const actor: Actor = { userId: w.created_by, source: "system" };
     const ts = nowIso();
     const tell: Tell[] = [];
@@ -4130,8 +4144,8 @@ export class SpaceObject extends DurableObject<Env> {
           ? new Date(Date.now() + a.nudge_minutes * 60_000).toISOString()
           : null;
         this.sql.exec(
-          `insert into workflow_waits (id, workflow_id, record_id, step, question_id, asked_at, nudge_minutes, next_nudge_at, nudges, loops, depth, until)
-           values (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+          `insert into workflow_waits (id, workflow_id, record_id, step, question_id, asked_at, nudge_minutes, next_nudge_at, nudges, loops, loops_json, depth, until)
+           values (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
           ulid(),
           w.id,
           r.id,
@@ -4140,7 +4154,7 @@ export class SpaceObject extends DurableObject<Env> {
           ts,
           a.nudge_minutes,
           nudgeAt,
-          loops,
+          JSON.stringify(loops),
           this.wfDepth,
           a.until,
         );
@@ -4156,17 +4170,19 @@ export class SpaceObject extends DurableObject<Env> {
         return tell;
       } else if (a.do === "repeat") {
         const c = this.requireCollection(r.collection_id);
+        // Each repeat step counts its own goings-back.
+        const done = loops[String(i)] ?? 0;
         const back =
-          loops < a.at_most &&
+          done < a.at_most &&
           this.findRows(actor, c, { filters: a.if, ids: [r.id], limit: 1 }).rows.length > 0;
         if (back) {
-          loops++;
-          did.push(`Went back to step ${a.from} (${loops} of ${a.at_most})`);
+          loops[String(i)] = done + 1;
+          did.push(`Went back to step ${a.from} (${done + 1} of ${a.at_most})`);
           i = a.from - 2; // the loop's i++ lands on step `from` (1-based)
           continue;
         }
         did.push(
-          loops >= a.at_most ? `Stopped going back after ${a.at_most}` : "Went on (no need to go back)",
+          done >= a.at_most ? `Stopped going back after ${a.at_most}` : "Went on (no need to go back)",
         );
       } else if (a.do === "set" && a.via) {
         const field = this.liveField(a.field_id);
@@ -4209,7 +4225,10 @@ export class SpaceObject extends DurableObject<Env> {
   /** Called when someone answers: a wait on that question may go on. */
   private continueWaits(q: QuestionRow, who: Actor) {
     const waits = this.sql
-      .exec<WaitRow>(`select * from workflow_waits where question_id = ?`, q.id)
+      .exec<WaitRow>(
+        `select * from workflow_waits where question_id = ? and (next_nudge_at is null or next_nudge_at != 'resumed')`,
+        q.id,
+      )
       .toArray();
     for (const wait of waits) {
       const people = this.askedPeople(q);
@@ -4239,9 +4258,15 @@ export class SpaceObject extends DurableObject<Env> {
           wait.until === "first" || answered.length === 1
             ? (answered.find((p) => p.user_id === who.userId) ?? answered[0])!.answer
             : answered.map((p) => `${p.name}: ${p.answer}`).join(" · ");
-        this.changeRecord({ userId: w.created_by, source: "system" }, nowIso(), r, {
-          values: { [step.save_to]: kept },
-        });
+        // As deep in the chain as the run that asked: a workflow this change starts counts on.
+        this.wfDepth = wait.depth + 1;
+        try {
+          this.changeRecord({ userId: w.created_by, source: "system" }, nowIso(), r, {
+            values: { [step.save_to]: kept },
+          });
+        } finally {
+          this.wfDepth = 0;
+        }
       }
       this.noteRun(
         wait.workflow_id,
@@ -4253,8 +4278,10 @@ export class SpaceObject extends DurableObject<Env> {
           : `${name} answered “${answer}”`,
       );
       // The rest of the steps run from the alarm, like any job (a set or add there may start
-      // other workflows, at most MAX_WORKFLOW_DEPTH deep).
-      this.sql.exec(`update workflow_waits set next_nudge_at = null where id = ?`, wait.id);
+      // other workflows, at most MAX_WORKFLOW_DEPTH deep). The question closes now, so a
+      // second answer in the meantime can't change what was kept or start the run twice.
+      this.sql.exec(`update questions set closed_at = ? where id = ? and closed_at is null`, nowIso(), q.id);
+      this.sql.exec(`update workflow_waits set next_nudge_at = 'resumed' where id = ?`, wait.id);
       this.sql.exec(
         `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth, wait_id) values (?, ?, ?, 'event', ?, ?, ?)`,
         ulid(),
@@ -4287,7 +4314,7 @@ export class SpaceObject extends DurableObject<Env> {
     const tell: Tell[] = [];
     const due = this.sql
       .exec<WaitRow>(
-        `select * from workflow_waits where next_nudge_at is not null and next_nudge_at <= ? limit 50`,
+        `select * from workflow_waits where next_nudge_at is not null and next_nudge_at != 'resumed' and next_nudge_at <= ? limit 50`,
         now,
       )
       .toArray();
@@ -4358,7 +4385,7 @@ export class SpaceObject extends DurableObject<Env> {
       on,
       asked_at: wait.asked_at,
       nudges: wait.nudges,
-      next_nudge_at: wait.next_nudge_at,
+      next_nudge_at: wait.next_nudge_at === "resumed" ? null : wait.next_nudge_at,
       share_id: me ? q.share_id : null,
       mine: me?.answer ?? null,
     };
@@ -4370,7 +4397,9 @@ export class SpaceObject extends DurableObject<Env> {
     const member =
       this.sql.exec(`select 1 from members where user_id = ?`, actor.userId).toArray().length > 0;
     const rows = this.sql
-      .exec<WaitRow>(`select * from workflow_waits order by asked_at desc limit 200`)
+      .exec<WaitRow>(
+        `select * from workflow_waits where next_nudge_at is null or next_nudge_at != 'resumed' order by asked_at desc limit 200`,
+      )
       .toArray();
     return rows
       .map((wait) => this.waitingItem(wait, actor))

@@ -194,6 +194,47 @@ describe("processes", () => {
     ).toBe(409);
   });
 
+  it("the first answer wins when asked for, and a later one is refused", async () => {
+    const { owner, rahul, priya } = await setUp();
+    await api(owner)("/workflows", {
+      body: {
+        name: "Who's first",
+        when: { event: "added", collection: "Bookings" },
+        then: [
+          {
+            do: "ask",
+            who: ["Rahul", "Priya"],
+            text: "Who can take {Title}?",
+            choices: ["Me", "Not me"],
+            save_to: "Reply",
+            until: "first",
+          },
+          { do: "notify", text: "{Reply} took it", to: ["me"] },
+        ],
+        enabled: true,
+      },
+    });
+    const booking = await json<RecordView>(
+      await api(owner)("/collections/Bookings/records", {
+        body: { values: { Title: "Test corporate gig" } },
+      }),
+    );
+    expect(await until(async () => (await inbox(priya)).length === 1)).toBe(true);
+    const share = async (u: User) =>
+      (await json<SharedWithMe[]>(await api(u)("/cards"))).find((x) => x.kind === "question")!.share_id;
+    expect((await api(rahul)(`/cards/${await share(rahul)}/answer`, { body: { answer: "Me" } })).status).toBe(
+      200,
+    );
+    // The question closed with the first answer: Priya's is refused, and nothing waits any more.
+    expect(
+      (await api(priya)(`/cards/${await share(priya)}/answer`, { body: { answer: "Not me" } })).status,
+    ).toBe(409);
+    expect(await json<WaitingItem[]>(await api(owner)("/waiting"))).toEqual([]);
+    expect(await until(async () => (await inbox(owner)).some((n) => n.body === "Me took it"))).toBe(true);
+    const after = await json<RecordView>(await api(owner)(`/records/${booking.id}`));
+    expect(Object.values(after.values)).toContain("Me");
+  });
+
   it("checks ask steps when saved", async () => {
     const { owner } = await setUp();
     const make = (then: unknown[]) =>
