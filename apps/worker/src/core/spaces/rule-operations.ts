@@ -1,8 +1,9 @@
 // Setups (chat-first step 6): a whole setup at once, and rules on a collection (checks,
 // uniqueness and status flows). Both change a setup, so outside assistants confirm first.
-import { AddRuleInput, CollectionRef, MakeSetupInput, RuleRef } from "@assistant/shared";
+import { AddRuleInput, CollectionRef, MakeSetupInput, RuleRef, ShareSetupInput } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import { spaceOf } from "./service.ts";
+import { shareSetup } from "./setup-share.ts";
 
 export const ruleOperations = [
   defineOperation({
@@ -27,6 +28,17 @@ export const ruleOperations = [
         views: i.views,
       });
     },
+  }),
+  defineOperation({
+    id: "core.share_setup",
+    tool: "share_setup",
+    description:
+      "Share my setup with people I know, by name: the structure of some (or all) of my lists, with their fields, links, calculated fields, rules and saved views, never their records. Each person gets a card in their chat and taps Make it to get the same setup in their own space.",
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/setups/share", status: 201 },
+    input: ShareSetupInput,
+    handler: (ctx, i) => shareSetup(ctx, i),
   }),
   defineOperation({
     id: "core.add_rule",

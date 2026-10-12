@@ -17,6 +17,7 @@ export default function Layout() {
               laid its content out wrong once the keyboard had been up (bubbles under the
               header, under the message box). */}
           <Stack.Screen name="chat" options={{ presentation: "modal" }} />
+          <Stack.Screen name="memory" options={{ presentation: "modal" }} />
         </Stack>
       </SessionProvider>
     </GestureHandlerRootView>

@@ -180,6 +180,8 @@ jobs:
             # The chat with a message started: the keyboard is up, the message box must clear it.
             go "$dev" "/chat?ask=Spent 450 on chai"
             shot "$dev" "$label-light-3-chat-typing"
+            go "$dev" "/memory"
+            shot "$dev" "$label-light-4-memory"
             xcrun simctl terminate "$dev" "$BUNDLE_ID" || true
             xcrun simctl ui "$dev" appearance dark
             go "$dev" "/"

@@ -35,6 +35,7 @@ import {
   unpin,
   type HomeCard,
   type HomePage,
+  onHomeChanged,
 } from "@/home";
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
@@ -89,6 +90,7 @@ export default function Home() {
   useEffect(() => {
     if (userId) void load();
   }, [userId, load]);
+  useEffect(() => onHomeChanged(() => void load()), [load]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && userId) void load();
@@ -237,7 +239,14 @@ export default function Home() {
                   <Card
                     card={card}
                     onTick={onTick(card)}
-                    onOpen={() => canOpen() && (card.shared?.kind === "form" ? openOnWeb(card) : ask(card))}
+                    onOpen={() =>
+                      canOpen() &&
+                      (card.memory
+                        ? router.push("/memory")
+                        : card.shared?.kind === "form"
+                          ? openOnWeb(card)
+                          : ask(card))
+                    }
                     onAnswer={
                       card.waiting
                         ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()

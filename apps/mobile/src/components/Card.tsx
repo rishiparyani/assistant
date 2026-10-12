@@ -46,6 +46,28 @@ export function Card({
 
   let body: React.ReactNode;
   switch (card.spec.arrangement) {
+    case "memory": {
+      const kept = card.memory ?? [];
+      const shown = kept.slice(0, size === "s" ? 2 : 3);
+      body = (
+        <View style={s.grow}>
+          {shown.map((m) => (
+            <View key={m.id} style={[s.row, { borderBottomColor: t.sep }]}>
+              <View style={[s.dot, { backgroundColor: c, opacity: 0.6 }]} />
+              <Text style={[s.rowText, { color: t.fg }]} numberOfLines={2}>
+                {m.text}
+              </Text>
+            </View>
+          ))}
+          <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
+            {kept.length
+              ? `${kept.length} thing${kept.length === 1 ? "" : "s"} kept · tap to see them all, or forget one`
+              : "Nothing kept yet. Say “remember …” in the chat and it's used in every chat."}
+          </Text>
+        </View>
+      );
+      break;
+    }
     case "process": {
       const w = card.waiting!;
       const open = w.on.filter((p) => p.answer === null);

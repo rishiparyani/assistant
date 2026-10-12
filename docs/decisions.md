@@ -578,3 +578,11 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Also:** v1 indexes records for members only; collaborators search what's shared with them on the device (the home's search sheet). The web app keeps its per-collection title search; the phone and the assistant use the new one.
 
 **Search by meaning lives in the same object, not in Vectorize (for now).** Each document's embedding (Workers AI's free text model, through the default gateway) is kept in the person's index as a float32 blob and compared there by cosine; words and meaning merge with reciprocal rank fusion. Why: a person's index holds a few thousand records at most, where a brute-force compare costs nothing; the Vectorize binding has no local dev or test support (remote only), would be one more account resource to create and watch, and its person filter would mean one vector per person per record anyway. The fill path (the space's alarm) is unchanged, so Vectorize can replace the blob compare later without touching anything else. With the scripted model (tests, local dev) a character-trigram stand-in gives a usable vector, so the meaning path runs everywhere.
+
+## 2026-10-12: Setups travel between people as cards, structure only
+
+**Decision:** "share my setup" (home-first.md §5.4) is one operation, `share_setup`: the sender's space describes its own setup in the `make_setup` shape (names, not ids; no records; filters on links dropped; linked lists included, within the setup limits), the definition is checked by the `make_setup` schema, and each recipient gets a card in their own chat that runs `make_setup` in their own space when they tap Make it. The card lasts a week (a confirm card lasts 30 minutes), so actions carry their own `expires_at`. Only people with the assistant can receive one (they couldn't make it otherwise), and only people the sender knows (by name, candidates when ambiguous).
+
+**Why:** the copy goes through the one path every setup takes (same schema, limits, confirmation, idempotency key and audit), so a received setup never carries code or data and nothing is made before the tap. Posting into the recipient's chat reuses the confirm card the person already knows from the assistant and This week.
+
+**Also:** the memory card and page on the phone read and forget through the existing `/api/memories`; no new storage.

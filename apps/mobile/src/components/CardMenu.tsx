@@ -35,7 +35,7 @@ export function CardMenu({
   // A process card or something shared with me isn't a pinned view: nothing to resize, share
   // or take off.
   const rows: { label: string; onPress: () => void; danger?: boolean }[] =
-    card.waiting || card.shared
+    card.waiting || card.shared || card.memory
       ? [{ label: "Ask about this", onPress: run(() => actions.ask(card)) }]
       : [
           { label: "Ask about this", onPress: run(() => actions.ask(card)) },
