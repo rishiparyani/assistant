@@ -186,6 +186,7 @@ export default function Chat() {
           data={SUGGEST}
           keyExtractor={(x) => x}
           showsHorizontalScrollIndicator={false}
+          style={s.chips}
           contentContainerStyle={{ paddingHorizontal: 14, gap: 6, paddingVertical: 6 }}
           renderItem={({ item }) => (
             <Pressable
@@ -339,6 +340,8 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   sys: { fontSize: 12, fontWeight: "600", textAlign: "center", padding: 6 },
+  // A horizontal list grows to fill the column by default; the chips sit above the box.
+  chips: { flexGrow: 0 },
   chip: {
     height: 34,
     paddingHorizontal: 13,
