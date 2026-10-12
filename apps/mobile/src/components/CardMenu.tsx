@@ -32,16 +32,19 @@ export function CardMenu({
     onClose();
     fn();
   };
-  const rows: { label: string; onPress: () => void; danger?: boolean }[] = [
-    { label: "Ask about this", onPress: run(() => actions.ask(card)) },
-    { label: "Share…", onPress: run(() => actions.ask(card, "Share this with ")) },
-    {
-      label: "Make a form from this…",
-      onPress: run(() => actions.ask(card, "Make a form for this that asks for ")),
-    },
-    { label: "Send on a schedule…", onPress: run(() => actions.ask(card, "Send me this every ")) },
-    { label: "Take off the home", onPress: run(() => actions.unpin(card)), danger: true },
-  ];
+  // A process card isn't a pinned view: nothing to resize, share or take off.
+  const rows: { label: string; onPress: () => void; danger?: boolean }[] = card.waiting
+    ? [{ label: "Ask about this", onPress: run(() => actions.ask(card)) }]
+    : [
+        { label: "Ask about this", onPress: run(() => actions.ask(card)) },
+        { label: "Share…", onPress: run(() => actions.ask(card, "Share this with ")) },
+        {
+          label: "Make a form from this…",
+          onPress: run(() => actions.ask(card, "Make a form for this that asks for ")),
+        },
+        { label: "Send on a schedule…", onPress: run(() => actions.ask(card, "Send me this every ")) },
+        { label: "Take off the home", onPress: run(() => actions.unpin(card)), danger: true },
+      ];
   return (
     <Modal transparent animationType="fade" visible onRequestClose={onClose}>
       <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={s.backdrop} />
@@ -52,7 +55,7 @@ export function CardMenu({
             {card.spec.title}
           </Text>
         </View>
-        {sizes.length > 1 ? (
+        {sizes.length > 1 && card.view ? (
           <View style={[s.sizes, { backgroundColor: t.fill }]}>
             {sizes.map((size) => {
               const on = size === card.spec.size;

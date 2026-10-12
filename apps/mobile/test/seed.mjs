@@ -43,10 +43,12 @@ async function api(method, path, body) {
   return res.status === 204 ? undefined : res.json();
 }
 
+// A second run against the local server (which keeps its data) adds nothing twice.
+const seeded = (await api("GET", "/api/views")).some((v) => v.name === "Today");
 const reminders = await api("POST", "/api/lists/start", { kind: "reminders" });
 const done = reminders.fields.find((f) => f.type === "boolean");
 const title = reminders.fields.find((f) => f.id === reminders.title_field_id);
-for (const t of ["Call the venue", "Restring the Strat", "Send the set list to Dev"])
+for (const t of seeded ? [] : ["Call the venue", "Restring the Strat", "Send the set list to Dev"])
   await api("POST", `/api/collections/${reminders.id}/records`, {
     values: { [title.id]: t, ...(done ? { [done.id]: false } : {}) },
   });
@@ -54,27 +56,104 @@ for (const t of ["Call the venue", "Restring the Strat", "Send the set list to D
 const expenses = await api("POST", "/api/lists/start", { kind: "expenses" });
 const what = expenses.fields.find((f) => f.id === expenses.title_field_id);
 const amount = expenses.fields.find((f) => f.type === "money");
-for (const [t, n] of [
-  ["Amp repair", 6000],
-  ["Uber to rehearsal", 340],
-  ["Strings, 3 sets", 1350],
-])
+for (const [t, n] of seeded
+  ? []
+  : [
+      ["Amp repair", 6000],
+      ["Uber to rehearsal", 340],
+      ["Strings, 3 sets", 1350],
+    ])
   await api("POST", `/api/collections/${expenses.id}/records`, { values: { [what.id]: t, [amount.id]: n } });
 
-await api("POST", "/api/views", {
-  name: "Today",
-  collection: reminders.id,
-  pinned: true,
-  filters: [],
-  mode: "list",
+if (!seeded) {
+  await api("POST", "/api/views", {
+    name: "Today",
+    collection: reminders.id,
+    pinned: true,
+    filters: [],
+    mode: "list",
+  });
+  await api("POST", "/api/views", {
+    name: "Spent this month",
+    collection: expenses.id,
+    pinned: true,
+    filters: [],
+    mode: "list",
+  });
+}
+
+// A process waiting on someone (home-first.md §2 point 9): Rahul, who joined a shared note,
+// is asked about a booking; the home's Now page shows it as a process card.
+const rahulUp = await fetch(`${BASE}/auth/sign-up/email`, {
+  method: "POST",
+  headers: { ...origin, "content-type": "application/json" },
+  body: JSON.stringify({ name: "Rahul Test", email: "rahul@example.com", password: PASSWORD }),
 });
-await api("POST", "/api/views", {
-  name: "Spent this month",
-  collection: expenses.id,
-  pinned: true,
-  filters: [],
-  mode: "list",
+const rahulIn = rahulUp.ok
+  ? rahulUp
+  : await fetch(`${BASE}/auth/sign-in/email`, {
+      method: "POST",
+      headers: { ...origin, "content-type": "application/json" },
+      body: JSON.stringify({ email: "rahul@example.com", password: PASSWORD }),
+    });
+const rahulCookie = rahulIn.headers
+  .getSetCookie()
+  .map((c) => c.split(";")[0])
+  .find((c) => c.includes("session_token"));
+// By account id, not name: the local server may know an older "Rahul Test" from another run.
+const rahulId = (
+  await (await fetch(`${BASE}/api/me`, { headers: { ...origin, cookie: rahulCookie } })).json()
+).user.id;
+const notes = await api("POST", "/api/lists/start", { kind: "notes" });
+const noteTitle = notes.fields.find((f) => f.id === notes.title_field_id);
+const note = await api("POST", `/api/collections/${notes.id}/records`, {
+  values: { [noteTitle.id]: "Band notes" },
 });
+const { link } = await api("POST", "/api/shares", { record_id: note.id, access: "view" });
+await fetch(`${BASE}/api/cards/join`, {
+  method: "POST",
+  headers: {
+    ...origin,
+    cookie: rahulCookie,
+    "content-type": "application/json",
+    "idempotency-key": crypto.randomUUID(),
+  },
+  body: JSON.stringify({ token: link.slice(link.indexOf("#") + 1) }),
+});
+// A second run (the local server keeps its data) reuses the list and the workflow.
+const bookings =
+  (await api("GET", "/api/collections")).find((c) => c.name === "Bookings") ??
+  (await api("POST", "/api/collections", {
+    name: "Bookings",
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Date", type: "date" },
+      { name: "Reply", type: "text" },
+    ],
+  }));
+if (!(await api("GET", "/api/workflows")).some((w) => w.name === "Confirm with Rahul"))
+  await api("POST", "/api/workflows", {
+    name: "Confirm with Rahul",
+    when: { event: "added", collection: bookings.id },
+    then: [
+      {
+        do: "ask",
+        who: [rahulId],
+        text: "Can you play {Title} on {Date}?",
+        choices: ["Yes", "No"],
+        save_to: "Reply",
+        nudge_minutes: 1440,
+      },
+      { do: "notify", text: "Rahul said {Reply} to {Title}", to: ["me"] },
+    ],
+    enabled: true,
+  });
+const bTitle = bookings.fields.find((f) => f.name === "Title");
+const bDate = bookings.fields.find((f) => f.name === "Date");
+if (!(await api("GET", "/api/waiting")).length)
+  await api("POST", `/api/collections/${bookings.id}/records`, {
+    values: { [bTitle.id]: "Test wedding", [bDate.id]: "2026-12-12" },
+  });
 
 console.log(`cookie=${cookie}`);
 console.log(`email=${EMAIL}`);

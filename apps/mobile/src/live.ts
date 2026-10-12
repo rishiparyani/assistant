@@ -67,7 +67,7 @@ export async function loadLive(
 
 /** A number card adds up every matching record, not just the first page. */
 async function withWholeTotal(card: HomeCard, query: object, more: boolean): Promise<LiveData> {
-  if (card.spec.arrangement !== "number" || !more) return { kind: "card", card, more };
+  if (card.spec.arrangement !== "number" || !more || !card.collection) return { kind: "card", card, more };
   const all = await findAll(card.collection.id, query, null);
   return { kind: "card", card: cardFor(card.collection, all, card.view, card.spec.title), more: false };
 }

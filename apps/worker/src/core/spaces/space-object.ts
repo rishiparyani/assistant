@@ -45,6 +45,7 @@ import {
   ruleWords,
   type WorkflowDetail,
   type WorkflowEvent,
+  type WaitingItem,
   type WorkflowRun,
   type WorkflowView,
   workflowWords,
@@ -365,6 +366,29 @@ const MIGRATIONS: Migrations = [
   // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
   `alter table _audit add column change_id text;
    create index _audit_change_idx on _audit (change_id);`,
+  // Processes (home-first.md §2 point 9): a run paused at an "ask" step, waiting on people.
+  `
+  create table workflow_waits (
+    id text primary key,
+    workflow_id text not null,
+    record_id text not null,
+    step integer not null,
+    question_id text not null,
+    asked_at text not null,
+    nudge_minutes integer,
+    next_nudge_at text,
+    nudges integer not null default 0,
+    loops integer not null default 0,
+    depth integer not null default 0,
+    until text not null default 'all'
+  );
+  create index workflow_waits_nudge_idx on workflow_waits (next_nudge_at);
+  create index workflow_waits_question_idx on workflow_waits (question_id);
+  create index workflow_waits_workflow_idx on workflow_waits (workflow_id, record_id);
+  alter table workflow_jobs add column wait_id text;
+  `,
+  // Each "repeat" step counts its own loops (a JSON map by step), not one shared count.
+  `alter table workflow_waits add column loops_json text;`,
 ];
 
 type ViewQuery = {
@@ -467,6 +491,18 @@ type WorkflowDef = {
       }
     | { do: "set"; field_id: string; value: unknown; via?: LinkPath; where?: Filter[] }
     | { do: "add"; collection_id: string; values: Record<string, unknown> }
+    | {
+        do: "ask";
+        text: string;
+        choices: string[] | null;
+        to: Person[];
+        to_fields?: string[];
+        to_linked?: (LinkPath & { person_field_id: string })[];
+        save_to: string | null;
+        nudge_minutes: number | null;
+        until: "all" | "first";
+      }
+    | { do: "repeat"; if: Filter[]; from: number; at_most: number }
   )[];
 };
 type WorkflowRow = {
@@ -489,7 +525,26 @@ type WorkflowJobRow = {
   kind: "event" | "date";
   due_at: string;
   depth: number;
+  /** A run going on after an "ask" step: the wait it comes from. */
+  wait_id: string | null;
 };
+type WaitRow = {
+  id: string;
+  workflow_id: string;
+  record_id: string;
+  step: number;
+  question_id: string;
+  asked_at: string;
+  nudge_minutes: number | null;
+  next_nudge_at: string | null;
+  nudges: number;
+  loops: number;
+  /** How many times each "repeat" step (by index) went back so far, as JSON. */
+  loops_json: string | null;
+  depth: number;
+  until: "all" | "first";
+};
+type Loops = Record<string, number>;
 /** A workflow as asked for: names (resolved here) and the people to tell (resolved before). */
 export type WorkflowSpec = {
   name: string;
@@ -500,12 +555,27 @@ export type WorkflowSpec = {
     | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
     | { do: "set"; field: string; value: unknown; via?: string; where?: Filter[] }
     | { do: "add"; collection: string; values: Record<string, unknown> }
+    | {
+        do: "ask";
+        text: string;
+        choices?: string[];
+        to: Person[];
+        to_fields?: string[];
+        save_to?: string;
+        nudge_minutes?: number;
+        until: "all" | "first";
+      }
+    | { do: "repeat"; if: Filter[]; from: number; at_most: number }
   )[];
   enabled: boolean;
 };
 /** At most this many workflows per space, and this many workflow steps in a chain. */
 const MAX_WORKFLOWS = 100;
 const MAX_WORKFLOW_DEPTH = 3;
+/** A process nudges the people it waits on at most this often. */
+const MAX_NUDGES = 10;
+/** Someone to tell after a run; a question's share also goes in their "shared with me". */
+type Tell = { userId: string; n: NewNotification & { share_id?: string } };
 /** A workflow sets a field on at most this many linked records at once. */
 const MAX_LINKED_SETS = 100;
 const DAY_TIME_IST = "09:00:00+05:30";
@@ -618,7 +688,8 @@ export class SpaceObject extends DurableObject<Env> {
     const row = this.sql
       .exec<{ at: string | null }>(
         `select min(at) as at from (select min(due_at) as at from workflow_jobs
-         union all select min(next_at) as at from workflow_notes)`,
+         union all select min(next_at) as at from workflow_notes
+         union all select min(next_nudge_at) as at from workflow_waits where next_nudge_at != 'resumed')`,
       )
       .toArray()[0];
     return row?.at ? Date.parse(row.at) : null;
@@ -3342,7 +3413,15 @@ export class SpaceObject extends DurableObject<Env> {
         ok: !!r.ok,
         detail: r.detail,
       }));
-    return { workflow: this.workflowView(w), history };
+    const waiting = this.sql
+      .exec<WaitRow>(
+        `select * from workflow_waits where workflow_id = ? and (next_nudge_at is null or next_nudge_at != 'resumed') order by asked_at desc`,
+        w.id,
+      )
+      .toArray()
+      .map((x) => this.waitingItem(x, actor))
+      .filter((x): x is WaitingItem => !!x);
+    return { workflow: this.workflowView(w), history, waiting };
   }
 
   async createWorkflow(actor: Actor, key: string | null, spec: WorkflowSpec): Promise<WorkflowView> {
@@ -3395,6 +3474,7 @@ export class SpaceObject extends DurableObject<Env> {
         w.id,
       );
       this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, w.id);
+      this.dropWaits(w.id, ts);
       if (enabled) this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
       audit(this.sql, actor, {
         action: enabled ? "enable_workflow" : "disable_workflow",
@@ -3410,9 +3490,23 @@ export class SpaceObject extends DurableObject<Env> {
       const w = this.requireWorkflow(id);
       this.sql.exec(`update workflows set deleted_at = ?, enabled = 0 where id = ?`, ts, w.id);
       this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, w.id);
+      this.dropWaits(w.id, ts);
       audit(this.sql, actor, { action: "delete_workflow", entityType: "workflow", entityId: w.id });
       return { deleted: w.id };
     });
+  }
+
+  /** A workflow turned off or deleted stops waiting: its open questions close. */
+  private dropWaits(workflowId: string, ts: string) {
+    for (const wait of this.sql
+      .exec<WaitRow>(`select * from workflow_waits where workflow_id = ?`, workflowId)
+      .toArray())
+      this.sql.exec(
+        `update questions set closed_at = ? where id = ? and closed_at is null`,
+        ts,
+        wait.question_id,
+      );
+    this.sql.exec(`delete from workflow_waits where workflow_id = ?`, workflowId);
   }
 
   private requireWorkflow(id: string): WorkflowRow {
@@ -3456,41 +3550,94 @@ export class SpaceObject extends DurableObject<Env> {
       if (f.type === "link")
         throw new ObjectError("validation_failed", `Workflows can't set links yet (${f.name})`);
     };
-    const then = spec.then.map((a): WorkflowDef["then"][number] => {
-      if (a.do === "notify") {
-        // {Who}: the person named in that field of the record (someone in the space or its shares).
-        const person = (f: FieldRow) => {
-          if (f.type !== "person" || toField(f).options.personal)
-            throw new ObjectError("validation_failed", `${f.name} isn't a person field`);
-          return f.id;
-        };
-        const to_fields: string[] = [];
-        const to_linked: NonNullable<Extract<WorkflowDef["then"][number], { do: "notify" }>["to_linked"]> =
-          [];
-        for (const ref of a.to_fields ?? []) {
-          const own = fields.find((f) => f.id === ref || f.name_key === nameKey(ref));
-          const dot = ref.indexOf(".");
-          if (own || dot < 0) {
-            to_fields.push(person(this.matchField(fields, ref)));
-            continue;
-          }
-          // {Lineup.Player}: the people in a person field of the records linked through Lineup.
-          const path = this.linkPath(c.id, ref.slice(0, dot));
-          const target = this.fieldRows(path.target);
-          to_linked.push({
-            field_id: path.field_id,
-            dir: path.dir,
-            person_field_id: person(this.matchField(target, ref.slice(dot + 1))),
-          });
+    // {Who}: the person named in that field of the record (someone in the space or its shares);
+    // {Lineup.Player}: the people in a person field of the records linked through Lineup.
+    const peopleIn = (refs: string[], fixed: Person[], verb: string) => {
+      const person = (f: FieldRow) => {
+        if (f.type !== "person" || toField(f).options.personal)
+          throw new ObjectError("validation_failed", `${f.name} isn't a person field`);
+        return f.id;
+      };
+      const to_fields: string[] = [];
+      const to_linked: (LinkPath & { person_field_id: string })[] = [];
+      for (const ref of refs) {
+        const own = fields.find((f) => f.id === ref || f.name_key === nameKey(ref));
+        const dot = ref.indexOf(".");
+        if (own || dot < 0) {
+          to_fields.push(person(this.matchField(fields, ref)));
+          continue;
         }
-        if (!a.to.length && !to_fields.length && !to_linked.length)
-          throw new ObjectError("validation_failed", "Say who to tell");
+        const path = this.linkPath(c.id, ref.slice(0, dot));
+        const target = this.fieldRows(path.target);
+        to_linked.push({
+          field_id: path.field_id,
+          dir: path.dir,
+          person_field_id: person(this.matchField(target, ref.slice(dot + 1))),
+        });
+      }
+      if (!fixed.length && !to_fields.length && !to_linked.length)
+        throw new ObjectError("validation_failed", `Say who to ${verb}`);
+      return {
+        ...(to_fields.length ? { to_fields } : {}),
+        ...(to_linked.length ? { to_linked } : {}),
+      };
+    };
+    const then = spec.then.map((a, i): WorkflowDef["then"][number] => {
+      if (a.do === "notify")
+        return { do: "notify", text: a.text, to: a.to, ...peopleIn(a.to_fields ?? [], a.to, "tell") };
+      if (a.do === "ask") {
+        const who = peopleIn(a.to_fields ?? [], a.to, "ask");
+        const choices = a.choices ? [...new Map(a.choices.map((x) => [nameKey(x), x])).values()] : null;
+        if (choices && choices.length < 2)
+          throw new ObjectError("validation_failed", "Give at least two different choices");
+        let save_to: string | null = null;
+        if (a.save_to) {
+          const f = this.matchField(fields, a.save_to);
+          if (toField(f).options.personal)
+            throw new ObjectError(
+              "validation_failed",
+              `${f.name} is a personal answer; keep the answer in a text or choice field`,
+            );
+          if (f.type === "choice") {
+            const allowed = toField(f).options.choices ?? [];
+            const missing = (choices ?? []).filter((x) => !allowed.some((y) => nameKey(y) === nameKey(x)));
+            if (!choices || missing.length)
+              throw new ObjectError(
+                "validation_failed",
+                `${f.name} is a choice field (${allowed.join(", ")}); the answers to tap must be among its choices`,
+              );
+            // Several people's answers don't fit one choice: keep the first, or use a text field.
+            if (a.until !== "first" && (a.to.length > 1 || who.to_fields || who.to_linked))
+              throw new ObjectError(
+                "validation_failed",
+                `${f.name} keeps one answer: ask one person, wait for the first answer ("until": "first"), or keep the answers in a text field`,
+              );
+          } else if (f.type !== "text")
+            throw new ObjectError("validation_failed", `${f.name} isn't a text or choice field`);
+          save_to = f.id;
+        }
         return {
-          do: "notify",
+          do: "ask",
           text: a.text,
+          choices,
           to: a.to,
-          ...(to_fields.length ? { to_fields } : {}),
-          ...(to_linked.length ? { to_linked } : {}),
+          ...who,
+          save_to,
+          nudge_minutes: a.nudge_minutes ?? null,
+          until: a.until,
+        };
+      }
+      if (a.do === "repeat") {
+        if (a.from > i)
+          throw new ObjectError(
+            "validation_failed",
+            `Step ${i + 1} can only go back to a step before it (1 to ${i})`,
+          );
+        return {
+          do: "repeat",
+          if: this.checkViewQuery(c, { filters: a.if }).filters,
+          from: a.from,
+          at_most: a.at_most,
         };
       }
       if (a.do === "set") {
@@ -3608,12 +3755,43 @@ export class SpaceObject extends DurableObject<Env> {
                     }
                   : {}),
               }
-            : {
-                do: "add",
-                collection_id: a.collection_id,
-                collection: colName(a.collection_id),
-                values: Object.fromEntries(Object.entries(a.values).map(([k, v]) => [fieldName(k), v])),
-              },
+            : a.do === "add"
+              ? {
+                  do: "add",
+                  collection_id: a.collection_id,
+                  collection: colName(a.collection_id),
+                  values: Object.fromEntries(Object.entries(a.values).map(([k, v]) => [fieldName(k), v])),
+                }
+              : a.do === "ask"
+                ? {
+                    do: "ask",
+                    text: a.text,
+                    choices: a.choices,
+                    who: [
+                      ...a.to,
+                      ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
+                      ...(a.to_linked ?? []).map((l) => ({
+                        user_id: "",
+                        name: `{${this.linkPathName(l)}.${fieldName(l.person_field_id)}}`,
+                      })),
+                    ],
+                    save_to_id: a.save_to,
+                    save_to: a.save_to ? fieldName(a.save_to) : null,
+                    nudge_minutes: a.nudge_minutes,
+                    until: a.until,
+                  }
+                : {
+                    do: "repeat",
+                    if: a.if.map((f) => ({
+                      field_id: f.field,
+                      field: fieldName(f.field),
+                      op: f.op,
+                      value: f.value ?? null,
+                      ...this.shownValue(f),
+                    })),
+                    from: a.from,
+                    at_most: a.at_most,
+                  },
       ),
     };
     return {
@@ -3771,6 +3949,16 @@ export class SpaceObject extends DurableObject<Env> {
         this.wfDepth = 0;
       }
     }
+    this.ctx.storage.transactionSync(() => {
+      for (const t of this.runNudges())
+        this.sql.exec(
+          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          ulid(),
+          t.userId,
+          JSON.stringify(t.n),
+          nowIso(),
+        );
+    });
     await this.sendNotes();
   }
 
@@ -3785,11 +3973,18 @@ export class SpaceObject extends DurableObject<Env> {
         nowIso(),
       )
       .toArray();
+    const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
     for (const n of notes) {
       try {
-        await this.env.INBOX.getByName(inboxName(n.user_id)).notify(
-          JSON.parse(n.note_json) as NewNotification,
-        );
+        const { share_id, ...note } = JSON.parse(n.note_json) as NewNotification & { share_id?: string };
+        // A question from a process: the person finds it under "Shared with you" too.
+        if (share_id)
+          await this.env.DB.prepare(
+            `insert or ignore into shared_with (user_id, share_id, space_id) values (?, ?, ?)`,
+          )
+            .bind(n.user_id, share_id, spaceId)
+            .run();
+        await this.env.INBOX.getByName(inboxName(n.user_id)).notify(note);
         this.sql.exec(`delete from workflow_notes where id = ?`, n.id);
       } catch (e) {
         console.warn("workflow notification failed", e instanceof Error ? e.message : String(e));
@@ -3805,7 +4000,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** One job, inside a transaction: check, then every step; who to tell afterwards. */
-  private runJob(j: WorkflowJobRow): { userId: string; n: NewNotification }[] {
+  private runJob(j: WorkflowJobRow): Tell[] {
     this.sql.exec(`delete from workflow_jobs where id = ?`, j.id);
     const w = this.sql
       .exec<WorkflowRow>(
@@ -3814,12 +4009,38 @@ export class SpaceObject extends DurableObject<Env> {
       )
       .toArray()[0];
     if (!w) return [];
+    const def = JSON.parse(w.def_json) as WorkflowDef;
+    // A run going on after an "ask" step: the answer is in, the check already passed.
+    if (j.wait_id) {
+      const wait = this.sql
+        .exec<WaitRow>(`select * from workflow_waits where id = ?`, j.wait_id)
+        .toArray()[0];
+      if (!wait) return [];
+      this.sql.exec(`delete from workflow_waits where id = ?`, wait.id);
+      this.sql.exec(
+        `update questions set closed_at = ? where id = ? and closed_at is null`,
+        nowIso(),
+        wait.question_id,
+      );
+      const r = this.liveRecord(wait.record_id);
+      if (!r) {
+        this.noteRun(w.id, wait.record_id, true, false, "Skipped: the record was deleted");
+        return [];
+      }
+      this.wfDepth = j.depth + 1;
+      return this.runSteps(
+        w,
+        def,
+        r,
+        wait.step + 1,
+        wait.loops_json ? (JSON.parse(wait.loops_json) as Loops) : {},
+      );
+    }
     const r = this.liveRecord(j.record_id);
     if (!r) {
       this.noteRun(w.id, j.record_id, true, false, "Skipped: the record was deleted");
       return [];
     }
-    const def = JSON.parse(w.def_json) as WorkflowDef;
     const actor: Actor = { userId: w.created_by, source: "system" };
     const c = this.requireCollection(w.collection_id);
     if (
@@ -3829,31 +4050,48 @@ export class SpaceObject extends DurableObject<Env> {
       this.noteRun(w.id, r.id, true, false, "Skipped: it didn't match the check");
       return [];
     }
-    const ts = nowIso();
     this.wfDepth = j.depth + 1;
-    const tell: { userId: string; n: NewNotification }[] = [];
+    return this.runSteps(w, def, r, 0, {});
+  }
+
+  /** The people a step names: fixed ones, the record's person fields, linked records' people. */
+  private peopleOf(
+    a: { to: Person[]; to_fields?: string[]; to_linked?: (LinkPath & { person_field_id: string })[] },
+    r: RecordRow,
+  ): Person[] {
+    const current = this.requireRecord(r.id);
+    const named = (a.to_fields ?? []).flatMap((fid) => {
+      const v = (JSON.parse(current.values_json) as Record<string, StoredValue>)[fid];
+      const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
+      return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
+    });
+    const linked = (a.to_linked ?? []).flatMap((l) =>
+      this.linkedIds(l.field_id, l.dir, r.id).flatMap((id) => {
+        const v = this.currentValues(id)[l.person_field_id];
+        const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
+        return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
+      }),
+    );
+    return [...a.to, ...named, ...linked].filter(
+      (p, i, all) => !p.user_id || all.findIndex((q) => q.user_id === p.user_id) === i,
+    );
+  }
+
+  /**
+   * The steps from `from` on, in one transaction. An "ask" step stops here: the question goes
+   * to the people, a wait is kept, and the run goes on (from the next step) once they answer.
+   */
+  private runSteps(w: WorkflowRow, def: WorkflowDef, r: RecordRow, from: number, loops: Loops): Tell[] {
+    const actor: Actor = { userId: w.created_by, source: "system" };
+    const ts = nowIso();
+    const tell: Tell[] = [];
     const did: string[] = [];
-    for (const a of def.then) {
+    for (let i = from; i < def.then.length; i++) {
+      const a = def.then[i]!;
       if (a.do === "notify") {
         const current = this.requireRecord(r.id);
         const body = this.fillTemplate(a.text, current);
-        // The people named in the record's person fields, if the space knows them.
-        const named = (a.to_fields ?? []).flatMap((fid) => {
-          const v = (JSON.parse(current.values_json) as Record<string, StoredValue>)[fid];
-          const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
-          return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
-        });
-        // The people in a person field of linked records (everyone in the Lineup), once each.
-        const linked = (a.to_linked ?? []).flatMap((l) =>
-          this.linkedIds(l.field_id, l.dir, r.id).flatMap((id) => {
-            const v = this.currentValues(id)[l.person_field_id];
-            const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
-            return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
-          }),
-        );
-        const people = [...a.to, ...named, ...linked].filter(
-          (p, i, all) => !p.user_id || all.findIndex((q) => q.user_id === p.user_id) === i,
-        );
+        const people = this.peopleOf(a, r);
         for (const p of people)
           if (p.user_id)
             tell.push({
@@ -3864,6 +4102,87 @@ export class SpaceObject extends DurableObject<Env> {
           people.length
             ? `Told ${people.map((p) => p.name).join(", ")}: “${body}”`
             : "Nobody to tell: the record names nobody in the space",
+        );
+      } else if (a.do === "ask") {
+        const people = this.peopleOf(a, r).filter((p) => p.user_id);
+        const text = this.fillTemplate(a.text, this.requireRecord(r.id));
+        if (!people.length) {
+          did.push("Nobody to ask: the record names nobody in the space");
+          continue;
+        }
+        const questionId = ulid();
+        const shareId = ulid();
+        // No link: the people asked are known by account, so nobody can join by a token.
+        this.sql.exec(
+          `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at)
+           values (?, ?, 'question', ?, 0, ?, 'edit', '[]', '[]', null, ?, ?)`,
+          shareId,
+          questionId,
+          questionId,
+          `wf:${ulid()}`,
+          w.created_by,
+          ts,
+        );
+        this.sql.exec(
+          `insert into questions (id, text, choices_json, share_id, created_by, created_at) values (?, ?, ?, ?, ?, ?)`,
+          questionId,
+          text,
+          a.choices ? JSON.stringify(a.choices) : null,
+          shareId,
+          w.created_by,
+          ts,
+        );
+        for (const p of people)
+          this.sql.exec(
+            `insert or ignore into share_people (share_id, user_id, name, joined_at) values (?, ?, ?, ?)`,
+            shareId,
+            p.user_id,
+            p.name,
+            ts,
+          );
+        const nudgeAt = a.nudge_minutes
+          ? new Date(Date.now() + a.nudge_minutes * 60_000).toISOString()
+          : null;
+        this.sql.exec(
+          `insert into workflow_waits (id, workflow_id, record_id, step, question_id, asked_at, nudge_minutes, next_nudge_at, nudges, loops, loops_json, depth, until)
+           values (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+          ulid(),
+          w.id,
+          r.id,
+          i,
+          questionId,
+          ts,
+          a.nudge_minutes,
+          nudgeAt,
+          JSON.stringify(loops),
+          this.wfDepth,
+          a.until,
+        );
+        for (const p of people)
+          tell.push({
+            userId: p.user_id,
+            n: { kind: "question", title: w.name, body: text, url: `/cards/${shareId}`, share_id: shareId },
+          });
+        did.push(`Asked ${people.map((p) => p.name).join(", ")}: “${text}”`);
+        // Waiting: the run goes on from the next step once they answer.
+        this.noteRun(w.id, r.id, true, from === 0, did.join(" · "));
+        this.changed();
+        return tell;
+      } else if (a.do === "repeat") {
+        const c = this.requireCollection(r.collection_id);
+        // Each repeat step counts its own goings-back.
+        const done = loops[String(i)] ?? 0;
+        const back =
+          done < a.at_most &&
+          this.findRows(actor, c, { filters: a.if, ids: [r.id], limit: 1 }).rows.length > 0;
+        if (back) {
+          loops[String(i)] = done + 1;
+          did.push(`Went back to step ${a.from} (${done + 1} of ${a.at_most})`);
+          i = a.from - 2; // the loop's i++ lands on step `from` (1-based)
+          continue;
+        }
+        did.push(
+          done >= a.at_most ? `Stopped going back after ${a.at_most}` : "Went on (no need to go back)",
         );
       } else if (a.do === "set" && a.via) {
         const field = this.liveField(a.field_id);
@@ -3896,9 +4215,219 @@ export class SpaceObject extends DurableObject<Env> {
         did.push(`Added “${added.title}” to ${t.name}`);
       }
     }
-    this.noteRun(w.id, r.id, true, true, did.join(" · "));
+    this.noteRun(w.id, r.id, true, from === 0, did.length ? did.join(" · ") : "Done");
     this.changed();
     return tell;
+  }
+
+  // --- Processes: waiting on people (home-first.md §2 point 9) --------------------------
+
+  /** Called when someone answers: a wait on that question may go on. */
+  private continueWaits(q: QuestionRow, who: Actor) {
+    const waits = this.sql
+      .exec<WaitRow>(
+        `select * from workflow_waits where question_id = ? and (next_nudge_at is null or next_nudge_at != 'resumed')`,
+        q.id,
+      )
+      .toArray();
+    for (const wait of waits) {
+      const people = this.askedPeople(q);
+      const open = people.filter((p) => p.answer === null);
+      const name = people.find((p) => p.user_id === who.userId)?.name ?? "Someone";
+      const answer = people.find((p) => p.user_id === who.userId)?.answer ?? "";
+      if (wait.until === "all" && open.length) {
+        this.noteRun(
+          wait.workflow_id,
+          wait.record_id,
+          true,
+          false,
+          `${name} answered “${answer}” · waiting on ${open.map((p) => p.name).join(", ")}`,
+        );
+        continue;
+      }
+      const w = this.sql
+        .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, wait.workflow_id)
+        .toArray()[0];
+      const def = w ? (JSON.parse(w.def_json) as WorkflowDef) : null;
+      const step = def?.then[wait.step];
+      const r = this.liveRecord(wait.record_id);
+      if (w && step?.do === "ask" && step.save_to && r) {
+        // One person (or the first answer): their answer; everyone: "Rahul: Yes · Priya: No".
+        const answered = people.filter((p) => p.answer !== null);
+        const kept =
+          wait.until === "first" || answered.length === 1
+            ? (answered.find((p) => p.user_id === who.userId) ?? answered[0])!.answer
+            : answered.map((p) => `${p.name}: ${p.answer}`).join(" · ");
+        // As deep in the chain as the run that asked: a workflow this change starts counts on.
+        this.wfDepth = wait.depth + 1;
+        try {
+          this.changeRecord({ userId: w.created_by, source: "system" }, nowIso(), r, {
+            values: { [step.save_to]: kept },
+          });
+        } finally {
+          this.wfDepth = 0;
+        }
+      }
+      this.noteRun(
+        wait.workflow_id,
+        wait.record_id,
+        true,
+        false,
+        wait.until === "all" && people.length > 1
+          ? `${name} answered “${answer}” · everyone has answered`
+          : `${name} answered “${answer}”`,
+      );
+      // The rest of the steps run from the alarm, like any job (a set or add there may start
+      // other workflows, at most MAX_WORKFLOW_DEPTH deep). The question closes now, so a
+      // second answer in the meantime can't change what was kept or start the run twice.
+      this.sql.exec(`update questions set closed_at = ? where id = ? and closed_at is null`, nowIso(), q.id);
+      this.sql.exec(`update workflow_waits set next_nudge_at = 'resumed' where id = ?`, wait.id);
+      this.sql.exec(
+        `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth, wait_id) values (?, ?, ?, 'event', ?, ?, ?)`,
+        ulid(),
+        wait.workflow_id,
+        wait.record_id,
+        nowIso(),
+        wait.depth,
+        wait.id,
+      );
+    }
+    if (waits.length) void this.wakeForJobs();
+  }
+
+  /** Everyone a question was put to, with their answer so far. */
+  private askedPeople(q: QuestionRow): { user_id: string; name: string; answer: string | null }[] {
+    return this.sql
+      .exec<{ user_id: string; name: string; answer: string | null }>(
+        `select p.user_id, p.name, a.answer from share_people p
+         left join question_answers a on a.question_id = ? and a.user_id = p.user_id
+         where p.share_id = ? order by p.name`,
+        q.id,
+        q.share_id,
+      )
+      .toArray();
+  }
+
+  /** Asks again the people who haven't answered, for the waits whose nudge time has come. */
+  private runNudges(): Tell[] {
+    const now = nowIso();
+    const tell: Tell[] = [];
+    const due = this.sql
+      .exec<WaitRow>(
+        `select * from workflow_waits where next_nudge_at is not null and next_nudge_at != 'resumed' and next_nudge_at <= ? limit 50`,
+        now,
+      )
+      .toArray();
+    for (const wait of due) {
+      tell.push(...this.nudge(wait, now));
+    }
+    return tell;
+  }
+
+  /** One nudge: the people still to answer hear the question again. */
+  private nudge(wait: WaitRow, now: string): Tell[] {
+    const q = this.liveQuestion(wait.question_id);
+    const w = this.sql
+      .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, wait.workflow_id)
+      .toArray()[0];
+    if (!q || !w) {
+      this.sql.exec(`delete from workflow_waits where id = ?`, wait.id);
+      return [];
+    }
+    const open = this.askedPeople(q).filter((p) => p.answer === null);
+    const nudges = wait.nudges + 1;
+    const next =
+      wait.nudge_minutes && nudges < MAX_NUDGES
+        ? new Date(Date.parse(now) + wait.nudge_minutes * 60_000).toISOString()
+        : null;
+    this.sql.exec(
+      `update workflow_waits set nudges = ?, next_nudge_at = ? where id = ?`,
+      nudges,
+      next,
+      wait.id,
+    );
+    this.noteRun(
+      w.id,
+      wait.record_id,
+      true,
+      false,
+      open.length ? `Nudged ${open.map((p) => p.name).join(", ")}` : "Nudged nobody: everyone has answered",
+    );
+    return open.map((p) => ({
+      userId: p.user_id,
+      n: {
+        kind: "question",
+        title: `Still waiting: ${w.name}`,
+        body: q.text,
+        url: `/cards/${q.share_id}`,
+        share_id: q.share_id,
+      },
+    }));
+  }
+
+  /** The person's view of a wait: who it waits on, and their own way to answer. */
+  private waitingItem(wait: WaitRow, actor: Actor): WaitingItem | null {
+    const q = this.liveQuestion(wait.question_id);
+    const w = this.sql
+      .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, wait.workflow_id)
+      .toArray()[0];
+    if (!q || !w) return null;
+    const on = this.askedPeople(q);
+    const me = on.find((p) => p.user_id === actor.userId);
+    return {
+      id: wait.id,
+      workflow_id: w.id,
+      workflow: w.name,
+      record_id: wait.record_id,
+      record: this.liveRecord(wait.record_id)?.title ?? "(deleted)",
+      text: q.text,
+      choices: q.choices_json ? (JSON.parse(q.choices_json) as string[]) : null,
+      on,
+      asked_at: wait.asked_at,
+      nudges: wait.nudges,
+      next_nudge_at: wait.next_nudge_at === "resumed" ? null : wait.next_nudge_at,
+      share_id: me ? q.share_id : null,
+      mine: me?.answer ?? null,
+    };
+  }
+
+  /** What's waiting on people: everything for a member, their own asks for anyone else. */
+  async listWaiting(actor: Actor): Promise<WaitingItem[]> {
+    if (!actor.userId) return [];
+    const member =
+      this.sql.exec(`select 1 from members where user_id = ?`, actor.userId).toArray().length > 0;
+    const rows = this.sql
+      .exec<WaitRow>(
+        `select * from workflow_waits where next_nudge_at is null or next_nudge_at != 'resumed' order by asked_at desc limit 200`,
+      )
+      .toArray();
+    return rows
+      .map((wait) => this.waitingItem(wait, actor))
+      .filter((x): x is WaitingItem => !!x && (member || x.share_id !== null));
+  }
+
+  /** Nudges the people a wait is on right now (a member's tap on the process card). */
+  async nudgeNow(actor: Actor, key: string | null, waitId: string): Promise<WaitingItem> {
+    return this.write(actor, key, ["nudge", waitId], (ts) => {
+      const wait = this.sql.exec<WaitRow>(`select * from workflow_waits where id = ?`, waitId).toArray()[0];
+      if (!wait) throw new ObjectError("not_found", "Nothing is waiting here any more");
+      for (const t of this.nudge(wait, ts))
+        this.sql.exec(
+          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          ulid(),
+          t.userId,
+          JSON.stringify(t.n),
+          ts,
+        );
+      audit(this.sql, actor, { action: "nudge", entityType: "workflow", entityId: wait.workflow_id });
+      void this.wakeForJobs();
+      const item = this.waitingItem(
+        this.sql.exec<WaitRow>(`select * from workflow_waits where id = ?`, waitId).toArray()[0]!,
+        actor,
+      );
+      if (!item) throw new ObjectError("not_found", "Nothing is waiting here any more");
+      return item;
+    });
   }
 
   private noteRun(
@@ -4163,6 +4692,7 @@ export class SpaceObject extends DurableObject<Env> {
           before: before ?? null,
           after: { answer: value },
         });
+        this.continueWaits(q, actor);
         return this.opened(s, actor);
       },
       () => {

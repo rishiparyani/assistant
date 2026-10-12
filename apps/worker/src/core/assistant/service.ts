@@ -66,6 +66,9 @@ const EVERYDAY = [
   "list_workflows",
   "get_workflow",
   "set_workflow_enabled",
+  // Processes (home-first.md §2 point 9): what's waiting on whom, and a nudge.
+  "whats_waiting",
+  "nudge",
   "list_rules",
 ];
 /** Setup tools, added at level 2 and above. */
@@ -273,12 +276,36 @@ function describe(
               }
             : a.do === "set"
               ? { do: "set" as const, field_id: "", field: String(a.field ?? ""), value: a.value }
-              : {
-                  do: "add" as const,
-                  collection_id: "",
-                  collection: String(a.collection ?? ""),
-                  values: (a.values ?? {}) as Record<string, unknown>,
-                },
+              : a.do === "ask"
+                ? {
+                    do: "ask" as const,
+                    text: String(a.text ?? ""),
+                    choices: Array.isArray(a.choices) ? (a.choices as string[]) : null,
+                    who: (Array.isArray(a.who) ? (a.who as string[]) : []).map((n) => ({
+                      user_id: "",
+                      name: n,
+                    })),
+                    save_to_id: null,
+                    save_to: typeof a.save_to === "string" ? a.save_to : null,
+                    nudge_minutes: typeof a.nudge_minutes === "number" ? a.nudge_minutes : null,
+                    until: a.until === "first" ? ("first" as const) : ("all" as const),
+                  }
+                : a.do === "repeat"
+                  ? {
+                      do: "repeat" as const,
+                      if: (Array.isArray(a.if)
+                        ? (a.if as { field: string; op: FilterOp; value?: unknown }[])
+                        : []
+                      ).map((f) => ({ field_id: "", field: f.field, op: f.op, value: f.value })),
+                      from: Number(a.from ?? 1),
+                      at_most: Number(a.at_most ?? 3),
+                    }
+                  : {
+                      do: "add" as const,
+                      collection_id: "",
+                      collection: String(a.collection ?? ""),
+                      values: (a.values ?? {}) as Record<string, unknown>,
+                    },
         ),
       });
       return { title: `Make a workflow “${String(args.name ?? "")}” (saved off)`, details: words };
