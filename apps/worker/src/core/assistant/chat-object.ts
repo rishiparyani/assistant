@@ -334,6 +334,14 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /** Claims a once-only key (this week's proposals): false when it was claimed before. */
+  async claimOnce(userId: string, key: string): Promise<boolean> {
+    this.own(userId);
+    if (getMeta(this.sql, `claim:${key}`)) return false;
+    setMeta(this.sql, `claim:${key}`, nowIso());
+    return true;
+  }
+
   async addAction(
     userId: string,
     a: { tool: string; args: Record<string, unknown>; title: string; details: string[] },
