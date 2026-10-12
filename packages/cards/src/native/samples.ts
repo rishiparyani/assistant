@@ -3,7 +3,14 @@
 // new part before any list uses it.
 import type { CollectionView, FieldType, RecordView } from "@assistant/shared";
 import { ARRANGEMENT_INFO } from "../catalogue.ts";
-import { ARRANGEMENT_SIZES, ARRANGEMENTS, CARD_VERSION, type Arrangement, type CardSize } from "../spec.ts";
+import {
+  ARRANGEMENT_SIZES,
+  ARRANGEMENTS,
+  CARD_SIZES,
+  CARD_VERSION,
+  type Arrangement,
+  type CardSize,
+} from "../spec.ts";
 import type { HomeCard } from "./model.ts";
 import type { CollectionColour } from "./theme.ts";
 
@@ -124,7 +131,7 @@ export function sampleCard(arrangement: Arrangement, size: CardSize): HomeCard {
 /** Every drawn arrangement at every size it allows: the small ones first (they pair up), then
  *  medium, then large, each in catalogue order. */
 export function sampleCards(): HomeCard[] {
-  return (["s", "m", "l"] as const).flatMap((size) =>
+  return CARD_SIZES.flatMap((size) =>
     GALLERY_ARRANGEMENTS.filter((a) => ARRANGEMENT_SIZES[a].includes(size)).map((a) => sampleCard(a, size)),
   );
 }

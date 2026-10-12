@@ -83,7 +83,7 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
       ? CardSpec.parse({
           title: v.name,
           arrangement: "number",
-          size: "s",
+          size: "xs",
           sources: [{ ...base, sum_field: money.id }],
         })
       : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });

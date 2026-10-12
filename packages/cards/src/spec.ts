@@ -3,7 +3,7 @@
 // this set; the app draws it. `card.v1` is the one shape the server validates, the phone, the
 // website and the widgets draw, so a card that passed validation is drawable everywhere.
 import { z } from "zod";
-import { FilterInput } from "@assistant/shared";
+import { CARD_SIZE_VALUES, FilterInput } from "@assistant/shared";
 
 export const CARD_VERSION = "card.v1" as const;
 
@@ -26,28 +26,30 @@ export const ARRANGEMENTS = [
 ] as const;
 export type Arrangement = (typeof ARRANGEMENTS)[number];
 
-export const CARD_SIZES = ["s", "m", "l"] as const;
+/** xs: half width, half height · s: half width · bar: full width, half height · m: full width ·
+ *  l: full width, double height (on a 2-column phone page). */
+export const CARD_SIZES = CARD_SIZE_VALUES;
 export type CardSize = (typeof CARD_SIZES)[number];
 
 /** Grid cells a size takes on a 2-column phone page (6 rows a page). */
-export const CARD_CELLS: Record<CardSize, number> = { s: 1, m: 2, l: 4 };
+export const CARD_CELLS: Record<CardSize, number> = { xs: 0.5, s: 1, bar: 1, m: 2, l: 4 };
 
 /** Which sizes each arrangement can be drawn at. */
 export const ARRANGEMENT_SIZES: Record<Arrangement, readonly CardSize[]> = {
-  number: ["s", "m"],
+  number: ["xs", "s", "bar", "m"],
   "number-chart": ["s", "m", "l"],
   "two-numbers": ["s", "m"],
   "two-numbers-list": ["m", "l"],
   "list-ticks": ["s", "m", "l"],
   "list-plain": ["s", "m", "l"],
   "list-counter": ["m", "l"],
-  next: ["s", "m", "l"],
-  countdown: ["s", "m"],
+  next: ["s", "bar", "m", "l"],
+  countdown: ["xs", "s", "bar", "m"],
   question: ["m"],
   "quick-add": ["m"],
   process: ["s", "m", "l"],
   memory: ["s", "m"],
-  progress: ["s", "m"],
+  progress: ["xs", "s", "bar", "m"],
 };
 
 /** What a card reads: a collection, optionally filtered and sorted (like a saved view). */

@@ -18,7 +18,7 @@ group("the catalogue", () => {
   });
 
   it("describes one arrangement in full", () => {
-    expect(describe("countdown")).toContain("Sizes: s, m");
+    expect(describe("countdown")).toContain("Sizes: xs, s, bar, m");
     expect(describe("countdown")).toContain("Source: date_field.");
   });
 });

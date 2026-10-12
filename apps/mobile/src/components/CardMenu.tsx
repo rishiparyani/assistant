@@ -6,7 +6,7 @@ import type { CardSize } from "@assistant/cards";
 import { sizesFor, type HomeCard } from "../home.ts";
 import { radius, useTheme } from "../theme.ts";
 
-const SIZE_NAMES: Record<CardSize, string> = { s: "Small", m: "Medium", l: "Tall" };
+const SIZE_NAMES: Record<CardSize, string> = { xs: "Tiny", s: "Small", bar: "Strip", m: "Medium", l: "Tall" };
 
 export interface MenuActions {
   ask: (card: HomeCard, prompt?: string) => void;

@@ -453,6 +453,10 @@ export const VIEW_MODES = ["list", "table"] as const;
 export type ViewMode = (typeof VIEW_MODES)[number];
 
 /** A collection seen a saved way: its filters, search and sort, as a list or a table. */
+/** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
+export const CARD_SIZE_VALUES = ["xs", "s", "bar", "m", "l"] as const;
+export type CardSizeValue = (typeof CARD_SIZE_VALUES)[number];
+
 export interface SavedView {
   id: string;
   name: string;
@@ -468,7 +472,7 @@ export interface SavedView {
   pinned: boolean;
   position: number;
   /** How big its card is on the phone's home (null: the app picks). */
-  card_size: "s" | "m" | "l" | null;
+  card_size: CardSizeValue | null;
   updated_at: string;
 }
 
@@ -482,11 +486,13 @@ const viewQuery = {
 };
 
 /** Only when the person asks for one: a quick add on the view (an add box with these fields). */
-/** The card's size on the home: s half width, m full width, l tall; null lets the app pick. */
+/** The card's size on the home (packages/cards draws them); null lets the app pick. */
 const cardSize = z
-  .enum(["s", "m", "l"])
+  .enum(CARD_SIZE_VALUES)
   .nullish()
-  .describe("Size of its card on the home: s (half width), m (full width), l (tall)");
+  .describe(
+    "Size of its card on the home: xs (half width, half height: one number), s (half width), bar (full width, half height), m (full width), l (tall)",
+  );
 
 const addFields = z
   .array(z.string().trim().min(1).max(80))

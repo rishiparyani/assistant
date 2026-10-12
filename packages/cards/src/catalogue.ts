@@ -113,7 +113,7 @@ export function describe(a: Arrangement): string {
   const i = ARRANGEMENT_INFO[a];
   return [
     `${a}: ${i.shows}.`,
-    `Sizes: ${ARRANGEMENT_SIZES[a].join(", ")} (s is one cell, m two side by side, l a 2×2 block).`,
+    `Sizes: ${ARRANGEMENT_SIZES[a].join(", ")} (xs half a cell, s one cell, bar a short full-width strip, m two cells side by side, l a 2×2 block).`,
     `Source: ${i.needs}.`,
     `Good for: ${i.use}.`,
   ].join("\n");

@@ -61,6 +61,7 @@ import {
   type SharedWithMe,
   type StoredValue,
   type ViewMode,
+  type CardSizeValue,
 } from "@assistant/shared";
 import {
   retryDelayMs,
@@ -404,7 +405,7 @@ type ViewQuery = {
   /** A quick add the person asked for: the fields its add box fills in (ids). */
   add?: string[];
   /** The card's size on the phone's home, when the person set one. */
-  card_size?: "s" | "m" | "l";
+  card_size?: CardSizeValue;
 };
 type ViewInput = {
   filters?: Filter[];
@@ -413,7 +414,7 @@ type ViewInput = {
   mode?: ViewMode;
   add_fields?: string[];
   /** null clears it (the app picks again). */
-  card_size?: "s" | "m" | "l" | null;
+  card_size?: CardSizeValue | null;
 };
 type ViewRow = {
   id: string;

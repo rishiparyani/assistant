@@ -19,12 +19,21 @@ import { radius, useTheme } from "./theme.ts";
 
 export type Rect = { x: number; y: number; w: number; h: number };
 export const CARD_GAP = 10;
-export const cardHeight = (card: HomeCard) => (card.spec.size === "l" ? 322 : 156);
-/** A phone page has 2 columns; a laptop 4 (home-first.md §3 grid). S takes one, M and L two. */
+/** One cell is 156 tall; xs and bar are half of it (two of them stack in a cell's height). */
+const CELL = 156;
+const HALF = (CELL - CARD_GAP) / 2;
+export const cardHeight = (card: HomeCard) =>
+  card.spec.size === "l"
+    ? CELL * 2 + CARD_GAP
+    : card.spec.size === "xs" || card.spec.size === "bar"
+      ? HALF
+      : CELL;
+/** A phone page has 2 columns; a laptop 4 (home-first.md §3 grid). XS and S take one; the rest two. */
 export const columnsFor = (width: number) => (width >= 860 ? 4 : 2);
 export const cardWidth = (card: HomeCard, width: number, cols = columnsFor(width)) => {
   const unit = Math.floor((width - CARD_GAP * (cols - 1)) / cols);
-  return card.spec.size === "s" || cols === 1 ? unit : cols === 2 ? width : unit * 2 + CARD_GAP;
+  const narrow = card.spec.size === "s" || card.spec.size === "xs";
+  return narrow || cols === 1 ? unit : cols === 2 ? width : unit * 2 + CARD_GAP;
 };
 
 const HOLD_MS = 380;
@@ -32,25 +41,44 @@ const MOVE_PX = 6;
 const SPRING = { damping: 18, stiffness: 220, mass: 0.6 };
 const SETTLE = { damping: 20, stiffness: 260, mass: 0.7 };
 
-/** Where each card goes: left to right, a new row when one doesn't fit. */
+/** How many half-cell rows a card takes: xs and bar one, s and m two, l four. */
+const halves = (card: HomeCard) =>
+  card.spec.size === "l" ? 4 : card.spec.size === "xs" || card.spec.size === "bar" ? 1 : 2;
+
+/**
+ * Where each card goes, in order: the first place (top first, then left) where it fits on a
+ * grid of columns × half-cell rows. Two half-height cards stack in one cell, so a tiny card
+ * next to a small one leaves no hole.
+ */
 export function layoutCards(cards: HomeCard[], width: number): { rects: Map<string, Rect>; height: number } {
   const rects = new Map<string, Rect>();
-  let x = 0;
-  let y = 0;
-  let rowH = 0;
+  const cols = columnsFor(width);
+  const unit = Math.floor((width - CARD_GAP * (cols - 1)) / cols);
+  const taken: boolean[][] = [];
+  const free = (r: number, c: number) => !taken[r]?.[c];
+  let bottom = 0;
   for (const card of cards) {
     const w = cardWidth(card, width);
-    const h = cardHeight(card);
-    if (x > 0 && x + w > width) {
-      x = 0;
-      y += rowH + CARD_GAP;
-      rowH = 0;
+    const span = Math.min(cols, Math.round((w + CARD_GAP) / (unit + CARD_GAP)));
+    const rows = halves(card);
+    let placed = false;
+    for (let r = 0; !placed; r++) {
+      for (let c = 0; c + span <= cols && !placed; c++) {
+        let fits = true;
+        for (let dr = 0; dr < rows && fits; dr++)
+          for (let dc = 0; dc < span && fits; dc++) fits = free(r + dr, c + dc);
+        if (!fits) continue;
+        for (let dr = 0; dr < rows; dr++)
+          for (let dc = 0; dc < span; dc++) (taken[r + dr] ??= [])[c + dc] = true;
+        const y = r * (HALF + CARD_GAP);
+        const h = cardHeight(card);
+        rects.set(card.id, { x: c * (unit + CARD_GAP), y, w, h });
+        bottom = Math.max(bottom, y + h);
+        placed = true;
+      }
     }
-    rects.set(card.id, { x, y, w, h });
-    x += w + CARD_GAP;
-    rowH = Math.max(rowH, h);
   }
-  return { rects, height: cards.length ? y + rowH : 0 };
+  return { rects, height: bottom };
 }
 
 export function CardGrid({

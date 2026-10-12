@@ -7,7 +7,7 @@ import type { RecordView } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
 import { radius, useTheme } from "./theme.ts";
 
-const ROWS = { s: 2, m: 3, l: 8 } as const;
+const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
 export function Card({
   card,
@@ -29,6 +29,8 @@ export function Card({
   const c = colour(card.colour);
   const size = card.spec.size;
   const field = card.spec.sources[0]?.answer_field;
+  // Half-height sizes: one line of title and one figure, nothing else (no empty space).
+  if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} />;
 
   const header = (
     <View style={s.head}>
@@ -130,21 +132,41 @@ export function Card({
       );
       break;
     }
-    case "number":
+    case "number": {
+      // The total, then the latest two items that make it up: no empty middle.
+      const sumField = card.collection?.fields.find((f) => f.id === card.spec.sources[0]?.sum_field);
+      const latest = card.records.slice(0, 2);
       body = (
-        <View style={s.grow}>
-          <Text
-            style={[s.num, { color: t.fg }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.6}
-          >
-            {formatTotal(card)}
-          </Text>
-          <Text style={[s.sub, { color: t.fg2 }]}>{card.records.length} records</Text>
+        <View style={s.fill}>
+          <View>
+            <Text
+              style={[s.num, { color: t.fg }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+            >
+              {formatTotal(card)}
+            </Text>
+            <Text style={[s.sub, { color: t.fg2 }]}>
+              {card.records.length} record{card.records.length === 1 ? "" : "s"}
+            </Text>
+          </View>
+          <View>
+            {latest.map((r) => (
+              <View key={r.id} style={[s.mini, { borderTopColor: t.sep }]}>
+                <Text style={[s.miniText, { color: t.fg }]} numberOfLines={1}>
+                  {r.title}
+                </Text>
+                <Text style={[s.miniEnd, { color: t.fg2 }]} numberOfLines={1}>
+                  {sumField ? (r.named[sumField.name] ?? "") : ""}
+                </Text>
+              </View>
+            ))}
+          </View>
         </View>
       );
       break;
+    }
     case "countdown": {
       // Days to the soonest item still ahead (by the source's date field).
       const df = card.spec.sources[0]?.date_field;
@@ -288,6 +310,104 @@ export function Card({
   );
 }
 
+/** What a half-height card shows: the figure, a word under or beside it, and a share done. */
+function figureOf(card: HomeCard): { big: string; small: string; ratio: number | null } {
+  const src = card.spec.sources[0];
+  switch (card.spec.arrangement) {
+    case "number":
+      return { big: formatTotal(card), small: `${card.records.length} records`, ratio: null };
+    case "countdown": {
+      const df = src?.date_field;
+      const today = new Date().toISOString().slice(0, 10);
+      const ahead = card.records
+        .map((r) => ({ r, d: df ? String(r.values[df] ?? "").slice(0, 10) : "" }))
+        .filter((x) => x.d >= today)
+        .sort((a, b) => a.d.localeCompare(b.d))[0];
+      if (!ahead) return { big: "–", small: "Nothing coming up", ratio: null };
+      const days = Math.round((Date.parse(ahead.d) - Date.parse(today)) / 86_400_000);
+      return {
+        big: days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`,
+        small: ahead.r.title,
+        ratio: null,
+      };
+    }
+    case "progress": {
+      const f = src?.answer_field;
+      const done = f ? card.records.filter((r) => r.values[f] === true).length : 0;
+      const all = card.records.length;
+      return {
+        big: `${done}/${all}`,
+        small: all - done ? `${all - done} to go` : "All done",
+        ratio: all ? done / all : 0,
+      };
+    }
+    default: {
+      const r = card.records[0];
+      return { big: r ? r.title : "Nothing yet", small: r ? secondLine(card, r) : "", ratio: null };
+    }
+  }
+}
+
+function Compact({ card, onOpen }: { card: HomeCard; onOpen?: () => void }) {
+  const { t, colour } = useTheme();
+  const c = colour(card.colour);
+  const wide = card.spec.size === "bar";
+  const f = figureOf(card);
+  const text = card.spec.arrangement === "next" || card.spec.arrangement === "list-plain";
+  const bar =
+    f.ratio !== null ? (
+      <View style={[s.bar, s.barWide, { backgroundColor: t.fill }]}>
+        <View style={[s.barIn, { backgroundColor: c, width: `${Math.round(f.ratio * 100)}%` }]} />
+      </View>
+    ) : null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${card.spec.title}: ${f.big}`}
+      onPress={onOpen}
+      style={({ pressed }) => [
+        s.card,
+        s.compact,
+        wide && s.compactWide,
+        { backgroundColor: t.cell, shadowColor: t.shadow, borderColor: t.hair },
+        pressed && { transform: [{ scale: 0.97 }] },
+      ]}
+    >
+      <View style={wide ? s.compactLeft : undefined}>
+        <View style={s.head}>
+          <View style={[s.dot, { backgroundColor: c }]} />
+          <Text style={[s.title, { color: c }]} numberOfLines={1}>
+            {card.spec.title}
+          </Text>
+        </View>
+        {wide && f.small ? (
+          <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
+            {f.small}
+          </Text>
+        ) : null}
+      </View>
+      {wide ? bar : null}
+      <View style={!wide && bar ? s.compactRow : undefined}>
+        <Text
+          style={[
+            text ? s.compactText : s.compactNum,
+            { color: t.fg },
+            wide && s.compactRight,
+            wide && text ? s.compactRightText : null,
+            !wide && bar ? s.compactSmallNum : null,
+          ]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.6}
+        >
+          {f.big}
+        </Text>
+        {!wide ? bar : null}
+      </View>
+    </Pressable>
+  );
+}
+
 /** "just now", "2 h ago", "3 days ago". */
 function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
@@ -348,6 +468,16 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   grow: { flex: 1, justifyContent: "flex-end" },
+  fill: { flex: 1, justifyContent: "space-between" },
+  mini: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  miniText: { flex: 1, fontSize: 12.5 },
+  miniEnd: { fontSize: 11.5, fontVariant: ["tabular-nums"] },
   answers: { flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" },
   answer: {
     minHeight: 44,
@@ -380,4 +510,14 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   circleIn: { width: 13, height: 13, borderRadius: 7 },
+  compact: { padding: 11, gap: 2, justifyContent: "space-between" },
+  compactWide: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14 },
+  compactLeft: { flex: 1, gap: 3, minWidth: 0 },
+  compactRight: { flexShrink: 0, textAlign: "right" },
+  compactRightText: { flex: 1, flexShrink: 1 },
+  compactNum: { fontSize: 23, fontWeight: "800", letterSpacing: -0.8, fontVariant: ["tabular-nums"] },
+  compactText: { fontSize: 15, fontWeight: "700" },
+  barWide: { flex: 1, marginVertical: 0 },
+  compactRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  compactSmallNum: { fontSize: 19, flexShrink: 0 },
 });
