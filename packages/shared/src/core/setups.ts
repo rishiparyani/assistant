@@ -35,6 +35,47 @@ export const MakeSetupInput = SpaceRef.extend({
 });
 export type MakeSetupInput = z.infer<typeof MakeSetupInput>;
 
+/** A setup as it travels between people: the same shape make_setup takes, minus the space. */
+export const SetupDefinition = MakeSetupInput.omit({ space: true });
+export type SetupDefinition = z.infer<typeof SetupDefinition>;
+
+/**
+ * Share my setup (home-first.md §5.4): the structure of some of my lists (fields, links,
+ * calculated fields, rules, saved views), never their records, sent to people I know as a
+ * proposal card in their chat; they tap Make it to get it in their own space.
+ */
+export const ShareSetupInput = SpaceRef.extend({
+  to: z
+    .array(z.string().trim().min(1).max(80))
+    .min(1)
+    .max(10)
+    .describe("People I know (names or ids) who get the setup as a card to make in their own space"),
+  collections: z
+    .array(z.string().trim().min(1).max(80))
+    .max(SETUP_LIMITS.collections)
+    .optional()
+    .describe(
+      "Which of my collections (names or ids); left out, all of them. Lists they link to come along.",
+    ),
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe('What to call it on their card, e.g. "Gig bookings"; left out, the lists\' names'),
+});
+export type ShareSetupInput = z.infer<typeof ShareSetupInput>;
+
+export interface SharedSetup {
+  name: string;
+  /** Who got the card. */
+  to: { user_id: string; name: string }[];
+  /** The setup as sent, in plain words. */
+  words: string[];
+  collections: string[];
+}
+
 export interface SetupResult {
   collections: CollectionView[];
   rules: RuleView[];

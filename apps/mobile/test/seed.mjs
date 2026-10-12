@@ -149,6 +149,10 @@ if (!(await api("GET", "/api/waiting")).length)
 if (!(await api("GET", "/api/views")).some((v) => v.name === "Inbox"))
   await api("POST", "/api/inbox", { text: "Strings ₹450 at Furtados", source: "siri" });
 
+// Something remembered (the memory card on My day).
+if (!(await api("GET", "/api/memories")).length)
+  await api("POST", "/api/memories", { text: "Test rate: ₹8,000 a show, ₹12,000 for weddings" });
+
 console.log(`cookie=${cookie}`);
 console.log(`email=${EMAIL}`);
 console.log(`password=${PASSWORD}`);

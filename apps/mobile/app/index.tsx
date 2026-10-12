@@ -237,7 +237,14 @@ export default function Home() {
                   <Card
                     card={card}
                     onTick={onTick(card)}
-                    onOpen={() => canOpen() && (card.shared?.kind === "form" ? openOnWeb(card) : ask(card))}
+                    onOpen={() =>
+                      canOpen() &&
+                      (card.memory
+                        ? router.push("/memory")
+                        : card.shared?.kind === "form"
+                          ? openOnWeb(card)
+                          : ask(card))
+                    }
                     onAnswer={
                       card.waiting
                         ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()

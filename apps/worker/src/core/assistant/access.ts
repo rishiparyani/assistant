@@ -29,6 +29,22 @@ export async function assistantAllowed(ctx: OpUserCtx): Promise<boolean> {
   return row !== null;
 }
 
+/** Whether the assistant is on for another person (by id): owners, admins, or switched on. */
+export async function assistantOnFor(ctx: OpUserCtx, userId: string): Promise<boolean> {
+  if (!(await anyOwner(ctx))) return true;
+  const row = await ctx.d1
+    .prepare(
+      `select lower(u.email) as email,
+              (select 1 from assistant_access a where a.user_id = u.id) as on_,
+              (select 1 from admins d where d.email = lower(u.email)) as admin
+       from "user" u where u.id = ?`,
+    )
+    .bind(userId)
+    .first<{ email: string; on_: number | null; admin: number | null }>();
+  if (!row) return false;
+  return !!row.on_ || !!row.admin || ctx.owners.includes(row.email);
+}
+
 export async function requireAssistant(ctx: OpUserCtx): Promise<void> {
   if (!(await assistantAllowed(ctx)))
     throw new AppError(

@@ -4,6 +4,7 @@
 // caller's role itself (architecture rule 3) and keeps idempotency and audit with the data.
 import { DurableObject } from "cloudflare:workers";
 import {
+  SETUP_LIMITS,
   SPACE_LIMITS,
   ValueError,
   decodeCursor,
@@ -21,6 +22,7 @@ import {
   type FieldType,
   type FieldView,
   type Filter,
+  type FilterOp,
   type FindResult,
   type LinkedRef,
   type Period,
@@ -30,6 +32,7 @@ import {
   type SavedView,
   type StarterKind,
   formulaValues,
+  type SetupDefinition,
   type SetupResult,
   type RuleFilter,
   type ShareAccess,
@@ -1273,6 +1276,152 @@ export class SpaceObject extends DurableObject<Env> {
         views,
       };
     });
+  }
+
+  /**
+   * The setup of some of my lists as it can be sent to someone else (home-first.md §5.4):
+   * the same shape make_setup takes, with names instead of ids and no records. Lists the
+   * chosen ones link to (or that calculate over them) come along, so the copy stands on
+   * its own. Filters on links (record ids, data) are left out.
+   */
+  async describeSetup(actor: Actor, chosen: string[] | null): Promise<SetupDefinition> {
+    this.role(actor);
+    const all = this.sql
+      .exec<CollectionRow>(
+        `select id, name, description, title_field_id, position, updated_at from collections
+         where deleted_at is null order by position, name_key`,
+      )
+      .toArray();
+    const picked = new Map<string, CollectionRow>();
+    for (const ref of chosen ?? all.map((c) => c.id)) {
+      const c = this.requireCollection(ref);
+      picked.set(c.id, all.find((x) => x.id === c.id) ?? c);
+    }
+    // Closure over links: a link's target, and the list a rollup counts over.
+    const nameOf = (id: string) => this.requireCollection(id).name;
+    for (;;) {
+      const before = picked.size;
+      for (const c of [...picked.values()])
+        for (const f of this.fieldRows(c.id)) {
+          const o = toField(f).options;
+          if (f.type === "link" && o.target && !picked.has(o.target))
+            picked.set(o.target, this.requireCollection(o.target));
+          if (o.rollup) {
+            const via = this.liveField(o.rollup.via);
+            const other = via
+              ? o.rollup.dir === "in"
+                ? via.collection_id
+                : (toField(via).options.target ?? null)
+              : null;
+            if (other && !picked.has(other)) picked.set(other, this.requireCollection(other));
+          }
+        }
+      if (picked.size === before) break;
+    }
+    if (picked.size > SETUP_LIMITS.collections)
+      throw new ObjectError(
+        "validation_failed",
+        `That's ${picked.size} lists with the ones they link to; a setup can hold ${SETUP_LIMITS.collections}. Pick fewer.`,
+      );
+    const ordered = all.filter((c) => picked.has(c.id));
+    const fieldName = (collectionId: string, id: string) =>
+      this.fieldRows(collectionId).find((f) => f.id === id)?.name ?? null;
+    const cond = (collectionId: string, f: { field: string; op: FilterOp; value?: unknown }) => {
+      const row = this.fieldRows(collectionId).find((x) => x.id === f.field);
+      // A filter on a link holds record ids: data, not setup.
+      if (!row || row.type === "link") return null;
+      return { field: row.name, op: f.op, ...(f.value === undefined ? {} : { value: f.value }) };
+    };
+    const conds = (collectionId: string, list: { field: string; op: FilterOp; value?: unknown }[]) =>
+      list.flatMap((f) => cond(collectionId, f) ?? []);
+    const collections = ordered.map((c) => ({
+      name: c.name,
+      ...(c.description ? { description: c.description } : {}),
+      fields: this.fieldRows(c.id).map((row) => {
+        const f = toField(row);
+        const o = f.options;
+        const options: Record<string, unknown> = {};
+        if (o.choices) options.choices = o.choices;
+        if (f.type === "link") {
+          if (o.target) options.target = nameOf(o.target);
+          if (o.many) options.many = true;
+          if (o.ordered) options.ordered = true;
+          if (o.on_delete && o.on_delete !== "unlink") options.on_delete = o.on_delete;
+        }
+        if (o.personal) options.personal = true;
+        if (o.formula) options.formula = o.formula;
+        if (o.rollup) {
+          const via = this.liveField(o.rollup.via);
+          const other = via
+            ? o.rollup.dir === "in"
+              ? via.collection_id
+              : (toField(via).options.target ?? null)
+            : null;
+          if (via)
+            options.rollup = {
+              via: o.rollup.dir === "in" ? `${nameOf(via.collection_id)}.${via.name}` : via.name,
+              fn: o.rollup.fn,
+              ...(o.rollup.of && other ? { of: fieldName(other, o.rollup.of) ?? undefined } : {}),
+              ...(o.rollup.where?.length && other ? { where: conds(other, o.rollup.where) } : {}),
+            };
+        }
+        return {
+          name: f.name,
+          type: f.type,
+          ...(Object.keys(options).length ? { options } : {}),
+          ...(f.required ? { required: true } : {}),
+          ...(f.aliases.length ? { aliases: f.aliases } : {}),
+        };
+      }),
+    }));
+    const rules = ordered.flatMap((c) =>
+      this.ruleRows(c.id).map((r) => {
+        const def = JSON.parse(r.def_json) as RuleDef;
+        const names = (ids: string[]) => ids.flatMap((id) => fieldName(c.id, id) ?? []);
+        return {
+          collection: c.name,
+          kind: r.kind,
+          ...(def.require.length ? { require: conds(c.id, def.require) } : {}),
+          ...(def.fields.length ? { fields: names(def.fields) } : {}),
+          ...(r.kind === "unique" && def.at_most && def.at_most > 1 ? { at_most: def.at_most } : {}),
+          ...(def.of ? { of: fieldName(c.id, def.of) ?? undefined } : {}),
+          ...(def.only_if.length ? { only_if: conds(c.id, def.only_if) } : {}),
+          ...(def.field ? { field: fieldName(c.id, def.field) ?? undefined } : {}),
+          ...(Object.keys(def.moves).length ? { moves: def.moves } : {}),
+          ...(r.message ? { message: r.message } : {}),
+        };
+      }),
+    );
+    const views = this.sql
+      .exec<ViewRow>(`select * from views where deleted_at is null order by pinned desc, position, name_key`)
+      .toArray()
+      .flatMap((row) => this.viewOf(row) ?? [])
+      .filter((v) => picked.has(v.collection_id))
+      .map((v) => ({
+        name: v.name,
+        collection: v.collection,
+        ...(v.filters.length ? { filters: conds(v.collection_id, v.filters) } : {}),
+        ...(v.search ? { search: v.search } : {}),
+        ...(v.sort && fieldName(v.collection_id, v.sort.field)
+          ? { sort: { field: fieldName(v.collection_id, v.sort.field)!, dir: v.sort.dir } }
+          : {}),
+        mode: v.mode,
+        ...(v.pinned ? { pinned: true } : {}),
+        ...(v.add_fields.length
+          ? { add_fields: v.add_fields.flatMap((id) => fieldName(v.collection_id, id) ?? []) }
+          : {}),
+        ...(v.card_size ? { card_size: v.card_size } : {}),
+      }));
+    return {
+      name: ordered
+        .slice(0, 3)
+        .map((c) => c.name)
+        .join(", ")
+        .slice(0, 80),
+      collections,
+      rules,
+      views,
+    } as SetupDefinition;
   }
 
   private insertCollection(

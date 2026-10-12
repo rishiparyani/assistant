@@ -72,6 +72,8 @@ const EVERYDAY = [
   // Search (home-first.md §4): everything the person can see, by words.
   "search",
   "list_rules",
+  // Setups travel between people as cards (home-first.md §5.4): structure, never records.
+  "share_setup",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -328,6 +330,19 @@ function describe(
       return {
         title: `Make “${String(args.name ?? "a setup")}”`,
         details: def.success ? setupWords(def.data) : [],
+      };
+    }
+    case "share_setup": {
+      const lists =
+        Array.isArray(args.collections) && args.collections.length
+          ? show(args.collections)
+          : "all your lists";
+      return {
+        title: `Share your setup with ${show(args.to)}`,
+        details: [
+          `${lists}: the fields, links, rules and views, none of the records.`,
+          "They get a card in their chat and make it in their own space when they want.",
+        ],
       };
     }
     case "create_collection": {

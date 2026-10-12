@@ -12,6 +12,7 @@ import {
   type CardSize,
   type CollectionView,
   type FindResult,
+  type Memory,
   type RecordView,
   type SavedView,
   type ShareAccess,
@@ -39,6 +40,8 @@ export interface HomeCard {
   total: number | null;
   /** A process card (home-first.md §2 point 9): the step waiting on people. */
   waiting?: WaitingItem;
+  /** The memory card (home-first.md §2 point 16): what the assistant remembers for me. */
+  memory?: Memory[];
   /** Something shared with me (collaborator homes, home-first.md §2 point 8). */
   shared?: {
     share_id: string;
@@ -162,13 +165,15 @@ function totalOf(spec: CardSpec, records: RecordView[]): number | null {
 /** Loads the home from the server; falls back to the copy on the device. */
 export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
-    const [views, collections, waiting, shares] = await Promise.all([
+    const [views, collections, waiting, shares, memories] = await Promise.all([
       request<SavedView[]>("GET", "/api/views"),
       request<CollectionView[]>("GET", "/api/collections"),
       // What processes are waiting on (mine, and others' on me); the home works without it.
       request<WaitingItem[]>("GET", "/api/waiting").catch(() => [] as WaitingItem[]),
       // What's shared with me: a collaborator's whole home, an owner's third page.
       request<SharedWithMe[]>("GET", "/api/cards").catch(() => [] as SharedWithMe[]),
+      // What the assistant remembers (null: no assistant for this person, or offline).
+      request<Memory[]>("GET", "/api/memories").catch(() => null),
     ]);
     // Changes to views still waiting in the outbox (made offline) win over what the server
     // says until they are sent; otherwise a load would undo them on the screen.
@@ -207,10 +212,13 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       .sort((a, b) => b.score - a.score)
       .map((x) => x.c);
     const now = (scored.length ? scored : [...cards, ...sharedCards]).slice(0, 4);
+    // Memory is visible (home-first.md §2 point 16): its card ends My day for anyone with the
+    // assistant; it never competes for Now.
+    const mine = memories ? [...cards, memoryCard(memories)] : cards;
     const pages: HomePage[] = [
       { name: "Now", auto: true, cards: now },
       // A person with nothing of their own (a collaborator) has no page to arrange.
-      ...(cards.length || !sharedCards.length ? [{ name: "My day", cards }] : []),
+      ...(cards.length || !sharedCards.length ? [{ name: "My day", cards: mine }] : []),
       ...(sharedCards.length ? [{ name: "Shared with you", cards: sharedCards }] : []),
     ];
     writeJson(keyFor(userId), pages);
@@ -400,6 +408,25 @@ export function processCard(w: WaitingItem): HomeCard {
     records: [],
     total: null,
     waiting: w,
+  };
+}
+
+export function memoryCard(memories: Memory[]): HomeCard {
+  return {
+    id: "memory",
+    view: null,
+    spec: {
+      version: CARD_VERSION,
+      title: "What it remembers",
+      arrangement: "memory",
+      size: "m",
+      sources: [],
+    },
+    collection: null,
+    colour: colourFor("Memory"),
+    records: [],
+    total: null,
+    memory: memories,
   };
 }
 
