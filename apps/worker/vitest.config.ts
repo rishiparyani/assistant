@@ -23,6 +23,8 @@ export default defineConfig({
           ADMIN_EMAILS: "Owner.Admin@example.com, second.owner@example.com",
           // The assistant uses a scripted model in tests (src/core/assistant/fake-model.ts).
           AI_FAKE: "1",
+          // Connectors talk to a fake Google (src/core/connectors/fake-google.ts).
+          CONNECTORS_FAKE: "1",
         },
       },
     })),

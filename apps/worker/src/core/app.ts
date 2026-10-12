@@ -12,6 +12,7 @@ import { issuer, mcpUrl, mcpUserId, resourceMetadataUrl } from "./mcp/auth.ts";
 import { handleMcp } from "./mcp/server.ts";
 import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
+import { connectorOperations, connectorRoutes } from "./connectors/operations.ts";
 import { adminRoutes } from "./admin/routes.ts";
 import { registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
@@ -61,6 +62,7 @@ export function createApp({ modules }: AppOptions) {
     ...workflowOperations,
     ...searchOperations,
     ...ruleOperations,
+    ...connectorOperations,
     ...modules.flatMap((m) => m.operations ?? []),
   ];
   // The assistant's tools are the operations above.
@@ -244,6 +246,7 @@ export function createApp({ modules }: AppOptions) {
 
   app.route("/", authRoutes);
   app.route("/", adminRoutes(modules));
+  app.route("/", connectorRoutes);
   registerOperations(app, operations);
 
   // Unknown API paths are JSON 404s, never the SPA's index.html.

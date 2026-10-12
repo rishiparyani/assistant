@@ -59,6 +59,22 @@ export default function MemoryPage() {
         data={items ?? []}
         keyExtractor={(m) => m.id}
         contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 10 }}
+        ListFooterComponent={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Connections"
+            onPress={() => router.push("/connections")}
+            style={[s.item, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 14 }]}
+          >
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[s.text, { color: t.fg, fontWeight: "700" }]}>Connections</Text>
+              <Text style={[s.source, { color: t.fg2 }]}>
+                Accounts the assistant can use for you, like Google Calendar
+              </Text>
+            </View>
+            <Text style={{ color: t.accent, fontSize: 22 }}>›</Text>
+          </Pressable>
+        }
         ListEmptyComponent={
           <Text style={[s.empty, { color: t.fg2 }]}>
             {items === null

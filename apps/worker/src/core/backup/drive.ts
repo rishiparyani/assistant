@@ -3,6 +3,8 @@
 // client is the one used for sign-in (GOOGLE_CLIENT_ID/SECRET); the refresh token is
 // kept encrypted in app_settings.
 
+import { accessToken, exchangeCode, googleAuthUrl } from "../google.ts";
+
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
 /** The few Drive calls backups need; a fake stands in for tests. */
@@ -17,70 +19,17 @@ export interface DriveClient {
 type Fetch = typeof fetch;
 
 export function authUrl(clientId: string, redirectUri: string, state: string): string {
-  const u = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  u.search = new URLSearchParams({
-    client_id: clientId,
-    redirect_uri: redirectUri,
-    response_type: "code",
-    scope: DRIVE_SCOPE,
-    access_type: "offline",
-    prompt: "consent",
-    include_granted_scopes: "false",
-    state,
-  }).toString();
-  return u.toString();
+  return googleAuthUrl({ clientId, redirectUri, state, scope: DRIVE_SCOPE });
 }
 
-async function tokenRequest(body: Record<string, string>, f: Fetch) {
-  const res = await f("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body),
-  });
-  const json = (await res.json().catch(() => ({}))) as {
-    access_token?: string;
-    refresh_token?: string;
-    error?: string;
-  };
-  if (!res.ok || !json.access_token)
-    throw new Error(`Google token request failed (${res.status} ${json.error ?? ""})`);
-  return json;
-}
-
-export async function exchangeCode(
-  cfg: { clientId: string; clientSecret: string; redirectUri: string },
-  code: string,
-  f: Fetch = fetch,
-): Promise<string> {
-  const t = await tokenRequest(
-    {
-      code,
-      client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
-      redirect_uri: cfg.redirectUri,
-      grant_type: "authorization_code",
-    },
-    f,
-  );
-  if (!t.refresh_token)
-    throw new Error("Google didn't return a refresh token; remove the app's access and connect again");
-  return t.refresh_token;
-}
+export { exchangeCode };
 
 /** A Drive client that signs in with the refresh token for each run. */
 export async function googleDrive(
   cfg: { clientId: string; clientSecret: string; refreshToken: string },
   f: Fetch = fetch,
 ): Promise<DriveClient> {
-  const { access_token } = await tokenRequest(
-    {
-      client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
-      refresh_token: cfg.refreshToken,
-      grant_type: "refresh_token",
-    },
-    f,
-  );
+  const access_token = await accessToken(cfg, f);
   const auth = { authorization: `Bearer ${access_token}` };
   const api = "https://www.googleapis.com/drive/v3/files";
   const check = async (res: Response, what: string) => {

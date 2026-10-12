@@ -91,7 +91,30 @@ const MIGRATIONS: Migrations = [
    create index _audit_change_idx on _audit (change_id);`,
   // A card that waits for the person (This week's proposals) lasts longer than a confirm card.
   `alter table actions add column expires_at text;`,
+  // Connectors (decision 2026-10-12 "Connectors start with Google Calendar"): the person's own
+  // access to an outside service, sealed with the app's secret; a consent in progress.
+  `
+  create table connectors (
+    kind text primary key,
+    sealed text not null,
+    account text,
+    connected_at text not null
+  );
+  create table oauth_states (
+    state text primary key,
+    kind text not null,
+    expires_at text not null
+  );
+  create index oauth_states_expires_idx on oauth_states (expires_at);
+  `,
 ];
+
+export type ConnectorRow = {
+  kind: string;
+  sealed: string;
+  account: string | null;
+  connected_at: string;
+};
 
 /** What the assistant remembers for a person (chat-first step 3). */
 export type MemoryRow = {
@@ -565,6 +588,83 @@ export class ChatObject extends DurableObject<Env> {
       .exec<ChatRow>(`select id, title, created_at, updated_at from chats where id = ?`, id)
       .toArray()[0];
     if (!r) throw new ObjectError("not_found", "Chat not found");
+    return r;
+  }
+
+  // --- Connectors (main chat only) ----------------------------------------------------------
+
+  /** A one-use consent state for `kind`, good for 10 minutes. */
+  async startConsent(userId: string, kind: string): Promise<string> {
+    this.own(userId);
+    this.sql.exec(`delete from oauth_states where expires_at < ?`, nowIso());
+    const state = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+    this.sql.exec(
+      `insert into oauth_states (state, kind, expires_at) values (?, ?, ?)`,
+      state,
+      kind,
+      new Date(Date.now() + 10 * 60_000).toISOString(),
+    );
+    return state;
+  }
+
+  /** Takes a consent state back (once): its kind, or null when unknown or expired. */
+  async takeConsent(userId: string, state: string): Promise<string | null> {
+    this.own(userId);
+    const r = this.sql
+      .exec<{ kind: string; expires_at: string }>(
+        `select kind, expires_at from oauth_states where state = ?`,
+        state,
+      )
+      .toArray()[0];
+    this.sql.exec(`delete from oauth_states where state = ?`, state);
+    return r && Date.parse(r.expires_at) > Date.now() ? r.kind : null;
+  }
+
+  async connectors(userId: string): Promise<ConnectorRow[]> {
+    this.own(userId);
+    return this.sql
+      .exec<ConnectorRow>(`select kind, sealed, account, connected_at from connectors`)
+      .toArray();
+  }
+
+  async saveConnector(
+    actor: Actor & { userId: string },
+    kind: string,
+    sealed: string,
+    account: string | null,
+  ) {
+    this.own(actor.userId);
+    this.sql.exec(
+      `insert into connectors (kind, sealed, account, connected_at) values (?, ?, ?, ?)
+       on conflict (kind) do update set sealed = excluded.sealed, account = excluded.account, connected_at = excluded.connected_at`,
+      kind,
+      sealed,
+      account,
+      nowIso(),
+    );
+    // The token itself never goes in the audit log.
+    audit(this.sql, actor, {
+      action: "connect",
+      entityType: "connector",
+      entityId: kind,
+      after: { account },
+    });
+  }
+
+  /** Forgets a connector; returns what was kept (to revoke it with the service). */
+  async removeConnector(actor: Actor & { userId: string }, kind: string): Promise<ConnectorRow | null> {
+    this.own(actor.userId);
+    const r = this.sql
+      .exec<ConnectorRow>(`select kind, sealed, account, connected_at from connectors where kind = ?`, kind)
+      .toArray()[0];
+    if (!r) return null;
+    this.sql.exec(`delete from connectors where kind = ?`, kind);
+    audit(this.sql, actor, {
+      action: "disconnect",
+      entityType: "connector",
+      entityId: kind,
+      before: { account: r.account },
+    });
     return r;
   }
 
