@@ -27,13 +27,22 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// /app is the new home (its own files, served by the Worker): never answered from this cache.
-const SERVER_PATHS = /^\/(api|auth|mcp|app|\.well-known)(\/|$)/;
+const SERVER_PATHS = /^\/(api|auth|mcp|\.well-known)(\/|$)/;
+// /app is the new home (its own build, served by the Worker). It gets its own cache, filled as
+// it's used: pages from the network when it answers in time, else its saved page; its hashed
+// files from the cache once seen. So a home opened once also opens offline.
+const APP_CACHE = "app-shell";
+const APP_FILES = /^\/app\/(_expo|assets)\//;
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== self.location.origin || SERVER_PATHS.test(url.pathname)) return;
+  if (url.pathname === "/app" || url.pathname.startsWith("/app/")) {
+    if (req.mode === "navigate") event.respondWith(appPage(req));
+    else if (APP_FILES.test(url.pathname)) event.respondWith(appFile(req));
+    return;
+  }
   if (req.mode === "navigate") {
     event.respondWith(page(req));
   } else if (url.pathname.startsWith("/assets/")) {
@@ -42,6 +51,35 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(req).catch(() => caches.match(req)));
   }
 });
+
+/** The new home's page: the network if it answers in time (and keep it), else the saved one. */
+async function appPage(req) {
+  const cache = await caches.open(APP_CACHE);
+  try {
+    const res = await Promise.race([
+      fetch(req),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("slow")), PAGE_TIMEOUT_MS)),
+    ]);
+    if (res.ok) {
+      // Every route of the new home is the same page: keep one copy.
+      await cache.put("/app/", res.clone());
+      return res;
+    }
+    return (await cache.match("/app/")) || res;
+  } catch {
+    return (await cache.match("/app/")) || Response.error();
+  }
+}
+
+/** The new home's files: hashed names never change, so a saved copy is always right. */
+async function appFile(req) {
+  const cache = await caches.open(APP_CACHE);
+  const hit = await cache.match(req);
+  if (hit) return hit;
+  const res = await fetch(req);
+  if (res.ok) await cache.put(req, res.clone());
+  return res;
+}
 
 /** The page from the network if it answers in time, else the saved app. */
 async function page(req) {

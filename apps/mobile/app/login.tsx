@@ -3,7 +3,7 @@
 // server, so the simulator tests can sign in.
 import { useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { signInWithEmail, signInWithGoogle } from "@/auth";
 import { API_URL } from "@/config";
@@ -28,9 +28,12 @@ export default function Login() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Where to go once signed in: the screen a deep link asked for (paths inside the app only).
+  const { next: asked } = useLocalSearchParams<{ next?: string }>();
+  const next = asked && asked.startsWith("/") && !asked.startsWith("//") ? asked : "/";
   const finish = async () => {
     await refresh();
-    router.replace("/");
+    router.replace(next as Href);
   };
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -67,7 +70,9 @@ export default function Login() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              window.location.assign(`${API_URL}/login?next=${encodeURIComponent("/app")}`);
+              window.location.assign(
+                `${API_URL}/login?next=${encodeURIComponent(next === "/" ? "/app" : `/app${next}`)}`,
+              );
             }}
             style={[s.btn, { backgroundColor: t.accent }]}
           >
