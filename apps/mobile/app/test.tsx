@@ -22,6 +22,8 @@ export default function TestSignIn() {
     path?: string;
   }>();
   const [error, setError] = useState("");
+  // Shown under the spinner, so a screenshot says how far it got.
+  const [step, setStep] = useState("Signing in…");
   const allowed = LOCAL.test(API_URL) && !!email && !!password;
   // Once for the link that opened this screen.
   const started = useRef(false);
@@ -33,8 +35,10 @@ export default function TestSignIn() {
     (async () => {
       try {
         await signInWithEmail(email!, password!);
+        setStep("Signed in, loading you…");
         await refresh();
         if (gone) return;
+        setStep(`Going to ${path || "/"}…`);
         // Home first, then the asked-for screen on top of it (the chat is a sheet over the home).
         router.replace("/");
         if (path && path.startsWith("/") && path !== "/") router.push(path as Href);
@@ -53,6 +57,7 @@ export default function TestSignIn() {
       style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: t.canvas, gap: 12 }}
     >
       {error ? <Text style={{ color: t.danger }}>{error}</Text> : <ActivityIndicator color={t.accent} />}
+      <Text style={{ color: t.fg2, fontSize: 13 }}>{error ? "Test sign-in failed" : step}</Text>
     </View>
   );
 }

@@ -158,7 +158,7 @@ jobs:
           go() {
             xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
             xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" > /dev/null
-            sleep "${3:-9}"
+            sleep "${3:-14}"
           }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
           for dev in "$PHONE" "$SMALL"; do
@@ -186,8 +186,16 @@ jobs:
             shot "$dev" "$label-dark-1-home"
             go "$dev" "/chat"
             shot "$dev" "$label-dark-2-chat"
+            # What the app and the server said (no secrets: fake data, cookies and tokens cut).
+            echo "::group::app log"
+            xcrun simctl spawn "$dev" log show --last 12m --style compact \
+              --predicate 'processImagePath CONTAINS "Gigspree"' 2>/dev/null | grep -v -i "cookie\|token" | tail -150 || true
+            echo "::endgroup::"
             xcrun simctl shutdown "$dev"
           done
+          echo "::group::server log"
+          tail -60 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token" || true
+          echo "::endgroup::"
           ls "$OUT"
 
       # Agent sessions can't download artifacts, so the large phone's shots also go in the log
