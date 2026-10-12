@@ -552,3 +552,11 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Why:** one source of truth (the audit log is already required by architecture rule 11), nothing new to keep in sync, and undo goes through the same path as any write (idempotency, change log, workflows, live updates).
 
 **Also:** audit entries get a ULID (`change_id`, rule 4) and that is the id history and Undo use; the integer row id stays internal. `undo_change` is a confirm operation for assistants and MCP, like the deletes and money changes it can reverse. `undoable` is only true when Undo can do something: the record still exists, the entry isn't undone, and a change has at least one field that can be put back.
+
+## 2026-10-12: Every write needs a signed-in person (supersedes the venue door link)
+
+**Decision (owner, 2026-10-12):** a link alone can only read. Anything that changes data, including filling a form, needs a signed-in person who was shared with by name and holds a role. The venue door link (a link that could set one field without signing in, approved as an exception on 2026-10-11) is dropped; "the venue marks arrivals" becomes "share the guest list with the venue's person as an editor on Arrived". Link forms (adding records through a link without an account) go the same way: a form asks the person to sign in first.
+
+**Why:** signing in with Google or a passkey takes seconds, and in return every change carries a name, shows in What changed, can be undone and can be revoked for one person. Nothing here is gig-specific: the blocks (a shared view, a row rule, one editable field) stay generic; only the way in changes.
+
+**Follows:** link-only views stay read-only (as today); the "link" actor source stays for reads; no code path lets `source: "link"` write. The guest-list test keeps its sign-in form.
