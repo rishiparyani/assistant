@@ -203,6 +203,39 @@ export class SearchObject extends DurableObject<Env> {
     return out.sort((a, b) => b.score - a.score).slice(0, limit);
   }
 
+  /**
+   * A rebuild's result under its Idempotency-Key (24 h): a retried request gets the same answer
+   * instead of clearing and refilling the index again. `null`: not seen, go ahead (and the key
+   * is now taken); "running": the first request is still at it.
+   */
+  async rebuildClaim(key: string): Promise<{ indexed: number } | "running" | null> {
+    const cutoff = new Date(Date.now() - 86_400_000).toISOString();
+    this.sql.exec(`delete from _meta where key like 'rebuild:%' and value < ?`, cutoff);
+    const row = this.sql
+      .exec<{ value: string }>(`select value from _meta where key = ?`, `rebuild:${key}`)
+      .toArray()[0];
+    if (row) {
+      const saved = JSON.parse(row.value.slice(row.value.indexOf("|") + 1)) as { indexed: number } | null;
+      return saved ?? "running";
+    }
+    this.sql.exec(
+      `insert into _meta (key, value) values (?, ?)`,
+      `rebuild:${key}`,
+      `${new Date().toISOString()}|null`,
+    );
+    return null;
+  }
+
+  async rebuildDone(key: string, result: { indexed: number } | null): Promise<void> {
+    if (result === null) this.sql.exec(`delete from _meta where key = ?`, `rebuild:${key}`);
+    else
+      this.sql.exec(
+        `update _meta set value = ? where key = ?`,
+        `${new Date().toISOString()}|${JSON.stringify(result)}`,
+        `rebuild:${key}`,
+      );
+  }
+
   /** How many documents the index holds (admin and tests). */
   async count(): Promise<number> {
     return Number(this.sql.exec<{ n: number }>(`select count(*) as n from docs`).one().n);

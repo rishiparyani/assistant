@@ -2,6 +2,7 @@
 // their own index; every hit re-checked by the space that owns it before it's shown.
 import { z } from "zod";
 import { defineOperation } from "../operations.ts";
+import { AppError } from "../errors.ts";
 import type { Actor } from "../objects/storage.ts";
 import type { OpUserCtx } from "../operations.ts";
 import { mySpaces, spaceName } from "../spaces/service.ts";
@@ -87,10 +88,25 @@ export const searchOperations = [
     http: { method: "POST", path: "/search/rebuild" },
     input: z.object({}),
     handler: async (ctx): Promise<{ indexed: number }> => {
-      let indexed = 0;
-      for (const s of await mySpaces(ctx))
-        indexed += await ctx.objects.SPACES.getByName(spaceName(s.id)).rebuildSearch(actorOf(ctx));
-      return { indexed };
+      // The person's index keeps the result under the request's key: a retry replays it.
+      const index = ctx.objects.SEARCH.getByName(`search:${ctx.user.id}`);
+      const key = ctx.idempotencyKey;
+      if (key) {
+        const seen = await index.rebuildClaim(key);
+        if (seen === "running") throw new AppError("conflict", "That rebuild is still running");
+        if (seen) return seen;
+      }
+      try {
+        let indexed = 0;
+        for (const s of await mySpaces(ctx))
+          indexed += await ctx.objects.SPACES.getByName(spaceName(s.id)).rebuildSearch(actorOf(ctx));
+        if (key) await index.rebuildDone(key, { indexed });
+        return { indexed };
+      } catch (e) {
+        // A failed rebuild frees the key so the same request can try again.
+        if (key) await index.rebuildDone(key, null);
+        throw e;
+      }
     },
   }),
 ];

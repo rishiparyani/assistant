@@ -176,6 +176,10 @@
           "tag": "v7",
           "new_sqlite_classes": ["GroupObject"],
         },
+        {
+          "tag": "v8",
+          "new_sqlite_classes": ["SearchObject"],
+        },
       ],
       // Outbox notes travel here; the deploy workflow creates the queues if missing.
       "queues": {

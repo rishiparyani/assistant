@@ -52,9 +52,31 @@ describe("search", () => {
     // A deleted record leaves the index.
     expect((await api(me)(`/records/${strat.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await until(async () => (await search(me, "strat")).length === 1)).toBe(true);
-    // A rebuild gives the same answer.
-    const re = await json<{ indexed: number }>(await api(me)("/search/rebuild", { method: "POST" }));
+    // A rebuild gives the same answer; the same request again replays it, it doesn't redo it.
+    const once = { method: "POST", idempotencyKey: "test-rebuild-1" };
+    const re = await json<{ indexed: number }>(await api(me)("/search/rebuild", once));
     expect(re.indexed).toBe(2);
+    expect(await json<{ indexed: number }>(await api(me)("/search/rebuild", once))).toEqual(re);
     expect((await search(me, "strat")).map((h) => h.title)).toEqual(["Strap for the Strat"]);
+  });
+
+  it("reindexes a list's records when one of its fields is renamed", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/collections/Notes/records", {
+      body: { values: { Title: "Test gig notes", Body: "open with Purple Haze" } },
+    });
+    expect(await until(async () => (await search(me, "purple")).length === 1)).toBe(true);
+    // The field's name is part of what the index reads ("Body: open with …").
+    expect((await search(me, "body:")).length).toBe(1);
+    expect(
+      (
+        await api(me)("/collections/Notes/fields/Body", {
+          method: "PATCH",
+          body: { name: "Details" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(await until(async () => (await search(me, "details:")).length === 1)).toBe(true);
+    expect(await search(me, "body:")).toEqual([]);
   });
 });

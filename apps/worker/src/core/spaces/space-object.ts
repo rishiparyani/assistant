@@ -666,6 +666,9 @@ const words = (s: string) => [
 ];
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
+/** How many times a failing member index is retried before the others go on without it. */
+const SEARCH_ATTEMPTS = 8;
+
 export class SpaceObject extends DurableObject<Env> {
   private sql: SqlStorage;
 
@@ -811,19 +814,44 @@ export class SpaceObject extends DurableObject<Env> {
   private async syncSearch(): Promise<number | null> {
     const from = Number(getMeta(this.sql, "search_seq") ?? "0");
     const rows = this.sql
-      .exec<{ seq: number; entity_id: string; op: string }>(
-        `select seq, entity_id, op from changes where seq > ? and kind = 'record' order by seq limit 200`,
+      .exec<{ seq: number; kind: string; entity_id: string }>(
+        `select seq, kind, entity_id from changes where seq > ? and kind in ('record', 'collection') order by seq limit 200`,
         from,
       )
       .toArray();
-    if (!rows.length) return null;
+    // A collection change (a field renamed, removed or hidden) changes how its records read in
+    // the index: its records are queued for reindexing, a page at a time.
+    const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];
+    for (const r of rows)
+      if (r.kind === "collection" && !reindex.some((x) => x.c === r.entity_id))
+        reindex.push({ c: r.entity_id, after: "" });
+    const ids = [...new Set(rows.filter((r) => r.kind === "record").map((r) => r.entity_id))];
+    let page: { c: string; after: string } | null = null;
+    let paged = false;
+    if (!ids.length && reindex.length) {
+      paged = true;
+      // Only when no record changes are waiting, so edits never queue behind a big reindex.
+      const next = reindex[0]!;
+      const batch = this.sql
+        .exec<{ id: string }>(
+          `select id from records where collection_id = ? and deleted_at is null and id > ? order by id limit 200`,
+          next.c,
+          next.after,
+        )
+        .toArray();
+      for (const b of batch) ids.push(b.id);
+      page = batch.length === 200 ? { c: next.c, after: batch[batch.length - 1]!.id } : null;
+    }
+    if (!rows.length && !ids.length) {
+      if (reindex.length) setMeta(this.sql, "search_reindex", JSON.stringify(reindex.slice(1)));
+      return reindex.length > 1 ? 50 : null;
+    }
     const members = this.sql
       .exec<{ user_id: string }>(`select user_id from members`)
       .toArray()
       .map((m) => m.user_id);
     const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
     // The latest state of each record wins (several changes to one record are one push).
-    const ids = [...new Set(rows.map((r) => r.entity_id))];
     const docs: SearchDoc[] = [];
     const gone: string[] = [];
     for (const id of ids) {
@@ -831,36 +859,43 @@ export class SpaceObject extends DurableObject<Env> {
       if (r) docs.push(this.searchDoc(spaceId, r));
       else gone.push(`${spaceId}:${id}`);
     }
-    try {
-      await Promise.all(
-        members.map(async (u) => {
-          const index = searchOf(this.env, u);
-          if (docs.length) await index.upsert(docs);
-          if (gone.length) await index.remove(gone);
-        }),
-      );
-      // By meaning too, when the model answers (best effort: words always work).
-      const vectors = docs.length
-        ? await embed(
-            this.embedder(),
-            docs.map((d) => `${d.title}\n${d.body}`),
-          )
-        : [];
-      if (vectors?.length)
-        await Promise.all(
-          members.map((u) =>
-            searchOf(this.env, u).upsertVectors(docs.map((d, i) => ({ doc_id: d.id, vec: vectors[i]! }))),
-          ),
-        );
-    } catch (e) {
-      console.warn("search sync failed", e instanceof Error ? e.message : String(e));
+    // By meaning too, when the model answers (best effort: words always work).
+    const vectors = docs.length
+      ? await embed(
+          this.embedder(),
+          docs.map((d) => `${d.title}\n${d.body}`),
+        ).catch(() => null)
+      : [];
+    // Each member's index on its own: one that fails doesn't hold up the others. Writes are
+    // replaces, so a retry is harmless to the ones that took it.
+    const results = await Promise.allSettled(
+      members.map(async (u) => {
+        const index = searchOf(this.env, u);
+        if (docs.length) await index.upsert(docs);
+        if (gone.length) await index.remove(gone);
+        if (vectors?.length)
+          await index.upsertVectors(docs.map((d, i) => ({ doc_id: d.id, vec: vectors[i]! })));
+      }),
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed) {
       const attempts = Number(getMeta(this.sql, "search_attempts") ?? "0") + 1;
-      setMeta(this.sql, "search_attempts", String(attempts));
-      return retryDelayMs(attempts);
+      console.warn(`search sync: ${failed} of ${members.length} indexes failed (attempt ${attempts})`);
+      if (attempts < SEARCH_ATTEMPTS) {
+        setMeta(this.sql, "search_attempts", String(attempts));
+        return retryDelayMs(attempts);
+      }
+      // Still failing after a while: go on. Those people's results are re-checked on every
+      // hit, and "rebuild search" fills their index again.
     }
-    setMeta(this.sql, "search_seq", String(rows[rows.length - 1]!.seq));
+    if (rows.length) setMeta(this.sql, "search_seq", String(rows[rows.length - 1]!.seq));
+    if (paged) {
+      if (page) reindex[0] = page;
+      else reindex.shift();
+    }
+    setMeta(this.sql, "search_reindex", JSON.stringify(reindex));
     setMeta(this.sql, "search_attempts", "0");
-    return rows.length === 200 ? 50 : null;
+    return rows.length === 200 || reindex.length ? 50 : null;
   }
 
   /** Workers AI for search by meaning; the stand-in with the scripted model. */
