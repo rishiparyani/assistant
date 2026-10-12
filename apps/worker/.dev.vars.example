@@ -23,3 +23,8 @@ APPLE_TEAM_ID=
 
 # The in-app assistant uses a scripted model locally (no Workers AI, no cost).
 AI_FAKE=1
+
+# Optional: encrypts the nightly backup (any long random string, e.g. `openssl rand -base64 32`).
+# Keep it in your password manager: a restore needs the same key. Without it, backups are
+# gzipped JSON in your private Drive.
+BACKUP_KEY=

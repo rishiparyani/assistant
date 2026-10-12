@@ -6,6 +6,7 @@ import { objectBindings } from "../context.ts";
 import { getSetting, setSetting } from "../settings.ts";
 import { decryptSecret, encryptSecret } from "../crypto.ts";
 import { googleDrive, type DriveClient } from "./drive.ts";
+import { decryptFile, encryptFile, isEncryptedFile } from "../crypto.ts";
 import { spaceName } from "../spaces/service.ts";
 import type { ObjectDump } from "../objects/storage.ts";
 
@@ -93,13 +94,51 @@ export interface BackupStatus {
   bytes?: number;
   file?: string;
   error?: string;
+  /** Encrypted with the owner's key (BACKUP_KEY); restore needs the same key. */
+  encrypted?: boolean;
 }
 
 type BackupEnv = Env & {
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
   BETTER_AUTH_SECRET?: string;
+  /** Optional: the owner's backup key; without it backups are gzipped JSON in the owner's Drive. */
+  BACKUP_KEY?: string;
 };
+
+/** Whether backups are encrypted (the owner set BACKUP_KEY). */
+export const backupEncrypted = (env: BackupEnv) => !!env.BACKUP_KEY;
+
+/**
+ * The backup file as uploaded: gzipped JSON, sealed with the owner's key when there is one.
+ * Reading takes the same key (`openBackupBytes`).
+ */
+export async function packBackup(env: BackupEnv, file: BackupFile): Promise<Uint8Array> {
+  const data = await gzip(JSON.stringify(file));
+  return env.BACKUP_KEY ? encryptFile(env.BACKUP_KEY, data) : data;
+}
+
+/** A backup's bytes (encrypted, gzipped or plain JSON) back to the file; `key` wins over the env's. */
+export async function openBackupBytes(
+  env: BackupEnv,
+  bytes: Uint8Array,
+  key?: string | null,
+): Promise<BackupFile> {
+  let data = bytes;
+  if (isEncryptedFile(data)) {
+    const k = key || env.BACKUP_KEY;
+    if (!k) throw new Error("This backup is encrypted; restore needs the backup key");
+    data = await decryptFile(k, data);
+  }
+  const text = data[0] === 0x1f && data[1] === 0x8b ? await gunzip(data) : new TextDecoder().decode(data);
+  let file: BackupFile;
+  try {
+    file = JSON.parse(text) as BackupFile;
+  } catch {
+    throw new Error("Not a backup file");
+  }
+  return file;
+}
 
 export async function buildBackup(
   env: BackupEnv,
@@ -195,18 +234,20 @@ export async function runBackup(
   let status: BackupStatus;
   try {
     const file = await buildBackup(env, modules, now);
-    const data = await gzip(JSON.stringify(file));
+    const data = await packBackup(env, file);
+    const encrypted = backupEncrypted(env);
     let folder = await getSetting(env.DB, "drive_folder_id");
     if (!folder) {
       folder = await client.ensureFolder(`Assistant backups (${env.ENVIRONMENT})`);
       await setSetting(env.DB, "drive_folder_id", folder);
     }
-    const name = `assistant-${env.ENVIRONMENT}-${now.toISOString().slice(0, 16).replace(":", "")}.json.gz`;
-    await client.upload(folder, name, data, "application/gzip");
+    const stamp = now.toISOString().slice(0, 16).replace(":", "");
+    const name = `assistant-${env.ENVIRONMENT}-${stamp}.json.gz${encrypted ? ".enc" : ""}`;
+    await client.upload(folder, name, data, encrypted ? "application/octet-stream" : "application/gzip");
     // Keep the newest KEEP backups.
     const files = (await client.list(folder)).filter((f) => f.name.startsWith("assistant-"));
     for (const old of files.slice(KEEP)) await client.remove(old.id);
-    status = { at: now.toISOString(), ok: true, bytes: data.byteLength, file: name };
+    status = { at: now.toISOString(), ok: true, bytes: data.byteLength, file: name, encrypted };
   } catch (err) {
     console.error("backup: failed", err);
     status = { at: now.toISOString(), ok: false, error: err instanceof Error ? err.message : String(err) };

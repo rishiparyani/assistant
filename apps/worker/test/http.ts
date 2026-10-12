@@ -10,7 +10,9 @@ export async function call(
     method?: string;
     body?: unknown;
     cookie?: string;
-    raw?: string;
+    /** The body as sent (a string is JSON; bytes go as they are, e.g. a backup file). */
+    raw?: string | Uint8Array;
+    headers?: Record<string, string>;
     idempotencyKey?: string | null;
     /** An API token (Authorization: Bearer …) instead of a cookie. */
     bearer?: string;
@@ -24,10 +26,12 @@ export async function call(
   }
   if (init.cookie) headers.set("cookie", init.cookie);
   if (init.bearer) headers.set("authorization", `Bearer ${init.bearer}`);
-  let body: string | undefined;
+  for (const [k, v] of Object.entries(init.headers ?? {})) headers.set(k, v);
+  let body: string | Uint8Array | undefined;
   if (init.raw !== undefined) body = init.raw;
   else if (init.body !== undefined) body = JSON.stringify(init.body);
-  if (body !== undefined) headers.set("content-type", "application/json");
+  if (typeof body === "string") headers.set("content-type", "application/json");
+  else if (body !== undefined) headers.set("content-type", "application/octet-stream");
   return worker().fetch(BASE + path, {
     method: init.method ?? (body !== undefined ? "POST" : "GET"),
     headers,

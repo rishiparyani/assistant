@@ -12,14 +12,14 @@ import { sendTelegram, telegramChat } from "../alerts/telegram.ts";
 import { getSetting, setSetting } from "../settings.ts";
 import { authUrl, exchangeCode } from "../backup/drive.ts";
 import {
+  backupEncrypted,
   backupStatus,
   disconnectDrive,
   driveConnected,
-  gunzip,
+  openBackupBytes,
   restoreBackup,
   runBackup,
   saveDriveToken,
-  type BackupFile,
 } from "../backup/service.ts";
 
 const requireAdmin = createMiddleware<AppEnv>(async (c, next) => {
@@ -60,6 +60,7 @@ export function adminRoutes(modules: readonly ModuleDefinition[]) {
   r.get("/api/admin/backup", async (c) =>
     c.json({
       google_configured: !!(c.env.GOOGLE_CLIENT_ID && c.env.GOOGLE_CLIENT_SECRET),
+      encrypted: backupEncrypted(c.env),
       connected: await driveConnected(c.env),
       last: await backupStatus(c.env),
     }),
@@ -118,14 +119,11 @@ export function adminRoutes(modules: readonly ModuleDefinition[]) {
     if (c.req.query("confirm") !== "RESTORE")
       throw new AppError("validation_failed", "Add ?confirm=RESTORE to restore");
     const bytes = new Uint8Array(await c.req.arrayBuffer());
-    const text =
-      bytes[0] === 0x1f && bytes[1] === 0x8b ? await gunzip(bytes) : new TextDecoder().decode(bytes);
-    let file: BackupFile;
-    try {
-      file = JSON.parse(text) as BackupFile;
-    } catch {
-      throw new AppError("validation_failed", "Not a backup file");
-    }
+    // An encrypted backup opens with the Worker's BACKUP_KEY, or the key sent along
+    // (X-Backup-Key: a backup made with an earlier key, or on another Worker).
+    const file = await openBackupBytes(c.env, bytes, c.req.header("x-backup-key")).catch((err: Error) => {
+      throw new AppError("validation_failed", err.message);
+    });
     const result = await restoreBackup(c.env, modules, file).catch((err: Error) => {
       throw new AppError("validation_failed", err.message);
     });

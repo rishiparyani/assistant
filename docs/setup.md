@@ -130,3 +130,13 @@ Check current numbers in Cloudflare's and GitHub's docs before relying on them; 
 3. In the app: Settings → **Admin panel** → **Backups** → **Connect Google Drive** → choose the account → allow. Backups then run every night; "Back up now" runs one immediately.
 
 Restore: Admin panel → Backups → **Restore from a file** (owners only). It only adds what's missing.
+
+### Encrypting the backups (owner, once; recommended)
+
+With a key set, every backup in Drive is sealed (AES-256-GCM) and unreadable without it, so a leaked Drive file gives nothing away.
+
+1. Make a key on your laptop: `openssl rand -base64 32` (any long random string works). **Keep it in your password manager**: a restore needs the same key, and nobody can recover a backup without it.
+2. GitHub → the repo → Settings → Secrets and variables → Actions → **New repository secret** → name `BACKUP_KEY`, value the key → Add. The next deploy sets it on the Worker (dev and prod both use it).
+3. Admin panel → Backups shows **Encrypted** once it's live; the next nightly file ends in `.json.gz.enc`.
+
+Restore of an encrypted file uses the Worker's key by itself. A file made with an earlier key, or restored on another Worker, needs that key typed in the **Backup key** box next to Restore.

@@ -16,7 +16,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 6. ~~First run conversation~~ (HF9: everyday lists from the week, each with its card; a whole setup card needs the smart model); ~~setup sharing; memory page~~ (HF10).
 7. ~~Web target served with the website (`/app`); laptop layout~~ (HF11); the switch once the new home matches today's site.
 8. Swift: ~~App Intents~~ (HF12); widgets from pinned cards, Share extension, on-device model; Android later.
-9. Encrypt the nightly backup with an owner-held key (restore takes the same key); until then backups are gzipped JSON in the owner's private Drive.
+9. ~~Encrypt the nightly backup with an owner-held key (restore takes the same key)~~ (HF 9: `BACKUP_KEY`; without it backups stay gzipped JSON in the owner's private Drive).
 
 ## C1 New look and the chat-first shell
 
