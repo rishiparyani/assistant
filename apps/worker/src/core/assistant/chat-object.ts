@@ -651,6 +651,12 @@ export class ChatObject extends DurableObject<Env> {
     });
   }
 
+  /** A write this person made at a connected service (an event added), in their audit log. */
+  async auditConnector(actor: Actor & { userId: string }, kind: string, action: string, after: unknown) {
+    this.own(actor.userId);
+    audit(this.sql, actor, { action, entityType: "connector", entityId: kind, after });
+  }
+
   /** Forgets a connector; returns what was kept (to revoke it with the service). */
   async removeConnector(actor: Actor & { userId: string }, kind: string): Promise<ConnectorRow | null> {
     this.own(actor.userId);

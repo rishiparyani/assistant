@@ -162,6 +162,41 @@ export async function upcomingEvents(
   };
 }
 
+/**
+ * Adds an event at Google, once per Idempotency-Key: the key is claimed in the person's chat
+ * object first and the result kept there for 24 hours, so a retried request returns the same
+ * event instead of adding another. The write goes in the person's audit log.
+ */
 export async function addEvent(ctx: OpUserCtx, e: NewEvent): Promise<CalendarEvent> {
-  return (await calendarOf(ctx)).add(e);
+  const chat = chatObject(ctx.objects, ctx.user.id);
+  const uid = ctx.user.id;
+  const key = ctx.idempotencyKey ? `calendar:${ctx.idempotencyKey}` : null;
+  const hash = await sha256(JSON.stringify(["calendar_add_event", e]));
+  if (key) {
+    const done = await chat.recallResult(uid, key, hash);
+    if (done) return done as CalendarEvent;
+    if ((await chat.claim(uid, key)) === "running")
+      throw new AppError("conflict", "That event is still being added");
+  }
+  try {
+    const event = await (await calendarOf(ctx)).add(e);
+    if (key) {
+      await chat.keepResult(uid, key, hash, event);
+      await chat.release(uid, key, true);
+    }
+    await chat.auditConnector(actorOf(ctx), "google-calendar", "calendar_add_event", {
+      id: event.id,
+      title: event.title,
+      start: event.start,
+    });
+    return event;
+  } catch (err) {
+    if (key) await chat.release(uid, key, false);
+    throw err;
+  }
+}
+
+async function sha256(text: string): Promise<string> {
+  const d = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+  return [...d].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

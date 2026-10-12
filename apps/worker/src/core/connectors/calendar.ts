@@ -59,8 +59,12 @@ export function googleCalendar(token: string, f: typeof fetch = fetch): Calendar
   };
   return {
     async account() {
-      const r = (await (await check(await f(API, { headers: auth }), "read")).json()) as { id?: string };
-      return r.id ?? null;
+      // The events list is covered by the calendar.events scope; its summary is the primary
+      // calendar's name, which Google sets to the account's email.
+      const r = (await (
+        await check(await f(`${API}/events?maxResults=1&fields=summary`, { headers: auth }), "read")
+      ).json()) as { summary?: string };
+      return r.summary ?? null;
     },
     async upcoming(fromIso, toIso, max) {
       const q = new URLSearchParams({
@@ -78,6 +82,9 @@ export function googleCalendar(token: string, f: typeof fetch = fetch): Calendar
     },
     async add(e) {
       const day = (s: string) => s.slice(0, 10);
+      // Google's all-day end date is exclusive: an event on the 14th ends on the 15th.
+      const dayAfter = (s: string) =>
+        new Date(Date.parse(`${day(s)}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
       const allDay = !!e.all_day || /^\d{4}-\d{2}-\d{2}$/.test(e.start);
       const endOf = (s: string) => new Date(Date.parse(s) + 60 * 60_000).toISOString();
       const body = {
@@ -86,7 +93,7 @@ export function googleCalendar(token: string, f: typeof fetch = fetch): Calendar
         description: e.notes ?? undefined,
         start: allDay ? { date: day(e.start) } : { dateTime: e.start, timeZone: "Asia/Kolkata" },
         end: allDay
-          ? { date: day(e.end ?? e.start) }
+          ? { date: dayAfter(e.end ?? e.start) }
           : { dateTime: e.end ?? endOf(e.start), timeZone: "Asia/Kolkata" },
       };
       const res = await check(

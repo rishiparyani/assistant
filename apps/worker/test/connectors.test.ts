@@ -52,10 +52,19 @@ describe("Google Calendar connector", () => {
     });
     expect(added.status).toBe(201);
     expect(await json(added)).toMatchObject({ title: "Test rehearsal", start: `${tomorrow}T19:00:00+05:30` });
+    // The same request again (a retry with its Idempotency-Key) returns the same event, once.
+    const body = { title: "Test soundcheck", start: `${tomorrow}T17:00` };
+    const first = await json<{ id: string }>(
+      await api(me)("/connectors/google-calendar/events", { body, idempotencyKey: "test-cal-1" }),
+    );
+    const replay = await json<{ id: string }>(
+      await api(me)("/connectors/google-calendar/events", { body, idempotencyKey: "test-cal-1" }),
+    );
+    expect(replay.id).toBe(first.id);
     const list = await json<{ events: { title: string }[] }>(
       await api(me)("/connectors/google-calendar/events?days=3"),
     );
-    expect(list.events.map((e) => e.title)).toEqual(["Test rehearsal"]);
+    expect(list.events.map((e) => e.title).sort()).toEqual(["Test rehearsal", "Test soundcheck"]);
 
     // Someone else has no calendar of mine.
     const other = await signUp("Test Other");
