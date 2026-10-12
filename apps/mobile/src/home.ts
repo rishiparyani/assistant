@@ -22,8 +22,9 @@ import { colourFor, type CollectionColour } from "./theme.ts";
 
 export interface HomeCard {
   id: string;
-  /** The saved view this card shows (its order and size live there). */
-  view: SavedView;
+  /** The saved view this card shows (its order and size live there); null for a list the
+   *  chat shows that isn't saved as a view. */
+  view: SavedView | null;
   spec: CardSpec;
   collection: CollectionView;
   colour: CollectionColour;
@@ -91,6 +92,44 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
 
 /** The sizes this card can be drawn at. */
 export const sizesFor = (spec: CardSpec): readonly CardSize[] => ARRANGEMENT_SIZES[spec.arrangement];
+
+/** A card for a saved view (its spec from the view) or for a list the chat shows (no view). */
+export function cardFor(
+  c: CollectionView,
+  records: RecordView[],
+  view: SavedView | null,
+  title?: string,
+): HomeCard {
+  const spec = view
+    ? specFor(view, c)
+    : specFor(
+        {
+          id: `list:${c.id}`,
+          name: title ?? c.name,
+          collection_id: c.id,
+          collection: c.name,
+          filters: [],
+          search: null,
+          sort: null,
+          add_fields: [],
+          mode: "list",
+          pinned: false,
+          position: 0,
+          card_size: null,
+          updated_at: "",
+        },
+        c,
+      );
+  return {
+    id: view?.id ?? `list:${c.id}:${title ?? ""}`,
+    view,
+    spec,
+    collection: c,
+    colour: colourFor(c.name),
+    records,
+    total: totalOf(spec, records),
+  };
+}
 
 function totalOf(spec: CardSpec, records: RecordView[]): number | null {
   const f = spec.sources[0]?.sum_field;
@@ -212,6 +251,7 @@ export function rememberHome(userId: string, pages: HomePage[]) {
 }
 
 const viewChange = (card: HomeCard, body: object, label: string) =>
+  card.view &&
   send({
     kind: "spaces.update_view",
     method: "PATCH",
@@ -222,7 +262,7 @@ const viewChange = (card: HomeCard, body: object, label: string) =>
 
 /** A new size from the card's menu: drawn at once, saved on the view through the outbox. */
 export function resize(card: HomeCard, size: CardSize): HomeCard {
-  if (!sizesFor(card.spec).includes(size) || size === card.spec.size) return card;
+  if (!card.view || !sizesFor(card.spec).includes(size) || size === card.spec.size) return card;
   viewChange(card, { card_size: size }, "Size");
   return { ...card, view: { ...card.view, card_size: size }, spec: { ...card.spec, size } };
 }
@@ -236,7 +276,7 @@ export function unpin(card: HomeCard): void {
 export function saveOrder(cards: HomeCard[]): HomeCard[] {
   return cards.map((card, i) => {
     const position = i + 1;
-    if (card.view.position === position) return card;
+    if (!card.view || card.view.position === position) return card;
     viewChange(card, { position }, "Move");
     return { ...card, view: { ...card.view, position } };
   });
