@@ -1328,8 +1328,8 @@ export class SpaceObject extends DurableObject<Env> {
       this.fieldRows(collectionId).find((f) => f.id === id)?.name ?? null;
     const cond = (collectionId: string, f: { field: string; op: FilterOp; value?: unknown }) => {
       const row = this.fieldRows(collectionId).find((x) => x.id === f.field);
-      // A filter on a link holds record ids: data, not setup.
-      if (!row || row.type === "link") return null;
+      // A filter on a link holds record ids: data, not setup ("is empty" / "isn't empty" travel).
+      if (!row || (row.type === "link" && f.op !== "empty" && f.op !== "not_empty")) return null;
       return { field: row.name, op: f.op, ...(f.value === undefined ? {} : { value: f.value }) };
     };
     const conds = (collectionId: string, list: { field: string; op: FilterOp; value?: unknown }[]) =>
@@ -1375,9 +1375,12 @@ export class SpaceObject extends DurableObject<Env> {
       }),
     }));
     const rules = ordered.flatMap((c) =>
-      this.ruleRows(c.id).map((r) => {
+      this.ruleRows(c.id).flatMap((r) => {
         const def = JSON.parse(r.def_json) as RuleDef;
         const names = (ids: string[]) => ids.flatMap((id) => fieldName(c.id, id) ?? []);
+        // A check made only of link filters (record ids, data) has nothing left to travel:
+        // it stays behind rather than sending a rule that can't be made.
+        if (r.kind === "check" && !conds(c.id, def.require).length) return [];
         return {
           collection: c.name,
           kind: r.kind,

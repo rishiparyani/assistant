@@ -349,6 +349,43 @@ export class ChatObject extends DurableObject<Env> {
     return true;
   }
 
+  /**
+   * A card someone else sends (a shared setup): the card and its message in one write, once
+   * per key. A retry after a crash either finds it delivered or delivers it whole.
+   */
+  async deliverCard(
+    userId: string,
+    onceKey: string,
+    a: { tool: string; args: Record<string, unknown>; title: string; details: string[] },
+    message: string,
+    ttlMinutes: number,
+  ): Promise<boolean> {
+    this.own(userId);
+    return this.ctx.storage.transactionSync(() => {
+      if (getMeta(this.sql, `claim:${onceKey}`)) return false;
+      setMeta(this.sql, `claim:${onceKey}`, nowIso());
+      const id = ulid();
+      this.sql.exec(
+        `insert into actions (id, tool, args_json, title, details_json, status, created_at, expires_at) values (?, ?, ?, ?, ?, 'waiting', ?, ?)`,
+        id,
+        a.tool,
+        JSON.stringify(a.args),
+        a.title,
+        JSON.stringify(a.details),
+        nowIso(),
+        new Date(Date.now() + ttlMinutes * 60_000).toISOString(),
+      );
+      this.insert(
+        [
+          { role: "assistant", content: message, shown: "assistant" },
+          { role: "assistant", content: a.title, shown: "card", card_action_id: id },
+        ],
+        null,
+      );
+      return true;
+    });
+  }
+
   async addAction(
     userId: string,
     a: { tool: string; args: Record<string, unknown>; title: string; details: string[] },

@@ -7,6 +7,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Memory } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { homeChanged } from "@/home";
 import { radius, useTheme } from "@/theme";
 
 export default function MemoryPage() {
@@ -32,6 +33,8 @@ export default function MemoryPage() {
     try {
       await request("DELETE", `/api/memories/${encodeURIComponent(m.id)}`);
       setItems((prev) => (prev ?? []).filter((x) => x.id !== m.id));
+      // The memory card on the home under this page shows it too.
+      homeChanged();
       setNote("");
     } catch (e) {
       setNote(isOffline(e) ? "Forgetting needs a connection." : e instanceof Error ? e.message : String(e));

@@ -102,12 +102,29 @@ describe("setup sharing", () => {
     expect(
       (await api(owner)("/setups/share", { body: { to: ["Nobody"], collections: ["Bookings"] } })).status,
     ).toBe(404);
-    // Bookings alone: Clients comes along (the link needs it).
-    const sent = await json<SharedSetup>(
-      await api(owner)("/setups/share", {
-        body: { to: ["Rahul"], collections: ["Bookings"], name: "Gig bookings" },
-      }),
+    // A check made only of a link filter (a record id: data) stays behind.
+    const client = await json<RecordView>(
+      await api(owner)("/collections/Clients/records", { body: { values: { Name: "Test Client Co" } } }),
     );
+    expect(
+      (
+        await api(owner)("/collections/Bookings/rules", {
+          body: {
+            kind: "check",
+            require: [{ field: "Client", op: "eq", value: client.id }],
+            only_if: [{ field: "Status", op: "eq", value: "Enquiry" }],
+          },
+        })
+      ).status,
+    ).toBe(201);
+    // Bookings alone: Clients comes along (the link needs it). The same request twice (a retry)
+    // delivers one card.
+    const shareOnce = {
+      body: { to: ["Rahul"], collections: ["Bookings"], name: "Gig bookings" },
+      idempotencyKey: "test-share-setup-1",
+    };
+    const sent = await json<SharedSetup>(await api(owner)("/setups/share", shareOnce));
+    expect((await api(owner)("/setups/share", shareOnce)).status).toBe(201);
     expect(sent.to.map((p) => p.name)).toEqual(["Rahul Test"]);
     expect(sent.collections.sort()).toEqual(["Bookings", "Clients"]);
     expect(sent.words).toEqual(
@@ -123,6 +140,7 @@ describe("setup sharing", () => {
 
     // Rahul's chat has the card; nothing is made before the tap.
     const chat = await json<ChatView>(await api(rahul)("/chats/main"));
+    expect(chat.items.filter((i) => i.card).length).toBe(1);
     const card = chat.items.find((i) => i.card)!.card!;
     expect(card.title).toBe("Make “Gig bookings” (from Test Owner)");
     expect(card.status).toBe("waiting");

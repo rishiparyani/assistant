@@ -218,7 +218,7 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
     const pages: HomePage[] = [
       { name: "Now", auto: true, cards: now },
       // A person with nothing of their own (a collaborator) has no page to arrange.
-      ...(cards.length || !sharedCards.length ? [{ name: "My day", cards: mine }] : []),
+      ...(mine.length || !sharedCards.length ? [{ name: "My day", cards: mine }] : []),
       ...(sharedCards.length ? [{ name: "Shared with you", cards: sharedCards }] : []),
     ];
     writeJson(keyFor(userId), pages);
@@ -410,6 +410,14 @@ export function processCard(w: WaitingItem): HomeCard {
     waiting: w,
   };
 }
+
+/** Something on another screen changed what the home shows (a memory forgotten): read again. */
+const homeListeners = new Set<() => void>();
+export function onHomeChanged(l: () => void): () => void {
+  homeListeners.add(l);
+  return () => homeListeners.delete(l);
+}
+export const homeChanged = () => homeListeners.forEach((l) => l());
 
 export function memoryCard(memories: Memory[]): HomeCard {
   return {

@@ -58,21 +58,16 @@ async function sendTo(
   details: string[],
 ): Promise<void> {
   const chat = ctx.objects.CHATS.get(ctx.objects.CHATS.idFromName(`chat:${p.user_id}`));
-  // A retried request posts the card once.
-  if (ctx.idempotencyKey && !(await chat.claimOnce(p.user_id, `setup:${ctx.idempotencyKey}`))) return;
-  const id = await chat.addAction(
+  // The card and its message land together, once per request key and person: a retry after
+  // a failure delivers to whoever didn't get it, and nobody gets it twice.
+  const delivered = await chat.deliverCard(
     p.user_id,
+    `setup:${ctx.idempotencyKey ?? crypto.randomUUID()}`,
     { tool: "make_setup", args: def as unknown as Record<string, unknown>, title, details },
+    `${ctx.user.name} shared a setup with you: “${def.name}”. Make it to get it in your own space (the lists, not their records); nothing happens otherwise.`,
     SHARED_SETUP_MINUTES,
   );
-  await chat.append(p.user_id, [
-    {
-      role: "assistant",
-      content: `${ctx.user.name} shared a setup with you: “${def.name}”. Make it to get it in your own space (the lists, not their records); nothing happens otherwise.`,
-      shown: "assistant",
-    },
-    { role: "assistant", content: title, shown: "card", card_action_id: id },
-  ]);
+  if (!delivered) return;
   try {
     await ctx.objects.INBOX.getByName(inboxName(p.user_id)).notify({
       kind: "setup_shared",

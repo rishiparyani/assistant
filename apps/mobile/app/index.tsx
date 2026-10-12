@@ -35,6 +35,7 @@ import {
   unpin,
   type HomeCard,
   type HomePage,
+  onHomeChanged,
 } from "@/home";
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
@@ -89,6 +90,7 @@ export default function Home() {
   useEffect(() => {
     if (userId) void load();
   }, [userId, load]);
+  useEffect(() => onHomeChanged(() => void load()), [load]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && userId) void load();
