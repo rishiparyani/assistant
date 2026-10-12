@@ -1001,15 +1001,30 @@ export class SpaceObject extends DurableObject<Env> {
     for (const a of adds) {
       const view = views.find((v) => v.collection_id === a.collection_id && v.pinned && !v.add_fields.length);
       if (!view) continue;
-      const fields = this.fieldRows(a.collection_id).filter(
-        (f) =>
-          !toField(f).options.personal &&
-          f.type !== "link" &&
-          !toField(f).options.formula &&
-          !toField(f).options.rollup,
+      const all = this.fieldRows(a.collection_id);
+      const fillable = (f: FieldRow) =>
+        f.type !== "link" &&
+        f.type !== "person" &&
+        !toField(f).options.personal &&
+        !toField(f).options.formula &&
+        !toField(f).options.rollup;
+      // The required fields first (a quick add must fill them in), then the others up to three;
+      // a list whose required fields a quick add can't fill gets no proposal.
+      const required = all.filter((f) => f.required);
+      if (required.some((f) => !fillable(f)) || required.length > 10) continue;
+      const pick = [...required, ...all.filter((f) => !f.required && fillable(f))].slice(
+        0,
+        Math.max(3, required.length),
       );
-      const names = fields.slice(0, 3).map((f) => f.name);
-      if (!names.length) continue;
+      if (
+        !pick.length ||
+        this.quickAddProblem(
+          all,
+          pick.map((f) => f.id),
+        )
+      )
+        continue;
+      const names = pick.map((f) => f.name);
       out.push({
         kind: "quick_add",
         title: `A quick add for ${view.collection}`,
@@ -4809,20 +4824,33 @@ export class SpaceObject extends DurableObject<Env> {
           nameKey(spec.name),
         )
         .toArray()[0];
-      if (have) return this.collectionView(have);
-      const { kind: _k, ...input } = spec;
-      const id = this.insertCollection(actor, { ...input, id: null }, ts);
-      if (kind === "reminders") this.remindersWorkflow(id, ts);
+      let id: string;
+      if (have) id = have.id;
+      else {
+        const { kind: _k, ...input } = spec;
+        id = this.insertCollection(actor, { ...input, id: null }, ts);
+        if (kind === "reminders") this.remindersWorkflow(id, ts);
+      }
       // Every everyday list comes with its card on the home (home-first.md §2 point 15: the
-      // first run is a conversation, and what it starts shows up at once).
+      // first run is a conversation, and what it starts shows up at once). A list made before
+      // cards existed gets its card the next time it's started; once by name, so a card the
+      // person took off or renamed isn't forced back.
       const card = STARTER_CARDS[kind];
       if (
         card &&
+        !getMeta(this.sql, `starter_card:${kind}`) &&
         !this.sql
           .exec(`select 1 from views where name_key = ? and deleted_at is null`, nameKey(card.name))
           .toArray().length
       )
-        this.insertView(actor, { ...card, collection: id, pinned: true, mode: "list" }, ts);
+        try {
+          this.insertView(actor, { ...card, collection: id, pinned: true, mode: "list" }, ts);
+        } catch (e) {
+          // A list made by hand may lack the field the card reads (Expenses without a Date):
+          // the list still starts, without its card.
+          if (!(e instanceof ObjectError)) throw e;
+        }
+      if (card) setMeta(this.sql, `starter_card:${kind}`, "1");
       return this.collectionView(this.requireCollection(id));
     });
   }

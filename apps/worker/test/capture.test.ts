@@ -41,4 +41,22 @@ describe("the inbox", () => {
     expect(r2.record.named.Source).toBe("Other");
     expect(r2.guess).toBeNull();
   });
+
+  it("only proposes where a capture goes: the filing waits for a tap", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/inbox", { body: { text: "Test PA needs two DI boxes", source: "share" } });
+    // The model filed it as a note, but in the Inbox turn that's a card, not a write.
+    const chat = await json<ChatView>(await api(me)("/chats/main"));
+    const card = chat.items.find((i) => i.card)?.card;
+    expect(card?.tool).toBe("add_record");
+    expect(card?.status).toBe("waiting");
+    const notes = await json<{ items: RecordView[] }>(await api(me)("/collections/Notes/find", { body: {} }));
+    expect(notes.items.some((r) => r.title === "Test PA needs two DI boxes")).toBe(false);
+    // The tap files it.
+    expect((await api(me)(`/chats/main/actions/${card!.action_id}/confirm`, { method: "POST" })).status).toBe(
+      200,
+    );
+    const after = await json<{ items: RecordView[] }>(await api(me)("/collections/Notes/find", { body: {} }));
+    expect(after.items.some((r) => r.title === "Test PA needs two DI boxes")).toBe(true);
+  });
 });

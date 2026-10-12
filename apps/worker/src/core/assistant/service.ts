@@ -502,6 +502,8 @@ export async function sendMessage(
   ops: readonly AnyOperation[],
   input: { text: string; think_harder?: boolean },
   chatId = MAIN,
+  /** Every write becomes a card to tap, whatever its own rules (the Inbox's filing turn). */
+  opts: { proposeOnly?: boolean } = {},
 ): Promise<ChatView> {
   await requireAssistant(ctx);
   const chat = await useChat(ctx, chatId);
@@ -512,7 +514,7 @@ export async function sendMessage(
   if (claim === "done") return chatView(ctx, chatId);
   if (claim === "running") throw new AppError("conflict", "Still answering your last message");
   try {
-    await answerMessage(ctx, ops, input, key, chatId);
+    await answerMessage(ctx, ops, input, key, chatId, !!opts.proposeOnly);
     // Names a new chat and moves it up the list (the list follows by outbox; nothing here
     // can fail the send after it's answered).
     if (chatId !== MAIN) await chat.touched(uid, input.text);
@@ -530,6 +532,7 @@ async function answerMessage(
   input: { text: string; think_harder?: boolean },
   requestKey: string,
   chatId: string,
+  proposeOnly = false,
 ): Promise<void> {
   const chat = chatOf(ctx, chatId);
   const uid = ctx.user.id;
@@ -577,7 +580,16 @@ async function answerMessage(
     rows.push({ ...callMsg, shown: null });
     for (const [i, call] of tool_calls.entries()) {
       // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
-      const result = await runTool(ctx, ops, call, allowed, level, `${requestKey}:${step}:${i}`, cols);
+      const result = await runTool(
+        ctx,
+        ops,
+        call,
+        allowed,
+        level,
+        `${requestKey}:${step}:${i}`,
+        cols,
+        proposeOnly,
+      );
       if (result.kind === "hand_over") {
         // Start this request again at level 2, without the handover call.
         turn.pop();
@@ -661,6 +673,7 @@ async function runTool(
   level: Level,
   writeKey: string,
   cols: CollectionView[],
+  proposeOnly = false,
 ): Promise<ToolResult> {
   const name = call.function.name;
   if (name === "hand_over" && level === 1) return { kind: "hand_over", text: "{}" };
@@ -679,6 +692,7 @@ async function runTool(
     if (name === "create_workflow") args = { ...args, enabled: false };
     const input = parse(op.input, args);
     const confirmFirst =
+      proposeOnly ||
       op.confirm ||
       SETUP.includes(name) ||
       (op.confirmWhen ? await op.confirmWhen(operationContext(op, ctx), input) : false);

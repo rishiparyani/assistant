@@ -6,6 +6,9 @@ import { spaceName } from "../spaces/service.ts";
 import type { Proposal } from "../spaces/space-object.ts";
 import { notify } from "../push/notify.ts";
 
+/** How long a proposal can be tapped: until the next week's arrive. */
+const WEEK_MINUTES = 7 * 24 * 60;
+
 /** Monday, 09:00 India time (03:30 UTC), in the quarter hour the cron runs. */
 export const thisWeekDue = (now: Date) =>
   now.getUTCDay() === 1 && now.getUTCHours() === 3 && now.getUTCMinutes() >= 30 && now.getUTCMinutes() < 45;
@@ -44,12 +47,12 @@ export async function proposeWeek(env: Env, userId: string, spaceId: string, now
     shown: "assistant" as const,
   });
   for (const p of proposals) {
-    const id = await chat.addAction(userId, {
-      tool: p.tool,
-      args: p.args,
-      title: p.title,
-      details: [p.why, ...p.details],
-    });
+    // Tappable all week (a confirm card lasts 30 minutes; this one waits for the person).
+    const id = await chat.addAction(
+      userId,
+      { tool: p.tool, args: p.args, title: p.title, details: [p.why, ...p.details] },
+      WEEK_MINUTES,
+    );
     rows.push({ role: "assistant" as const, content: p.title, shown: "card" as const, card_action_id: id });
   }
   await chat.append(userId, rows);

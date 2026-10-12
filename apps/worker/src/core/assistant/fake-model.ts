@@ -43,6 +43,9 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // "Test: open song <id>": an app's tool (Songbook), shown as the app's card.
   if (lastUser.startsWith("Test: open song "))
     return call("get_song", { song_id: lastUser.slice("Test: open song ".length) });
+  // A capture about the PA: the model files it as a note (the Inbox turn makes it a card).
+  if (lastUser.startsWith("Captured from ") && lastUser.includes("Test PA needs two DI boxes"))
+    return call("add_record", { collection: "Notes", values: { Title: "Test PA needs two DI boxes" } });
   // "Test: which apps": whether the apps' lines reached the instructions.
   if (lastUser === "Test: which apps")
     return say(String(messages[0]?.content ?? "").includes("Songbook:") ? "Songbook is here." : "No apps.");

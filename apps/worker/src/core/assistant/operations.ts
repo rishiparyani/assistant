@@ -89,9 +89,16 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
         });
         let guess: string | null = null;
         if (await assistantAllowed(ctx)) {
-          const chat = await sendMessage(ctx, all(), {
-            text: `Captured from ${source}: ${i.text}\n(Where should this go? Propose the add; I'll tap.)`,
-          });
+          // Proposals only: whatever the model would file becomes a card the person taps.
+          const chat = await sendMessage(
+            ctx,
+            all(),
+            {
+              text: `Captured from ${source}: ${i.text}\n(Where should this go? Propose the add; I'll tap.)`,
+            },
+            undefined,
+            { proposeOnly: true },
+          );
           const reply = [...chat.items].reverse().find((x) => x.role === "assistant" || x.role === "card");
           guess = reply?.text?.slice(0, 500) ?? null;
           if (guess)
