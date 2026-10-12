@@ -393,9 +393,10 @@ describe("saved views", () => {
       await api(me)(`/views/${v.id}`, { method: "PATCH", body: { card_size: null } }),
     );
     expect(cleared.card_size).toBeNull();
-    expect((await json<SavedView[]>(await api(me)("/views"))).map((x) => x.name)).toEqual(["Big ones"]);
+    // The everyday lists' own cards are there too (Today, Spent this month, …).
+    expect((await json<SavedView[]>(await api(me)("/views"))).map((x) => x.name)).toContain("Big ones");
     expect((await api(me)(`/views/${v.id}`, { method: "DELETE" })).status).toBe(200);
-    expect(await json<SavedView[]>(await api(me)("/views"))).toEqual([]);
+    expect((await json<SavedView[]>(await api(me)("/views"))).map((x) => x.name)).not.toContain("Big ones");
     const other = await signUp("Test Other");
     expect((await api(other)(`/views/${v.id}`)).status).toBe(404);
   });

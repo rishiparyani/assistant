@@ -17,14 +17,11 @@ describe("this week", () => {
     const me = await signUp("Test Owner");
     const { user } = await json<MeResponse>(await api(me)("/me"));
     const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
-    // Six expenses by hand this week, with a pinned card and no quick add.
+    // Six expenses by hand this week; the Expenses list's own card has no quick add.
     for (let i = 0; i < 6; i++)
       await api(me)("/collections/Expenses/records", {
         body: { values: { What: `Test chai ${i}`, Amount: "40" } },
       });
-    await api(me)("/views", {
-      body: { name: "Spent", collection: "Expenses", pinned: true, filters: [], mode: "list" },
-    });
     // A list with a date and money where a date went by this week, and nothing watching it.
     await api(me)("/collections", {
       body: {
@@ -40,18 +37,13 @@ describe("this week", () => {
     await api(me)("/collections/Invoices/records", {
       body: { values: { Title: "Test club invoice", Due: yesterday, Amount: "15000" } },
     });
-    // A pinned reminders card where everything is ticked.
+    // The Reminders list's own pinned card (Today) where everything is ticked.
     const r = await json<RecordView>(
       await api(me)("/collections/Reminders/records", {
         body: { values: { Title: "Test done thing", Done: true } },
       }),
     );
     expect(r.id).toBeTruthy();
-    const today = await json<SavedView>(
-      await api(me)("/views", {
-        body: { name: "Today", collection: "Reminders", pinned: true, filters: [], mode: "list" },
-      }),
-    );
 
     expect(await proposeWeek(env, user.id, space!.id, new Date())).toBe(3);
     const chat = await json<ChatView>(await api(me)("/chats/main"));
@@ -68,11 +60,10 @@ describe("this week", () => {
       200,
     );
     const views = await json<SavedView[]>(await api(me)("/views"));
-    expect(views.find((v) => v.name === "Spent")?.add_fields.length).toBeGreaterThan(0);
+    expect(views.some((v) => v.collection === "Expenses" && v.add_fields.length > 0)).toBe(true);
     // The same week twice: the message isn't posted again.
     await proposeWeek(env, user.id, space!.id, new Date());
     const again = await json<ChatView>(await api(me)("/chats/main"));
     expect(again.items.filter((i) => i.text.startsWith("This week:")).length).toBe(1);
-    expect(today.pinned).toBe(true);
   });
 });

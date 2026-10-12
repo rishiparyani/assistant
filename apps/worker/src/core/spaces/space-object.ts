@@ -581,6 +581,15 @@ export type WorkflowSpec = {
   )[];
   enabled: boolean;
 };
+/** The card each everyday list starts with (name and filter; the rest is the list's). */
+const STARTER_CARDS: Partial<Record<StarterKind, { name: string; filters: Filter[] }>> = {
+  reminders: { name: "Today", filters: [{ field: "Done", op: "ne", value: true }] },
+  expenses: { name: "Spent this month", filters: [{ field: "Date", op: "period", value: "this_month" }] },
+  events: { name: "Coming up", filters: [{ field: "Starts", op: "period", value: "future" }] },
+  notes: { name: "Notes", filters: [] },
+  inbox: { name: "Inbox", filters: [{ field: "Sorted", op: "ne", value: true }] },
+};
+
 /** At most this many workflows per space, and this many workflow steps in a chain. */
 const MAX_WORKFLOWS = 100;
 const MAX_WORKFLOW_DEPTH = 3;
@@ -4804,19 +4813,16 @@ export class SpaceObject extends DurableObject<Env> {
       const { kind: _k, ...input } = spec;
       const id = this.insertCollection(actor, { ...input, id: null }, ts);
       if (kind === "reminders") this.remindersWorkflow(id, ts);
-      // The Inbox is a card on the home from the start: what's not sorted yet, ticks put away.
-      if (kind === "inbox")
-        this.insertView(
-          actor,
-          {
-            name: "Inbox",
-            collection: id,
-            pinned: true,
-            filters: [{ field: "Sorted", op: "ne", value: true }],
-            mode: "list",
-          },
-          ts,
-        );
+      // Every everyday list comes with its card on the home (home-first.md §2 point 15: the
+      // first run is a conversation, and what it starts shows up at once).
+      const card = STARTER_CARDS[kind];
+      if (
+        card &&
+        !this.sql
+          .exec(`select 1 from views where name_key = ? and deleted_at is null`, nameKey(card.name))
+          .toArray().length
+      )
+        this.insertView(actor, { ...card, collection: id, pinned: true, mode: "list" }, ts);
       return this.collectionView(this.requireCollection(id));
     });
   }

@@ -4,7 +4,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
-**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: first run as a conversation (HF9), then the web switch (step 7).
+**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: the web switch (step 7), then step 8 (widgets, App Intents, share extension).
 
 ## HF Home first (docs/design/home-first.md §7)
 
@@ -13,7 +13,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 3. ~~Chat sheet with card context; confirm cards in the app; What changed + Undo; live cards in the stream~~ (HF1, HF3, HF3b, HF3c); ~~collaborator homes~~ (HF5a); ~~per-person assistant switch in the admin panel~~ (the website's Assistant access section; the phone reads it from `/api/me`).
 4. ~~Processes: roles, waiting on, nudges, loops; process card~~ (HF4); ~~client-by-link step~~ (dropped: every write needs a signed-in person); process detail on the phone.
 5. ~~Search (one index per person: FTS5 + embeddings)~~ (HF6; Vectorize only if a person's index outgrows the object), ~~Inbox~~ (HF8b; the phone's share extension and Siri intent for it are step 8), ~~This week proposals~~ (HF8a).
-6. First run conversation; setup sharing; memory page.
+6. ~~First run conversation~~ (HF9: everyday lists from the week, each with its card; a whole setup card needs the smart model); setup sharing; memory page.
 7. Web target until it matches today's site, then the switch; laptop layout.
 8. Swift: widgets from pinned cards, App Intents, Share extension, on-device model; Android later.
 9. Encrypt the nightly backup with an owner-held key (restore takes the same key); until then backups are gzipped JSON in the owner's private Drive.

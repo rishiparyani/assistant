@@ -187,6 +187,7 @@ function systemPrompt(
     setupSummary(cols) || "(none yet)",
     ...(apps.length ? ["Apps they have:", ...apps] : []),
     "- If they ask for a note, a reminder, an event or an expense and that list isn't there yet, start it with start_list (it's made at once and shown to them), then add the record.",
+    "- Someone new (no collections yet) telling you about their week: start the everyday lists that fit what they said (start_list: reminders, expenses, events, notes), each comes with a card on their home, then say what's there now and ask what else they keep forgetting or paying for. Don't ask them to design anything.",
     "Rules:",
     '- Money in rupees ("450" or "₹450"). Dates as YYYY-MM-DD; date and time as YYYY-MM-DDTHH:MM in India time.',
     "- Records can be named by exact title; if several match you get candidates: ask which one. Never guess.",
