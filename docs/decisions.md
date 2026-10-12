@@ -594,3 +594,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Why:** home-first.md §7 step 7 says "until it matches today's site, then the switch"; shipping the web target alongside lets the owner and the band use the new home on a laptop or Windows now, and keeps every old screen reachable meanwhile. One build (`pnpm build`) and one deploy keep it to a single Worker on the Free plan.
 
 **Also:** the website's service worker never answers for `/app`, so a new deploy of the new home reaches browsers on the next open.
+
+## 2026-10-12: Native pieces come in through local config plugins
+
+**Decision:** the Expo app's Swift parts (App Intents now; widgets and the Share extension next) live in `apps/mobile/native/ios/` and are added to the generated Xcode project by local config plugins in `apps/mobile/plugins/` (Expo's own `config-plugins`, no new dependency), run by `expo prebuild` on the Mac runner. An intent hands the app a path through its own defaults; the app opens it when it comes to the front.
+
+**Why:** the Xcode project is generated and never committed (decision 2026-10-11, HF2), so native sources can't be edited in it; a plugin re-applies them on every build. Handing over a path (not running the action from Swift) keeps sign-in, checks and confirm cards in one place, as the Capacitor intents did.

@@ -51,14 +51,18 @@ export function subscribe(l: () => void) {
   return () => void listeners.delete(l);
 }
 
-const newId = () =>
+export const newId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-/** Queues a change and tries to send at once. Resolves when it's queued, not when it's synced. */
-export function send(c: Omit<Change, "id" | "at">): Change {
-  const change: Change = { ...c, id: newId(), at: Date.now() };
+/**
+ * Queues a change and tries to send at once. Resolves when it's queued, not when it's synced.
+ * Pass `id` when the change was already tried online with that Idempotency-Key, so a request
+ * that did reach the server before the connection dropped isn't applied twice.
+ */
+export function send(c: Omit<Change, "id" | "at"> & { id?: string }): Change {
+  const change: Change = { ...c, id: c.id ?? newId(), at: Date.now() };
   state.waiting.push(change);
   save();
   notify();

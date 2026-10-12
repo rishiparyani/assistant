@@ -1,6 +1,8 @@
 # Siri Shortcuts
 
-Ask Siri about your gigs, and record payments and gigs by voice. It takes about 10 minutes on your iPhone, once.
+**With the Gigspree app from TestFlight installed, Siri already knows three phrases, with nothing to set up:** "Ask Gigspree …" (opens the chat with your words typed in; you tap Send), "Add to Gigspree …" (puts the text in your Inbox; the assistant says where it goes) and "Show my Gigspree list …" (opens the chat on that list). They're also actions in the Shortcuts app ("Ask Gigspree", "Add to Gigspree", "Show a Gigspree list") and can go on the Action button. Share-sheet shortcuts can hand text to "Add to Gigspree".
+
+The rest of this page is the older way, with a token, for the gig questions below. Ask Siri about your gigs, and record payments and gigs by voice. It takes about 10 minutes on your iPhone, once.
 
 **Never commit or share a token.** A token works like being signed in. If one leaks, revoke it in the app (Settings → Siri and Shortcuts) and make a new one.
 
