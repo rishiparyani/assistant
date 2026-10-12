@@ -69,6 +69,8 @@ const EVERYDAY = [
   // Processes (home-first.md §2 point 9): what's waiting on whom, and a nudge.
   "whats_waiting",
   "nudge",
+  // Search (home-first.md §4): everything the person can see, by words.
+  "search",
   "list_rules",
 ];
 /** Setup tools, added at level 2 and above. */

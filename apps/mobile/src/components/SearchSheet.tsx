@@ -1,24 +1,59 @@
-// "Search your cards" (home-first.md §2 point 8): the chat bar of a person without the
-// assistant. A plain search over what the home already holds (titles, rows, fields), on the
-// device; the real search (one index per person) is HF5.
-import { useMemo, useState } from "react";
+// Search (home-first.md §4 and §2 point 8): what the home holds, matched on the device at
+// once (titles, rows, fields; works offline), and the person's own index on the server
+// (every record they can see, by part of a word) a moment later when there's a connection.
+import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { request } from "../api.ts";
 import type { HomeCard } from "../home.ts";
 import { radius, useTheme } from "../theme.ts";
+
+export interface SearchResult {
+  kind: "record";
+  space_id: string;
+  space: string;
+  collection_id: string;
+  collection: string;
+  record_id: string;
+  title: string;
+  snippet: string;
+  updated_at: string;
+}
 
 export function SearchSheet({
   cards,
   onClose,
   onOpen,
+  onOpenResult,
 }: {
   cards: HomeCard[];
   onClose: () => void;
   onOpen: (card: HomeCard) => void;
+  /** A hit from the server's index (a record somewhere the person can see). */
+  onOpenResult?: (hit: SearchResult) => void;
 }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const [text, setText] = useState("");
+  // The server's index, a moment after typing stops; silent when offline.
+  const [remote, setRemote] = useState<SearchResult[]>([]);
+  useEffect(() => {
+    const q = text.trim();
+    if (q.length < 2) {
+      setRemote([]);
+      return;
+    }
+    let gone = false;
+    const timer = setTimeout(() => {
+      request<SearchResult[]>("GET", `/api/search?q=${encodeURIComponent(q)}&limit=12`)
+        .then((hits) => !gone && setRemote(hits))
+        .catch(() => !gone && setRemote([]));
+    }, 250);
+    return () => {
+      gone = true;
+      clearTimeout(timer);
+    };
+  }, [text]);
   const hits = useMemo(() => {
     const q = text.trim().toLowerCase();
     const seen = new Set<string>();
@@ -67,7 +102,26 @@ export function SearchSheet({
               ))}
             </Pressable>
           ))}
-          {!hits.length ? <Text style={[s.row, { color: t.fg2, padding: 12 }]}>Nothing matches.</Text> : null}
+          {remote.length ? <Text style={[s.kicker, { color: t.fg2 }]}>Everything you can see</Text> : null}
+          {remote.map((h) => (
+            <Pressable
+              key={`${h.space_id}:${h.record_id}`}
+              accessibilityRole="button"
+              onPress={() => onOpenResult?.(h)}
+              style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+            >
+              <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                {h.title}
+              </Text>
+              <Text style={[s.row, { color: t.fg2 }]} numberOfLines={2}>
+                {h.collection}
+                {h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : ""}
+              </Text>
+            </Pressable>
+          ))}
+          {!hits.length && !remote.length ? (
+            <Text style={[s.row, { color: t.fg2, padding: 12 }]}>Nothing matches.</Text>
+          ) : null}
         </ScrollView>
       </View>
     </Modal>
@@ -98,4 +152,11 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 14, fontWeight: "700" },
   row: { fontSize: 13 },
+  kicker: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    paddingVertical: 6,
+  },
 });

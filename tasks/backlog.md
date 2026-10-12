@@ -4,7 +4,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
-**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: HF5 search and Inbox, then This week proposals.
+**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: the Inbox and This week proposals (HF8), then first run and the web switch.
 
 ## HF Home first (docs/design/home-first.md §7)
 
@@ -12,7 +12,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 2. Home: ~~pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar, Now page ranking~~ (HF1, HF3, HF3b); pull-down, dock.
 3. ~~Chat sheet with card context; confirm cards in the app; What changed + Undo; live cards in the stream~~ (HF1, HF3, HF3b, HF3c); ~~collaborator homes~~ (HF5a); ~~per-person assistant switch in the admin panel~~ (the website's Assistant access section; the phone reads it from `/api/me`).
 4. ~~Processes: roles, waiting on, nudges, loops; process card~~ (HF4); ~~client-by-link step~~ (dropped: every write needs a signed-in person); process detail on the phone.
-5. Search (one index per person: FTS5 + Vectorize), Inbox (share sheet, Siri capture), This week proposals.
+5. ~~Search (one index per person: FTS5 + embeddings)~~ (HF6; Vectorize only if a person's index outgrows the object), Inbox (share sheet, Siri capture), This week proposals.
 6. First run conversation; setup sharing; memory page.
 7. Web target until it matches today's site, then the switch; laptop layout.
 8. Swift: widgets from pinned cards, App Intents, Share extension, on-device model; Android later.

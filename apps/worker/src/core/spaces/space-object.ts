@@ -60,6 +60,7 @@ import {
   type ViewMode,
 } from "@assistant/shared";
 import {
+  retryDelayMs,
   BASE_TABLES,
   audit,
   getMeta,
@@ -81,6 +82,8 @@ import {
 } from "../objects/storage.ts";
 import { liveOf } from "../live/live-object.ts";
 import { inboxName } from "../push/notify.ts";
+import { searchOf, type SearchDoc } from "../search/search-object.ts";
+import { embed } from "../search/embed.ts";
 import type { NewNotification } from "../push/inbox.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
@@ -663,6 +666,9 @@ const words = (s: string) => [
 ];
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 
+/** How many times a failing member index is retried before the others go on without it. */
+const SEARCH_ATTEMPTS = 8;
+
 export class SpaceObject extends DurableObject<Env> {
   private sql: SqlStorage;
 
@@ -787,11 +793,183 @@ export class SpaceObject extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     await this.runDueJobs();
+    const searchIn = await this.syncSearch();
     const liveIn = await this.pingLive();
     // Next: the live ping still owed, or the next workflow job, whichever is sooner.
     const next = this.nextWorkflowTime();
-    const times = [...(liveIn === null ? [] : [Date.now() + liveIn]), ...(next === null ? [] : [next])];
+    const times = [
+      ...(liveIn === null ? [] : [Date.now() + liveIn]),
+      ...(searchIn === null ? [] : [Date.now() + searchIn]),
+      ...(next === null ? [] : [next]),
+    ];
     if (times.length) await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, Math.min(...times)));
+  }
+
+  // --- Search (home-first.md §4) ----------------------------------------------------------
+  // Each member has a search index (one per person); this space fills it from its change log
+  // after every write (the alarm, like the live pings), and can rebuild it from scratch. The
+  // index is a copy: a query's hits are re-checked here before they're shown.
+
+  /** Pushes the records changed since the last push to every member's index; ms until the next try, or null. */
+  private async syncSearch(): Promise<number | null> {
+    const from = Number(getMeta(this.sql, "search_seq") ?? "0");
+    const rows = this.sql
+      .exec<{ seq: number; kind: string; entity_id: string }>(
+        `select seq, kind, entity_id from changes where seq > ? and kind in ('record', 'collection') order by seq limit 200`,
+        from,
+      )
+      .toArray();
+    // A collection change (a field renamed, removed or hidden) changes how its records read in
+    // the index: its records are queued for reindexing, a page at a time.
+    const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];
+    for (const r of rows)
+      if (r.kind === "collection" && !reindex.some((x) => x.c === r.entity_id))
+        reindex.push({ c: r.entity_id, after: "" });
+    const ids = [...new Set(rows.filter((r) => r.kind === "record").map((r) => r.entity_id))];
+    let page: { c: string; after: string } | null = null;
+    let paged = false;
+    if (!ids.length && reindex.length) {
+      paged = true;
+      // Only when no record changes are waiting, so edits never queue behind a big reindex.
+      const next = reindex[0]!;
+      const batch = this.sql
+        .exec<{ id: string }>(
+          `select id from records where collection_id = ? and deleted_at is null and id > ? order by id limit 200`,
+          next.c,
+          next.after,
+        )
+        .toArray();
+      for (const b of batch) ids.push(b.id);
+      page = batch.length === 200 ? { c: next.c, after: batch[batch.length - 1]!.id } : null;
+    }
+    if (!rows.length && !ids.length) {
+      if (reindex.length) setMeta(this.sql, "search_reindex", JSON.stringify(reindex.slice(1)));
+      return reindex.length > 1 ? 50 : null;
+    }
+    const members = this.sql
+      .exec<{ user_id: string }>(`select user_id from members`)
+      .toArray()
+      .map((m) => m.user_id);
+    const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
+    // The latest state of each record wins (several changes to one record are one push).
+    const docs: SearchDoc[] = [];
+    const gone: string[] = [];
+    for (const id of ids) {
+      const r = this.liveRecord(id);
+      if (r) docs.push(this.searchDoc(spaceId, r));
+      else gone.push(`${spaceId}:${id}`);
+    }
+    // By meaning too, when the model answers (best effort: words always work).
+    const vectors = docs.length
+      ? await embed(
+          this.embedder(),
+          docs.map((d) => `${d.title}\n${d.body}`),
+        ).catch(() => null)
+      : [];
+    // Each member's index on its own: one that fails doesn't hold up the others. Writes are
+    // replaces, so a retry is harmless to the ones that took it.
+    const results = await Promise.allSettled(
+      members.map(async (u) => {
+        const index = searchOf(this.env, u);
+        if (docs.length) await index.upsert(docs);
+        if (gone.length) await index.remove(gone);
+        if (vectors?.length)
+          await index.upsertVectors(docs.map((d, i) => ({ doc_id: d.id, vec: vectors[i]! })));
+      }),
+    );
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed) {
+      const attempts = Number(getMeta(this.sql, "search_attempts") ?? "0") + 1;
+      console.warn(`search sync: ${failed} of ${members.length} indexes failed (attempt ${attempts})`);
+      if (attempts < SEARCH_ATTEMPTS) {
+        setMeta(this.sql, "search_attempts", String(attempts));
+        return retryDelayMs(attempts);
+      }
+      // Still failing after a while: go on. Those people's results are re-checked on every
+      // hit, and "rebuild search" fills their index again.
+    }
+    if (rows.length) setMeta(this.sql, "search_seq", String(rows[rows.length - 1]!.seq));
+    if (paged) {
+      if (page) reindex[0] = page;
+      else reindex.shift();
+    }
+    setMeta(this.sql, "search_reindex", JSON.stringify(reindex));
+    setMeta(this.sql, "search_attempts", "0");
+    return rows.length === 200 || reindex.length ? 50 : null;
+  }
+
+  /** Workers AI for search by meaning; the stand-in with the scripted model. */
+  private embedder() {
+    return { ai: this.env.AI, fake: this.env.AI_FAKE === "1" };
+  }
+
+  /** One record as the index sees it: its title and every readable value the members can see. */
+  private searchDoc(spaceId: string, r: RecordRow): SearchDoc {
+    const fields = this.fieldRows(r.collection_id);
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const lines: string[] = [];
+    for (const f of fields) {
+      if (toField(f).options.personal || f.type === "link") continue;
+      const shown = displayValue(f.type, values[f.id] ?? null);
+      const text = Array.isArray(shown) ? shown.join(", ") : shown;
+      if (text && text !== r.title) lines.push(`${f.name}: ${text}`);
+    }
+    return {
+      id: `${spaceId}:${r.id}`,
+      space_id: spaceId,
+      collection_id: r.collection_id,
+      collection: this.requireCollection(r.collection_id).name,
+      record_id: r.id,
+      title: r.title,
+      body: lines.join("\n"),
+      updated_at: r.updated_at,
+    };
+  }
+
+  /** Fills one member's index with every record of this space (after joining, or on request). */
+  async rebuildSearch(actor: Actor): Promise<number> {
+    this.role(actor);
+    if (!actor.userId) return 0;
+    const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
+    const index = searchOf(this.env, actor.userId);
+    await index.removeSpace(spaceId);
+    let after = "";
+    let n = 0;
+    for (;;) {
+      const batch = this.sql
+        .exec<RecordRow>(
+          `select * from records where deleted_at is null and id > ? order by id limit 200`,
+          after,
+        )
+        .toArray();
+      if (!batch.length) break;
+      const docs = batch.map((r) => this.searchDoc(spaceId, r));
+      await index.upsert(docs);
+      const vectors = await embed(
+        this.embedder(),
+        docs.map((d) => `${d.title}\n${d.body}`),
+      );
+      if (vectors?.length)
+        await index.upsertVectors(docs.map((d, i) => ({ doc_id: d.id, vec: vectors[i]! })));
+      n += batch.length;
+      after = batch[batch.length - 1]!.id;
+      if (batch.length < 200) break;
+    }
+    return n;
+  }
+
+  /** The records among these the person may still see, with their current titles (a hit's re-check). */
+  async peekRecords(
+    actor: Actor,
+    ids: string[],
+  ): Promise<{ id: string; title: string; collection: string }[]> {
+    this.role(actor);
+    return ids.flatMap((id) => {
+      const r = this.liveRecord(id);
+      return r
+        ? [{ id: r.id, title: r.title, collection: this.requireCollection(r.collection_id).name }]
+        : [];
+    });
   }
 
   /** Pings everyone's live object for the outbox note; ms until the next try, or null when done. */

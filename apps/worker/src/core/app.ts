@@ -18,6 +18,7 @@ import { coreOperations } from "./me.ts";
 import { spaceOperations } from "./spaces/operations.ts";
 import { shareOperations } from "./spaces/share-operations.ts";
 import { workflowOperations } from "./spaces/workflow-operations.ts";
+import { searchOperations } from "./search/operations.ts";
 import { ruleOperations } from "./spaces/rule-operations.ts";
 import { openPublicShare } from "./spaces/shares.ts";
 import { PublicShareInput } from "@assistant/shared";
@@ -42,6 +43,7 @@ export function createApp({ modules }: AppOptions) {
     ...spaceOperations,
     ...shareOperations,
     ...workflowOperations,
+    ...searchOperations,
     ...ruleOperations,
     ...modules.flatMap((m) => m.operations ?? []),
   ];
