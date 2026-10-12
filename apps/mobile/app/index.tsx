@@ -46,6 +46,9 @@ import { useTestLaunch } from "@/test-launch";
 const logoLight = require("../assets/logo-light.png");
 const logoDark = require("../assets/logo-dark.png");
 const SIDE = 16;
+/** From this width the home is one dashboard (four columns) instead of swipeable pages. */
+const WIDE = 900;
+const DASH_MAX = 1180;
 
 export default function Home() {
   const { me, loaded, refresh } = useSession();
@@ -185,113 +188,138 @@ export default function Home() {
   const dropped = (pageIndex: number) => () =>
     update((prev) => prev.map((p, i) => (i !== pageIndex ? p : { ...p, cards: saveOrder(p.cards) })));
 
-  const pageWidth = width;
-  const gridWidth = width - SIDE * 2;
+  // A laptop or a wide window (home-first.md §2 point 17): the pages flatten into one
+  // dashboard, four columns of cards, the same cards and data; the chat stays one tap away.
+  const wide = width >= WIDE;
+  const pageWidth = wide ? Math.min(width, DASH_MAX) : width;
+  const gridWidth = pageWidth - SIDE * 2;
+  const refreshControl = (
+    <RefreshControl
+      refreshing={refreshing}
+      onRefresh={async () => {
+        setRefreshing(true);
+        await load();
+        setRefreshing(false);
+      }}
+      tintColor={t.fg2}
+    />
+  );
+  const renderPage = (item: HomePage, index: number) => (
+    <View key={item.name} style={{ gap: 10 }}>
+      <View style={s.pageHead}>
+        <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
+        <View style={s.meta}>
+          {item.auto ? <View style={[s.pulse, { backgroundColor: t.accent }]} /> : null}
+          <Text style={[s.metaText, { color: t.fg2 }]}>
+            {item.auto ? "arranged for you" : "hold a card to arrange"}
+          </Text>
+        </View>
+      </View>
+      {item.cards.length ? (
+        <CardGrid
+          cards={item.cards}
+          width={gridWidth}
+          arrangeable={!item.auto}
+          onHold={setMenu}
+          onReorder={reorder(index)}
+          onDrop={dropped(index)}
+          renderCard={(card, canOpen) => (
+            <Card
+              card={card}
+              onTick={onTick(card)}
+              onOpen={() =>
+                canOpen() &&
+                (card.memory
+                  ? router.push("/memory")
+                  : card.shared?.kind === "form"
+                    ? openOnWeb(card)
+                    : ask(card))
+              }
+              onAnswer={
+                card.waiting
+                  ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
+                  : undefined
+              }
+              onNudge={
+                card.waiting?.share_id
+                  ? undefined
+                  : card.waiting
+                    ? processAction(card, () => nudgeWaiting(card.waiting!))
+                    : undefined
+              }
+              busy={busyCard === card.id}
+            />
+          )}
+        />
+      ) : (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Tell me about your week"
+          disabled={!pages || !assistant}
+          onPress={() => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } })}
+          style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}
+        >
+          <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
+            {error
+              ? error
+              : !pages
+                ? "Loading…"
+                : assistant
+                  ? "Tell me about your week"
+                  : "Nothing shared with you yet"}
+          </Text>
+          {pages && !error ? (
+            <Text style={[s.sub, { color: t.fg2 }]}>
+              {assistant
+                ? "What you do, what you keep forgetting, what money moves. The lists you need start from that, each with a card here."
+                : "When someone shares a list, a card or a question with you, it shows here."}
+            </Text>
+          ) : null}
+        </Pressable>
+      )}
+    </View>
+  );
   return (
     <View style={[s.root, { backgroundColor: t.canvas }]}>
-      <FlatList
-        ref={list}
-        data={pages ?? []}
-        horizontal
-        pagingEnabled
-        showsHorizontalScrollIndicator={false}
-        keyExtractor={(p) => p.name}
-        onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
-        renderItem={({ item, index }) => (
-          <ScrollView
-            style={{ width: pageWidth }}
-            contentContainerStyle={{
-              paddingTop: insets.top + 12,
-              paddingHorizontal: SIDE,
-              paddingBottom: insets.bottom + 150,
-              gap: 10,
-            }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={async () => {
-                  setRefreshing(true);
-                  await load();
-                  setRefreshing(false);
-                }}
-                tintColor={t.fg2}
-              />
-            }
-          >
-            <View style={s.pageHead}>
-              <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
-              <View style={s.meta}>
-                {item.auto ? <View style={[s.pulse, { backgroundColor: t.accent }]} /> : null}
-                <Text style={[s.metaText, { color: t.fg2 }]}>
-                  {item.auto ? "arranged for you" : "hold a card to arrange"}
-                </Text>
-              </View>
-            </View>
-            {item.cards.length ? (
-              <CardGrid
-                cards={item.cards}
-                width={gridWidth}
-                arrangeable={!item.auto}
-                onHold={setMenu}
-                onReorder={reorder(index)}
-                onDrop={dropped(index)}
-                renderCard={(card, canOpen) => (
-                  <Card
-                    card={card}
-                    onTick={onTick(card)}
-                    onOpen={() =>
-                      canOpen() &&
-                      (card.memory
-                        ? router.push("/memory")
-                        : card.shared?.kind === "form"
-                          ? openOnWeb(card)
-                          : ask(card))
-                    }
-                    onAnswer={
-                      card.waiting
-                        ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
-                        : undefined
-                    }
-                    onNudge={
-                      card.waiting?.share_id
-                        ? undefined
-                        : card.waiting
-                          ? processAction(card, () => nudgeWaiting(card.waiting!))
-                          : undefined
-                    }
-                    busy={busyCard === card.id}
-                  />
-                )}
-              />
-            ) : (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Tell me about your week"
-                disabled={!pages || !assistant}
-                onPress={() => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } })}
-                style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}
-              >
-                <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
-                  {error
-                    ? error
-                    : !pages
-                      ? "Loading…"
-                      : assistant
-                        ? "Tell me about your week"
-                        : "Nothing shared with you yet"}
-                </Text>
-                {pages && !error ? (
-                  <Text style={[s.sub, { color: t.fg2 }]}>
-                    {assistant
-                      ? "What you do, what you keep forgetting, what money moves. The lists you need start from that, each with a card here."
-                      : "When someone shares a list, a card or a question with you, it shows here."}
-                  </Text>
-                ) : null}
-              </Pressable>
-            )}
-          </ScrollView>
-        )}
-      />
+      {wide ? (
+        <ScrollView
+          contentContainerStyle={{
+            width: pageWidth,
+            alignSelf: "center",
+            paddingTop: insets.top + 20,
+            paddingHorizontal: SIDE,
+            paddingBottom: insets.bottom + 150,
+            gap: 28,
+          }}
+          refreshControl={refreshControl}
+        >
+          {(pages ?? []).map(renderPage)}
+        </ScrollView>
+      ) : (
+        <FlatList
+          ref={list}
+          data={pages ?? []}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          keyExtractor={(p) => p.name}
+          onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
+          renderItem={({ item, index }) => (
+            <ScrollView
+              style={{ width: pageWidth }}
+              contentContainerStyle={{
+                paddingTop: insets.top + 12,
+                paddingHorizontal: SIDE,
+                paddingBottom: insets.bottom + 150,
+                gap: 10,
+              }}
+              refreshControl={refreshControl}
+            >
+              {renderPage(item, index)}
+            </ScrollView>
+          )}
+        />
+      )}
 
       <View style={[s.bottom, { paddingBottom: insets.bottom + 10 }]} pointerEvents="box-none">
         {failed[0] ? (
@@ -299,7 +327,7 @@ export default function Home() {
             accessibilityRole="button"
             accessibilityLabel="Dismiss"
             onPress={() => dropFailed(failed[0]!.id)}
-            style={[s.failed, { backgroundColor: t.cell, borderColor: t.danger }]}
+            style={[s.failed, wide && s.wideRow, { backgroundColor: t.cell, borderColor: t.danger }]}
           >
             <Text style={[s.failedText, { color: t.fg }]} numberOfLines={2}>
               Couldn't save “{failed[0].label}”: {failed[0].reason}
@@ -308,14 +336,14 @@ export default function Home() {
           </Pressable>
         ) : null}
         <View style={s.dots}>
-          {(pages ?? []).map((p, i) => (
+          {(wide ? [] : (pages ?? [])).map((p, i) => (
             <View
               key={p.name}
               style={[s.dotI, { backgroundColor: i === page ? t.accent : t.fg3, width: i === page ? 18 : 7 }]}
             />
           ))}
         </View>
-        <View style={s.barRow}>
+        <View style={[s.barRow, wide && s.wideRow]}>
           {assistant ? (
             <Pressable
               accessibilityRole="button"
@@ -401,6 +429,8 @@ const s = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 21,
   },
+  /** On a laptop the bar keeps a phone's width, centred under the dashboard. */
+  wideRow: { alignSelf: "center", width: "100%", maxWidth: 640 },
   dots: { flexDirection: "row", gap: 6, alignItems: "center" },
   dotI: { height: 7, borderRadius: 4 },
   searchBtn: {

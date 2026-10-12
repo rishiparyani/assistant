@@ -9,6 +9,7 @@ One Cloudflare Worker on one domain (e.g. `app.<domain>`):
 | `/api/*`  | REST API (JSON), generated from module operations            |
 | `/auth/*` | Better Auth (sessions, Google, passkeys, magic links, OAuth) |
 | `/mcp`    | MCP server, tools generated from the same operations         |
+| `/app/*`  | The new home (the Expo app's web target; home-first.md §7)   |
 | `/*`      | Static web app (Vite + Svelte SPA, PWA in Phase 2)           |
 
 Clients (web app, Siri Shortcuts, Claude/ChatGPT/Le Chat via MCP) hold no business logic. They call operations.
