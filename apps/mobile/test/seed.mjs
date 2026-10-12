@@ -5,14 +5,23 @@ const BASE = process.env.BASE ?? "http://localhost:8787";
 if (!BASE.startsWith("http://localhost")) throw new Error("seed.mjs only runs against localhost");
 
 const origin = { origin: BASE };
-const EMAIL = `mobile-${Date.now()}@example.com`;
+// The owner's address from apps/worker/.dev.vars.example, so the assistant is on for this
+// person (the chat is part of the screenshots). A second run signs in instead.
+const EMAIL = "admin@example.com";
 const PASSWORD = "test-password-123";
-const up = await fetch(`${BASE}/auth/sign-up/email`, {
+let up = await fetch(`${BASE}/auth/sign-up/email`, {
   method: "POST",
   headers: { ...origin, "content-type": "application/json" },
   body: JSON.stringify({ name: "Test Person", email: EMAIL, password: PASSWORD }),
 });
-if (!up.ok) throw new Error(`sign-up failed: ${up.status}`);
+if (!up.ok) {
+  up = await fetch(`${BASE}/auth/sign-in/email`, {
+    method: "POST",
+    headers: { ...origin, "content-type": "application/json" },
+    body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+  });
+  if (!up.ok) throw new Error(`sign-in failed: ${up.status}`);
+}
 const cookie = up.headers
   .getSetCookie()
   .map((c) => c.split(";")[0])

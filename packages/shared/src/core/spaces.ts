@@ -404,6 +404,33 @@ export const FindRecordsInput = CollectionRef.extend({
   cursor: z.string().max(400).optional(),
 });
 
+/** One entry of "what changed": a record added, changed or deleted, in plain words. */
+export interface HistoryItem {
+  /** The audit entry's id (what Undo takes). */
+  id: string;
+  at: string;
+  action: "add_record" | "update_record" | "delete_record";
+  record_id: string;
+  title: string;
+  collection: string;
+  /** "Amount: ₹450 → ₹500", "Done: no → yes"; for an add, "What: Chai". */
+  lines: string[];
+  /** Who did it: "you", a name, or the assistant's source. */
+  by: string;
+  source: string;
+  /** An add or a change can be undone (a delete can't: its values are gone). */
+  undoable: boolean;
+  /** Already undone (by the entry with this id). */
+  undone_by: string | null;
+}
+
+export const HistoryInput = SpaceRef.extend({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+export const UndoInput = SpaceRef.extend({
+  change_id: z.string().trim().min(1).max(20).describe("The entry's id from the history"),
+});
+
 export const ChangesInput = SpaceRef.extend({
   since: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(1000).default(500),

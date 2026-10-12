@@ -544,3 +544,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Decision (owner, 2026-10-12, after seeing other products do the same):** anyone holding only a link can read a shared view or add through a form (append-only, recorded with who submitted when, limited); changing existing records needs a signed-in person who was shared with by name, with a role. The venue door link stays the one exception, and sets the shape of any future one: one field (Arrived), one list, one revocable link, rate-limited.
 
 **Why:** a link holder is anonymous. A writable public link invites spam and vandalism with nobody to hold responsible, leaves no usable audit trail, and can't be revoked for one person without cutting everyone off. Named sharing gives the audit log, per-person revoke and the row rules (architecture rule 3).
+
+## 2026-10-12: What changed and Undo come from the audit log
+
+**Decision:** "What changed" is read from the audit log every write already keeps (`_audit` in the space object), not from a new table: records added, changed or deleted, said in plain words from each entry's before/after. Undo is a normal write that applies the inverse (a change gets its earlier stored values back; an added record is removed) and leaves its own audit entry naming the entry it undid, so it shows in the log, can't run twice, and is itself a change. A delete can't be undone, because a delete drops the record's values; keeping them is a later decision if it's wanted.
+
+**Why:** one source of truth (the audit log is already required by architecture rule 11), nothing new to keep in sync, and undo goes through the same path as any write (idempotency, change log, workflows, live updates).

@@ -6,6 +6,8 @@
 import {
   ARRANGEMENT_SIZES,
   CardSpec,
+  nowScore,
+  type CardSignals,
   type CardSize,
   type CollectionView,
   type FindResult,
@@ -130,9 +132,15 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
         total: totalOf(spec, records),
       });
     }
-    // Page 1 ("Now") is arranged by the assistant: for now, the cards with something open
-    // first. Page 2 ("My day") is the person's: every pinned card, in the order they keep.
-    const now = [...cards].sort((a, b) => openCount(b) - openCount(a)).slice(0, 4);
+    // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in
+    // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My day")
+    // is the person's: every pinned card, in the order they keep.
+    const scored = cards
+      .map((c) => ({ c, score: nowScore(signalsOf(c)) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.c);
+    const now = (scored.length ? scored : cards).slice(0, 4);
     const pages: HomePage[] = [
       { name: "Now", auto: true, cards: now },
       { name: "My day", cards },
@@ -161,10 +169,27 @@ function withWaitingViewChanges(views: SavedView[]): SavedView[] {
   return [...byId.values()];
 }
 
-const openCount = (c: HomeCard) => {
-  const f = c.spec.sources[0]?.answer_field;
-  return f ? c.records.filter((r) => r.values[f] !== true).length : c.records.length;
-};
+/** What a card has going on, from the records it shows (dates from its first date field). */
+export function signalsOf(c: HomeCard, today = new Date()): CardSignals {
+  const done = c.spec.sources[0]?.answer_field;
+  const dateField = c.collection.fields.find((f) => f.type === "date" || f.type === "datetime");
+  const day = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const t0 = day(today);
+  const s: CardSignals = { open: 0, overdue: 0, due_today: 0, due_soon: 0, waiting: 0 };
+  for (const r of c.records) {
+    if (done && r.values[done] === true) continue;
+    if (done) s.open++;
+    const v = dateField ? r.values[dateField.id] : null;
+    if (typeof v !== "string" || !v) continue;
+    const d = new Date(v.length === 10 ? `${v}T00:00:00` : v);
+    if (Number.isNaN(d.getTime())) continue;
+    const days = Math.round((day(d) - t0) / 86_400_000);
+    if (days < 0) s.overdue++;
+    else if (days === 0) s.due_today++;
+    else if (days <= 7) s.due_soon++;
+  }
+  return s;
+}
 
 /** A tick on a list-ticks card: shows at once, syncs through the outbox. */
 export function tick(card: HomeCard, record: RecordView, value: boolean): RecordView {

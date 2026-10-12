@@ -4,13 +4,13 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 # Phase 2: universal assistant (design: `docs/design/universal.md`, approved 2026-10-09)
 
-**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: the rest of steps 2–3 (Now ranking, What changed + Undo, collaborator homes), then HF4 processes.
+**Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: live cards in the chat stream, then HF4 processes; collaborator homes and the assistant switch after.
 
 ## HF Home first (docs/design/home-first.md §7)
 
 1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1); ~~TestFlight + simulator screenshots moved over~~ (HF2).
-2. Home: ~~pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar~~ (HF1, HF3); pull-down, dock; Now page ranking.
-3. ~~Chat sheet with card context; confirm cards in the app~~ (HF1, HF3); What changed + Undo; collaborator homes; per-person assistant switch in the admin panel.
+2. Home: ~~pages, card renderer (components + arrangements + sizes), press-and-hold menu, drag to arrange, chat bar, Now page ranking~~ (HF1, HF3, HF3b); pull-down, dock.
+3. ~~Chat sheet with card context; confirm cards in the app; What changed + Undo~~ (HF1, HF3, HF3b); live cards in the stream; collaborator homes; per-person assistant switch in the admin panel.
 4. Processes: roles, waiting on, nudges, loops; client-by-link step; process card and detail.
 5. Search (one index per person: FTS5 + Vectorize), Inbox (share sheet, Siri capture), This week proposals.
 6. First run conversation; setup sharing; memory page.

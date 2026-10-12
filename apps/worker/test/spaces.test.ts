@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   ChangesView,
+  HistoryItem,
   CollectionView,
   FindResult,
   OpenedView,
@@ -452,5 +453,42 @@ describe("access and sync", () => {
     const next = await json<ChangesView>(await api(me)(`/space-changes?since=${base.seq}&data=1`));
     const sent = next.records!.find((x) => x.id === show.id);
     expect(sent?.named.Venue).toEqual(["Test Arena"]);
+  });
+});
+
+describe("what changed and undo", () => {
+  it("lists adds and changes in plain words and puts them back", async () => {
+    const me = await signUp("Test Undoer");
+    const r = await json<RecordView>(
+      await api(me)("/collections/Expenses/records", { body: { values: { What: "Chai", Amount: "450" } } }),
+    );
+    await api(me)(`/records/${r.id}`, { method: "PATCH", body: { values: { Amount: "500" } } });
+    let history = await json<HistoryItem[]>(await api(me)("/history?limit=10"));
+    expect(history.map((h) => h.action)).toEqual(["update_record", "add_record"]);
+    expect(history[0]).toMatchObject({ title: "Chai", collection: "Expenses", by: "you", undoable: true });
+    expect(history[0]!.lines).toEqual(["Amount: ₹450 → ₹500"]);
+    expect(history[1]!.lines).toEqual(expect.arrayContaining(["What: Chai", "Amount: ₹450"]));
+    // Dates read as people say them.
+    await api(me)(`/records/${r.id}`, { method: "PATCH", body: { values: { Date: "2026-12-12" } } });
+    const dated = await json<HistoryItem[]>(await api(me)("/history?limit=1"));
+    expect(dated[0]!.lines[0]).toMatch(/^Date: .* → Sat, 12 Dec,? 2026$/);
+
+    // Undo the change: the amount is back; the entry shows as undone, and can't be undone twice.
+    const undone = await json<{ undone: string; record: RecordView }>(
+      await api(me)(`/history/${history[0]!.id}/undo`, { method: "POST" }),
+    );
+    expect(undone.record.named.Amount).toBe("₹450");
+    const twice = await api(me)(`/history/${history[0]!.id}/undo`, { method: "POST" });
+    expect(twice.status).toBe(409);
+    history = await json<HistoryItem[]>(await api(me)("/history?limit=10"));
+    expect(history[0]).toMatchObject({ action: "update_record", lines: ["Amount: ₹500 → ₹450"] });
+    expect(history.find((h) => h.lines[0] === "Amount: ₹450 → ₹500")).toMatchObject({ undoable: false });
+
+    // Undo the add: the record is gone; a delete is listed but can't be undone.
+    const add = history.find((h) => h.action === "add_record")!;
+    await api(me)(`/history/${add.id}/undo`, { method: "POST" });
+    expect((await api(me)(`/records/${r.id}`)).status).toBe(404);
+    history = await json<HistoryItem[]>(await api(me)("/history?limit=10"));
+    expect(history[0]).toMatchObject({ action: "delete_record", undoable: false, title: "Chai" });
   });
 });
