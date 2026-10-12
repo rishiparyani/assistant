@@ -3,6 +3,7 @@
 // hold for the card's menu). Ticks work offline; the chat is one tap away.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AppState,
   Linking,
   FlatList,
   Image,
@@ -46,7 +47,7 @@ const logoDark = require("../assets/logo-dark.png");
 const SIDE = 16;
 
 export default function Home() {
-  const { me, loaded } = useSession();
+  const { me, loaded, refresh } = useSession();
   const { t, dark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -64,10 +65,15 @@ export default function Home() {
   // Loaded while changes were still waiting to be sent (offline): load again once they are,
   // so the screen shows what the server now has.
   const loadedWithWaiting = useRef(false);
+  // Every load also asks who I am again (the assistant switch can change while the app is
+  // open); kept in a ref so a fresh `me` doesn't make `load` a new function and load again.
+  const refreshMe = useRef(refresh);
+  refreshMe.current = refresh;
   const load = useCallback(async () => {
     if (!userId) return;
     try {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
+      void refreshMe.current();
       setPages(await loadHome(userId));
       setError("");
     } catch (e) {
@@ -82,6 +88,12 @@ export default function Home() {
   }, [userId]);
   useEffect(() => {
     if (userId) void load();
+  }, [userId, load]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && userId) void load();
+    });
+    return () => sub.remove();
   }, [userId, load]);
   // A change the server refused: say so, and show the home as the server has it.
   const waitingBefore = useRef(outboxState().waiting.length);

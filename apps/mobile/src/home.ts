@@ -239,140 +239,154 @@ function withWaitingViewChanges(views: SavedView[]): SavedView[] {
 
 const SHARED_CARDS = 12;
 
-/** What's shared with me, as cards: lists to tick, records to read, questions to answer. */
+/**
+ * What's shared with me, as cards: lists to tick, records to read, questions to answer. Shares
+ * are opened a dozen at a time until a dozen cards can be shown: a question that is closed (its
+ * share stays) or already on the home as a process step takes no slot.
+ */
 async function loadShared(shares: SharedWithMe[], waiting: WaitingItem[]): Promise<HomeCard[]> {
-  const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
-  const opened = await Promise.all(
-    shares.slice(0, SHARED_CARDS).map((share) =>
-      request<SharedOpened>("GET", `/api/cards/${enc(share.share_id)}`)
-        .then((o) => ({ share, o }))
-        .catch(() => null),
-    ),
-  );
   const out: HomeCard[] = [];
-  for (const x of opened) {
-    if (!x) continue;
-    const { share, o } = x;
-    const base = { share_id: share.share_id, kind: share.kind, access: share.access, owner: share.owner };
-    if (o.share.kind === "view" && "records" in o) {
-      // A shared list is drawn like one of mine: the share stands in for the collection.
-      const fields = o.fields.map((f) => ({
-        id: f.id,
-        name: f.name,
-        type: f.type,
-        options: f.options,
-        required: f.required,
-        aliases: [] as string[],
-      }));
-      const collection: CollectionView = {
-        id: `share:${share.share_id}`,
-        name: share.title,
-        description: null,
-        title_field_id: fields.find((f) => f.type === "text")?.id ?? "",
-        fields,
-        linked_from: [],
-        updated_at: "",
-      };
-      const tick = o.fields.find((f) => f.type === "boolean" && f.editable && share.access === "edit");
-      const spec: CardSpec = {
-        version: CARD_VERSION,
-        title: share.title,
-        arrangement: tick ? "list-ticks" : "list-plain",
-        size: "m",
-        sources: [{ collection: collection.id, ...(tick ? { answer_field: tick.id } : {}) }],
-      };
-      const records = o.records.map((r): RecordView => ({
-        id: r.id,
-        collection_id: collection.id,
-        title: r.title,
-        values: Object.fromEntries(r.fields.map((f) => [f.id, f.value])),
-        named: Object.fromEntries(r.fields.map((f) => [f.name, f.display])),
-        links: {},
-        created_at: "",
-        updated_at: "",
-        version: 0,
-      }));
-      out.push({
-        id: `share:${share.share_id}`,
-        view: null,
-        spec,
-        collection,
-        colour: colourFor(share.title),
-        records,
-        total: null,
-        shared: base,
-      });
-    } else if (o.share.kind === "card" && "record" in o) {
-      out.push({
-        id: `share:${share.share_id}`,
-        view: null,
-        spec: {
-          version: CARD_VERSION,
-          title: o.record.title,
-          arrangement: "list-plain",
-          size: "m",
-          sources: [],
-        },
-        collection: null,
-        colour: colourFor(share.title),
-        records: [],
-        total: null,
-        shared: {
-          ...base,
-          fields: o.record.fields
-            .filter((f) => !f.title && f.display !== null && f.display !== "")
-            .slice(0, 4)
-            .map((f) => ({
-              name: f.name,
-              display: Array.isArray(f.display) ? f.display.join(", ") : f.display!,
-            })),
-        },
-      });
-    } else if (o.share.kind === "question" && "choices" in o) {
-      // A process's question is already on the home as the step waiting on me.
-      if (fromProcess.has(share.share_id) || o.closed) continue;
-      out.push({
-        ...processCard({
-          id: share.share_id,
-          workflow_id: "",
-          workflow: `Question from ${share.owner}`,
-          record_id: "",
-          record: "",
-          text: o.text,
-          choices: o.choices,
-          on: [{ user_id: "me", name: "you", answer: o.mine }],
-          asked_at: share.joined_at,
-          nudges: 0,
-          next_nudge_at: null,
-          share_id: share.share_id,
-          mine: o.mine,
-        }),
-        id: `share:${share.share_id}`,
-        shared: base,
-      });
-    } else if (o.share.kind === "form") {
-      out.push({
-        id: `share:${share.share_id}`,
-        view: null,
-        spec: {
-          version: CARD_VERSION,
-          title: share.title,
-          arrangement: "list-plain",
-          size: "s",
-          sources: [],
-        },
-        collection: null,
-        colour: colourFor(share.title),
-        records: [],
-        total: null,
-        shared: {
-          ...base,
-          fields: [{ name: `Form from ${share.owner}`, display: "Fill it in on the website" }],
-        },
-      });
+  for (let at = 0; at < shares.length && out.length < SHARED_CARDS; at += SHARED_CARDS) {
+    const opened = await Promise.all(
+      shares.slice(at, at + SHARED_CARDS).map((share) =>
+        request<SharedOpened>("GET", `/api/cards/${enc(share.share_id)}`)
+          .then((o) => ({ share, o }))
+          .catch(() => null),
+      ),
+    );
+    for (const x of opened) {
+      if (!x || out.length >= SHARED_CARDS) break;
+      const card = sharedCard(x.share, x.o, waiting);
+      if (card) out.push(card);
     }
   }
   return out;
+}
+
+/** One shared thing as a card, or null when it has nothing to show on the home. */
+function sharedCard(share: SharedWithMe, o: SharedOpened, waiting: WaitingItem[]): HomeCard | null {
+  const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
+  const base = { share_id: share.share_id, kind: share.kind, access: share.access, owner: share.owner };
+  if (o.share.kind === "view" && "records" in o) {
+    // A shared list is drawn like one of mine: the share stands in for the collection.
+    const fields = o.fields.map((f) => ({
+      id: f.id,
+      name: f.name,
+      type: f.type,
+      options: f.options,
+      required: f.required,
+      aliases: [] as string[],
+    }));
+    const collection: CollectionView = {
+      id: `share:${share.share_id}`,
+      name: share.title,
+      description: null,
+      title_field_id: fields.find((f) => f.type === "text")?.id ?? "",
+      fields,
+      linked_from: [],
+      updated_at: "",
+    };
+    // The field says whether I may set it: a personal yes/no is mine to answer even on a
+    // view-only share, and a plain one is editable only when the share is.
+    const tick = o.fields.find((f) => f.type === "boolean" && f.editable);
+    const spec: CardSpec = {
+      version: CARD_VERSION,
+      title: share.title,
+      arrangement: tick ? "list-ticks" : "list-plain",
+      size: "m",
+      sources: [{ collection: collection.id, ...(tick ? { answer_field: tick.id } : {}) }],
+    };
+    const records = o.records.map((r): RecordView => ({
+      id: r.id,
+      collection_id: collection.id,
+      title: r.title,
+      values: Object.fromEntries(r.fields.map((f) => [f.id, f.value])),
+      named: Object.fromEntries(r.fields.map((f) => [f.name, f.display])),
+      links: {},
+      created_at: "",
+      updated_at: "",
+      version: 0,
+    }));
+    return {
+      id: `share:${share.share_id}`,
+      view: null,
+      spec,
+      collection,
+      colour: colourFor(share.title),
+      records,
+      total: null,
+      shared: base,
+    };
+  } else if (o.share.kind === "card" && "record" in o) {
+    return {
+      id: `share:${share.share_id}`,
+      view: null,
+      spec: {
+        version: CARD_VERSION,
+        title: o.record.title,
+        arrangement: "list-plain",
+        size: "m",
+        sources: [],
+      },
+      collection: null,
+      colour: colourFor(share.title),
+      records: [],
+      total: null,
+      shared: {
+        ...base,
+        fields: o.record.fields
+          .filter((f) => !f.title && f.display !== null && f.display !== "")
+          .slice(0, 4)
+          .map((f) => ({
+            name: f.name,
+            display: Array.isArray(f.display) ? f.display.join(", ") : f.display!,
+          })),
+      },
+    };
+  } else if (o.share.kind === "question" && "choices" in o) {
+    // A process's question is already on the home as the step waiting on me.
+    if (fromProcess.has(share.share_id) || o.closed) return null;
+    return {
+      ...processCard({
+        id: share.share_id,
+        workflow_id: "",
+        workflow: `Question from ${share.owner}`,
+        record_id: "",
+        record: "",
+        text: o.text,
+        choices: o.choices,
+        on: [{ user_id: "me", name: "you", answer: o.mine }],
+        asked_at: share.joined_at,
+        nudges: 0,
+        next_nudge_at: null,
+        share_id: share.share_id,
+        mine: o.mine,
+      }),
+      id: `share:${share.share_id}`,
+      shared: base,
+    };
+  } else if (o.share.kind === "form") {
+    return {
+      id: `share:${share.share_id}`,
+      view: null,
+      spec: {
+        version: CARD_VERSION,
+        title: share.title,
+        arrangement: "list-plain",
+        size: "s",
+        sources: [],
+      },
+      collection: null,
+      colour: colourFor(share.title),
+      records: [],
+      total: null,
+      shared: {
+        ...base,
+        fields: [{ name: `Form from ${share.owner}`, display: "Fill it in on the website" }],
+      },
+    };
+  }
+  return null;
 }
 
 /** A process step waiting on people, drawn as a card: the question, who, and a way to answer. */
