@@ -7,7 +7,6 @@ import type {
   Person,
   ShareAccess,
   ShareView,
-  SharedFormView,
   SharedListView,
   SharedOpened,
   SharedWithMe,
@@ -78,10 +77,9 @@ export const sharesApi = {
     request<{ deleted: string }>("DELETE", `/api/cards/${enc(shareId)}/comments/${enc(commentId)}`),
 
   // Link-only views and forms (no sign-in): the token goes in the body, never the address.
+  // A link opens a view only (forms by link ended 2026-10-12: every write needs a sign-in).
   openLink: (token: string, cursor?: string) =>
-    request<SharedListView | SharedFormView>("POST", "/api/link/open", { token, cursor }),
-  submitLink: (token: string, id: string, values: Record<string, unknown>) =>
-    request<{ id: string }>("POST", "/api/link/submit", { token, id, values }),
+    request<SharedListView>("POST", "/api/link/open", { token, cursor }),
 };
 
 /** The server says this isn't shared with me (any more): not a connection problem. */

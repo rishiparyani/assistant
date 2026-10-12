@@ -1,29 +1,27 @@
 <script lang="ts">
-  import { ulid, type SharedFormView, type SharedListView, type SharedRecord } from "@assistant/shared";
+  import type { SharedListView, SharedRecord } from "@assistant/shared";
   import { Button, EmptyState, ListGroup, ListRow, Spinner, toast } from "../ui/index.ts";
   import Centered from "../shell/Centered.svelte";
-  import SharedForm from "./SharedForm.svelte";
   import { sharesApi } from "./shares-api.ts";
   import { showValue } from "./spaces-api.ts";
 
-  // /s#<token>: a view or form someone shared by link, no sign-in (design §11). The token stays
-  // after # (browsers never send that part), and goes to the server only in the request body.
+  // /s#<token>: a view someone shared by link, no sign-in (design §11; forms by link ended on
+  // 2026-10-12: every write needs a sign-in). The token stays after # (browsers never send that
+  // part), and goes to the server only in the request body.
   const token = window.location.hash.slice(1);
-  let opened = $state<SharedListView | SharedFormView | null>(null);
+  let opened = $state<SharedListView | null>(null);
   let error = $state<string | null>(token ? null : "This link is incomplete. Ask for it again.");
-  let sent = $state(0);
   let loadingMore = $state(false);
 
   $effect(() => {
     if (!token) return;
     sharesApi.openLink(token).then(
-      (o) => (opened = o),
+      (o) => (opened = o as SharedListView),
       (e: unknown) => (error = e instanceof Error ? e.message : "This link doesn't work."),
     );
   });
 
-  const list = $derived(opened?.share.kind === "view" ? (opened as SharedListView) : null);
-  const form = $derived(opened?.share.kind === "form" ? (opened as SharedFormView) : null);
+  const list = $derived(opened?.share.kind === "view" ? opened : null);
 
   async function more() {
     if (!list?.next_cursor) return;
@@ -36,10 +34,6 @@
     } finally {
       loadingMore = false;
     }
-  }
-  async function send(values: Record<string, unknown>) {
-    await sharesApi.submitLink(token, ulid(), values);
-    sent++;
   }
   const summary = (r: SharedRecord) =>
     r.fields
@@ -63,11 +57,7 @@
       <h1>{opened.share.title}</h1>
       <p class="muted">Shared by {opened.share.owner}</p>
     </header>
-    {#if form}
-      {#if form.description}<p>{form.description}</p>{/if}
-      {#if sent}<p class="thanks" role="status">Thanks, that's sent. You can send another.</p>{/if}
-      <SharedForm fields={form.fields} {send} sentLabel="Sent, thank you" />
-    {:else if list}
+    {#if list}
       <ListGroup>
         {#each list.records as r (r.id)}
           <ListRow title={r.title} subtitle={summary(r) || undefined} chevron={false} />
@@ -96,10 +86,6 @@
   .muted {
     color: var(--text-2);
     font-size: var(--text-sm);
-  }
-  .thanks {
-    color: var(--green);
-    font-weight: 600;
   }
   .wait {
     display: flex;

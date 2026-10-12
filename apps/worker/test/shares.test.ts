@@ -282,7 +282,7 @@ describe("sharing views and forms", () => {
     ).toBe(403);
   });
 
-  it("opens link-only views and forms without signing in", async () => {
+  it("opens link-only views without signing in; nothing is written without one", async () => {
     const { owner } = await setUp();
     await api(owner)("/views", { body: { name: "All shows", collection: "Shows" } });
     const view = await json<CreatedShare>(
@@ -298,26 +298,17 @@ describe("sharing views and forms", () => {
     expect(opened.records.map((r) => r.title)).toEqual(["Test Fest"]);
     expect(JSON.stringify(opened)).not.toContain("50000");
 
-    const form = await json<CreatedShare>(
-      await api(owner)("/shares", { body: { form: "Guests", public: true } }),
-    );
-    const ok = await call("/api/link/submit", {
-      body: { token: tokenOf(form.link), values: { Name: "Test Walk-in" } },
-    });
-    expect(ok.status).toBe(201);
+    // Every write needs a signed-in person (decision 2026-10-12): a form can't be shared by link.
+    expect((await api(owner)("/shares", { body: { form: "Guests", public: true } })).status).toBe(400);
     const guests = await json<FindResult>(await api(owner)("/collections/Guests/find", { body: {} }));
-    expect(guests.items.map((r) => r.title)).toContain("Test Walk-in");
 
     // A card link, or a link that's been turned off, doesn't open without signing in.
     const card = await json<CreatedShare>(
       await api(owner)("/shares", { body: { record_id: guests.items[0]!.id } }),
     );
     expect((await call("/api/link/open", { body: { token: tokenOf(card.link) } })).status).toBe(404);
-    await api(owner)(`/shares/${form.share.id}`, { method: "DELETE" });
-    expect(
-      (await call("/api/link/submit", { body: { token: tokenOf(form.link), values: { Name: "Test late" } } }))
-        .status,
-    ).toBe(404);
+    await api(owner)(`/shares/${view.share.id}`, { method: "DELETE" });
+    expect((await call("/api/link/open", { body: { token: tokenOf(view.link) } })).status).toBe(404);
     // Cards can't be link-only.
     expect(
       (await api(owner)("/shares", { body: { record_id: guests.items[0]!.id, public: true } })).status,
@@ -438,21 +429,8 @@ describe("personal answers", () => {
       ["Test Asha", "No"],
     ]);
 
-    // A link-only form leaves personal fields out (no account to answer as).
-    const form = await json<CreatedShare>(
-      await api(owner)("/shares", { body: { form: "Jams", public: true } }),
-    );
-    const anon = await json<SharedFormView>(
-      await call("/api/link/open", { body: { token: tokenOf(form.link) } }),
-    );
-    expect(anon.fields.map((f) => f.name)).toEqual(["Title"]);
-    expect(
-      (
-        await call("/api/link/submit", {
-          body: { token: tokenOf(form.link), values: { Title: "Test walk-in jam" } },
-        })
-      ).status,
-    ).toBe(201);
+    // A form can't be shared by link (every write needs a signed-in person).
+    expect((await api(owner)("/shares", { body: { form: "Jams", public: true } })).status).toBe(400);
 
     // A collection whose only text field is personal still gets a title.
     const polls = await json<{ title_field_id: string; fields: { id: string; name: string }[] }>(

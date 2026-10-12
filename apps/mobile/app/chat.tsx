@@ -1,7 +1,7 @@
 // The chat, one pull away from the home. Opened from a card it knows which one (and a card's
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -14,8 +14,9 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { ChatItem, ChatView, HistoryItem } from "@assistant/shared";
+import type { ChatItem, ChatView, CollectionView, HistoryItem } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
+import { LiveCard } from "@/components/LiveCard";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
@@ -44,6 +45,15 @@ export default function Chat() {
   const list = useRef<FlatList<ChatItem>>(null);
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
+  // The person's collections, once for every live card in the chat.
+  const collections = useRef<Promise<CollectionView[]> | null>(null);
+  const getCollections = useCallback(() => {
+    collections.current ??= request<CollectionView[]>("GET", "/api/collections").catch((e: unknown) => {
+      collections.current = null;
+      throw e;
+    });
+    return collections.current;
+  }, []);
 
   useEffect(() => {
     request<ChatView>("GET", `/api/chats/${MAIN}`)
@@ -144,7 +154,15 @@ export default function Chat() {
         keyExtractor={(i) => i.id}
         contentContainerStyle={{ padding: 14, gap: 4 }}
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
-        renderItem={({ item }) => <Bubble item={item} onAnswer={answer} busy={busy} />}
+        renderItem={({ item }) => (
+          <Bubble
+            item={item}
+            onAnswer={answer}
+            busy={busy}
+            collections={getCollections}
+            onAsk={(title) => setText((t) => t || `About "${title}": `)}
+          />
+        )}
         ListEmptyComponent={
           <Text style={[s.sys, { color: t.fg2 }]}>
             {note || (view ? "Say anything. Ask, add, or arrange your home." : "Loading…")}
@@ -200,20 +218,30 @@ function Bubble({
   item,
   onAnswer,
   busy,
+  collections,
+  onAsk,
 }: {
   item: ChatItem;
   onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
   busy: boolean;
+  collections: () => Promise<CollectionView[]>;
+  onAsk: (title: string) => void;
 }) {
   const { t } = useTheme();
+  if (item.role === "live" && item.live)
+    return (
+      <View style={{ marginVertical: 4 }}>
+        <LiveCard live={item.live} collections={collections} onAsk={onAsk} />
+      </View>
+    );
   if (item.role === "user")
     return (
       <View style={[s.bub, s.me, { backgroundColor: t.accent }]}>
         <Text style={[s.bubText, { color: t.onAccent }]}>{item.text}</Text>
       </View>
     );
-  if (item.role === "card" || item.role === "live") {
-    const title = item.card?.title ?? (item.live && "title" in item.live ? String(item.live.title) : "Card");
+  if (item.role === "card") {
+    const title = item.card?.title ?? "Card";
     return (
       <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
         <Text style={[s.cardTitle, { color: t.accent }]}>{title}</Text>

@@ -296,16 +296,6 @@ export async function openPublicShare(env: Env, token: string, cursor?: string) 
   return stub ? stub.openPublicShare(await hashToken(token), cursor) : null;
 }
 
-export async function submitPublicForm(
-  env: Env,
-  token: string,
-  key: string,
-  input: { id?: string | null; values: Record<string, unknown> },
-) {
-  const stub = publicStub(env, token);
-  return stub ? stub.submitPublicForm(await hashToken(token), key, input) : null;
-}
-
 export async function updateSharedRecord(ctx: OpUserCtx, i: z.output<typeof UpdateSharedRecordInput>) {
   const { stub } = await shareStub(ctx, i.share_id);
   return stub.updateSharedRecord(actorOf(ctx), ctx.idempotencyKey, i.share_id, i.record_id, i.values);
