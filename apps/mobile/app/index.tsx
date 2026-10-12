@@ -3,6 +3,8 @@
 // hold for the card's menu). Ticks work offline; the chat is one tap away.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AppState,
+  Linking,
   FlatList,
   Image,
   Pressable,
@@ -19,6 +21,8 @@ import type { CardSize } from "@assistant/shared";
 import { Card } from "@/components/Card";
 import { CardGrid } from "@/components/CardGrid";
 import { CardMenu } from "@/components/CardMenu";
+import { SearchSheet } from "@/components/SearchSheet";
+import { API_URL } from "@/config";
 import {
   answerWaiting,
   loadHome,
@@ -43,7 +47,7 @@ const logoDark = require("../assets/logo-dark.png");
 const SIDE = 16;
 
 export default function Home() {
-  const { me, loaded } = useSession();
+  const { me, loaded, refresh } = useSession();
   const { t, dark } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -61,10 +65,15 @@ export default function Home() {
   // Loaded while changes were still waiting to be sent (offline): load again once they are,
   // so the screen shows what the server now has.
   const loadedWithWaiting = useRef(false);
+  // Every load also asks who I am again (the assistant switch can change while the app is
+  // open); kept in a ref so a fresh `me` doesn't make `load` a new function and load again.
+  const refreshMe = useRef(refresh);
+  refreshMe.current = refresh;
   const load = useCallback(async () => {
     if (!userId) return;
     try {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
+      void refreshMe.current();
       setPages(await loadHome(userId));
       setError("");
     } catch (e) {
@@ -79,6 +88,12 @@ export default function Home() {
   }, [userId]);
   useEffect(() => {
     if (userId) void load();
+  }, [userId, load]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && userId) void load();
+    });
+    return () => sub.remove();
   }, [userId, load]);
   // A change the server refused: say so, and show the home as the server has it.
   const waitingBefore = useRef(outboxState().waiting.length);
@@ -120,8 +135,17 @@ export default function Home() {
       const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
       return replaceCard(prev, { ...current, records });
     });
-  const ask = (card: HomeCard, prompt?: string) =>
+  const assistant = me?.assistant !== false;
+  // online-only: the website's shared pages (a form to fill in, a card's parts) open in the browser.
+  const openOnWeb = (card: HomeCard) =>
+    card.shared && void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(card.shared.share_id)}`);
+  const ask = (card: HomeCard, prompt?: string) => {
+    // No assistant (a collaborator): a shared card opens on the website instead of in the chat.
+    if (!assistant && card.shared) return openOnWeb(card);
+    if (!assistant) return;
     router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
+  };
+  const [search, setSearch] = useState(false);
   // Process cards: my answer, or a nudge; then the home reads again (the run went on).
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
@@ -213,7 +237,7 @@ export default function Home() {
                   <Card
                     card={card}
                     onTick={onTick(card)}
-                    onOpen={() => canOpen() && ask(card)}
+                    onOpen={() => canOpen() && (card.shared?.kind === "form" ? openOnWeb(card) : ask(card))}
                     onAnswer={
                       card.waiting
                         ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
@@ -265,8 +289,8 @@ export default function Home() {
         </View>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Ask Gigspree"
-          onPress={() => router.push("/chat")}
+          accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
+          onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
           style={({ pressed }) => [
             s.bar,
             { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
@@ -277,10 +301,22 @@ export default function Home() {
             style={{ width: 28, height: 28 }}
             accessibilityIgnoresInvertColors
           />
-          <Text style={[s.barText, { color: t.fg2 }]}>Ask, add or arrange…</Text>
+          <Text style={[s.barText, { color: t.fg2 }]}>
+            {assistant ? "Ask, add or arrange…" : "Search your cards"}
+          </Text>
         </Pressable>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
+      {search ? (
+        <SearchSheet
+          cards={pagesRef.current?.flatMap((p) => p.cards) ?? []}
+          onClose={() => setSearch(false)}
+          onOpen={(card) => {
+            setSearch(false);
+            openOnWeb(card);
+          }}
+        />
+      ) : null}
     </View>
   );
 }

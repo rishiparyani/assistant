@@ -150,6 +150,11 @@ if (!(await api("GET", "/api/workflows")).some((w) => w.name === "Confirm with R
   });
 const bTitle = bookings.fields.find((f) => f.name === "Title");
 const bDate = bookings.fields.find((f) => f.name === "Date");
+// Rahul's own home (collaborator homes): the Today list to tick (editor) and the band note.
+const todayView = (await api("GET", "/api/views")).find((v) => v.name === "Today");
+const shares = await api("GET", "/api/shares");
+if (todayView && !shares.some((x) => x.kind === "view" && x.target_id === todayView.id))
+  await api("POST", "/api/shares/with", { view: todayView.id, people: [rahulId], access: "edit" });
 if (!(await api("GET", "/api/waiting")).length)
   await api("POST", `/api/collections/${bookings.id}/records`, {
     values: { [bTitle.id]: "Test wedding", [bDate.id]: "2026-12-12" },
