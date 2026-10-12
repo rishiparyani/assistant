@@ -20,8 +20,12 @@ import { radius, useTheme } from "../theme.ts";
 export type Rect = { x: number; y: number; w: number; h: number };
 export const CARD_GAP = 10;
 export const cardHeight = (card: HomeCard) => (card.spec.size === "l" ? 322 : 156);
-export const cardWidth = (card: HomeCard, width: number) =>
-  card.spec.size === "s" ? Math.floor((width - CARD_GAP) / 2) : width;
+/** A phone page has 2 columns; a laptop 4 (home-first.md §3 grid). S takes one, M and L two. */
+export const columnsFor = (width: number) => (width >= 860 ? 4 : 2);
+export const cardWidth = (card: HomeCard, width: number, cols = columnsFor(width)) => {
+  const unit = Math.floor((width - CARD_GAP * (cols - 1)) / cols);
+  return card.spec.size === "s" || cols === 1 ? unit : cols === 2 ? width : unit * 2 + CARD_GAP;
+};
 
 const HOLD_MS = 380;
 const MOVE_PX = 6;

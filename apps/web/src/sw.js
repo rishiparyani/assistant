@@ -27,7 +27,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-const SERVER_PATHS = /^\/(api|auth|mcp|\.well-known)(\/|$)/;
+// /app is the new home (its own files, served by the Worker): never answered from this cache.
+const SERVER_PATHS = /^\/(api|auth|mcp|app|\.well-known)(\/|$)/;
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;

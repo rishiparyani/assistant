@@ -33,6 +33,22 @@ export interface AppOptions {
   modules: readonly ModuleDefinition[];
 }
 
+/** The new home's page or one of its files, from the static assets (404 without them). */
+async function appIndex(env: Env, req: Request): Promise<Response> {
+  const assets = (env as { ASSETS?: Fetcher }).ASSETS;
+  if (!assets) return new Response("Not found", { status: 404 });
+  const url = new URL(req.url);
+  const isFile = /\.[a-z0-9]{1,8}$/i.test(url.pathname);
+  if (isFile) return assets.fetch(req);
+  url.pathname = "/app/index.html";
+  const res = await assets.fetch(new Request(url, { headers: req.headers }));
+  // Never cached as a page: a new deploy must reach the browser on the next open.
+  return new Response(res.body, {
+    status: res.status,
+    headers: { ...Object.fromEntries(res.headers), "cache-control": "no-cache" },
+  });
+}
+
 export function createApp({ modules }: AppOptions) {
   const ids = modules.map((m) => m.id);
   const userCreated = modules.flatMap((m) => (m.hooks?.userCreated ? [m.hooks.userCreated] : []));
@@ -93,6 +109,12 @@ export function createApp({ modules }: AppOptions) {
       return c.json({ error: { code: "database_unavailable", message: "Database check failed" } }, 503);
     }
   });
+
+  // The new home (the Expo app's web target, home-first.md §7 step 7) lives under /app with
+  // its own files. Its screens are client routes (/app/chat, /app/memory), so any path under
+  // it that isn't a file gets its index; files (scripts, images) come straight from assets.
+  app.get("/app/*", (c) => appIndex(c.env, c.req.raw));
+  app.get("/app", (c) => appIndex(c.env, c.req.raw));
 
   // Live updates (decision 2026-09-28): one WebSocket per open app, kept by the person's
   // live object (core/live). Cookies ride along on cross-site WebSocket requests, so the

@@ -586,3 +586,11 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Why:** the copy goes through the one path every setup takes (same schema, limits, confirmation, idempotency key and audit), so a received setup never carries code or data and nothing is made before the tap. Posting into the recipient's chat reuses the confirm card the person already knows from the assistant and This week.
 
 **Also:** the memory card and page on the phone read and forget through the existing `/api/memories`; no new storage.
+
+## 2026-10-12: The new home ships on the website at /app before the switch
+
+**Decision:** the Expo app's web target is built with the website and served by the Worker under `/app` (its own files, its index for every route under it), while the Svelte site stays at `/`. On a laptop the home is one dashboard of four columns; on a phone it stays swipeable pages. The switch (the new home at `/`, the Svelte app retired) comes when the new home covers what the site does.
+
+**Why:** home-first.md §7 step 7 says "until it matches today's site, then the switch"; shipping the web target alongside lets the owner and the band use the new home on a laptop or Windows now, and keeps every old screen reachable meanwhile. One build (`pnpm build`) and one deploy keep it to a single Worker on the Free plan.
+
+**Also:** the website's service worker never answers for `/app`, so a new deploy of the new home reaches browsers on the next open.

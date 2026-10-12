@@ -2,7 +2,7 @@
 // change, docs/design/home-first.md §7 step 1); email/password exists only on a local test
 // server, so the simulator tests can sign in.
 import { useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { signInWithEmail, signInWithGoogle } from "@/auth";
@@ -14,6 +14,9 @@ const logoLight = require("../assets/logo-light.png");
 const logoDark = require("../assets/logo-dark.png");
 const GOOGLE_IN_APP = process.env.EXPO_PUBLIC_GOOGLE_IN_APP === "1";
 const LOCAL = API_URL.startsWith("http://localhost");
+// On the website the server is the page's own origin: its sign-in page (Google, passkeys)
+// works and comes back here (home-first.md §7 step 7).
+const ON_SITE = Platform.OS === "web" && !LOCAL;
 
 export default function Login() {
   const { t, dark } = useTheme();
@@ -60,7 +63,17 @@ export default function Login() {
       </Text>
 
       <View style={{ gap: 10, marginTop: 24 }}>
-        {GOOGLE_IN_APP ? (
+        {ON_SITE ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              window.location.assign(`${API_URL}/login?next=${encodeURIComponent("/app")}`);
+            }}
+            style={[s.btn, { backgroundColor: t.accent }]}
+          >
+            <Text style={[s.btnText, { color: t.onAccent }]}>Sign in</Text>
+          </Pressable>
+        ) : GOOGLE_IN_APP ? (
           <Pressable
             accessibilityRole="button"
             disabled={busy}
