@@ -273,7 +273,7 @@ export function Card({
       }
       case "list-ticks":
         body = (
-          <View style={s.grow}>
+          <View style={s.list}>
             {card.records.slice(0, ROWS[size]).map((r) => {
               const done = field ? r.values[field] === true : false;
               return (
@@ -312,7 +312,7 @@ export function Card({
       default:
         body = card.shared?.fields ? (
           // A record shared with me: its fields as rows ("Fee: ₹15,000").
-          <View style={s.grow}>
+          <View style={s.list}>
             {card.shared.fields.slice(0, ROWS[size]).map((f) => (
               <View key={f.name} style={[s.row, { borderBottomColor: t.sep }]}>
                 <Text style={[s.rowText, { color: t.fg2 }]} numberOfLines={1}>
@@ -328,7 +328,7 @@ export function Card({
             </Text>
           </View>
         ) : (
-          <View style={s.grow}>
+          <View style={s.list}>
             {card.records.slice(0, ROWS[size]).map((r) => (
               <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
                 <Text style={[s.rowText, { color: t.fg }]} numberOfLines={1}>
@@ -532,6 +532,8 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   grow: { flex: 1, justifyContent: "flex-end" },
+  // Lists read from the top, right under the title (a short list leaves room below, not above).
+  list: { flex: 1, justifyContent: "flex-start" },
   ctlList: { flex: 1, overflow: "hidden" },
   ctlRow: { gap: 6, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
   ctlLine: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
