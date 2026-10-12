@@ -6,7 +6,16 @@ import { ScrollView, StyleSheet, Text, View, useWindowDimensions, Pressable } fr
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ARRANGEMENT_INFO } from "@assistant/cards";
-import { Card, CardGrid, GALLERY_ARRANGEMENTS, sampleCards, useTheme } from "@assistant/cards/native";
+import {
+  Card,
+  CardGrid,
+  GALLERY_ARRANGEMENTS,
+  controlCards,
+  sampleCards,
+  useTheme,
+  type HomeCard,
+} from "@assistant/cards/native";
+import type { StoredValue } from "@assistant/shared";
 
 const MAX = 1180;
 
@@ -15,7 +24,21 @@ export default function Gallery() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const [cards] = useState(sampleCards);
+  const [cards, setCards] = useState(() => [...controlCards(), ...sampleCards()]);
+  // The controls work here too (on the made-up data only, nothing is saved).
+  const set = (card: HomeCard) => (record: { id: string }, field: string, value: StoredValue) =>
+    setCards((all) =>
+      all.map((c) =>
+        c.collection?.id !== card.collection?.id
+          ? c
+          : {
+              ...c,
+              records: c.records.map((r) =>
+                r.id === record.id ? { ...r, values: { ...r.values, [field]: value } } : r,
+              ),
+            },
+      ),
+    );
   const gridWidth = Math.min(width, MAX) - 32;
   return (
     <View style={[s.root, { backgroundColor: t.canvas, paddingTop: insets.top + 8 }]}>
@@ -31,7 +54,8 @@ export default function Gallery() {
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, alignItems: "center" }}>
         <Text style={[s.note, { color: t.fg2, width: gridWidth }]}>
-          {GALLERY_ARRANGEMENTS.length} kinds of card, each at every size it comes in. Made-up data.
+          Controls first (try them), then {GALLERY_ARRANGEMENTS.length} kinds of card at every size they come
+          in. Made-up data; nothing is saved.
         </Text>
         <View style={{ width: gridWidth }}>
           <CardGrid
@@ -39,7 +63,7 @@ export default function Gallery() {
             width={gridWidth}
             arrangeable={false}
             onHold={() => undefined}
-            renderCard={(card) => <Card card={card} />}
+            renderCard={(card) => <Card card={card} onSet={set(card)} />}
           />
         </View>
         <View style={[s.legend, { width: gridWidth }]}>

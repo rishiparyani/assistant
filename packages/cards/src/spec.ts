@@ -3,28 +3,20 @@
 // this set; the app draws it. `card.v1` is the one shape the server validates, the phone, the
 // website and the widgets draw, so a card that passed validation is drawable everywhere.
 import { z } from "zod";
-import { CARD_SIZE_VALUES, FilterInput } from "@assistant/shared";
+import {
+  ARRANGEMENTS,
+  CARD_CONTROL_KINDS,
+  CARD_SIZE_VALUES,
+  FilterInput,
+  type Arrangement,
+  type StoredValue,
+} from "@assistant/shared";
 
 export const CARD_VERSION = "card.v1" as const;
 
-/** The named arrangements the app knows how to draw at every size, light and dark. */
-export const ARRANGEMENTS = [
-  "number",
-  "number-chart",
-  "two-numbers",
-  "two-numbers-list",
-  "list-ticks",
-  "list-plain",
-  "list-counter",
-  "next",
-  "countdown",
-  "question",
-  "quick-add",
-  "process",
-  "memory",
-  "progress",
-] as const;
-export type Arrangement = (typeof ARRANGEMENTS)[number];
+/** The named arrangements the app knows how to draw at every size, light and dark (the list
+ *  lives in shared, where saved views check it). */
+export { ARRANGEMENTS, type Arrangement };
 
 /** xs: half width, half height · s: half width · bar: full width, half height · m: full width ·
  *  l: full width, double height (on a 2-column phone page). */
@@ -77,6 +69,21 @@ export const CardSpec = z.object({
   sources: z.array(CardSource).min(1).max(2),
   /** Rows shown by list arrangements (the size caps it further). */
   limit: z.number().int().min(1).max(12).optional(),
+  /** Controls on each row, bound to fields by id (switches, chips, steppers, stars, buttons…). */
+  controls: z
+    .array(
+      z.object({
+        field: z.string().min(1).max(80),
+        as: z.enum(CARD_CONTROL_KINDS),
+        label: z.string().max(24).optional(),
+        value: z.custom<StoredValue>(() => true).optional(),
+        min: z.number().optional(),
+        max: z.number().optional(),
+        step: z.number().positive().optional(),
+      }),
+    )
+    .max(4)
+    .optional(),
 });
 export type CardSpec = z.infer<typeof CardSpec>;
 

@@ -62,6 +62,9 @@ import {
   type StoredValue,
   type ViewMode,
   type CardSizeValue,
+  type CardConfig,
+  type CardControl,
+  type Arrangement,
 } from "@assistant/shared";
 import {
   retryDelayMs,
@@ -406,6 +409,8 @@ type ViewQuery = {
   add?: string[];
   /** The card's size on the phone's home, when the person set one. */
   card_size?: CardSizeValue;
+  /** The card's arrangement and controls (fields by id), when chosen. */
+  card?: CardConfig;
 };
 type ViewInput = {
   filters?: Filter[];
@@ -415,7 +420,10 @@ type ViewInput = {
   add_fields?: string[];
   /** null clears it (the app picks again). */
   card_size?: CardSizeValue | null;
+  /** Controls name fields by name or id; null clears the card's choices. */
+  card?: { arrangement?: Arrangement | null; controls?: CardControlInputValue[] } | null;
 };
+type CardControlInputValue = Omit<CardControl, "value"> & { value?: unknown };
 type ViewRow = {
   id: string;
   name: string;
@@ -1415,6 +1423,17 @@ export class SpaceObject extends DurableObject<Env> {
           ? { add_fields: v.add_fields.flatMap((id) => fieldName(v.collection_id, id) ?? []) }
           : {}),
         ...(v.card_size ? { card_size: v.card_size } : {}),
+        ...(v.card
+          ? {
+              card: {
+                arrangement: v.card.arrangement,
+                controls: v.card.controls.flatMap((c) => {
+                  const name = fieldName(v.collection_id, c.field);
+                  return name ? [{ ...c, field: name }] : [];
+                }),
+              },
+            }
+          : {}),
       }));
     return {
       name: ordered
@@ -3198,6 +3217,7 @@ export class SpaceObject extends DurableObject<Env> {
         sort: input.sort === undefined ? before.sort : input.sort,
         add_fields: input.add_fields ?? current.add_fields,
         card_size: input.card_size === undefined ? current.card_size : input.card_size,
+        card: input.card === undefined ? current.card : input.card,
       });
       this.sql.exec(
         `update views set name = ?, name_key = ?, query_json = ?, mode = ?, pinned = ?, position = ?, updated_at = ? where id = ?`,
@@ -3301,13 +3321,61 @@ export class SpaceObject extends DurableObject<Env> {
       const problem = this.quickAddProblem(fields, add);
       if (problem) throw new ObjectError("validation_failed", problem);
     }
+    const card = q.card ? this.checkCard(fields, q.card) : null;
     return {
       filters,
       search: q.search?.trim() || null,
       sort,
       ...(add ? { add } : {}),
       ...(q.card_size ? { card_size: q.card_size } : {}),
+      ...(card ? { card } : {}),
     };
+  }
+
+  /** A card's controls must fit their fields: what they write has to be a value the field takes. */
+  private checkCard(
+    fields: FieldRow[],
+    card: { arrangement?: Arrangement | null; controls?: CardControlInputValue[] },
+  ): CardConfig | null {
+    const controls: CardControl[] = (card.controls ?? []).map((c) => {
+      const f = this.matchField(fields, c.field);
+      const o = toField(f).options;
+      if (o.formula || o.rollup || o.personal || f.type === "link" || f.type === "person")
+        throw new ObjectError("validation_failed", `${f.name} can't be changed from a card`);
+      const need: Record<string, string[]> = {
+        tick: ["boolean"],
+        switch: ["boolean"],
+        chips: ["choice"],
+        stepper: ["number"],
+        stars: ["number"],
+        slider: ["number"],
+      };
+      const fits = need[c.as];
+      if (fits && !fits.includes(f.type))
+        throw new ObjectError(
+          "validation_failed",
+          `A ${c.as} needs a ${fits.join(" or ").replace("boolean", "yes/no")} field; ${f.name} is ${f.type}`,
+        );
+      const out: CardControl = { field: f.id, as: c.as };
+      if (c.as === "button") {
+        if (!c.label) throw new ObjectError("validation_failed", "A button needs a label");
+        out.label = c.label;
+        out.value = normalizeValue(toField(f), c.value ?? null);
+      }
+      if (c.as === "stars") Object.assign(out, { min: 0, max: Math.min(Math.max(c.max ?? 5, 3), 10) });
+      if (c.as === "slider" || c.as === "stepper") {
+        if (c.min !== undefined) out.min = c.min;
+        if (c.max !== undefined) out.max = c.max;
+        if (c.step !== undefined) out.step = c.step;
+        if (c.as === "slider" && (out.min === undefined || out.max === undefined))
+          Object.assign(out, { min: out.min ?? 0, max: out.max ?? 100 });
+        if (out.min !== undefined && out.max !== undefined && out.min >= out.max)
+          throw new ObjectError("validation_failed", "min must be less than max");
+      }
+      return out;
+    });
+    if (!card.arrangement && !controls.length) return null;
+    return { arrangement: card.arrangement ?? null, controls };
   }
 
   private requireView(ref: string): ViewRow {
@@ -3367,6 +3435,9 @@ export class SpaceObject extends DurableObject<Env> {
       pinned: v.pinned === 1,
       position: v.position,
       card_size: q.card_size ?? null,
+      card: q.card
+        ? { arrangement: q.card.arrangement, controls: q.card.controls.filter((c) => live.has(c.field)) }
+        : null,
       updated_at: v.updated_at,
     };
   }

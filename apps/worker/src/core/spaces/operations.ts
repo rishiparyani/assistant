@@ -324,6 +324,7 @@ export const spaceOperations = [
         pinned: i.pinned,
         add_fields: i.add_fields,
         card_size: i.card_size,
+        card: i.card,
       });
     },
   }),
@@ -331,7 +332,7 @@ export const spaceOperations = [
     id: "core.update_view",
     tool: "update_view",
     description:
-      "Rename a saved view, change its filters or sort, pin / unpin it, or give it a quick add (add_fields; [] removes it).",
+      "Rename a saved view, change its filters or sort, pin / unpin it, give it a quick add (add_fields; [] removes it), or change its card (arrangement, controls like switches, chips, steppers, stars and buttons).",
     kind: "write",
     http: { method: "PATCH", path: "/views/:view_id" },
     input: UpdateViewInput,
@@ -347,6 +348,7 @@ export const spaceOperations = [
         position: i.position,
         add_fields: i.add_fields,
         card_size: i.card_size,
+        card: i.card,
       });
     },
   }),

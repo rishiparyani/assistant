@@ -108,6 +108,17 @@ export function catalogueText(): string {
     .join("\n");
 }
 
+/** The controls a list card's rows can have, for the assistant (save_view / update_view card). */
+export const CONTROLS_TEXT = [
+  "Controls on a list card's rows (card.controls, up to 4, each bound to a field):",
+  "- tick or switch: a yes/no field (done, paid, arrived)",
+  "- chips: a choice field (tap one: Learning / Ready / Stage)",
+  "- stepper: a number field (− and +; min, max, step)",
+  "- stars: a number field rated 1–5 (max up to 10)",
+  "- slider: a number field between min and max",
+  '- button: sets one field to one value (label "Paid", value true)',
+].join("\n");
+
 /** One arrangement in full, when the assistant asks about it. */
 export function describe(a: Arrangement): string {
   const i = ARRANGEMENT_INFO[a];

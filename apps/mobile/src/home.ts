@@ -7,7 +7,9 @@ import {
   CARD_VERSION,
   ARRANGEMENT_SIZES,
   CardSpec,
+  cardProblems,
   nowScore,
+  type Arrangement,
   type CardSignals,
   type CardSize,
 } from "@assistant/cards";
@@ -87,9 +89,33 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
           sources: [{ ...base, sum_field: money.id }],
         })
       : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
+  // A card the person (or the assistant) chose: its arrangement, with the fields it needs
+  // picked from the list, when the list has them; and the controls on its rows.
+  const chosen = v.card?.arrangement ? chosenSpec(v, c, v.card.arrangement) : null;
+  const out = chosen ?? spec;
+  if (v.card?.controls.length) out.controls = v.card.controls;
   // The person's size wins when the arrangement can be drawn at it.
-  if (v.card_size && sizesFor(spec).includes(v.card_size)) spec.size = v.card_size;
-  return spec;
+  if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;
+  else if (!sizesFor(out).includes(out.size)) out.size = sizesFor(out)[0]!;
+  return out;
+}
+
+function chosenSpec(v: SavedView, c: CollectionView, arrangement: Arrangement): CardSpec | null {
+  const of = (...types: string[]) => c.fields.find((f) => types.includes(f.type))?.id ?? null;
+  const base = { collection: c.id, filters: v.filters, sort: v.sort ?? null };
+  const source = {
+    ...base,
+    sum_field: arrangement === "number" ? of("money", "number") : null,
+    answer_field: arrangement === "list-ticks" || arrangement === "progress" ? of("boolean") : null,
+    date_field: arrangement === "next" || arrangement === "countdown" ? of("date", "datetime") : null,
+  };
+  const parsed = CardSpec.safeParse({
+    title: v.name,
+    arrangement,
+    size: ARRANGEMENT_SIZES[arrangement][0],
+    sources: [source],
+  });
+  return parsed.success && !cardProblems(parsed.data).length ? parsed.data : null;
 }
 
 /** The sizes this card can be drawn at. */
@@ -118,6 +144,7 @@ export function cardFor(
           pinned: false,
           position: 0,
           card_size: null,
+          card: null,
           updated_at: "",
         },
         c,
@@ -444,7 +471,13 @@ export function signalsOf(c: HomeCard, today = new Date()): CardSignals {
 /** A tick on a list-ticks card: shows at once, syncs through the outbox. */
 export function tick(card: HomeCard, record: RecordView, value: boolean): RecordView {
   const field = card.spec.sources[0]?.answer_field;
-  if (!field || !card.collection) return record;
+  if (!field) return record;
+  return setValue(card, record, field, value);
+}
+
+/** A control on a card changed one field of a row: shown at once, sent through the outbox. */
+export function setValue(card: HomeCard, record: RecordView, field: string, value: StoredValue): RecordView {
+  if (!card.collection) return record;
   const values: Record<string, StoredValue> = { [field]: value };
   // A row of a list shared with me goes through the share (the owner's object checks it).
   send(

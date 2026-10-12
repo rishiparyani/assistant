@@ -626,3 +626,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Why:** everyone already signs in with Google, and gigs and rehearsals belong on the calendar people already use. The owner approved the new access in chat (2026-10-12); it stays per person and opt-in.
 
 **Addendum (2026-10-12, owner's feedback):** cards come in five sizes, smallest first: `xs` (Tiny: half width, half height), `s`, `bar` (Strip: full width, half height), `m`, `l`. Half-height sizes show one figure (a total, days left, done out of all) so a number never sits alone in a big box; the grid stacks two of them in one cell's height.
+
+## 2026-10-12: Cards have controls (owner's ask: "very interactive" cards)
+
+**Decision:** a list card's rows can carry up to four **controls**, each bound to one field of the list and writing it when used: **tick** and **switch** (yes/no), **chips** (a choice), **stepper**, **stars** and **slider** (a number), and **button** (sets one field to one value, e.g. "Paid"). They're part of the saved view (`card: {arrangement, controls}`), set by `save_view` / `update_view` (so by the assistant in the chat, "chat makes, screens use") and checked by the space's object: the control must fit its field's type, a button's value must be a value the field takes, calculated, linked, person and personal fields can't be changed from a card. Drawn by `packages/cards` (`native/controls.tsx`, React Native's own parts, no new dependency), at least 44 points to tap; a change shows at once and goes through the outbox (offline first), like a tick.
+
+**Why:** the owner wants cards to be rich and interactive, not just ticks. Binding every control to a field keeps them "using" what exists (no logic in a card), keeps one source of truth, and lets the server check every one; the assistant composes them from a short list instead of drawing UI.

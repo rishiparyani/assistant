@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
-import { tick, type HomeCard } from "../home.ts";
+import { setValue, tick, type HomeCard } from "../home.ts";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
 import { Card, cardHeight } from "@assistant/cards/native";
@@ -137,6 +137,12 @@ function ListCard({
             setCard((c) => ({
               ...c,
               records: c.records.map((r) => (r.id === record.id ? tick(c, r, value) : r)),
+            }))
+          }
+          onSet={(record, field, value) =>
+            setCard((c) => ({
+              ...c,
+              records: c.records.map((r) => (r.id === record.id ? setValue(c, r, field, value) : r)),
             }))
           }
           onOpen={() => onAsk?.(card.spec.title)}

@@ -3,15 +3,17 @@
 // anything; this file does.
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
-import type { RecordView } from "@assistant/shared";
+import type { RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
 import { radius, useTheme } from "./theme.ts";
+import { Control, INLINE } from "./controls.tsx";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
 export function Card({
   card,
   onTick,
+  onSet,
   onOpen,
   onAnswer,
   onNudge,
@@ -19,6 +21,8 @@ export function Card({
 }: {
   card: HomeCard;
   onTick?: (record: RecordView, value: boolean) => void;
+  /** A control on a row changed a field (switches, chips, steppers, stars, sliders, buttons). */
+  onSet?: (record: RecordView, fieldId: string, value: StoredValue) => void;
   onOpen?: () => void;
   /** Process cards: my answer to what it waits on me for, or a nudge to the others. */
   onAnswer?: (answer: string) => void;
@@ -47,251 +51,303 @@ export function Card({
   );
 
   let body: React.ReactNode;
-  switch (card.spec.arrangement) {
-    case "memory": {
-      const kept = card.memory ?? [];
-      const shown = kept.slice(0, size === "s" ? 2 : 3);
-      body = (
-        <View style={s.grow}>
-          {shown.map((m) => (
-            <View key={m.id} style={[s.row, { borderBottomColor: t.sep }]}>
-              <View style={[s.dot, { backgroundColor: c, opacity: 0.6 }]} />
-              <Text style={[s.rowText, { color: t.fg }]} numberOfLines={2}>
-                {m.text}
+  // A list with controls: each row is its title and the controls bound to its fields.
+  const controls = (card.spec.controls ?? []).flatMap((ctl) => {
+    const f = card.collection?.fields.find((x) => x.id === ctl.field);
+    return f ? [{ ctl, f }] : [];
+  });
+  const listy = ["list-plain", "list-ticks", "next"].includes(card.spec.arrangement);
+  if (controls.length && listy) {
+    const inline = controls.filter((x) => INLINE.has(x.ctl.as));
+    const below = controls.filter((x) => !INLINE.has(x.ctl.as));
+    // What fits under the title: a row with its controls on one line is about 41 points, one
+    // with a line of chips or a slider under it about 75.
+    const rows = size === "l" ? (below.length ? 3 : 6) : below.length ? 1 : 2;
+    body = (
+      <View style={s.ctlList}>
+        {card.records.slice(0, rows).map((r) => (
+          <View key={r.id} style={[s.ctlRow, { borderBottomColor: t.sep }]}>
+            <View style={s.ctlLine}>
+              <Text style={[s.rowText, { color: t.fg }]} numberOfLines={1}>
+                {r.title}
               </Text>
-            </View>
-          ))}
-          <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
-            {kept.length
-              ? `${kept.length} thing${kept.length === 1 ? "" : "s"} kept · tap to see them all, or forget one`
-              : "Nothing kept yet. Say “remember …” in the chat and it's used in every chat."}
-          </Text>
-        </View>
-      );
-      break;
-    }
-    case "process": {
-      const w = card.waiting!;
-      const open = w.on.filter((p) => p.answer === null);
-      const answered = w.on.filter((p) => p.answer !== null);
-      const askedMe = !!w.share_id && w.mine === null;
-      body = (
-        <View style={s.grow}>
-          <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
-            {w.record}
-          </Text>
-          <Text style={[s.sub, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 3}>
-            {w.text}
-          </Text>
-          <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
-            {askedMe
-              ? `Waiting on you · asked ${ago(w.asked_at)}`
-              : open.length
-                ? `Waiting on ${open.map((p) => p.name.split(/\s+/)[0]).join(", ")} · asked ${ago(w.asked_at)}`
-                : "Everyone has answered"}
-            {answered.length && !askedMe
-              ? ` · ${answered.map((p) => `${p.name.split(/\s+/)[0]}: ${p.answer}`).join(", ")}`
-              : ""}
-          </Text>
-          {askedMe && w.choices ? (
-            <View style={s.answers}>
-              {w.choices.map((choice) => (
-                <Pressable
-                  key={choice}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Answer ${choice}`}
-                  disabled={busy}
-                  onPress={() => {
-                    void Haptics.selectionAsync().catch(() => undefined);
-                    onAnswer?.(choice);
-                  }}
-                  style={[s.answer, { backgroundColor: c, opacity: busy ? 0.6 : 1 }]}
-                >
-                  <Text style={[s.answerText, { color: t.onAccent }]}>{choice}</Text>
-                </Pressable>
+              {inline.map(({ ctl, f }) => (
+                <Control
+                  key={`${ctl.field}:${ctl.as}:${ctl.label ?? ""}`}
+                  control={ctl}
+                  field={f}
+                  value={r.values[f.id]}
+                  colour={c}
+                  label={`${r.title} · ${f.name}`}
+                  onSet={(v) => onSet?.(r, f.id, v)}
+                />
               ))}
             </View>
-          ) : askedMe ? (
-            <Text style={[s.sub, { color: t.accent }]}>Tap to answer in the chat</Text>
-          ) : open.length && onNudge ? (
-            <View style={s.answers}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Nudge"
-                disabled={busy}
-                onPress={onNudge}
-                style={[s.answer, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
-              >
-                <Text style={[s.answerText, { color: t.accent }]}>
-                  {w.nudges ? `Nudge again (${w.nudges})` : "Nudge"}
+            {below.map(({ ctl, f }) => (
+              <Control
+                key={`${ctl.field}:${ctl.as}`}
+                control={ctl}
+                field={f}
+                value={r.values[f.id]}
+                colour={c}
+                label={`${r.title} · ${f.name}`}
+                onSet={(v) => onSet?.(r, f.id, v)}
+              />
+            ))}
+          </View>
+        ))}
+        {card.records.length === 0 ? <Text style={[s.sub, { color: t.fg2 }]}>Nothing here yet.</Text> : null}
+      </View>
+    );
+  } else
+    switch (card.spec.arrangement) {
+      case "memory": {
+        const kept = card.memory ?? [];
+        const shown = kept.slice(0, size === "s" ? 2 : 3);
+        body = (
+          <View style={s.grow}>
+            {shown.map((m) => (
+              <View key={m.id} style={[s.row, { borderBottomColor: t.sep }]}>
+                <View style={[s.dot, { backgroundColor: c, opacity: 0.6 }]} />
+                <Text style={[s.rowText, { color: t.fg }]} numberOfLines={2}>
+                  {m.text}
                 </Text>
-              </Pressable>
+              </View>
+            ))}
+            <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
+              {kept.length
+                ? `${kept.length} thing${kept.length === 1 ? "" : "s"} kept · tap to see them all, or forget one`
+                : "Nothing kept yet. Say “remember …” in the chat and it's used in every chat."}
+            </Text>
+          </View>
+        );
+        break;
+      }
+      case "process": {
+        const w = card.waiting!;
+        const open = w.on.filter((p) => p.answer === null);
+        const answered = w.on.filter((p) => p.answer !== null);
+        const askedMe = !!w.share_id && w.mine === null;
+        body = (
+          <View style={s.grow}>
+            <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
+              {w.record}
+            </Text>
+            <Text style={[s.sub, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 3}>
+              {w.text}
+            </Text>
+            <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
+              {askedMe
+                ? `Waiting on you · asked ${ago(w.asked_at)}`
+                : open.length
+                  ? `Waiting on ${open.map((p) => p.name.split(/\s+/)[0]).join(", ")} · asked ${ago(w.asked_at)}`
+                  : "Everyone has answered"}
+              {answered.length && !askedMe
+                ? ` · ${answered.map((p) => `${p.name.split(/\s+/)[0]}: ${p.answer}`).join(", ")}`
+                : ""}
+            </Text>
+            {askedMe && w.choices ? (
+              <View style={s.answers}>
+                {w.choices.map((choice) => (
+                  <Pressable
+                    key={choice}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Answer ${choice}`}
+                    disabled={busy}
+                    onPress={() => {
+                      void Haptics.selectionAsync().catch(() => undefined);
+                      onAnswer?.(choice);
+                    }}
+                    style={[s.answer, { backgroundColor: c, opacity: busy ? 0.6 : 1 }]}
+                  >
+                    <Text style={[s.answerText, { color: t.onAccent }]}>{choice}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : askedMe ? (
+              <Text style={[s.sub, { color: t.accent }]}>Tap to answer in the chat</Text>
+            ) : open.length && onNudge ? (
+              <View style={s.answers}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Nudge"
+                  disabled={busy}
+                  onPress={onNudge}
+                  style={[s.answer, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+                >
+                  <Text style={[s.answerText, { color: t.accent }]}>
+                    {w.nudges ? `Nudge again (${w.nudges})` : "Nudge"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </View>
+        );
+        break;
+      }
+      case "number": {
+        // The total, then the latest two items that make it up: no empty middle.
+        const sumField = card.collection?.fields.find((f) => f.id === card.spec.sources[0]?.sum_field);
+        const latest = card.records.slice(0, 2);
+        body = (
+          <View style={s.fill}>
+            <View>
+              <Text
+                style={[s.num, { color: t.fg }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.6}
+              >
+                {formatTotal(card)}
+              </Text>
+              <Text style={[s.sub, { color: t.fg2 }]}>
+                {card.records.length} record{card.records.length === 1 ? "" : "s"}
+              </Text>
             </View>
-          ) : null}
-        </View>
-      );
-      break;
-    }
-    case "number": {
-      // The total, then the latest two items that make it up: no empty middle.
-      const sumField = card.collection?.fields.find((f) => f.id === card.spec.sources[0]?.sum_field);
-      const latest = card.records.slice(0, 2);
-      body = (
-        <View style={s.fill}>
-          <View>
+            <View>
+              {latest.map((r) => (
+                <View key={r.id} style={[s.mini, { borderTopColor: t.sep }]}>
+                  <Text style={[s.miniText, { color: t.fg }]} numberOfLines={1}>
+                    {r.title}
+                  </Text>
+                  <Text style={[s.miniEnd, { color: t.fg2 }]} numberOfLines={1}>
+                    {sumField ? (r.named[sumField.name] ?? "") : ""}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        );
+        break;
+      }
+      case "countdown": {
+        // Days to the soonest item still ahead (by the source's date field).
+        const df = card.spec.sources[0]?.date_field;
+        const today = new Date().toISOString().slice(0, 10);
+        const ahead = card.records
+          .map((r) => ({ r, d: df ? String(r.values[df] ?? "").slice(0, 10) : "" }))
+          .filter((x) => x.d >= today)
+          .sort((a, b) => a.d.localeCompare(b.d))[0];
+        const days = ahead ? Math.round((Date.parse(ahead.d) - Date.parse(today)) / 86_400_000) : null;
+        body = (
+          <View style={s.grow}>
             <Text
               style={[s.num, { color: t.fg }]}
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.6}
             >
-              {formatTotal(card)}
+              {days === null ? "–" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}
             </Text>
-            <Text style={[s.sub, { color: t.fg2 }]}>
-              {card.records.length} record{card.records.length === 1 ? "" : "s"}
+            <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={size === "s" ? 1 : 2}>
+              {ahead ? ahead.r.title : "Nothing coming up"}
             </Text>
           </View>
-          <View>
-            {latest.map((r) => (
-              <View key={r.id} style={[s.mini, { borderTopColor: t.sep }]}>
-                <Text style={[s.miniText, { color: t.fg }]} numberOfLines={1}>
-                  {r.title}
+        );
+        break;
+      }
+      case "progress": {
+        // Done out of all (by the source's yes/no field).
+        const done = field ? card.records.filter((r) => r.values[field] === true).length : 0;
+        const all = card.records.length;
+        body = (
+          <View style={s.grow}>
+            <Text style={[s.num, { color: t.fg }]} numberOfLines={1}>
+              {done}
+              <Text style={[s.of, { color: t.fg2 }]}> / {all}</Text>
+            </Text>
+            <View style={[s.bar, { backgroundColor: t.fill }]}>
+              <View
+                style={[
+                  s.barIn,
+                  { backgroundColor: c, width: `${all ? Math.round((done / all) * 100) : 0}%` },
+                ]}
+              />
+            </View>
+            <Text style={[s.sub, { color: t.fg2 }]}>
+              {all - done ? `${all - done} to go` : all ? "All done" : "Nothing yet"}
+            </Text>
+          </View>
+        );
+        break;
+      }
+      case "list-ticks":
+        body = (
+          <View style={s.grow}>
+            {card.records.slice(0, ROWS[size]).map((r) => {
+              const done = field ? r.values[field] === true : false;
+              return (
+                <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
+                  <Pressable
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: done }}
+                    accessibilityLabel={r.title}
+                    hitSlop={10}
+                    onPress={() => {
+                      void Haptics.selectionAsync().catch(() => undefined);
+                      onTick?.(r, !done);
+                    }}
+                    style={[s.circle, { borderColor: done ? c : t.fg3 }]}
+                  >
+                    {done ? <View style={[s.circleIn, { backgroundColor: c }]} /> : null}
+                  </Pressable>
+                  <Text
+                    style={[
+                      s.rowText,
+                      { color: done ? t.fg2 : t.fg, textDecorationLine: done ? "line-through" : "none" },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {r.title}
+                  </Text>
+                </View>
+              );
+            })}
+            {card.records.length === 0 ? (
+              <Text style={[s.sub, { color: t.fg2 }]}>Nothing here. Nice.</Text>
+            ) : null}
+          </View>
+        );
+        break;
+      default:
+        body = card.shared?.fields ? (
+          // A record shared with me: its fields as rows ("Fee: ₹15,000").
+          <View style={s.grow}>
+            {card.shared.fields.slice(0, ROWS[size]).map((f) => (
+              <View key={f.name} style={[s.row, { borderBottomColor: t.sep }]}>
+                <Text style={[s.rowText, { color: t.fg2 }]} numberOfLines={1}>
+                  {f.name}
                 </Text>
-                <Text style={[s.miniEnd, { color: t.fg2 }]} numberOfLines={1}>
-                  {sumField ? (r.named[sumField.name] ?? "") : ""}
+                <Text style={[s.end, { color: t.fg }]} numberOfLines={1}>
+                  {f.display}
                 </Text>
               </View>
             ))}
-          </View>
-        </View>
-      );
-      break;
-    }
-    case "countdown": {
-      // Days to the soonest item still ahead (by the source's date field).
-      const df = card.spec.sources[0]?.date_field;
-      const today = new Date().toISOString().slice(0, 10);
-      const ahead = card.records
-        .map((r) => ({ r, d: df ? String(r.values[df] ?? "").slice(0, 10) : "" }))
-        .filter((x) => x.d >= today)
-        .sort((a, b) => a.d.localeCompare(b.d))[0];
-      const days = ahead ? Math.round((Date.parse(ahead.d) - Date.parse(today)) / 86_400_000) : null;
-      body = (
-        <View style={s.grow}>
-          <Text
-            style={[s.num, { color: t.fg }]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.6}
-          >
-            {days === null ? "–" : days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`}
-          </Text>
-          <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={size === "s" ? 1 : 2}>
-            {ahead ? ahead.r.title : "Nothing coming up"}
-          </Text>
-        </View>
-      );
-      break;
-    }
-    case "progress": {
-      // Done out of all (by the source's yes/no field).
-      const done = field ? card.records.filter((r) => r.values[field] === true).length : 0;
-      const all = card.records.length;
-      body = (
-        <View style={s.grow}>
-          <Text style={[s.num, { color: t.fg }]} numberOfLines={1}>
-            {done}
-            <Text style={[s.of, { color: t.fg2 }]}> / {all}</Text>
-          </Text>
-          <View style={[s.bar, { backgroundColor: t.fill }]}>
-            <View
-              style={[s.barIn, { backgroundColor: c, width: `${all ? Math.round((done / all) * 100) : 0}%` }]}
-            />
-          </View>
-          <Text style={[s.sub, { color: t.fg2 }]}>
-            {all - done ? `${all - done} to go` : all ? "All done" : "Nothing yet"}
-          </Text>
-        </View>
-      );
-      break;
-    }
-    case "list-ticks":
-      body = (
-        <View style={s.grow}>
-          {card.records.slice(0, ROWS[size]).map((r) => {
-            const done = field ? r.values[field] === true : false;
-            return (
-              <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
-                <Pressable
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: done }}
-                  accessibilityLabel={r.title}
-                  hitSlop={10}
-                  onPress={() => {
-                    void Haptics.selectionAsync().catch(() => undefined);
-                    onTick?.(r, !done);
-                  }}
-                  style={[s.circle, { borderColor: done ? c : t.fg3 }]}
-                >
-                  {done ? <View style={[s.circleIn, { backgroundColor: c }]} /> : null}
-                </Pressable>
-                <Text
-                  style={[
-                    s.rowText,
-                    { color: done ? t.fg2 : t.fg, textDecorationLine: done ? "line-through" : "none" },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {r.title}
-                </Text>
-              </View>
-            );
-          })}
-          {card.records.length === 0 ? (
-            <Text style={[s.sub, { color: t.fg2 }]}>Nothing here. Nice.</Text>
-          ) : null}
-        </View>
-      );
-      break;
-    default:
-      body = card.shared?.fields ? (
-        // A record shared with me: its fields as rows ("Fee: ₹15,000").
-        <View style={s.grow}>
-          {card.shared.fields.slice(0, ROWS[size]).map((f) => (
-            <View key={f.name} style={[s.row, { borderBottomColor: t.sep }]}>
-              <Text style={[s.rowText, { color: t.fg2 }]} numberOfLines={1}>
-                {f.name}
-              </Text>
-              <Text style={[s.end, { color: t.fg }]} numberOfLines={1}>
-                {f.display}
-              </Text>
-            </View>
-          ))}
-          <Text style={[s.sub, { color: t.fg3 }]} numberOfLines={1}>
-            From {card.shared.owner}
-          </Text>
-        </View>
-      ) : (
-        <View style={s.grow}>
-          {card.records.slice(0, ROWS[size]).map((r) => (
-            <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
-              <Text style={[s.rowText, { color: t.fg }]} numberOfLines={1}>
-                {r.title}
-              </Text>
-              <Text style={[s.end, { color: t.fg2 }]} numberOfLines={1}>
-                {secondLine(card, r)}
-              </Text>
-            </View>
-          ))}
-          {card.records.length === 0 ? <Text style={[s.sub, { color: t.fg2 }]}>Nothing yet.</Text> : null}
-          {card.shared ? (
             <Text style={[s.sub, { color: t.fg3 }]} numberOfLines={1}>
               From {card.shared.owner}
             </Text>
-          ) : null}
-        </View>
-      );
-  }
+          </View>
+        ) : (
+          <View style={s.grow}>
+            {card.records.slice(0, ROWS[size]).map((r) => (
+              <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
+                <Text style={[s.rowText, { color: t.fg }]} numberOfLines={1}>
+                  {r.title}
+                </Text>
+                <Text style={[s.end, { color: t.fg2 }]} numberOfLines={1}>
+                  {secondLine(card, r)}
+                </Text>
+              </View>
+            ))}
+            {card.records.length === 0 ? <Text style={[s.sub, { color: t.fg2 }]}>Nothing yet.</Text> : null}
+            {card.shared ? (
+              <Text style={[s.sub, { color: t.fg3 }]} numberOfLines={1}>
+                From {card.shared.owner}
+              </Text>
+            ) : null}
+          </View>
+        );
+    }
 
   return (
     <Pressable
@@ -468,6 +524,9 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   grow: { flex: 1, justifyContent: "flex-end" },
+  ctlList: { flex: 1, overflow: "hidden" },
+  ctlRow: { gap: 6, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  ctlLine: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
   fill: { flex: 1, justifyContent: "space-between" },
   mini: {
     flexDirection: "row",

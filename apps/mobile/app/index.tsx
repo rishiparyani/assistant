@@ -18,6 +18,7 @@ import {
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CardSize } from "@assistant/cards";
+import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { SearchSheet } from "@/components/SearchSheet";
@@ -30,6 +31,7 @@ import {
   replaceCard,
   resize,
   saveOrder,
+  setValue,
   tick,
   unpin,
   type HomeCard,
@@ -141,6 +143,14 @@ export default function Home() {
       const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
       return replaceCard(prev, { ...current, records });
     });
+  const onSet = (card: HomeCard) => (record: Parameters<typeof tick>[1], field: string, value: StoredValue) =>
+    update((prev) => {
+      const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
+      const records = current.records.map((r) =>
+        r.id === record.id ? setValue(current, r, field, value) : r,
+      );
+      return replaceCard(prev, { ...current, records });
+    });
   const assistant = me?.assistant !== false;
   // online-only: the website's shared pages (a form to fill in, a card's parts) open in the browser.
   const openOnWeb = (card: HomeCard) =>
@@ -228,6 +238,7 @@ export default function Home() {
             <Card
               card={card}
               onTick={onTick(card)}
+              onSet={onSet(card)}
               onOpen={() =>
                 canOpen() &&
                 (card.memory

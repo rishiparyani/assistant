@@ -128,6 +128,89 @@ export function sampleCard(arrangement: Arrangement, size: CardSize): HomeCard {
   return card;
 }
 
+const SONGS: CollectionView = {
+  id: "songs",
+  name: "Test setlist",
+  description: null,
+  title_field_id: "s_title",
+  fields: [
+    field("s_title", "Song", "text"),
+    field("s_ready", "Ready", "boolean"),
+    { ...field("s_status", "Status", "choice"), options: { choices: ["Learning", "Ready", "Stage"] } },
+    field("s_runs", "Run-throughs", "number"),
+    field("s_rating", "Feel", "number"),
+    field("s_volume", "Volume", "number"),
+    field("s_paid", "Paid", "boolean"),
+  ],
+  linked_from: [],
+  updated_at: NOW,
+};
+const SONG_ROWS: [string, boolean, string, number, number, number][] = [
+  ["Test Wonderwall", true, "Stage", 12, 5, 70],
+  ["Test Tum Hi Ho", false, "Learning", 3, 3, 40],
+  ["Test Hotel California", true, "Ready", 8, 4, 55],
+  ["Test Kun Faya Kun", false, "Learning", 1, 2, 30],
+];
+const SONG_RECORDS: RecordView[] = SONG_ROWS.map(([title, ready, status, runs, feel, vol], i) => ({
+  id: `s${i}`,
+  collection_id: SONGS.id,
+  title,
+  values: {
+    s_title: title,
+    s_ready: ready,
+    s_status: status,
+    s_runs: runs,
+    s_rating: feel,
+    s_volume: vol,
+    s_paid: i === 0,
+  },
+  named: { Song: title },
+  links: {},
+  created_at: NOW,
+  updated_at: NOW,
+  version: 1,
+}));
+
+/** Cards with controls on their rows: every kind of control, on made-up songs. */
+export function controlCards(): HomeCard[] {
+  const make = (
+    id: string,
+    title: string,
+    size: CardSize,
+    controls: NonNullable<HomeCard["spec"]["controls"]>,
+  ): HomeCard => ({
+    id: `sample:controls:${id}`,
+    view: null,
+    spec: {
+      version: CARD_VERSION,
+      title,
+      arrangement: "list-plain",
+      size,
+      sources: [{ collection: SONGS.id }],
+      controls,
+    },
+    collection: SONGS,
+    colour: "music",
+    records: SONG_RECORDS,
+    total: null,
+  });
+  return [
+    make("switch-stepper", "Switch + stepper", "m", [
+      { field: "s_runs", as: "stepper", min: 0 },
+      { field: "s_ready", as: "switch" },
+    ]),
+    make("chips", "Chips", "m", [{ field: "s_status", as: "chips" }]),
+    make("stars-button", "Stars + button", "m", [
+      { field: "s_rating", as: "stars", min: 0, max: 5 },
+      { field: "s_paid", as: "button", label: "Paid", value: true },
+    ]),
+    make("slider-tick", "Slider + tick", "l", [
+      { field: "s_ready", as: "tick" },
+      { field: "s_volume", as: "slider", min: 0, max: 100, step: 5 },
+    ]),
+  ];
+}
+
 /** Every drawn arrangement at every size it allows: the small ones first (they pair up), then
  *  medium, then large, each in catalogue order. */
 export function sampleCards(): HomeCard[] {
