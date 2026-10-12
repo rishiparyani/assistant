@@ -281,6 +281,9 @@ const MIGRATIONS: Migrations = [
   alter table list_items add column kind text not null default 'item' check (kind in ('item', 'break'));
   alter table list_items add column minutes integer check (minutes is null or minutes > 0);
   `,
+  // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
+  `alter table _audit add column change_id text;
+   create index _audit_change_idx on _audit (change_id);`,
 ];
 
 /** Already validated and normalised by the Worker (packages/shared booking.ts schemas). */

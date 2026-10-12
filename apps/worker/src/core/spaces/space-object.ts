@@ -26,6 +26,7 @@ import {
   type Period,
   type OpenedView,
   type RecordView,
+  type HistoryItem,
   type SavedView,
   type StarterKind,
   formulaValues,
@@ -361,6 +362,9 @@ const MIGRATIONS: Migrations = [
   );
   create index rules_collection_idx on rules (collection_id) where deleted_at is null;
   `,
+  // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
+  `alter table _audit add column change_id text;
+   create index _audit_change_idx on _audit (change_id);`,
 ];
 
 type ViewQuery = {
@@ -2382,6 +2386,183 @@ export class SpaceObject extends DurableObject<Env> {
       }
     }
     throw new ObjectError("validation_failed", `Unknown filter "${op}"`);
+  }
+
+  // --- What changed, and Undo (home-first.md §2 decision 14) ------------------------------
+  // Read from the audit log the writes already keep. An add or a change can be undone (the
+  // values go back); a delete can't, its values are gone with it.
+
+  async history(actor: Actor, limit: number): Promise<HistoryItem[]> {
+    this.role(actor);
+    type Row = {
+      id: string;
+      at: string;
+      actor_user_id: string | null;
+      source: string;
+      action: string;
+      entity_id: string;
+      before_json: string | null;
+      after_json: string | null;
+    };
+    const rows = this.sql
+      .exec<Row>(
+        `select change_id as id, at, actor_user_id, source, action, entity_id, before_json, after_json from _audit
+         where change_id is not null and entity_type = 'record'
+           and action in ('add_record', 'update_record', 'delete_record', 'undo')
+         order by rowid desc limit ?`,
+        limit * 2,
+      )
+      .toArray();
+    const undone = new Map<string, string>();
+    for (const r of rows)
+      if (r.action === "undo") {
+        const b = JSON.parse(r.before_json ?? "{}") as { change_id?: string };
+        if (b.change_id) undone.set(b.change_id, r.id);
+      }
+    const names = new Map(
+      this.sql
+        .exec<{ user_id: string; name: string }>(`select user_id, name from members`)
+        .toArray()
+        .map((m) => [m.user_id, m.name]),
+    );
+    const out: HistoryItem[] = [];
+    for (const r of rows) {
+      if (r.action === "undo") continue;
+      const rec = this.sql
+        .exec<{ title: string; collection_id: string; deleted_at: string | null }>(
+          `select title, collection_id, deleted_at from records where id = ?`,
+          r.entity_id,
+        )
+        .toArray()[0];
+      if (!rec) continue;
+      const c = this.sql
+        .exec<{ name: string }>(`select name from collections where id = ?`, rec.collection_id)
+        .toArray()[0];
+      const fields = this.fieldRows(rec.collection_id);
+      const before = (JSON.parse(r.before_json ?? "null") ?? {}) as Record<string, unknown>;
+      const after = (JSON.parse(r.after_json ?? "null") ?? {}) as Record<string, unknown>;
+      // Stored values show as the app shows them; what the writer sent ("500" for money)
+      // is read the way the write read it, so both sides of "→" look the same.
+      const show = (f: FieldRow | null, v: unknown, raw = false) => {
+        if (v === null || v === undefined || v === "") return "empty";
+        if (!f) return String(v);
+        try {
+          const value = raw ? normalizeValue(toField(f), v) : (v as StoredValue);
+          if ((f.type === "date" || f.type === "datetime") && typeof value === "string")
+            return readableDate(value);
+          return displayValue(f.type, value);
+        } catch {
+          return String(v);
+        }
+      };
+      const field = (k: string) => {
+        try {
+          return this.matchField(fields, k);
+        } catch {
+          return null;
+        }
+      };
+      const lines: string[] = [];
+      if (r.action === "update_record") {
+        // `before` is keyed by field id; `after` as the writer sent it (ids or names).
+        const afterByKey = new Map(Object.entries(after).map(([k, v]) => [field(k)?.id ?? k, v]));
+        for (const [k, was] of Object.entries(before)) {
+          const f = field(k);
+          const now = afterByKey.get(f?.id ?? k);
+          lines.push(`${f?.name ?? k}: ${show(f, was)} → ${show(f, now, true)}`);
+        }
+      } else if (r.action === "add_record") {
+        for (const [k, v] of Object.entries(after)) {
+          const f = field(k);
+          lines.push(`${f?.name ?? k}: ${show(f, v, true)}`);
+        }
+      }
+      const action = r.action as HistoryItem["action"];
+      // Undo must be able to do something: the record still there, and for a change at least
+      // one field that can be put back (not a link, not calculated).
+      const canUndo =
+        !rec.deleted_at &&
+        !undone.has(r.id) &&
+        (action === "add_record" ||
+          (action === "update_record" && Object.keys(this.revertible(fields, before)).length > 0));
+      out.push({
+        id: r.id,
+        at: r.at,
+        action,
+        record_id: r.entity_id,
+        title: rec.title,
+        collection: c?.name ?? "",
+        lines,
+        by: r.actor_user_id === actor.userId ? "you" : (names.get(r.actor_user_id ?? "") ?? r.source),
+        source: r.source,
+        undoable: canUndo,
+        undone_by: undone.get(r.id) ?? null,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /** Puts a change back (values as they were) or removes an added record. */
+  async undo(
+    actor: Actor,
+    key: string | null,
+    changeId: string,
+  ): Promise<{ undone: string; record: RecordView | null }> {
+    return this.write(actor, key, ["undo", changeId], (ts) => {
+      const row = this.sql
+        .exec<{
+          id: string;
+          action: string;
+          entity_type: string;
+          entity_id: string;
+          before_json: string | null;
+        }>(
+          `select change_id as id, action, entity_type, entity_id, before_json from _audit where change_id = ?`,
+          changeId,
+        )
+        .toArray()[0];
+      if (!row || row.entity_type !== "record") throw new ObjectError("not_found", "No such change");
+      const already = this.sql
+        .exec<{ n: number }>(
+          `select count(*) as n from _audit where action = 'undo' and before_json like ?`,
+          `%"change_id":"${row.id}"%`,
+        )
+        .one().n;
+      if (already) throw new ObjectError("conflict", "That change was already undone");
+      let record: RecordView | null = null;
+      if (row.action === "update_record") {
+        const before = (JSON.parse(row.before_json ?? "{}") ?? {}) as Record<string, unknown>;
+        const r = this.requireRecord(row.entity_id);
+        const values = this.revertible(this.fieldRows(r.collection_id), before);
+        if (!Object.keys(values).length)
+          throw new ObjectError("conflict", "Nothing in that change can be put back");
+        record = this.changeRecord(actor, ts, r, { values });
+      } else if (row.action === "add_record") {
+        const deleted: string[] = [];
+        this.removeRecord(this.requireRecord(row.entity_id), ts, actor, deleted, 0);
+      } else throw new ObjectError("conflict", "A delete can't be undone: its values are gone");
+      audit(this.sql, actor, {
+        action: "undo",
+        entityType: "record",
+        entityId: row.entity_id,
+        before: { change_id: row.id, action: row.action },
+      });
+      return { undone: row.id, record };
+    });
+  }
+
+  /** The stored values of a change that a write can put back (as a write takes them). */
+  private revertible(fields: FieldRow[], before: Record<string, unknown>): Record<string, unknown> {
+    const values: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(before)) {
+      const f = fields.find((x) => x.id === k);
+      // Links keep their own rule; calculated fields can't be set. Stored money is paise; a
+      // write takes rupees.
+      if (f && f.type !== "link" && !toField(f).options.formula && !toField(f).options.rollup)
+        values[k] = f.type === "money" && typeof v === "number" ? v / 100 : v;
+    }
+    return values;
   }
 
   // --- Saved views ---------------------------------------------------------------------------
@@ -5128,4 +5309,19 @@ export class SpaceObject extends DurableObject<Env> {
       throw new ObjectError("conflict", "That id is already used", { reason: "id_taken" });
     return given;
   }
+}
+
+/** "Sat, 12 Dec 2026" for a date, "Sat, 12 Dec 2026, 6:00 pm" (India time) for a date-time. */
+function readableDate(value: string): string {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const d = new Date(dateOnly ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("en-IN", {
+    timeZone: dateOnly ? "UTC" : "Asia/Kolkata",
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(dateOnly ? {} : { hour: "numeric", minute: "2-digit" }),
+  });
 }

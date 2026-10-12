@@ -15,6 +15,8 @@ import {
   OpenViewInput,
   SaveViewInput,
   UpdateViewInput,
+  HistoryInput,
+  UndoInput,
   ViewRef,
   RecordRef,
   RemoveFieldInput,
@@ -346,6 +348,33 @@ export const spaceOperations = [
         add_fields: i.add_fields,
         card_size: i.card_size,
       });
+    },
+  }),
+  defineOperation({
+    id: "core.history",
+    tool: "what_changed",
+    description:
+      "What changed lately in the space: records added, changed or deleted, in plain words, newest first, with whether each can be undone.",
+    kind: "read",
+    http: { method: "GET", path: "/history" },
+    input: HistoryInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.history(actor, i.limit);
+    },
+  }),
+  defineOperation({
+    id: "core.undo",
+    tool: "undo_change",
+    description:
+      "Undo one entry from what_changed: a changed record gets its earlier values back, an added record is removed. Needs confirmation.",
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/history/:change_id/undo" },
+    input: UndoInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.undo(actor, ctx.idempotencyKey, i.change_id);
     },
   }),
   defineOperation({

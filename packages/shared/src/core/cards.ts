@@ -107,3 +107,30 @@ export function nearestArrangement(spec: CardSpec): Arrangement {
   if (s?.sum_field) return "number";
   return "list-plain";
 }
+
+/** What a card has going on, counted by the app from the records it shows. */
+export interface CardSignals {
+  /** Items not done yet (list-ticks). */
+  open: number;
+  /** Items whose date has passed and that aren't done. */
+  overdue: number;
+  /** Items due today (not done). */
+  due_today: number;
+  /** Items due in the next 7 days (not done, not today). */
+  due_soon: number;
+  /** Processes waiting on this person (0 until processes exist). */
+  waiting: number;
+}
+
+/**
+ * The Now page's order (home-first.md §2): what's waiting on the person first, then what's
+ * overdue, due today, due soon, then open items. A card with nothing going on scores 0 and
+ * stays off Now.
+ */
+export function nowScore(s: CardSignals): number {
+  // Tiers never overlap: one item of a higher tier outranks any count of a lower one.
+  const cap = (n: number) => Math.min(Math.max(n, 0), 99);
+  return (
+    cap(s.waiting) * 1e8 + cap(s.overdue) * 1e6 + cap(s.due_today) * 1e4 + cap(s.due_soon) * 1e2 + cap(s.open)
+  );
+}

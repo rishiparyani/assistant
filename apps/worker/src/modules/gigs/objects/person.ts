@@ -162,6 +162,9 @@ const MIGRATIONS: Migrations = [
   `,
   // Date options on enquiries (soft blocks; docs/design/holds.md).
   `alter table my_events add column hold integer not null default 0;`,
+  // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
+  `alter table _audit add column change_id text;
+   create index _audit_change_idx on _audit (change_id);`,
 ];
 
 /** Search words for a contact: name, city and email words, and phone digits. */

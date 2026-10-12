@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { ChatItem, ChatView } from "@assistant/shared";
+import type { ChatItem, ChatView, HistoryItem } from "@assistant/shared";
+import { Changes, fetchChanges } from "@/components/Changes";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
@@ -37,6 +38,9 @@ export default function Chat() {
   const [text, setText] = useState(ask ?? "");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  // What the last reply changed (shown under it, with Undo), and the full list (the sheet).
+  const [changed, setChanged] = useState<HistoryItem[]>([]);
+  const [showChanges, setShowChanges] = useState(false);
   const list = useRef<FlatList<ChatItem>>(null);
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
@@ -69,10 +73,17 @@ export default function Chat() {
     };
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
     setBusy(true);
+    const sentAt = new Date().toISOString();
     try {
       const next = await request<ChatView>("POST", `/api/chats/${MAIN}`, { text: msg });
       setView(next);
       setNote("");
+      // What this reply changed, from the audit log, with Undo.
+      fetchChanges(5)
+        // Only this person's changes since the message went (another person's work in the
+        // same space while the assistant was answering isn't this reply's).
+        .then((items) => setChanged(items.filter((i) => i.at >= sentAt && i.by === "you" && i.undoable)))
+        .catch(() => undefined);
     } catch (e) {
       if (isOffline(e)) {
         send({
@@ -114,6 +125,15 @@ export default function Chat() {
         {card ? (
           <Text style={[s.ctx, { color: t.fg2, backgroundColor: t.fill }]}>about this card</Text>
         ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="What changed"
+          onPress={() => setShowChanges(true)}
+          style={s.changes}
+          hitSlop={10}
+        >
+          <Text style={{ color: t.accent, fontWeight: "600", fontSize: 15 }}>Changes</Text>
+        </Pressable>
         <Pressable accessibilityRole="button" onPress={() => router.back()} style={s.done} hitSlop={10}>
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
         </Pressable>
@@ -131,7 +151,9 @@ export default function Chat() {
           </Text>
         }
       />
+      {changed.length ? <Changes items={changed} inline onChange={setChanged} /> : null}
       {note && view?.items.length ? <Text style={[s.sys, { color: t.fg2 }]}>{note}</Text> : null}
+      {showChanges ? <Changes onClose={() => setShowChanges(false)} /> : null}
       <FlatList
         horizontal
         data={SUGGEST}
@@ -256,6 +278,7 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   done: { position: "absolute", right: 16, height: 56, justifyContent: "center" },
+  changes: { position: "absolute", left: 16, height: 56, justifyContent: "center" },
   bub: { maxWidth: "82%", paddingVertical: 9, paddingHorizontal: 13, borderRadius: 19 },
   me: { alignSelf: "flex-end", borderBottomRightRadius: 5 },
   them: { alignSelf: "flex-start", borderBottomLeftRadius: 5, borderWidth: StyleSheet.hairlineWidth },
