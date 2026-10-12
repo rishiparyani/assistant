@@ -43,6 +43,13 @@ export default function Chat() {
   const [changed, setChanged] = useState<HistoryItem[]>([]);
   const [showChanges, setShowChanges] = useState(false);
   const list = useRef<FlatList<ChatItem>>(null);
+  // Where this sheet starts on the screen: the keyboard avoider measures from its own top,
+  // so inside a sheet it needs the sheet's offset to clear the keyboard fully.
+  const root = useRef<View>(null);
+  const [windowTop, setWindowTop] = useState(0);
+  const measure = useCallback(() => {
+    root.current?.measureInWindow((_x, y) => setWindowTop(Math.max(0, Math.round(y))));
+  }, []);
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
   // The person's collections, once for every live card in the chat.
@@ -126,91 +133,94 @@ export default function Chat() {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      style={[s.root, { backgroundColor: t.page }]}
-    >
-      <View style={s.head}>
-        <Text style={[s.title, { color: t.fg }]}>{card ? card : "Gigspree"}</Text>
-        {card ? (
-          <Text style={[s.ctx, { color: t.fg2, backgroundColor: t.fill }]}>about this card</Text>
-        ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="What changed"
-          onPress={() => setShowChanges(true)}
-          style={s.changes}
-          hitSlop={10}
-        >
-          <Text style={{ color: t.accent, fontWeight: "600", fontSize: 15 }}>Changes</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} style={s.done} hitSlop={10}>
-          <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
-        </Pressable>
-      </View>
-      <FlatList
-        ref={list}
-        data={view?.items ?? []}
-        keyExtractor={(i) => i.id}
-        contentContainerStyle={{ padding: 14, gap: 4 }}
-        onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
-        renderItem={({ item }) => (
-          <Bubble
-            item={item}
-            onAnswer={answer}
-            busy={busy}
-            collections={getCollections}
-            onAsk={(title) => setText((t) => t || `About "${title}": `)}
-          />
-        )}
-        ListEmptyComponent={
-          <Text style={[s.sys, { color: t.fg2 }]}>
-            {note || (view ? "Say anything. Ask, add, or arrange your home." : "Loading…")}
-          </Text>
-        }
-      />
-      {changed.length ? <Changes items={changed} inline onChange={setChanged} /> : null}
-      {note && view?.items.length ? <Text style={[s.sys, { color: t.fg2 }]}>{note}</Text> : null}
-      {showChanges ? <Changes onClose={() => setShowChanges(false)} /> : null}
-      <FlatList
-        horizontal
-        data={SUGGEST}
-        keyExtractor={(x) => x}
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 14, gap: 6, paddingVertical: 6 }}
-        renderItem={({ item }) => (
+    <View ref={root} onLayout={measure} style={[s.root, { backgroundColor: t.page }]}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={windowTop}
+        style={s.root}
+      >
+        <View style={s.head}>
+          <Text style={[s.title, { color: t.fg }]}>{card ? card : "Gigspree"}</Text>
+          {card ? (
+            <Text style={[s.ctx, { color: t.fg2, backgroundColor: t.fill }]}>about this card</Text>
+          ) : null}
           <Pressable
             accessibilityRole="button"
-            onPress={() => say(item)}
-            style={[s.chip, { backgroundColor: t.cell, borderColor: t.sep }]}
+            accessibilityLabel="What changed"
+            onPress={() => setShowChanges(true)}
+            style={s.changes}
+            hitSlop={10}
           >
-            <Text style={{ color: t.accent, fontSize: 13.5, fontWeight: "600" }}>{item}</Text>
+            <Text style={{ color: t.accent, fontWeight: "600", fontSize: 15 }}>Changes</Text>
           </Pressable>
-        )}
-      />
-      <View style={[s.compose, { paddingBottom: insets.bottom + 8 }]}>
-        <TextInput
-          autoFocus={!!ask}
-          accessibilityLabel="Message Gigspree"
-          placeholder={card ? `Ask about ${card}` : "Ask, add or arrange"}
-          placeholderTextColor={t.fg2}
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={() => say(text)}
-          returnKeyType="send"
-          style={[s.input, { backgroundColor: t.cell, color: t.fg, borderColor: t.sep }]}
+          <Pressable accessibilityRole="button" onPress={() => router.back()} style={s.done} hitSlop={10}>
+            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
+          </Pressable>
+        </View>
+        <FlatList
+          ref={list}
+          data={view?.items ?? []}
+          keyExtractor={(i) => i.id}
+          contentContainerStyle={{ padding: 14, gap: 4 }}
+          onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
+          renderItem={({ item }) => (
+            <Bubble
+              item={item}
+              onAnswer={answer}
+              busy={busy}
+              collections={getCollections}
+              onAsk={(title) => setText((t) => t || `About "${title}": `)}
+            />
+          )}
+          ListEmptyComponent={
+            <Text style={[s.sys, { color: t.fg2 }]}>
+              {note || (view ? "Say anything. Ask, add, or arrange your home." : "Loading…")}
+            </Text>
+          }
         />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Send"
-          onPress={() => say(text)}
-          disabled={busy}
-          style={[s.send, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-        >
-          <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 18, lineHeight: 20 }}>↑</Text>
-        </Pressable>
-      </View>
-    </KeyboardAvoidingView>
+        {changed.length ? <Changes items={changed} inline onChange={setChanged} /> : null}
+        {note && view?.items.length ? <Text style={[s.sys, { color: t.fg2 }]}>{note}</Text> : null}
+        {showChanges ? <Changes onClose={() => setShowChanges(false)} /> : null}
+        <FlatList
+          horizontal
+          data={SUGGEST}
+          keyExtractor={(x) => x}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 14, gap: 6, paddingVertical: 6 }}
+          renderItem={({ item }) => (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => say(item)}
+              style={[s.chip, { backgroundColor: t.cell, borderColor: t.sep }]}
+            >
+              <Text style={{ color: t.accent, fontSize: 13.5, fontWeight: "600" }}>{item}</Text>
+            </Pressable>
+          )}
+        />
+        <View style={[s.compose, { paddingBottom: insets.bottom + 8 }]}>
+          <TextInput
+            autoFocus={!!ask}
+            accessibilityLabel="Message Gigspree"
+            placeholder={card ? `Ask about ${card}` : "Ask, add or arrange"}
+            placeholderTextColor={t.fg2}
+            value={text}
+            onChangeText={setText}
+            onSubmitEditing={() => say(text)}
+            returnKeyType="send"
+            style={[s.input, { backgroundColor: t.cell, color: t.fg, borderColor: t.sep }]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Send"
+            onPress={() => say(text)}
+            disabled={busy}
+            style={[s.send, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+          >
+            <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 18, lineHeight: 20 }}>↑</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
