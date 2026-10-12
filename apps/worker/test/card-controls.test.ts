@@ -58,6 +58,35 @@ describe("card controls", () => {
     expect((await bad({ field: "Fee", as: "button" })).status).toBe(400);
     expect((await bad({ field: "Runs", as: "slider", min: 10, max: 5 })).status).toBe(400);
 
+    // Controls make a list card; asking for them on a number card is refused.
+    const onlyControls = await json<SavedView>(
+      await api(me)(`/views/${v.id}`, {
+        method: "PATCH",
+        body: { card: { controls: [{ field: "Ready", as: "tick" }] } },
+      }),
+    );
+    expect(onlyControls.card?.arrangement).toBe("list-plain");
+    const onNumber = await api(me)(`/views/${v.id}`, {
+      method: "PATCH",
+      body: { card: { arrangement: "number", controls: [{ field: "Ready", as: "tick" }] } },
+    });
+    expect(onNumber.status).toBe(400);
+    expect(JSON.stringify(await json(onNumber))).toContain("Controls go on list cards");
+    await api(me)(`/views/${v.id}`, {
+      method: "PATCH",
+      body: {
+        card: {
+          arrangement: "list-plain",
+          controls: [
+            { field: "Ready", as: "switch" },
+            { field: "Status", as: "chips" },
+            { field: "Runs", as: "stepper", min: 0 },
+            { field: "Fee", as: "button", label: "Paid ₹500", value: "500" },
+          ],
+        },
+      },
+    });
+
     // Other changes keep the card; null resets it.
     const renamed = await json<SavedView>(
       await api(me)(`/views/${v.id}`, { method: "PATCH", body: { name: "Practice list" } }),

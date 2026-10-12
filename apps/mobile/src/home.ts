@@ -15,6 +15,7 @@ import {
 } from "@assistant/cards";
 import { colourFor, type HomeCard } from "@assistant/cards/native";
 import {
+  findInRecords,
   type CollectionView,
   type FindResult,
   type Memory,
@@ -91,7 +92,13 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
       : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
   // A card the person (or the assistant) chose: its arrangement, with the fields it needs
   // picked from the list, when the list has them; and the controls on its rows.
-  const chosen = v.card?.arrangement ? chosenSpec(v, c, v.card.arrangement) : null;
+  // Controls live on a list's rows: a card with controls is drawn as a list.
+  const LISTS = ["list-plain", "list-ticks", "next"];
+  const wanted =
+    v.card?.controls.length && !LISTS.includes(v.card.arrangement ?? spec.arrangement)
+      ? "list-plain"
+      : (v.card?.arrangement ?? null);
+  const chosen = wanted ? chosenSpec(v, c, wanted) : null;
   const out = chosen ?? spec;
   if (v.card?.controls.length) out.controls = v.card.controls;
   // The person's size wins when the arrangement can be drawn at it.
@@ -473,6 +480,19 @@ export function tick(card: HomeCard, record: RecordView, value: boolean): Record
   const field = card.spec.sources[0]?.answer_field;
   if (!field) return record;
   return setValue(card, record, field, value);
+}
+
+/**
+ * Whether a row still belongs on its card after a change (the card's saved filters, run on the
+ * device like the server would). A "Paid" button on an "Unpaid" card takes the row off.
+ */
+export function stillShown(card: HomeCard, record: RecordView, userId: string | null): boolean {
+  if (!card.collection || !card.view?.filters.length) return true;
+  try {
+    return findInRecords(card.collection, [record], { filters: card.view.filters }, { userId }).length > 0;
+  } catch {
+    return true; // a filter the device can't run: leave the row until the next read
+  }
 }
 
 /** A control on a card changed one field of a row: shown at once, sent through the outbox. */

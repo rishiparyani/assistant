@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
-import { setValue, tick, type HomeCard } from "../home.ts";
+import { setValue, stillShown, tick, type HomeCard } from "../home.ts";
+import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
 import { Card, cardHeight } from "@assistant/cards/native";
@@ -126,6 +127,7 @@ function ListCard({
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();
+  const { me } = useSession();
   const [card, setCard] = useState(given);
   useEffect(() => setCard(given), [given]);
   return (
@@ -142,7 +144,11 @@ function ListCard({
           onSet={(record, field, value) =>
             setCard((c) => ({
               ...c,
-              records: c.records.map((r) => (r.id === record.id ? setValue(c, r, field, value) : r)),
+              records: c.records.flatMap((r) => {
+                if (r.id !== record.id) return [r];
+                const next = setValue(c, r, field, value);
+                return stillShown(c, next, me?.user.id ?? null) ? [next] : [];
+              }),
             }))
           }
           onOpen={() => onAsk?.(card.spec.title)}

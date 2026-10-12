@@ -223,9 +223,9 @@ export function Card({
       case "countdown": {
         // Days to the soonest item still ahead (by the source's date field).
         const df = card.spec.sources[0]?.date_field;
-        const today = new Date().toISOString().slice(0, 10);
+        const today = istDay(new Date().toISOString());
         const ahead = card.records
-          .map((r) => ({ r, d: df ? String(r.values[df] ?? "").slice(0, 10) : "" }))
+          .map((r) => ({ r, d: df ? istDay(r.values[df]) : "" }))
           .filter((x) => x.d >= today)
           .sort((a, b) => a.d.localeCompare(b.d))[0];
         const days = ahead ? Math.round((Date.parse(ahead.d) - Date.parse(today)) / 86_400_000) : null;
@@ -374,9 +374,9 @@ function figureOf(card: HomeCard): { big: string; small: string; ratio: number |
       return { big: formatTotal(card), small: `${card.records.length} records`, ratio: null };
     case "countdown": {
       const df = src?.date_field;
-      const today = new Date().toISOString().slice(0, 10);
+      const today = istDay(new Date().toISOString());
       const ahead = card.records
-        .map((r) => ({ r, d: df ? String(r.values[df] ?? "").slice(0, 10) : "" }))
+        .map((r) => ({ r, d: df ? istDay(r.values[df]) : "" }))
         .filter((x) => x.d >= today)
         .sort((a, b) => a.d.localeCompare(b.d))[0];
       if (!ahead) return { big: "–", small: "Nothing coming up", ratio: null };
@@ -462,6 +462,14 @@ function Compact({ card, onOpen }: { card: HomeCard; onOpen?: () => void }) {
       </View>
     </Pressable>
   );
+}
+
+/** The India-time calendar day of a date ("2026-10-14") or a stored date-time (UTC ISO). */
+function istDay(v: unknown): string {
+  if (typeof v !== "string" || !v) return "";
+  if (!v.includes("T")) return v.slice(0, 10);
+  const t = Date.parse(v);
+  return Number.isNaN(t) ? "" : new Date(t + 330 * 60_000).toISOString().slice(0, 10);
 }
 
 /** "just now", "2 h ago", "3 days ago". */

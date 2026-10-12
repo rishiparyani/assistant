@@ -3375,7 +3375,14 @@ export class SpaceObject extends DurableObject<Env> {
       return out;
     });
     if (!card.arrangement && !controls.length) return null;
-    return { arrangement: card.arrangement ?? null, controls };
+    // Controls live on a list's rows: a card with controls is a list card.
+    const LISTS: Arrangement[] = ["list-plain", "list-ticks", "next"];
+    if (controls.length && card.arrangement && !LISTS.includes(card.arrangement))
+      throw new ObjectError(
+        "validation_failed",
+        `Controls go on list cards (${LISTS.join(", ")}), not on ${card.arrangement}`,
+      );
+    return { arrangement: card.arrangement ?? (controls.length ? "list-plain" : null), controls };
   }
 
   private requireView(ref: string): ViewRow {

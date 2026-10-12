@@ -32,6 +32,7 @@ import {
   resize,
   saveOrder,
   setValue,
+  stillShown,
   tick,
   unpin,
   type HomeCard,
@@ -146,9 +147,12 @@ export default function Home() {
   const onSet = (card: HomeCard) => (record: Parameters<typeof tick>[1], field: string, value: StoredValue) =>
     update((prev) => {
       const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
-      const records = current.records.map((r) =>
-        r.id === record.id ? setValue(current, r, field, value) : r,
-      );
+      // A row the change takes out of the card's filters leaves it ("Paid" on "Unpaid").
+      const records = current.records.flatMap((r) => {
+        if (r.id !== record.id) return [r];
+        const next = setValue(current, r, field, value);
+        return stillShown(current, next, userId) ? [next] : [];
+      });
       return replaceCard(prev, { ...current, records });
     });
   const assistant = me?.assistant !== false;
