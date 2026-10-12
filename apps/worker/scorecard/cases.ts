@@ -37,6 +37,8 @@ export interface Outcome {
   turn: ChatView["items"];
   reply: string;
   cards: NonNullable<ChatView["items"][number]["card"]>[];
+  /** Model calls this turn made (each tool round is one more). */
+  calls: number;
 }
 
 export interface Case {
@@ -161,9 +163,16 @@ export const CASES: Case[] = [
     check: async (u) => {
       const e = (await find(u, "Events")).items[0];
       if (!e) return "no event";
-      return at(e.named.Starts, null, "20:00") && has(String(e.named.Place ?? ""), "Bistro")
+      // "Saturday" is the coming one (today, when today is a Saturday, or next week's).
+      const saturdays = [0, 1, 2, 3, 4, 5, 6, 7]
+        .map(isoDay)
+        .filter((d) => new Date(`${d}T12:00:00Z`).getUTCDay() === 6);
+      const day = ist(e.named.Starts)?.[0] ?? "";
+      return saturdays.includes(day) &&
+        at(e.named.Starts, day, "20:00") &&
+        has(String(e.named.Place ?? ""), "Bistro")
         ? null
-        : `event: ${show(e.named)}`;
+        : `event: ${show(e.named)} (Saturday is ${saturdays.join(" or ")})`;
     },
   },
   {
@@ -238,10 +247,8 @@ export const CASES: Case[] = [
       await add(u, "Expenses", { What: "Strings", Amount: "450", Date: isoDay(0) });
       await add(u, "Expenses", { What: "Cab", Amount: "1200", Date: isoDay(0) });
     },
-    check: async (_u, o) =>
-      /1,?650/.test(o.reply) || o.turn.some((i) => i.role === "live")
-        ? null
-        : `reply: ${o.reply.slice(0, 160)}`,
+    // The total must be said: a list of expenses alone doesn't answer "how much".
+    check: async (_u, o) => (/1,?650/.test(o.reply) ? null : `reply: ${o.reply.slice(0, 160)}`),
   },
   {
     id: "find-note",
@@ -311,8 +318,13 @@ export const CASES: Case[] = [
     lang: "en",
     text: "thanks, that's all for now!",
     check: async (u, o) => {
+      // One model call and no tool at all: a tool call always takes a second call to answer.
+      if (o.calls > 1) return `used tools (${o.calls} model calls)`;
       if (o.cards.length) return `made a card: ${o.cards[0]!.tool}`;
-      const n = (await titles(u, "Notes")).length + (await titles(u, "Reminders")).length;
+      if (o.turn.some((i) => i.role === "live" || i.role === "note")) return "showed or kept something";
+      let n = 0;
+      for (const c of ["Notes", "Reminders", "Events", "Expenses"]) n += (await titles(u, c)).length;
+      n += (await json<Memory[]>(await api(u)("/memories"))).length;
       return n ? "wrote something" : null;
     },
   },

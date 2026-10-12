@@ -49,5 +49,5 @@ jobs:
         # Only the table and per-case lines are printed (fake data); the token stays in env.
         run: |
           set -o pipefail
-          pnpm exec vitest run -c vitest.scorecard.config.ts --silent=false 2>&1 | tee scorecard.log
+          pnpm exec vitest run -c vitest.scorecard.config.ts --silent=false --reporter=verbose 2>&1 | tee scorecard.log
           sed -n '/=== SCORECARD ===/,/=== END ===/p' scorecard.log | sed '1d;$d' >> "$GITHUB_STEP_SUMMARY"

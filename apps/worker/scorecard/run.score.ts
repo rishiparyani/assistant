@@ -43,7 +43,8 @@ it("scorecard", { timeout: 30 * 60_000 }, async () => {
         .map((i) => i.text)
         .join("\n");
       const cards = turn.flatMap((i) => (i.card ? [i.card] : []));
-      const res = await c.check(u, { view, turn, reply, cards });
+      const calls = (await budget().callsFor(u.id, since)).length;
+      const res = await c.check(u, { view, turn, reply, cards, calls });
       ok = res === null;
       why = res ?? "";
     } catch (e) {
@@ -94,5 +95,9 @@ function table(rows: Row[]): string {
         `${sum(r.calls.map((c) => c.inputTokens))}/${sum(r.calls.map((c) => c.outputTokens))} | ${r.why.replace(/\|/g, "/").replace(/\n/g, " ")} |`,
     );
   if (!paid) lines.push("", "Level 2 (setups) not run: no AI credit yet (AI_PAID_GATEWAY is empty).");
+  lines.push(
+    "",
+    "Not counted: search embeddings (bge-base, a few neurons per request on the free allowance); everything else is.",
+  );
   return lines.join("\n");
 }
