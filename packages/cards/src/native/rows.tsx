@@ -71,7 +71,7 @@ export function shown(f: FieldView, r: RecordView, tileField: string | null): st
 }
 
 /** A colour with some transparency (for soft backgrounds). */
-function tint(hex: string, alpha: number): string {
+export function tint(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }

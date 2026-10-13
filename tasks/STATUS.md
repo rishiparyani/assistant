@@ -39,7 +39,7 @@ _Updated: 2026-10-13_
     Inline controls and the tick of `list-ticks` sit on the same row. Rows that fit: S 1; M 2, or 1 with pills or a callout; L 5, or 3.
 
   - **Gallery:** opens with four made-up gig cards (`richCards()`).
-  - **Card titles** (owner: change the title style): bold 16.5 pt in the main text colour with the list's colour as a small badge holding its first letter; half-height cards show a small coloured uppercase label instead.
+  - **Card titles** (owner: change the title style; then picked a tinted header band): bold 16.5 pt in the main text colour, with the list's colour as a small badge holding its first letter, on a band across the card's top in a wash of the list's colour (9% light, 16% dark) with a hairline under it. Half-height cards show a small coloured uppercase label instead. A process card's question shows 2 lines at M so it fits under the band.
   - **Tests:** `card-rows.test.ts`.
   - **Verified here:** typecheck, lint, tests; the gallery at 390 and 1280 px, light and dark.
   - **Next:**

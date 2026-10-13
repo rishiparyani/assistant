@@ -7,7 +7,7 @@ import type { RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
-import { RichRows, richRows } from "./rows.tsx";
+import { RichRows, richRows, tint } from "./rows.tsx";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
@@ -30,15 +30,23 @@ export function Card({
   onNudge?: () => void;
   busy?: boolean;
 }) {
-  const { t, colour } = useTheme();
+  const { t, dark, colour } = useTheme();
   const c = colour(card.colour);
   const size = card.spec.size;
   const field = card.spec.sources[0]?.answer_field;
   // Half-height sizes: one line of title and one figure, nothing else (no empty space).
   if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} />;
 
+  // A band across the top in a wash of the list's colour, so the title reads as the card's
+  // name and not as one more row (owner's pick, 2026-10-13).
   const header = (
-    <View style={s.head}>
+    <View
+      style={[
+        s.head,
+        s.band,
+        { backgroundColor: tint(c, dark ? 0.16 : 0.09), borderBottomColor: tint(c, dark ? 0.3 : 0.2) },
+      ]}
+    >
       {/* The list's colour as a small tile with its first letter, like an app icon. */}
       <View style={[s.badge, { backgroundColor: c }]}>
         <Text style={[s.badgeText, { color: t.onAccent }]}>{initial(card.spec.title)}</Text>
@@ -152,7 +160,7 @@ export function Card({
             <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
               {w.record}
             </Text>
-            <Text style={[s.sub, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 3}>
+            <Text style={[s.sub, { color: t.fg }]} numberOfLines={size === "l" ? 3 : 2}>
               {w.text}
             </Text>
             <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
@@ -545,6 +553,14 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   head: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
+  // Full width across the card's top (the card's padding is 14).
+  band: {
+    marginTop: -14,
+    marginHorizontal: -14,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
   badge: { width: 24, height: 24, borderRadius: 7, alignItems: "center", justifyContent: "center" },
   badgeText: { fontSize: 12.5, fontWeight: "800" },
   eyebrow: {
