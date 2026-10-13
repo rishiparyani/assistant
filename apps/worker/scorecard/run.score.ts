@@ -119,10 +119,11 @@ function table(rows: Row[]): string {
     lines.push(
       `**Level ${level} (${level === 1 ? "everyday" : "setups"}):** ${passed}/${rs.length} right · ` +
         `median ${(ms[Math.floor(ms.length / 2)]! / 1000).toFixed(1)} s, slowest ${(ms.at(-1)! / 1000).toFixed(1)} s · ` +
-        `${calls.length} model calls, ${tokensIn} tokens in / ${tokensOut} out per run total · ` +
+        // Per run of the suite: totals over repeats are divided by the number of runs.
+        `${Math.round(calls.length / repeat)} model calls, ${Math.round(tokensIn / repeat)} tokens in / ${Math.round(tokensOut / repeat)} out per run of the suite · ` +
         `≈ ${Math.round(tokensIn / rs.length)} in / ${Math.round(tokensOut / rs.length)} out per request · ` +
         `${tokensIn ? Math.round((100 * sum(calls.map((c) => c.cachedTokens ?? 0))) / tokensIn) : 0}% of input reused from the cache · ` +
-        `${sum(calls.map((c) => c.neurons))} neurons · ₹${(sum(calls.map((c) => c.costPaise)) / 100).toFixed(2)}`,
+        `${Math.round(sum(calls.map((c) => c.neurons)) / repeat)} neurons · ₹${(sum(calls.map((c) => c.costPaise)) / 100 / repeat).toFixed(2)} per run of the suite`,
     );
     const byCase = [...new Set(rs.map((r) => r.c))];
     if (repeat > 1)

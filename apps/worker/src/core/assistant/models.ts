@@ -137,6 +137,7 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 /** Models a level may use now, in order. */
 export function modelsFor(level: Level, s: AiSettings): ModelEntry[] {
   const tried = level === 1 && s.everydayModel ? MODELS.find((m) => m.id === s.everydayModel) : null;
-  if (tried) return [tried];
+  // With AI credit the candidate is billed to it (repeats would use up the free allowance).
+  if (tried) return [s.paidGateway ? { ...tried, route: "paid" } : tried];
   return MODELS.filter((m) => m.level === level && m.ready && (m.route === "free" || !!s.paidGateway));
 }

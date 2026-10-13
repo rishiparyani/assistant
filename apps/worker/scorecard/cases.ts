@@ -536,8 +536,10 @@ export const CASES: Case[] = [
     suite: "hard",
     text: "Spent 300 on lunch and 150 on parking",
     check: async (_u, o) => {
-      const d = o.cards.map((c) => c.details.join(" ")).join(" | ");
-      return /\b300\b/.test(d) && /\b150\b/.test(d) ? null : `cards: ${d.slice(0, 160)}`;
+      // Two expenses, each with its own amount (one card for 450 isn't it).
+      const amounts = addCard(o).map((c) => c.details.find((d) => /^amount/i.test(d)) ?? "");
+      const ok = amounts.some((a) => /\b300\b/.test(a)) && amounts.some((a) => /\b150\b/.test(a));
+      return ok ? null : `amounts on the cards: ${show(amounts)}`;
     },
   },
   {
@@ -691,9 +693,8 @@ export const CASES: Case[] = [
     },
     check: async (_u, o) => {
       if (has(o.reply, "dentist")) return `mentioned the day after: ${o.reply.slice(0, 120)}`;
-      return has(o.reply, "blue frog") || o.turn.some((i) => i.role === "live")
-        ? null
-        : `reply: ${o.reply.slice(0, 160)}`;
+      // Said in words: a card of the whole list would show the other days too.
+      return has(o.reply, "blue frog") ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
   },
   {
@@ -741,9 +742,8 @@ export const CASES: Case[] = [
     },
     check: async (_u, o) => {
       if (has(o.reply, "strings")) return `listed a done one: ${o.reply.slice(0, 120)}`;
-      return has(o.reply, "venue") || o.turn.some((i) => i.role === "live")
-        ? null
-        : `reply: ${o.reply.slice(0, 160)}`;
+      // Said in words: a card of the whole list would show the done ones too.
+      return has(o.reply, "venue") ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
   },
   {
