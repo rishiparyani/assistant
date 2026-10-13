@@ -74,7 +74,13 @@ it("scorecard", { timeout: 30 * 60_000 }, async () => {
       why = `error: ${e instanceof Error ? e.message : String(e)}`;
     }
     const ms = Date.now() - started;
-    rows.push({ c, ok, why, ms, calls: await budget().callsFor(u.id, since) });
+    const made = await budget().callsFor(u.id, since);
+    // A case the model never answered (allowance used up, an outage) isn't a pass.
+    if (ok && !made.some((m) => m.outcome === "ok" && m.outputTokens > 0)) {
+      ok = false;
+      why = "no model answered";
+    }
+    rows.push({ c, ok, why, ms, calls: made });
     console.log(`${ok ? "PASS" : "FAIL"} ${c.id} (${ms} ms)${ok ? "" : `: ${why}`}`);
     if (!ok) console.log(await steps(u.id).catch(() => "    (steps not readable)"));
   }
