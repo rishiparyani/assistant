@@ -27,6 +27,7 @@ import {
   UpdateRecordInput,
   StartListInput,
   UpdateRecordsInput,
+  QueryInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import { mySpaces, spaceOf } from "./service.ts";
@@ -173,6 +174,20 @@ export const spaceOperations = [
         limit: i.limit,
         cursor: i.cursor,
       });
+    },
+  }),
+  defineOperation({
+    id: "core.query",
+    tool: "query",
+    description:
+      'Answer a question about a list exactly: totals, counts, averages, highest/lowest, by group or by month. E.g. "earnings per venue this year": {from: "Gigs", where: [{field: "Date", op: "period", value: "this_year"}], group_by: ["Venue"], measures: [{fn: "sum", field: "Fee", as: "Earned"}]}. Fields of linked lists as "Client.Name" (or a list linking here: "Payouts.Amount"); dates by "Date:month". A column may have its own where (this year next to last year), or be arithmetic on earlier columns: {calc: "{Earned} - {Paid}", as: "Kept"}. Use this for any total or count instead of adding numbers yourself; the app shows the answer as a table.',
+    kind: "read",
+    http: { method: "POST", path: "/query" },
+    input: QueryInput,
+    handler: async (ctx, i) => {
+      const { space, ...spec } = i;
+      const { stub, actor } = await spaceOf(ctx, space);
+      return stub.query(actor, spec);
     },
   }),
   defineOperation({

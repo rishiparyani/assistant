@@ -47,6 +47,23 @@ describe("chat", () => {
     expect(live.live).toMatchObject({ kind: "list", title: "Notes · “Test”", query: { search: "Test" } });
   });
 
+  it("answers a count with the engine, as a live answer card", async () => {
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const view = await say(me, "Test: how many notes");
+    const live = view.items.at(-1)!;
+    expect(live.role).toBe("live");
+    expect(live.live).toMatchObject({
+      kind: "query",
+      space_id: null,
+      title: "Test notes",
+      query: { measures: [{ fn: "count", as: "Notes" }] },
+    });
+    // A name that isn't there: the error goes back to the model, no card.
+    const bad = await say(me, "Test: notes by month");
+    expect(bad.items.at(-1)!.role).not.toBe("live");
+  });
+
   it("shows money as a card that runs only on Confirm, once", async () => {
     const me = await signUp("Test Owner");
     const view = await say(me, "Test: spent 450 on groceries");

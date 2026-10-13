@@ -15,3 +15,4 @@ export * from "./rules.ts";
 export * from "./formula.ts";
 export * from "./setups.ts";
 export * from "./groups.ts";
+export * from "./data-query.ts";

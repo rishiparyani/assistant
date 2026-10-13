@@ -8,6 +8,7 @@
   import QuestionCard from "../spaces/QuestionCard.svelte";
   import WorkflowCard from "../workflows/WorkflowCard.svelte";
   import AppCard from "./AppCard.svelte";
+  import AnswerCard from "./AnswerCard.svelte";
   import { COLLECTIONS_KEY, spacesApi } from "../spaces/spaces-api.ts";
   import { fly } from "svelte/transition";
   import { backOut } from "svelte/easing";
@@ -179,6 +180,8 @@
             <WorkflowCard id={m.live.workflow_id} />
           {:else if m.live.kind === "app"}
             <AppCard live={m.live} />
+          {:else if m.live.kind === "query"}
+            <AnswerCard live={m.live} />
           {:else}
             <LiveCard live={m.live} collections={collections.data} />
           {/if}

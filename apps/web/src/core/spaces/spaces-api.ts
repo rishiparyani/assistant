@@ -21,6 +21,7 @@ import {
   type RecordView,
   type SpaceView,
   type StoredValue,
+  type QueryResult,
 } from "@assistant/shared";
 import { request } from "../api.ts";
 import { session } from "../session.svelte.ts";
@@ -76,6 +77,8 @@ export const PERIOD_LABELS: Record<Period, string> = {
   last_7_days: "Last 7 days",
   next_30_days: "Next 30 days",
   last_30_days: "Last 30 days",
+  this_year: "This year",
+  last_year: "Last year",
   past: "Past",
   future: "Upcoming",
 };
@@ -130,6 +133,8 @@ export const spacesApi = {
       () => request<RecordView>("GET", `/api/records/${enc(id)}`),
       () => localRecord(id),
     ),
+  // online-only: a question (a read sent as POST) is worked out by the space, never offline.
+  query: (q: Record<string, unknown>) => request<QueryResult>("POST", "/api/query", q),
   // online-only: a read sent as POST (filters are JSON); offline, the offline copy answers.
   find: (collection: string, q: FindQuery = {}, quiet = false) =>
     orLocal(

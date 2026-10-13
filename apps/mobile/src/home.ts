@@ -16,7 +16,10 @@ import {
 import { colourFor, type HomeCard } from "@assistant/cards/native";
 import {
   findInRecords,
+  ulid,
   type CollectionView,
+  type LiveRef,
+  type QueryResult,
   type FindResult,
   type Memory,
   type RecordView,
@@ -197,6 +200,17 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       const c = collections.find((x) => x.id === v.collection_id);
       if (!c) continue;
       const spec = specFor(v, c);
+      // An answer card: the space works the question out (never the device).
+      if (v.card?.question) {
+        const answer = await request<QueryResult>("POST", "/api/query", {
+          from: c.id,
+          where: v.filters,
+          ...v.card.question,
+          title: v.name,
+        }).catch(() => undefined);
+        cards.push({ ...answerCard(c, answer, v), spec });
+        continue;
+      }
       const src = spec.sources[0]!;
       const query = {
         filters: src.filters ?? [],
@@ -555,6 +569,83 @@ export function resize(card: HomeCard, size: CardSize): HomeCard {
   if (!card.view || !sizesFor(card.spec).includes(size) || size === card.spec.size) return card;
   viewChange(card, { card_size: size }, "Size");
   return { ...card, view: { ...card.view, card_size: size }, spec: { ...card.spec, size } };
+}
+
+/** A card for an answer: a table, or bars when it's one breakdown by one number. */
+export function answerCard(
+  c: CollectionView,
+  answer: QueryResult | undefined,
+  view: SavedView | null,
+  title?: string,
+): HomeCard {
+  const groups = answer?.columns.filter((x) => x.kind === "group").length ?? 0;
+  const first = answer?.columns.find((x) => x.kind === "measure");
+  const kept = view?.card?.arrangement;
+  const arrangement: Arrangement =
+    kept === "table" || kept === "bars"
+      ? kept
+      : groups === 1 &&
+          first &&
+          first.type !== "date" &&
+          first.type !== "datetime" &&
+          (answer?.rows.length ?? 0) >= 2
+        ? "bars"
+        : "table";
+  const rows = answer?.rows.length ?? 0;
+  const size: CardSize =
+    view?.card_size && ARRANGEMENT_SIZES[arrangement].includes(view.card_size)
+      ? view.card_size
+      : rows > 3
+        ? "l"
+        : "m";
+  return {
+    id: view?.id ?? `answer:${c.id}:${title ?? answer?.title ?? ""}`,
+    view,
+    spec: CardSpec.parse({
+      title: view?.name ?? title ?? answer?.title ?? c.name,
+      arrangement,
+      size,
+      sources: [{ collection: c.id, filters: view?.filters ?? [] }],
+    }),
+    collection: c,
+    colour: colourFor(c.name),
+    records: [],
+    total: null,
+    answer,
+  };
+}
+
+/**
+ * Keeps an answer from the chat on the home: a saved view of its list and filters whose card
+ * asks the same question each time it shows. Through the outbox (made on the device).
+ */
+export function pinAnswer(ref: Extract<LiveRef, { kind: "query" }>, card: HomeCard): void {
+  const { from, where, group_by, measures, sort, limit } = ref.query;
+  send({
+    kind: "spaces.save_view",
+    method: "POST",
+    path: "/api/views",
+    body: {
+      ...(ref.space_id ? { space: ref.space_id } : {}),
+      id: ulid(),
+      name: ref.title.slice(0, 60),
+      collection: from,
+      filters: where ?? [],
+      pinned: true,
+      card_size: card.spec.size,
+      card: {
+        arrangement: card.spec.arrangement,
+        question: {
+          group_by: group_by ?? [],
+          measures: measures?.length ? measures : [{ fn: "count" }],
+          ...(sort ? { sort } : {}),
+          ...(limit ? { limit: Math.min(limit, 20) } : {}),
+        },
+      },
+    },
+    label: `Pin · ${ref.title}`,
+  });
+  homeChanged();
 }
 
 /** Takes the card off the home (the view stays; the chat can pin it again). */

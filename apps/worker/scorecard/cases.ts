@@ -2,7 +2,7 @@
 // say, in English and Hinglish, each run through the whole app (router, tools, checks) on a
 // fresh test person with fake data, and graded by what the app ended up with: the records,
 // the cards waiting for a tap, the reply. Only the model calls are real.
-import type { ChatView, FindResult, Memory, SavedView } from "@assistant/shared";
+import type { ChatView, FindResult, Memory, QueryResult, SavedView } from "@assistant/shared";
 import { call, json, signUp } from "../test/http.ts";
 
 export type User = Awaited<ReturnType<typeof signUp>>;
@@ -873,7 +873,74 @@ export const CASES: Case[] = [
       return cols.some((c) => has(c.name, "student")) ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
   },
+  // Questions (decision 2026-10-13 "Questions, not SQL"): totals worked out by the engine.
+  {
+    id: "query-by-category",
+    about: "spending by category, as an answer card",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    text: "How much have I spent this month, by category?",
+    seed: spendingThisMonth,
+    check: async (u, o) => {
+      const rows = await answerRows(u, o);
+      if (!rows)
+        return has(o.reply, "2,000", "1,500", "500")
+          ? null
+          : `no answer card; reply: ${o.reply.slice(0, 160)}`;
+      const gear = rows.find((r) => r.includes("Gear"));
+      const food = rows.find((r) => r.includes("Food"));
+      return gear?.includes("₹2,000") && food?.includes("₹1,500") ? null : `answer: ${show(rows)}`;
+    },
+  },
+  {
+    id: "query-hinglish-total",
+    about: "Hinglish: this month's total",
+    level: 1,
+    lang: "hi-en",
+    suite: "hard",
+    text: "is mahine total kitna kharcha hua?",
+    seed: spendingThisMonth,
+    check: async (u, o) => {
+      if (has(o.reply, "4,000")) return null;
+      const rows = await answerRows(u, o);
+      return rows?.some((r) => r.includes("₹4,000"))
+        ? null
+        : `reply: ${o.reply.slice(0, 160)}; answer: ${show(rows)}`;
+    },
+  },
+  {
+    id: "query-most",
+    about: "which category the most went on",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    text: "Which category did I spend the most on this month?",
+    seed: spendingThisMonth,
+    check: async (_u, o) => (has(o.reply, "gear") ? null : `reply: ${o.reply.slice(0, 160)}`),
+  },
 ];
+
+/** Four expenses today: Gear ₹2,000, Food ₹1,200 + ₹300, Travel ₹500 (₹4,000 in all). */
+async function spendingThisMonth(u: User) {
+  for (const [what, amount, category] of [
+    ["Capo", "2000", "Gear"],
+    ["Dinner after the gig", "1200", "Food"],
+    ["Chai and samosa", "300", "Food"],
+    ["Auto to the venue", "500", "Travel"],
+  ])
+    await add(u, "Expenses", { What: what, Amount: amount, Category: category, Date: isoDay(0) });
+}
+
+/** The answer card this turn showed, worked out again: each row's words joined. */
+async function answerRows(u: User, o: Outcome): Promise<string[] | null> {
+  const live = o.turn.find((i) => i.role === "live" && i.live?.kind === "query")?.live;
+  if (live?.kind !== "query") return null;
+  const res = await api(u)("/query", { body: { ...live.query } });
+  if (res.status !== 200) return null;
+  const answer = await json<QueryResult>(res);
+  return answer.rows.map((r) => r.shown.join(" "));
+}
 
 /** "2026-10-13" in India time, `offset` days from today. */
 export function isoDay(offset = 0): string {

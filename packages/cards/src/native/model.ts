@@ -3,6 +3,7 @@
 import type {
   CollectionView,
   Memory,
+  QueryResult,
   RecordView,
   SavedView,
   ShareAccess,
@@ -25,6 +26,8 @@ export interface HomeCard {
   total: number | null;
   /** A process card (home-first.md §2 point 9): the step waiting on people. */
   waiting?: WaitingItem;
+  /** table / bars: the answer to the card's question, worked out by the space. */
+  answer?: QueryResult;
   /** The memory card (home-first.md §2 point 16): what the assistant remembers for me. */
   memory?: Memory[];
   /** Something shared with me (collaborator homes, home-first.md §2 point 8). */

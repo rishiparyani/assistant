@@ -1,7 +1,7 @@
 // Fake cards for the gallery (apps/mobile/app/gallery.tsx): every arrangement the app draws,
 // at every size it can be drawn at, with obviously made-up data. Also a quick way to see a
 // new part before any list uses it.
-import type { CollectionView, FieldType, RecordView } from "@assistant/shared";
+import type { CollectionView, FieldType, QueryResult, RecordView } from "@assistant/shared";
 import { ARRANGEMENT_INFO } from "../catalogue.ts";
 import {
   ARRANGEMENT_SIZES,
@@ -66,6 +66,33 @@ const RECORDS: RecordView[] = ROWS.map(([title, done, offset, paise], i) => ({
 
 const COLOURS: CollectionColour[] = ["time", "money", "people", "music", "flow", "home", "neutral"];
 
+/** A worked-out answer (earnings by venue), as the space returns it. */
+const SAMPLE_ANSWER: QueryResult = {
+  title: "Earnings by venue",
+  collection_id: COLLECTION.id,
+  collection: COLLECTION.name,
+  columns: [
+    { name: "Venue", kind: "group", type: "text" },
+    { name: "Earned", kind: "measure", type: "money" },
+    { name: "Gigs", kind: "measure", type: "number" },
+  ],
+  rows: (
+    [
+      ["Test Lawns", 9_500_000, 3],
+      ["Test Club", 6_200_000, 5],
+      ["Test Café", 2_400_000, 4],
+      ["Test Hall", 1_800_000, 1],
+      ["Test Rooftop", 900_000, 1],
+    ] as const
+  ).map(([venue, paise, gigs]) => ({
+    cells: [venue, paise, gigs],
+    shown: [venue, `₹${(paise / 100).toLocaleString("en-IN")}`, String(gigs)],
+  })),
+  more: 0,
+  scanned: 14,
+  words: "Test Gigs where Date is in this year, by Venue: Earned (total Fee), Gigs (count)",
+};
+
 /** What the gallery shows: the arrangements the app draws (not the ones still to come). */
 export const GALLERY_ARRANGEMENTS: Arrangement[] = ARRANGEMENTS.filter(
   (a) => !ARRANGEMENT_INFO[a].later && a !== "question" && a !== "quick-add",
@@ -100,6 +127,7 @@ export function sampleCard(arrangement: Arrangement, size: CardSize): HomeCard {
     records,
     total: arrangement === "number" ? ROWS.reduce((a, r) => a + r[3], 0) : null,
   };
+  if (arrangement === "table" || arrangement === "bars") card.answer = SAMPLE_ANSWER;
   if (arrangement === "memory")
     card.memory = [
       { id: "m1", text: "Usual rate for a solo gig: ₹15,000 (test)", source: "From a chat" },
