@@ -22,6 +22,8 @@ import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { SearchSheet } from "@/components/SearchSheet";
+import { HelpSheet } from "@/components/HelpSheet";
+import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
 import { API_URL } from "@/config";
 import {
   answerWaiting,
@@ -69,6 +71,17 @@ export default function Home() {
   const userId = me?.user.id ?? null;
   useTestLaunch();
   usePendingPath();
+  // Guidance (decision 2026-10-13 "Guide people, no presets"): the first-run tour lights up
+  // the real parts of the home; Help ("?") takes it again, and has ideas and "How do I…?".
+  const tourRefs = {
+    chat: useRef<View>(null),
+    cards: useRef<View>(null),
+    pages: useRef<View>(null),
+    search: useRef<View>(null),
+    help: useRef<View>(null),
+  } satisfies TourRefs;
+  const [touring, setTouring] = useState(false);
+  const [help, setHelp] = useState(false);
 
   // Loaded while changes were still waiting to be sent (offline): load again once they are,
   // so the screen shows what the server now has.
@@ -97,6 +110,11 @@ export default function Home() {
   useEffect(() => {
     if (userId) void load();
   }, [userId, load]);
+  // The tour, once per person on this device, when the home has loaded.
+  const homeReady = pages !== null;
+  useEffect(() => {
+    if (userId && homeReady && !tourSeen(userId)) setTouring(true);
+  }, [userId, homeReady]);
   useEffect(() => onHomeChanged(() => void load()), [load]);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
@@ -231,47 +249,49 @@ export default function Home() {
         </View>
       </View>
       {item.cards.length ? (
-        <CardGrid
-          cards={item.cards}
-          width={gridWidth}
-          arrangeable={!item.auto}
-          onHold={setMenu}
-          onReorder={reorder(index)}
-          onDrop={dropped(index)}
-          renderCard={(card, canOpen) => (
-            <Card
-              card={card}
-              onTick={onTick(card)}
-              onSet={onSet(card)}
-              onOpen={() =>
-                canOpen() &&
-                (card.memory
-                  ? router.push("/memory")
-                  : card.waiting
-                    ? router.push({
-                        pathname: "/process",
-                        params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
-                      })
-                    : card.shared?.kind === "form"
-                      ? openOnWeb(card)
-                      : ask(card))
-              }
-              onAnswer={
-                card.waiting
-                  ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
-                  : undefined
-              }
-              onNudge={
-                card.waiting?.share_id
-                  ? undefined
-                  : card.waiting
-                    ? processAction(card, () => nudgeWaiting(card.waiting!))
+        <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
+          <CardGrid
+            cards={item.cards}
+            width={gridWidth}
+            arrangeable={!item.auto}
+            onHold={setMenu}
+            onReorder={reorder(index)}
+            onDrop={dropped(index)}
+            renderCard={(card, canOpen) => (
+              <Card
+                card={card}
+                onTick={onTick(card)}
+                onSet={onSet(card)}
+                onOpen={() =>
+                  canOpen() &&
+                  (card.memory
+                    ? router.push("/memory")
+                    : card.waiting
+                      ? router.push({
+                          pathname: "/process",
+                          params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
+                        })
+                      : card.shared?.kind === "form"
+                        ? openOnWeb(card)
+                        : ask(card))
+                }
+                onAnswer={
+                  card.waiting
+                    ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
                     : undefined
-              }
-              busy={busyCard === card.id}
-            />
-          )}
-        />
+                }
+                onNudge={
+                  card.waiting?.share_id
+                    ? undefined
+                    : card.waiting
+                      ? processAction(card, () => nudgeWaiting(card.waiting!))
+                      : undefined
+                }
+                busy={busyCard === card.id}
+              />
+            )}
+          />
+        </View>
       ) : (
         <Pressable
           accessibilityRole="button"
@@ -356,7 +376,7 @@ export default function Home() {
             <Text style={{ color: t.accent, fontWeight: "700", fontSize: 13 }}>OK</Text>
           </Pressable>
         ) : null}
-        <View style={s.dots}>
+        <View ref={tourRefs.pages} collapsable={false} style={s.dots}>
           {(wide ? [] : (pages ?? [])).map((p, i) => (
             <View
               key={p.name}
@@ -365,8 +385,21 @@ export default function Home() {
           ))}
         </View>
         <View style={[s.barRow, wide && s.wideRow]}>
+          <Pressable
+            ref={tourRefs.help}
+            accessibilityRole="button"
+            accessibilityLabel="Help"
+            onPress={() => setHelp(true)}
+            style={({ pressed }) => [
+              s.searchBtn,
+              { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={{ color: t.fg2, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
+          </Pressable>
           {assistant ? (
             <Pressable
+              ref={tourRefs.search}
               accessibilityRole="button"
               accessibilityLabel="Search"
               onPress={() => setSearch(true)}
@@ -379,6 +412,7 @@ export default function Home() {
             </Pressable>
           ) : null}
           <Pressable
+            ref={assistant ? tourRefs.chat : tourRefs.search}
             accessibilityRole="button"
             accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
             onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
@@ -399,6 +433,56 @@ export default function Home() {
         </View>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
+      <HelpSheet
+        open={help}
+        onClose={() => setHelp(false)}
+        actions={[
+          {
+            title: "Take the tour again",
+            text: "A quick look around the home, under a minute",
+            go: () => {
+              if (userId) resetTour(userId);
+              setTouring(true);
+            },
+          },
+          {
+            title: "Ideas for cards",
+            text: "Lists, totals, countdowns, controls… see what cards can do",
+            go: () => router.push("/gallery"),
+          },
+          ...(assistant
+            ? [
+                {
+                  title: "How do I…?",
+                  text: "Ask in the chat, in your own words",
+                  go: () => router.push({ pathname: "/chat", params: { ask: "How do I " } }),
+                },
+              ]
+            : []),
+        ]}
+      />
+      {touring && userId ? (
+        <Tour
+          steps={tourSteps({
+            assistant,
+            cards: (pages ?? []).some((p) => p.cards.length > 0),
+            pages: !wide && (pages ?? []).length > 1,
+          })}
+          refs={tourRefs}
+          onDone={() => {
+            markTourSeen(userId);
+            setTouring(false);
+          }}
+          onStart={
+            assistant && !(pages ?? []).some((p) => p.cards.length > 0)
+              ? {
+                  label: "Tell me about your week",
+                  go: () => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } }),
+                }
+              : undefined
+          }
+        />
+      ) : null}
       {search ? (
         <SearchSheet
           cards={pagesRef.current?.flatMap((p) => p.cards) ?? []}

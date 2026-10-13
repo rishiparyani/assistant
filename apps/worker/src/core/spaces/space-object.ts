@@ -64,6 +64,8 @@ import {
   type CardSizeValue,
   type CardConfig,
   type CardControl,
+  type RowAction,
+  type RowLayout,
   type Arrangement,
 } from "@assistant/shared";
 import {
@@ -421,7 +423,19 @@ type ViewInput = {
   /** null clears it (the app picks again). */
   card_size?: CardSizeValue | null;
   /** Controls name fields by name or id; null clears the card's choices. */
-  card?: { arrangement?: Arrangement | null; controls?: CardControlInputValue[] } | null;
+  card?: {
+    arrangement?: Arrangement | null;
+    controls?: CardControlInputValue[];
+    row?: RowLayoutInput | null;
+  } | null;
+};
+/** A row layout as it comes in: fields by name or id. */
+type RowLayoutInput = {
+  date?: string | null;
+  details?: string[];
+  pills?: string[];
+  callout?: { field: string; label?: string | null } | null;
+  action?: { field: string; as: RowAction } | null;
 };
 type CardControlInputValue = Omit<CardControl, "value"> & { value?: unknown };
 type ViewRow = {
@@ -1431,6 +1445,7 @@ export class SpaceObject extends DurableObject<Env> {
                   const name = fieldName(v.collection_id, c.field);
                   return name ? [{ ...c, field: name }] : [];
                 }),
+                ...(v.card.row ? { row: rowByName(v.card.row, (id) => fieldName(v.collection_id, id)) } : {}),
               },
             }
           : {}),
@@ -3335,7 +3350,11 @@ export class SpaceObject extends DurableObject<Env> {
   /** A card's controls must fit their fields: what they write has to be a value the field takes. */
   private checkCard(
     fields: FieldRow[],
-    card: { arrangement?: Arrangement | null; controls?: CardControlInputValue[] },
+    card: {
+      arrangement?: Arrangement | null;
+      controls?: CardControlInputValue[];
+      row?: RowLayoutInput | null;
+    },
   ): CardConfig | null {
     const controls: CardControl[] = (card.controls ?? []).map((c) => {
       const f = this.matchField(fields, c.field);
@@ -3374,15 +3393,53 @@ export class SpaceObject extends DurableObject<Env> {
       }
       return out;
     });
-    if (!card.arrangement && !controls.length) return null;
-    // Controls live on a list's rows: a card with controls is a list card.
+    const row = card.row ? this.checkRow(fields, card.row) : null;
+    if (!card.arrangement && !controls.length && !row) return null;
+    // Controls and row layouts live on a list's rows: such a card is a list card.
     const LISTS: Arrangement[] = ["list-plain", "list-ticks", "next"];
-    if (controls.length && card.arrangement && !LISTS.includes(card.arrangement))
+    if ((controls.length || row) && card.arrangement && !LISTS.includes(card.arrangement))
       throw new ObjectError(
         "validation_failed",
-        `Controls go on list cards (${LISTS.join(", ")}), not on ${card.arrangement}`,
+        `Controls and row layouts go on list cards (${LISTS.join(", ")}), not on ${card.arrangement}`,
       );
-    return { arrangement: card.arrangement ?? (controls.length ? "list-plain" : null), controls };
+    return {
+      arrangement: card.arrangement ?? (controls.length || row ? "list-plain" : null),
+      controls,
+      ...(row ? { row } : {}),
+    };
+  }
+
+  /** A row layout's parts must fit their fields (a date tile needs a date, a callout text). */
+  private checkRow(fields: FieldRow[], r: RowLayoutInput): RowLayout | null {
+    const pick = (ref: string, types: string[] | null, what: string) => {
+      const f = this.matchField(fields, ref);
+      if (types && !types.includes(f.type))
+        throw new ObjectError(
+          "validation_failed",
+          `${what} needs a ${types.join(" or ").replace("long_text", "long text").replace("datetime", "date-time")} field; ${f.name} is ${f.type}`,
+        );
+      return f.id;
+    };
+    const TEXT = ["text", "long_text"];
+    const row: RowLayout = {
+      date: r.date ? pick(r.date, ["date", "datetime"], "A date tile") : null,
+      details: [...new Set((r.details ?? []).map((x) => pick(x, null, "A detail")))].slice(0, 3),
+      pills: [
+        ...new Set(
+          (r.pills ?? []).map((x) =>
+            pick(x, ["money", "number", "choice", "multi_choice", "text", "boolean"], "A pill"),
+          ),
+        ),
+      ].slice(0, 2),
+      callout: r.callout
+        ? { field: pick(r.callout.field, TEXT, "A callout"), label: r.callout.label?.trim() || null }
+        : null,
+      action: r.action
+        ? { field: pick(r.action.field, TEXT, `A ${r.action.as} button`), as: r.action.as }
+        : null,
+    };
+    const empty = !row.date && !row.details.length && !row.pills.length && !row.callout && !row.action;
+    return empty ? null : row;
   }
 
   private requireView(ref: string): ViewRow {
@@ -3443,7 +3500,11 @@ export class SpaceObject extends DurableObject<Env> {
       position: v.position,
       card_size: q.card_size ?? null,
       card: q.card
-        ? { arrangement: q.card.arrangement, controls: q.card.controls.filter((c) => live.has(c.field)) }
+        ? {
+            arrangement: q.card.arrangement,
+            controls: q.card.controls.filter((c) => live.has(c.field)),
+            ...(q.card.row ? { row: rowOfLive(q.card.row, live) } : {}),
+          }
         : null,
       updated_at: v.updated_at,
     };
@@ -6409,4 +6470,28 @@ function readableDate(value: string): string {
     year: "numeric",
     ...(dateOnly ? {} : { hour: "numeric", minute: "2-digit" }),
   });
+}
+
+/** A row layout by field names (setups travel by names), leaving out fields that are gone. */
+function rowByName(r: RowLayout, name: (id: string) => string | null | undefined) {
+  const n = (id: string | null) => (id ? (name(id) ?? null) : null);
+  return {
+    date: n(r.date),
+    details: r.details.flatMap((id) => n(id) ?? []),
+    pills: r.pills.flatMap((id) => n(id) ?? []),
+    callout: r.callout && n(r.callout.field) ? { ...r.callout, field: n(r.callout.field)! } : null,
+    action: r.action && n(r.action.field) ? { ...r.action, field: n(r.action.field)! } : null,
+  };
+}
+
+/** A row layout without the fields hidden since it was saved (they come back when shown). */
+function rowOfLive(r: RowLayout, live: Set<string>): RowLayout {
+  const ok = (id: string | null) => !!id && live.has(id);
+  return {
+    date: ok(r.date) ? r.date : null,
+    details: r.details.filter(ok),
+    pills: r.pills.filter(ok),
+    callout: r.callout && ok(r.callout.field) ? r.callout : null,
+    action: r.action && ok(r.action.field) ? r.action : null,
+  };
 }

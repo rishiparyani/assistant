@@ -499,10 +499,33 @@ export interface CardControl {
   max?: number;
   step?: number;
 }
+/**
+ * How each row of a list card is laid out (decision 2026-10-13 "Cards get rich rows"): a date
+ * tile on the left, the title, a line of details ("Sat · 6 pm · Vibe Tribe"), highlighted
+ * pills ("₹5,000"), a callout for a note, and an action on the right (directions, call, open).
+ * Every part names a field of the list; the app draws it. Ids are stored, names are taken in.
+ */
+export const ROW_ACTIONS = ["directions", "call", "open"] as const;
+export type RowAction = (typeof ROW_ACTIONS)[number];
+export interface RowLayout {
+  /** A date or date-time field shown as a calendar tile (OCT / 17). */
+  date: string | null;
+  /** Up to 3 fields on one line under the title; a choice shows with its colour dot. */
+  details: string[];
+  /** Up to 2 fields shown as highlighted pills (money, a status). */
+  pills: string[];
+  /** A text field shown in a highlighted box when it has something (a to-do, a warning). */
+  callout: { field: string; label: string | null } | null;
+  /** A text field the row's button acts on: an address (directions), a phone (call), a link (open). */
+  action: { field: string; as: RowAction } | null;
+}
+
 /** How a saved view's card looks, when the person (or the assistant) chose. */
 export interface CardConfig {
   arrangement: Arrangement | null;
   controls: CardControl[];
+  /** The rows' layout (list cards); null: title and one detail. */
+  row?: RowLayout | null;
 }
 
 /** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
@@ -564,6 +587,30 @@ const cardControl = z.object({
   max: z.number().optional(),
   step: z.number().positive().optional(),
 });
+const fieldName = z.string().trim().min(1).max(80);
+const rowLayout = z
+  .object({
+    date: fieldName.nullish().describe("A date field shown as a calendar tile on the left"),
+    details: z
+      .array(fieldName)
+      .max(3)
+      .optional()
+      .describe('Up to 3 fields on one line under the title, e.g. ["Starts", "Band"]'),
+    pills: z.array(fieldName).max(2).optional().describe('Up to 2 fields highlighted as pills, e.g. ["Fee"]'),
+    callout: z
+      .object({
+        field: fieldName,
+        label: z.string().trim().min(1).max(24).nullish().describe('e.g. "To do"'),
+      })
+      .nullish()
+      .describe("A text field shown in a highlighted box when it has something"),
+    action: z
+      .object({ field: fieldName, as: z.enum(ROW_ACTIONS) })
+      .nullish()
+      .describe("A button on the right: directions (an address field), call (a phone), open (a link)"),
+  })
+  .nullish()
+  .describe("How each row of a list card looks; only when the person asks for a richer list");
 const cardConfig = z
   .object({
     arrangement: z
@@ -571,6 +618,7 @@ const cardConfig = z
       .nullish()
       .describe("How the card shows its records (see the card catalogue)"),
     controls: z.array(cardControl).max(4).optional().describe("Controls on each row, bound to fields"),
+    row: rowLayout,
   })
   .nullish()
   .describe(

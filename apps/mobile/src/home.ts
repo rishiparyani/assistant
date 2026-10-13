@@ -92,15 +92,17 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
       : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
   // A card the person (or the assistant) chose: its arrangement, with the fields it needs
   // picked from the list, when the list has them; and the controls on its rows.
-  // Controls live on a list's rows: a card with controls is drawn as a list.
+  // Controls and row layouts live on a list's rows: such a card is drawn as a list.
   const LISTS = ["list-plain", "list-ticks", "next"];
+  const listRows = !!v.card?.controls.length || !!v.card?.row;
   const wanted =
-    v.card?.controls.length && !LISTS.includes(v.card.arrangement ?? spec.arrangement)
+    listRows && !LISTS.includes(v.card?.arrangement ?? spec.arrangement)
       ? "list-plain"
       : (v.card?.arrangement ?? null);
   const chosen = wanted ? chosenSpec(v, c, wanted) : null;
   const out = chosen ?? spec;
   if (v.card?.controls.length) out.controls = v.card.controls;
+  if (v.card?.row) out.row = v.card.row;
   // The person's size wins when the arrangement can be drawn at it.
   if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;
   else if (!sizesFor(out).includes(out.size)) out.size = sizesFor(out)[0]!;

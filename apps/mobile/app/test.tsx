@@ -11,15 +11,18 @@ import { signInWithEmail } from "@/auth";
 import { API_URL, LOCAL } from "@/config";
 import { useSession } from "@/session";
 import { useTheme } from "@/theme";
+import { setTourOff } from "@/components/Tour";
 
 export default function TestSignIn() {
   const { t } = useTheme();
   const router = useRouter();
   const { refresh } = useSession();
-  const { email, password, path } = useLocalSearchParams<{
+  const { email, password, path, tour } = useLocalSearchParams<{
     email?: string;
     password?: string;
     path?: string;
+    /** "1": show the first-run tour (its own screenshot); otherwise it stays out of the way. */
+    tour?: string;
   }>();
   const [error, setError] = useState("");
   // Shown under the spinner, so a screenshot says how far it got.
@@ -37,6 +40,7 @@ export default function TestSignIn() {
     started.current = true;
     (async () => {
       try {
+        setTourOff(tour !== "1");
         await signInWithEmail(email!, password!);
         setStep("Signed in, loading you…");
         await latest.current.refresh();

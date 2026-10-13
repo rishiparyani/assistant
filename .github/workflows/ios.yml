@@ -159,7 +159,8 @@ jobs:
           # instead (read by the home against the local test server only, see app/test.tsx).
           go() {
             xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
-            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" > /dev/null
+            # A fourth argument shows the first-run tour (it stays off for the other shots).
+            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" ${4:+-testTour 1} > /dev/null
             sleep "${3:-14}"
           }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
@@ -174,7 +175,8 @@ jobs:
             xcrun simctl ui "$dev" appearance light
             xcrun simctl launch "$dev" "$BUNDLE_ID" > /dev/null; sleep 6
             shot "$dev" "$label-light-0-login"
-            go "$dev" "/"
+            # The first signed-in launch of a fresh install is slow on the runner: more time.
+            go "$dev" "/" 24
             shot "$dev" "$label-light-1-home"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
             go "$dev" "/chat"
@@ -190,6 +192,10 @@ jobs:
             # Every kind of card at every size (made-up data, packages/cards).
             go "$dev" "/gallery" 8
             shot "$dev" "$label-light-6-gallery"
+            # The first-run tour's first step over the home (late in the run: the app is warm and
+            # the home loads within the wait).
+            go "$dev" "/" 20 tour
+            shot "$dev" "$label-light-7-tour"
             xcrun simctl terminate "$dev" "$BUNDLE_ID" || true
             xcrun simctl ui "$dev" appearance dark
             go "$dev" "/"

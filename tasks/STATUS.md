@@ -4,6 +4,49 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF22: the first-run tour and Help** (decision 2026-10-13 "Guide people, no presets"; owner liked all five guidance ideas).
+  - **The tour:** `apps/mobile/src/components/Tour.tsx`. Steps:
+    1. welcome;
+    2. the chat bar;
+    3. the cards;
+    4. the pages (phone, more than one);
+    5. search;
+    6. help;
+    7. "Ask for any change".
+
+    Steps for parts a home doesn't have are left out (no cards, a collaborator without the assistant). Each step dims the screen and lights its real target: one view whose very wide border is the dim colour leaves a rounded hole, with no masking library. Targets are measured with `measureInWindow` (refs on the home). It ends with "Tell me about your week" on an empty home. It's shown once per person per device (`tour:<user id>` in device storage) and is skippable.
+
+  - **Help:** a "?" button left of search on the home's bottom bar opens `HelpSheet`: take the tour again, ideas for cards (the gallery), and "How do I…?" (opens the chat).
+  - **Screenshots:** the simulator's test sign-in turns the tour off (`tour:off`) unless launched with `-testTour 1`; the job takes one tour shot (`phone-light-7-tour`, late in the run: the first launches of a fresh install are slow on the runner, so the first home shot also waits 24 s).
+  - **Verified here:** typecheck, lint; the web build against the local server with fake data, every step at 390 px, light and dark.
+  - **Next:**
+    1. One-time hints and "What can I do here?" on a card.
+    2. Ideas in the gallery ("make me something like this").
+    3. "Show me" pointing from the chat.
+  - **Gotchas:** to check the Expo web build against the local Worker, serve both from one origin (the scratch `serve-proxy.mjs` approach: /api and /auth passed through) and build without `EXPO_PUBLIC_API_URL`; across two ports the browser blocks the calls.
+
+- **HF21: rich rows on list cards** (decision 2026-10-13 "Cards get rich rows"; owner's ask, from the old Gigs screen).
+  - **The layout:** a saved view's card can have `row: {date, details, pills, callout, action}` (`RowLayout` in shared; `save_view` / `update_view` take field names).
+  - **Checks:** `checkRow` in the space object checks each part against its field and stores ids; a row layout makes the card a list card. Shared setups carry it by names (`rowByName`); a hidden field drops out of it (`rowOfLive`).
+  - **Drawing:** `packages/cards/src/native/rows.tsx`:
+    - a calendar tile (today coloured, past faded);
+    - the title;
+    - a details line with colour dots for choices;
+    - money and status pills;
+    - a callout box;
+    - a Directions / Call / Open button (maps, `tel:`, the link).
+
+    Inline controls and the tick of `list-ticks` sit on the same row. Rows that fit: S 1; M 2, or 1 with pills or a callout; L 5, or 3.
+
+  - **Gallery:** opens with four made-up gig cards (`richCards()`).
+  - **Card titles** (owner: change the title style; then picked a tinted header band): bold 16.5 pt in the main text colour, with the list's colour as a small badge holding its first letter, on a band across the card's top in a wash of the list's colour (9% light, 16% dark) with a hairline under it. Half-height cards show a small coloured uppercase label instead. A process card's question shows 2 lines at M so it fits under the band.
+  - **Tests:** `card-rows.test.ts`.
+  - **Verified here:** typecheck, lint, tests; the gallery at 390 and 1280 px, light and dark.
+  - **Next:**
+    1. A hero card and a grouped agenda (month headers with counts, filter chips).
+    2. A calendar card.
+    3. Then guidance: an interactive first-run tour that can be retaken, and in-chat help instead of presets (to discuss with the owner).
+
 - **HF20: a harder, bigger scorecard** (owner: "19 out of 20 … the test won't help us decide"). `scorecard/cases.ts` gains **31 `hard` cases**:
   - dates said many ways (day after tomorrow, parso, aaj raat, "5 Nov at noon", "in 2 hours", this Friday);
   - 2k and 1.5 lakh;

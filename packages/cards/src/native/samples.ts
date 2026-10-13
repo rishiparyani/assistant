@@ -211,6 +211,117 @@ export function controlCards(): HomeCard[] {
   ];
 }
 
+const GIGS: CollectionView = {
+  id: "gigs",
+  name: "Test gigs",
+  description: null,
+  title_field_id: "g_title",
+  fields: [
+    field("g_title", "Venue", "text"),
+    field("g_when", "Starts", "datetime"),
+    { ...field("g_band", "Band", "choice"), options: { choices: ["Test Trio", "Test Quartet", "Solo"] } },
+    field("g_fee", "Fee", "money"),
+    field("g_todo", "To do", "long_text"),
+    field("g_addr", "Address", "text"),
+    field("g_paid", "Paid", "boolean"),
+  ],
+  linked_from: [],
+  updated_at: NOW,
+};
+/** A date-time `offset` days from today at an India-time hour. */
+const at = (offset: number, hour: number, min = 0) =>
+  new Date(Date.parse(`${day(offset)}T00:00:00Z`) + (hour * 60 + min - 330) * 60_000).toISOString();
+const GIG_ROWS: [string, string, string, number, string | null, boolean][] = [
+  [
+    "Test Rooftop",
+    at(0, 18),
+    "Test Trio",
+    500_000,
+    "Remind Test Bharat to post a picture and add the band as collaborators",
+    false,
+  ],
+  ["Test Café, Kalyani Nagar", at(1, 12, 30), "Test Quartet", 500_000, null, false],
+  ["Test Hall", at(4, 20), "Solo", 1_200_000, null, true],
+  ["Test Wedding Lawn", at(9, 19), "Test Trio", 2_500_000, "Check the generator", false],
+];
+const GIG_RECORDS: RecordView[] = GIG_ROWS.map(([title, when, band, fee, todo, paid], i) => ({
+  id: `g${i}`,
+  collection_id: GIGS.id,
+  title,
+  values: {
+    g_title: title,
+    g_when: when,
+    g_band: band,
+    g_fee: fee,
+    g_todo: todo,
+    g_addr: `${title}, Pune`,
+    g_paid: paid,
+  },
+  named: { Venue: title, Band: band },
+  links: {},
+  created_at: NOW,
+  updated_at: NOW,
+  version: 1,
+}));
+
+/** Cards with rich rows: date tiles, details with colour dots, pills, a callout and a button. */
+export function richCards(): HomeCard[] {
+  const make = (
+    id: string,
+    title: string,
+    size: CardSize,
+    row: NonNullable<HomeCard["spec"]["row"]>,
+    arrangement: Arrangement = "next",
+  ): HomeCard => ({
+    id: `sample:rows:${id}`,
+    view: null,
+    spec: {
+      version: CARD_VERSION,
+      title,
+      arrangement,
+      size,
+      sources: [
+        {
+          collection: GIGS.id,
+          date_field: "g_when",
+          answer_field: arrangement === "list-ticks" ? "g_paid" : null,
+        },
+      ],
+      row,
+    },
+    collection: GIGS,
+    colour: "time",
+    records: GIG_RECORDS,
+    total: null,
+  });
+  const full = {
+    date: "g_when",
+    details: ["g_when", "g_band"],
+    pills: ["g_fee"],
+    callout: { field: "g_todo", label: "To do" },
+    action: { field: "g_addr", as: "directions" as const },
+  };
+  return [
+    make("gigs-l", "Coming up", "l", full),
+    {
+      // Chips on a rich row: the band, changeable from the card.
+      ...make("gigs-m", "Next gigs", "m", { ...full, callout: null, pills: [] }),
+      spec: {
+        ...make("gigs-m", "Next gigs", "m", { ...full, callout: null, pills: [] }).spec,
+        controls: [{ field: "g_band", as: "chips" as const }],
+      },
+    },
+    make("paid", "Paid yet?", "m", { ...full, callout: null, action: null, pills: ["g_fee"] }, "list-ticks"),
+    make("gig-s", "Next gig", "s", {
+      date: "g_when",
+      details: ["g_band"],
+      pills: ["g_fee"],
+      callout: null,
+      action: null,
+    }),
+  ];
+}
+
 /** Every drawn arrangement at every size it allows: the small ones first (they pair up), then
  *  medium, then large, each in catalogue order. */
 export function sampleCards(): HomeCard[] {

@@ -21,8 +21,14 @@ export function useTestLaunch() {
     const email = Settings.get("testEmail") as unknown;
     const password = Settings.get("testPassword") as unknown;
     const path = Settings.get("testPath") as unknown;
+    const tour = Settings.get("testTour") as unknown;
     if (typeof email !== "string" || typeof password !== "string" || !email || !password) return;
-    const q = new URLSearchParams({ email, password, path: typeof path === "string" ? path : "/" });
+    const q = new URLSearchParams({
+      email,
+      password,
+      path: typeof path === "string" ? path : "/",
+      tour: tour === "1" ? "1" : "0",
+    });
     router.replace(`/test?${q}` as Href);
   }, [router]);
 }
