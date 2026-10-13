@@ -46,6 +46,15 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // A capture about the PA: the model files it as a note (the Inbox turn makes it a card).
   if (lastUser.startsWith("Captured from ") && lastUser.includes("Test PA needs two DI boxes"))
     return call("add_record", { collection: "Notes", values: { Title: "Test PA needs two DI boxes" } });
+  // "Test: put the rehearsal in my calendar": a calendar card, when the calendar tool is offered.
+  if (lastUser === "Test: put the rehearsal in my calendar")
+    return has("calendar_add_event")
+      ? call("calendar_add_event", {
+          title: "Test rehearsal",
+          start: "2030-01-05T19:00",
+          place: "Test Studio",
+        })
+      : say("No calendar here.");
   // "Test: which apps": whether the apps' lines reached the instructions.
   if (lastUser === "Test: which apps")
     return say(String(messages[0]?.content ?? "").includes("Songbook:") ? "Songbook is here." : "No apps.");

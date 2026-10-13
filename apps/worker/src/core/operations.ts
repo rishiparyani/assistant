@@ -57,6 +57,8 @@ export interface OperationDef<S extends z.ZodType = z.ZodType, O = unknown> {
   assistant?: {
     level: 1 | 2;
     hint?: string;
+    /** Offered only when the person has connected this service (connectors). */
+    needs?: string;
     // A method, so operations with different results still fit one registry.
     card?(result: O): { title: string; subtitle?: string | null; href: string } | null;
   };

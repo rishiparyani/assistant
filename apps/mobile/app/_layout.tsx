@@ -50,6 +50,7 @@ export default function Layout() {
           <Stack.Screen name="memory" options={{ presentation: "modal" }} />
           <Stack.Screen name="capture" options={{ presentation: "modal" }} />
           <Stack.Screen name="process" options={{ presentation: "modal" }} />
+          <Stack.Screen name="connections" options={{ presentation: "modal" }} />
         </Stack>
       </SessionProvider>
     </GestureHandlerRootView>

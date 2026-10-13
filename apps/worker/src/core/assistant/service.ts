@@ -3,6 +3,7 @@
 // The models get structured tools from the operation registry; the app checks every call
 // (the operation's own validation and the space object's rules), runs safe ones, and turns
 // money, deletes and new setups into confirm cards that run only after a tap.
+import { connectedKinds } from "../connectors/service.ts";
 import { z } from "zod";
 import {
   MakeSetupInput,
@@ -134,10 +135,15 @@ function toolSpec(op: AnyOperation): ToolSpec {
   };
 }
 
-function toolsFor(level: Level, ops: readonly AnyOperation[]): { specs: ToolSpec[]; allowed: Set<string> } {
+function toolsFor(
+  level: Level,
+  ops: readonly AnyOperation[],
+  connected: ReadonlySet<string> = new Set(),
+): { specs: ToolSpec[]; allowed: Set<string> } {
   const names = level === 1 ? EVERYDAY : [...EVERYDAY, ...SETUP];
-  // Apps' actions, offered by the apps themselves (core never names them).
-  const fromApps = ops.filter((o) => o.assistant && o.assistant.level <= level).map((o) => o.tool);
+  // Apps' actions, offered by the apps themselves (core never names them); a connector's
+  // only when the person has connected it.
+  const fromApps = ops.filter((o) => offered(o, level, connected)).map((o) => o.tool);
   const allowed = new Set([...names, ...fromApps]);
   const specs = ops.filter((o) => allowed.has(o.tool) && !o.sessionOnly).map(toolSpec);
   specs.push(level === 1 ? HAND_OVER : HAND_BACK);
@@ -170,15 +176,19 @@ function setupSummary(cols: CollectionView[]): string {
     .join("\n");
 }
 
+const offered = (o: AnyOperation, level: Level, connected: ReadonlySet<string>) =>
+  !!o.assistant && o.assistant.level <= level && (!o.assistant.needs || connected.has(o.assistant.needs));
+
 function systemPrompt(
   ctx: OpUserCtx,
   level: Level,
   cols: CollectionView[],
   memories: MemoryRow[],
   ops: readonly AnyOperation[] = [],
+  connected: ReadonlySet<string> = new Set(),
 ): string {
   const apps = ops.flatMap((o) =>
-    o.assistant?.hint && o.assistant.level <= level ? [`- ${o.assistant.hint}`] : [],
+    o.assistant?.hint && offered(o, level, connected) ? [`- ${o.assistant.hint}`] : [],
   );
   const lines = [
     `You are the assistant in Gigspree, a personal assistant app. You're talking with ${ctx.user.name}.`,
@@ -562,6 +572,7 @@ async function answerMessage(
   const { stub, actor } = await spaceOf(ctx, undefined);
   let cols = await stub.collections(actor);
   let memories = await chatOf(ctx).memories(uid);
+  const connected = await connectedKinds(ctx);
   let failures = 0;
 
   const reply = (text: string, at = level) =>
@@ -570,9 +581,9 @@ async function answerMessage(
   const lives = new Map<string, LiveRef>();
 
   steps: for (let step = 0; step < MAX_STEPS; step++) {
-    const { specs, allowed } = toolsFor(level, ops);
+    const { specs, allowed } = toolsFor(level, ops, connected);
     const messages: ChatMessage[] = [
-      { role: "system", content: systemPrompt(ctx, level, cols, memories, ops) },
+      { role: "system", content: systemPrompt(ctx, level, cols, memories, ops, connected) },
       ...history,
       ...turn,
     ];

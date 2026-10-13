@@ -140,3 +140,13 @@ With a key set, every backup in Drive is sealed (AES-256-GCM) and unreadable wit
 3. Admin panel → Backups shows **Encrypted** once it's live; the next nightly file ends in `.json.gz.enc`.
 
 Restore of an encrypted file uses the Worker's key by itself. A file made with an earlier key, or restored on another Worker, needs that key typed in the **Backup key** box next to Restore.
+
+## Google Calendar connector (owner, once)
+
+Lets each person connect their own Google Calendar (Connections in the app): the assistant reads it when asked and proposes new events as cards.
+
+1. Google Cloud console → the project used for Google sign-in → search **Google Calendar API** → **Enable**.
+2. **Google Auth Platform** → **Data access** → **Add or remove scopes** → tick `.../auth/calendar.events` (or paste `https://www.googleapis.com/auth/calendar.events`) → **Update** → **Save**.
+3. **Clients** → the web client → **Authorized redirect URIs** → add `https://gigspree.in/api/connectors/google-calendar/callback` and `https://dev.gigspree.in/api/connectors/google-calendar/callback` → **Save**.
+4. While the app's audience is **Testing**, only the test users can connect: **Audience** → add each person's Google address. Calendar is a "sensitive" scope, so Google shows an "unverified app" screen to them (tap **Continue**) until the app is verified; verification is needed before opening it to the public.
+5. In the app: the home's "What it remembers" card → **Connections** → **Connect** next to Google Calendar → choose the account → allow.

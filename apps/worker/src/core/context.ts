@@ -9,6 +9,7 @@ import { decryptSecret, deriveSecret, encryptSecret } from "./crypto.ts";
 import { hashToken } from "./tokens.ts";
 import type { UserCreatedHook } from "./module.ts";
 import type { AiSettings } from "./assistant/models.ts";
+import { googleApp, type GoogleApp } from "./connectors/google-app.ts";
 
 export interface CtxUser {
   id: string;
@@ -44,6 +45,8 @@ export interface UserCtx {
   baseUrl: string;
   /** Encrypts / decrypts small secrets kept in D1 (the key itself stays out of services). */
   sealer: Sealer;
+  /** The app's Google client for connectors (its secret stays out of services). */
+  google: GoogleApp;
   /** What an API token may do; null for a signed-in session (everything). */
   scopes: readonly TokenScope[] | null;
   /** The in-app assistant's models and limits (docs/design/universal.md §10). */
@@ -123,6 +126,7 @@ export function userCtxFor(
     source,
     baseUrl: env.BASE_URL,
     sealer: sealerFor(env),
+    google: googleApp(env),
     scopes,
     ai: { binding: env.AI, settings: aiSettings(env) },
     owners: (env.ADMIN_EMAILS ?? "")
