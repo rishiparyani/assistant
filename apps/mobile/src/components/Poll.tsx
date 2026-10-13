@@ -13,30 +13,59 @@ import { radius, tint, useTheme } from "../theme.ts";
 export function PollCard({
   groupId,
   messageId,
-  poll,
+  poll: given,
   asker,
   mine,
+  me,
+  highlight,
+  onLongPress,
+  saved,
 }: {
   groupId: string;
   messageId: string;
-  poll: PollView;
+  /** `was`: my answer as the server has it, while a change is on its way. */
+  poll: PollView & { was?: string | null };
   /** "You" or the person who asked. */
   asker: string;
   /** Whether I asked it (it sits on my side). */
   mine: boolean;
+  /** My name as the chat shows it (to move it when my answer changes before it's sent). */
+  me: string;
+  /** Opened from a search hit: a ring around it. */
+  highlight?: boolean;
+  /** Hold to save it, like any message. */
+  onLongPress?: () => void;
+  /** "Saved to …" for me. */
+  saved?: string;
 }) {
   const { t, dark } = useTheme();
+  // A change of mine still on its way: my name moves to the new answer at once.
+  const poll =
+    given.was !== undefined && given.was !== given.mine
+      ? {
+          ...given,
+          votes: given.votes.map((v) => {
+            let people = v.option === given.was ? removeOnce(v.people, me) : v.people;
+            if (v.option === given.mine) people = [...people, me];
+            return { ...v, people };
+          }),
+        }
+      : given;
   const total = poll.votes.reduce((n, v) => n + v.people.length, 0);
   const pick = (option: string) => {
     votePoll(groupId, messageId, poll.mine === option ? null : option);
     void Haptics.selectionAsync().catch(() => undefined);
   };
   return (
-    <View
+    <Pressable
+      onLongPress={onLongPress}
+      delayLongPress={350}
+      accessibilityHint="Hold to save it to your lists"
       style={[
         s.card,
         mine ? s.right : s.left,
-        { backgroundColor: t.cell, borderColor: tint(t.accent, 0.35) },
+        { backgroundColor: t.cell, borderColor: highlight ? t.accent : tint(t.accent, 0.35) },
+        highlight && { borderWidth: 2 },
       ]}
     >
       <Text style={[s.kicker, { color: t.warn }]}>
@@ -73,8 +102,15 @@ export function PollCard({
       ) : (
         <Text style={[s.who, { color: t.fg3 }]}>No answers yet</Text>
       )}
-    </View>
+      {saved ? <Text style={[s.who, { color: t.good, fontWeight: "700" }]}>Saved to {saved} ✓</Text> : null}
+    </Pressable>
   );
+}
+
+/** The list without one copy of a name (two people can share one). */
+function removeOnce(people: string[], name: string): string[] {
+  const i = people.indexOf(name);
+  return i < 0 ? people : [...people.slice(0, i), ...people.slice(i + 1)];
 }
 
 /** The sheet that asks: a question and its answers (Yes / No / Maybe to start with). */

@@ -124,7 +124,8 @@ export function useChat(id: string, around?: string) {
           polls: Object.fromEntries(
             Object.entries(withSaves.polls ?? {}).map(([mid, p]) => {
               const v = votingNow.filter(([m]) => m === mid).at(-1);
-              return [mid, v ? { ...p, mine: v[1] } : p];
+              // `was`: my answer as the server has it, so the card can move my name over too.
+              return [mid, v ? { ...p, mine: v[1], was: p.mine } : p];
             }),
           ),
         }

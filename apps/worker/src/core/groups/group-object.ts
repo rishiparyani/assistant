@@ -566,6 +566,14 @@ export class GroupObject extends DurableObject<Env> {
     if (option !== null && !(JSON.parse(row.options_json) as string[]).includes(option))
       throw new ObjectError("validation_failed", "That isn't one of the answers");
     return this.write(actor, key, ["vote", messageId, option], (ts) => {
+      const before =
+        this.sql
+          .exec<{ option: string }>(
+            `select option from poll_votes where message_id = ? and user_id = ?`,
+            messageId,
+            actor.userId,
+          )
+          .toArray()[0]?.option ?? null;
       if (option === null)
         this.sql.exec(`delete from poll_votes where message_id = ? and user_id = ?`, messageId, actor.userId);
       else
@@ -582,6 +590,7 @@ export class GroupObject extends DurableObject<Env> {
         action: "vote",
         entityType: "group_message",
         entityId: messageId,
+        before: { option: before },
         after: { option },
       });
       return { message_id: messageId, option };

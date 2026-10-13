@@ -186,6 +186,10 @@ export default function Talk() {
                     poll={poll}
                     asker={m.author}
                     mine={m.author_id === myId}
+                    me={me?.user.name ?? ""}
+                    highlight={m.id === marked}
+                    onLongPress={() => setSaving(m)}
+                    saved={chat?.saved?.[m.id]}
                   />
                 );
               const mine = m.kind === "person" && m.author_id === myId;
