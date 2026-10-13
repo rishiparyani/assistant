@@ -644,3 +644,28 @@ The owner isn't an active developer: he sends a message about once a day and loo
 - **Candidates:** everyday-model candidates are added to the models table switched off (`ready: false`): DeepSeek V4 Flash, GLM 5.3 Flash and Qwen 3.8, all on Workers AI. The scorecard tries one with its `model` input.
 - **Which wins:** a candidate replaces today's model only if it scores at least as well on the harder 54-case run, ideally right 3/3 on repeats, and is faster or cheaper.
 - **Outside providers:** models outside Cloudflare (Claude Haiku 5.5, GPT, Gemini, via AI Gateway) need the owner's account with that provider. Each is a separate decision before it's wired in.
+
+## 2026-10-13: Cards get rich rows (owner: "this is the kind of richness and detail I'm talking about")
+
+**Decision:** a list card's rows can have a **layout**, chosen in the chat like everything else and kept on the saved view (`card.row`). Each part names a field of the list:
+
+| Part      | Field it takes                                 | What it shows                                                                                            |
+| --------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `date`    | date or date-time                              | A calendar tile (OCT / 17); today's is coloured, past ones are faded                                     |
+| `details` | up to 3, any type                              | A line under the title ("Sat · 6 pm · ● Vibe Tribe"); a choice shows with its colour dot                 |
+| `pills`   | up to 2: money, number, choice, text or yes/no | Highlighted pills ("₹5,000")                                                                             |
+| `callout` | text or long text, plus an optional label      | A highlighted box when it has something ("To do: …")                                                     |
+| `action`  | text                                           | A button on the right: `directions` (an address, opens maps), `call` (a phone number) or `open` (a link) |
+
+- **Checks:** the space's object checks each part against its field and stores field ids, like controls.
+- **List cards only:** a row layout makes the card a list card. Controls still work on rich rows.
+- **Shared setups:** they carry the layout by field names.
+- **Drawn by:** `packages/cards` (`native/rows.tsx`), with no new dependency.
+
+**Why:** the owner's old Gigs screen showed how much richer a list reads with date tiles, pills and highlighted notes. As general parts bound to fields, the same look works for any list (classes, bills, trips), stays one source of truth, and the assistant only names fields (no code, no HTML).
+
+**Next, in order:**
+
+1. A hero card for the next item, with a countdown.
+2. A grouped agenda: month headers with counts, and filter chips.
+3. A calendar card: a month grid with dots; tap a day to see its items.

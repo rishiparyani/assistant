@@ -4,6 +4,27 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF21: rich rows on list cards** (decision 2026-10-13 "Cards get rich rows"; owner's ask, from the old Gigs screen).
+  - **The layout:** a saved view's card can have `row: {date, details, pills, callout, action}` (`RowLayout` in shared; `save_view` / `update_view` take field names).
+  - **Checks:** `checkRow` in the space object checks each part against its field and stores ids; a row layout makes the card a list card. Shared setups carry it by names (`rowByName`); a hidden field drops out of it (`rowOfLive`).
+  - **Drawing:** `packages/cards/src/native/rows.tsx`:
+    - a calendar tile (today coloured, past faded);
+    - the title;
+    - a details line with colour dots for choices;
+    - money and status pills;
+    - a callout box;
+    - a Directions / Call / Open button (maps, `tel:`, the link).
+
+    Inline controls and the tick of `list-ticks` sit on the same row. Rows that fit: S 1; M 2, or 1 with pills or a callout; L 5, or 3.
+
+  - **Gallery:** opens with four made-up gig cards (`richCards()`).
+  - **Tests:** `card-rows.test.ts`.
+  - **Verified here:** typecheck, lint, tests; the gallery at 390 and 1280 px, light and dark.
+  - **Next:**
+    1. A hero card and a grouped agenda (month headers with counts, filter chips).
+    2. A calendar card.
+    3. Then guidance: an interactive first-run tour that can be retaken, and in-chat help instead of presets (to discuss with the owner).
+
 - **HF20: a harder, bigger scorecard** (owner: "19 out of 20 … the test won't help us decide"). `scorecard/cases.ts` gains **31 `hard` cases**:
   - dates said many ways (day after tomorrow, parso, aaj raat, "5 Nov at noon", "in 2 hours", this Friday);
   - 2k and 1.5 lakh;

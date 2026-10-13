@@ -7,6 +7,7 @@ import type { RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
+import { RichRows, richRows } from "./rows.tsx";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
@@ -57,7 +58,12 @@ export function Card({
     return f ? [{ ctl, f }] : [];
   });
   const listy = ["list-plain", "list-ticks", "next"].includes(card.spec.arrangement);
-  if (controls.length && listy) {
+  if (card.spec.row && listy)
+    // Rich rows: a date tile, details, pills, a callout and a button (inline controls too).
+    body = (
+      <RichRows card={card} colour={c} limit={richRows(size, card.spec.row)} onTick={onTick} onSet={onSet} />
+    );
+  else if (controls.length && listy) {
     const inline = controls.filter((x) => INLINE.has(x.ctl.as));
     const below = controls.filter((x) => !INLINE.has(x.ctl.as));
     // What fits under the title: a row with its controls on one line is about 41 points, one

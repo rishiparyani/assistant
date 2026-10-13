@@ -71,7 +71,7 @@ describe("card controls", () => {
       body: { card: { arrangement: "number", controls: [{ field: "Ready", as: "tick" }] } },
     });
     expect(onNumber.status).toBe(400);
-    expect(JSON.stringify(await json(onNumber))).toContain("Controls go on list cards");
+    expect(JSON.stringify(await json(onNumber))).toContain("Controls and row layouts go on list cards");
     await api(me)(`/views/${v.id}`, {
       method: "PATCH",
       body: {

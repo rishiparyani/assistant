@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   ARRANGEMENTS,
   CARD_CONTROL_KINDS,
+  ROW_ACTIONS,
   CARD_SIZE_VALUES,
   FilterInput,
   type Arrangement,
@@ -84,6 +85,19 @@ export const CardSpec = z.object({
     )
     .max(4)
     .optional(),
+  /** How each row is laid out (list arrangements): field ids for a date tile, details, pills,
+   *  a callout and a button (decision 2026-10-13 "Cards get rich rows"). */
+  row: z
+    .object({
+      date: z.string().min(1).max(80).nullable(),
+      details: z.array(z.string().min(1).max(80)).max(3),
+      pills: z.array(z.string().min(1).max(80)).max(2),
+      callout: z
+        .object({ field: z.string().min(1).max(80), label: z.string().max(24).nullable() })
+        .nullable(),
+      action: z.object({ field: z.string().min(1).max(80), as: z.enum(ROW_ACTIONS) }).nullable(),
+    })
+    .nullish(),
 });
 export type CardSpec = z.infer<typeof CardSpec>;
 

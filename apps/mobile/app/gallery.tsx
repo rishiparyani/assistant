@@ -11,6 +11,7 @@ import {
   CardGrid,
   GALLERY_ARRANGEMENTS,
   controlCards,
+  richCards,
   sampleCards,
   useTheme,
   type HomeCard,
@@ -24,7 +25,7 @@ export default function Gallery() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const [cards, setCards] = useState(() => [...controlCards(), ...sampleCards()]);
+  const [cards, setCards] = useState(() => [...richCards(), ...controlCards(), ...sampleCards()]);
   // The controls work here too (on the made-up data only, nothing is saved).
   const set = (card: HomeCard) => (record: { id: string }, field: string, value: StoredValue) =>
     setCards((all) =>
@@ -54,8 +55,9 @@ export default function Gallery() {
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, alignItems: "center" }}>
         <Text style={[s.note, { color: t.fg2, width: gridWidth }]}>
-          Controls first (try them), then {GALLERY_ARRANGEMENTS.length} kinds of card at every size they come
-          in. Made-up data; nothing is saved.
+          Rich rows first (date tiles, details, pills, a note and a button), then controls (try them), then{" "}
+          {GALLERY_ARRANGEMENTS.length} kinds of card at every size they come in. Made-up data; nothing is
+          saved.
         </Text>
         <View style={{ width: gridWidth }}>
           <CardGrid
@@ -63,7 +65,16 @@ export default function Gallery() {
             width={gridWidth}
             arrangeable={false}
             onHold={() => undefined}
-            renderCard={(card) => <Card card={card} onSet={set(card)} />}
+            renderCard={(card) => (
+              <Card
+                card={card}
+                onSet={set(card)}
+                onTick={(r, v) => {
+                  const f = card.spec.sources[0]?.answer_field;
+                  if (f) set(card)(r, f, v);
+                }}
+              />
+            )}
           />
         </View>
         <View style={[s.legend, { width: gridWidth }]}>
