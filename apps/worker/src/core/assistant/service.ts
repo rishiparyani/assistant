@@ -192,7 +192,6 @@ function systemPrompt(
   );
   const lines = [
     `You are the assistant in Gigspree, a personal assistant app. You're talking with ${ctx.user.name}.`,
-    `Now: ${nowIst()} (India time, IST).`,
     "Reply in the person's language (English or Hinglish), briefly and plainly.",
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
     "Their collections:",
@@ -217,6 +216,9 @@ function systemPrompt(
     lines.push(
       "- You're building or changing a setup. Use clear names and the right field types (money for amounts, date for days, choice for fixed options, link to connect collections). Reuse what exists before adding new collections. For anything with more than one list, propose it all at once with make_setup (one card). When it's saved or dropped, call hand_back.",
     );
+  // Last, because it changes every minute: everything above stays the same from call to call,
+  // so the model can reuse what it already read of it (prefix caching).
+  lines.push(`Now: ${nowIst()} (India time, IST).`);
   return lines.join("\n");
 }
 
@@ -587,7 +589,7 @@ async function answerMessage(
       ...history,
       ...turn,
     ];
-    const answer = await ask(ctx, level, messages, specs);
+    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`);
     if (!answer) {
       reply(
         level === 1
@@ -764,6 +766,7 @@ async function ask(
   level: Level,
   messages: ChatMessage[],
   tools: ToolSpec[],
+  affinity?: string,
 ): Promise<{ answer: Awaited<ReturnType<typeof callModel>>; level: Level } | null> {
   const s = ctx.ai.settings;
   const budget = budgetOf(ctx);
@@ -785,7 +788,7 @@ async function ask(
     }
     const started = Date.now();
     try {
-      const answer = await callModel(ctx.ai.binding, s, m, messages, tools);
+      const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity);
       await settle(ctx, m, level, reservation, answer.usage, Date.now() - started, "ok");
       return { answer, level };
     } catch (e) {
@@ -802,7 +805,7 @@ async function settle(
   m: ModelEntry,
   level: Level,
   reservation: string | null,
-  usage: { input: number; output: number },
+  usage: { input: number; output: number; cached?: number },
   ms: number,
   outcome: string,
 ) {
@@ -818,6 +821,7 @@ async function settle(
     model: m.id,
     inputTokens: usage.input,
     outputTokens: usage.output,
+    cachedTokens: usage.cached ?? 0,
     costPaise: paise,
     neurons,
     ms,

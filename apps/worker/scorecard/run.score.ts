@@ -76,6 +76,7 @@ function table(rows: Row[]): string {
         `median ${(ms[Math.floor(ms.length / 2)]! / 1000).toFixed(1)} s, slowest ${(ms.at(-1)! / 1000).toFixed(1)} s · ` +
         `${calls.length} model calls, ${tokensIn} tokens in / ${tokensOut} out per run total · ` +
         `≈ ${Math.round(tokensIn / rs.length)} in / ${Math.round(tokensOut / rs.length)} out per request · ` +
+        `${tokensIn ? Math.round((100 * sum(calls.map((c) => c.cachedTokens ?? 0))) / tokensIn) : 0}% of input reused from the cache · ` +
         `${sum(calls.map((c) => c.neurons))} neurons · ₹${(sum(calls.map((c) => c.costPaise)) / 100).toFixed(2)}`,
     );
     for (const lang of ["en", "hi-en"] as const) {
