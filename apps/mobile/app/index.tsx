@@ -44,6 +44,7 @@ import {
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { useChats } from "@/chats";
+import { useLive } from "@/live-socket";
 import { colourFor, radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
@@ -127,6 +128,17 @@ export default function Home() {
     if (userId && homeReady && !tourSeen(userId)) setTouring(true);
   }, [userId, homeReady]);
   useEffect(() => onHomeChanged(() => void load()), [load]);
+  // Live: when something on my cards changes elsewhere (another phone, a bandmate), load again,
+  // a moment later so a burst of changes loads once. Not while my own changes are still on their
+  // way (that load follows when they're sent).
+  const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useLive((m) => {
+    if (m.type !== "space_changed" && m.type !== "reconnected") return;
+    clearTimeout(liveLoad.current);
+    liveLoad.current = setTimeout(() => {
+      if (!outboxState().waiting.length) void load();
+    }, 400);
+  });
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active" && userId) void load();

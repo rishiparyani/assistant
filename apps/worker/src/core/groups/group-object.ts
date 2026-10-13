@@ -63,6 +63,15 @@ const MIGRATIONS: Migrations = [
   // Everything sent before unread counts existed counts as read, so nobody gets a pile of old
   // messages marked new.
   `update members set read_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where read_at is null;`,
+  // Messages someone saved to their lists ("Saved to Gigs ✓"), seen only by that person.
+  `create table saves (
+     message_id text not null,
+     user_id text not null,
+     label text not null,
+     at text not null,
+     primary key (message_id, user_id)
+   );
+   create index saves_user_idx on saves (user_id);`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -234,6 +243,7 @@ export class GroupObject extends DurableObject<Env> {
     owner_id: string;
     members: GroupMember[];
     messages: GroupMessage[];
+    saved: Record<string, string>;
   }> {
     this.member(userId);
     const g = this.group();
@@ -259,6 +269,15 @@ export class GroupObject extends DurableObject<Env> {
       owner_id: g.owner_user_id,
       members: this.members(),
       messages,
+      saved: Object.fromEntries(
+        this.sql
+          .exec<{ message_id: string; label: string }>(
+            `select message_id, label from saves where user_id = ?`,
+            userId,
+          )
+          .toArray()
+          .map((r) => [r.message_id, r.label]),
+      ),
     };
   }
 
@@ -309,6 +328,53 @@ export class GroupObject extends DurableObject<Env> {
         text: input.text.trim(),
         created_at: ts,
       };
+    });
+  }
+
+  /** One message, for a member (someone saving it to their lists). */
+  async message(userId: string, messageId: string): Promise<GroupMessage> {
+    this.member(userId);
+    const m = this.sql
+      .exec<{
+        id: string;
+        kind: string;
+        author_id: string | null;
+        author: string;
+        text: string;
+        created_at: string;
+      }>(
+        `select id, kind, author_id, author, text, created_at from messages where id = ? and kind != 'note'`,
+        messageId,
+      )
+      .toArray()[0];
+    if (!m) throw new ObjectError("not_found", "Message not found");
+    return { ...m, kind: m.kind as GroupMessage["kind"] };
+  }
+
+  /** Remembers that this person saved a message, and where to (only they see it). */
+  async markSaved(
+    actor: Actor & { userId: string },
+    key: string | null,
+    messageId: string,
+    label: string,
+  ): Promise<{ message_id: string; label: string }> {
+    await this.message(actor.userId, messageId);
+    return this.write(actor, key, ["saved", messageId, label], (ts) => {
+      this.sql.exec(
+        `insert into saves (message_id, user_id, label, at) values (?, ?, ?, ?)
+         on conflict (message_id, user_id) do update set label = excluded.label, at = excluded.at`,
+        messageId,
+        actor.userId,
+        label,
+        ts,
+      );
+      audit(this.sql, actor, {
+        action: "save_group_message",
+        entityType: "group_message",
+        entityId: messageId,
+        after: { label },
+      });
+      return { message_id: messageId, label };
     });
   }
 

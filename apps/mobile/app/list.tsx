@@ -4,7 +4,7 @@
 // small card with its date tile, details and pills. Opened from a card's title, the chat's
 // "Open list", search, or the All lists page; back is a swipe. Read online, the last copy kept
 // on the device for offline; ticks go through the outbox like everywhere else.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -13,6 +13,8 @@ import { Text, Tick, act, ACTION_WORDS, shown, tint } from "@assistant/cards/nat
 import { isOffline, request } from "@/api";
 import { cardFor, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
+import { useLive } from "@/live-socket";
+import { outboxState } from "@/outbox";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
@@ -146,6 +148,16 @@ export default function ListPage() {
     restore();
     void loadPage(null);
   }, [loadPage, restore]);
+  // Live: a change elsewhere (another phone, a bandmate) loads the first page again, unless
+  // my own changes are still on their way.
+  const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useLive((m) => {
+    if (m.type !== "space_changed" && m.type !== "reconnected") return;
+    clearTimeout(liveLoad.current);
+    liveLoad.current = setTimeout(() => {
+      if (!outboxState().waiting.length) void loadPage(null);
+    }, 400);
+  });
 
   // Grouped by month (when the list has a date), in the order the records came.
   const rows = useMemo(() => {
