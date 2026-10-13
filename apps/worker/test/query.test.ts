@@ -144,6 +144,49 @@ describe("questions about the data", () => {
     ]);
   });
 
+  it("keeps a linked record's value with its own group, and compares times exactly", async () => {
+    const me = await signUp("Test Owner");
+    await band(me);
+    // Grouped by the payout's title: each payout's amount counts under its own title only.
+    const byPayee = (
+      await ask(me, {
+        from: "Gigs",
+        group_by: ["Payouts.Title"],
+        measures: [{ fn: "sum", field: "Payouts.Amount", as: "Paid" }],
+      })
+    ).body as QueryResult;
+    expect(byPayee.rows.map((x) => x.shown)).toEqual([
+      ["Test drummer", "₹25,000"],
+      ["Test bassist", "₹4,000"],
+      ["(none)", "₹0"],
+    ]);
+    await api(me)("/collections", {
+      body: {
+        name: "Calls",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "At", type: "datetime" },
+        ],
+      },
+    });
+    for (const [t, at] of [
+      ["Test early call", `${year}-03-05T09:00`],
+      ["Test late call", `${year}-03-05T18:30`],
+    ])
+      await api(me)("/collections/Calls/records", { body: { values: { Title: t, At: at } } });
+    const latest = (
+      await ask(me, {
+        from: "Calls",
+        measures: [
+          { fn: "max", field: "At", as: "Latest" },
+          { fn: "min", field: "At" },
+        ],
+      })
+    ).body as QueryResult;
+    expect(latest.columns.map((c) => c.type)).toEqual(["datetime", "datetime"]);
+    expect(latest.rows[0]!.shown).toEqual([`5 Mar ${year}, 6:30 pm`, `5 Mar ${year}, 9 am`]);
+  });
+
   it("names what's wrong so the assistant can fix the question, and is private to the space", async () => {
     const me = await signUp("Test Owner");
     await band(me);
@@ -167,6 +210,7 @@ describe("questions about the data", () => {
     ).toContain("isn't an earlier column");
     expect(await bad({ from: "Gigs", group_by: ["Venue:month"] })).toContain("isn't a date");
     expect(await bad({ from: "Gigs", sort: { by: "Nope" } })).toContain("No column");
+    expect(await bad({ from: "Gigs", measures: [{ fn: "count_distinct" }] })).toContain("Say which field");
 
     const stranger = await signUp("Test Stranger");
     const [space] = await json<{ id: string }[]>(await api(me)("/spaces"));

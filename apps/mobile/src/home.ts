@@ -584,7 +584,11 @@ export function answerCard(
   const arrangement: Arrangement =
     kept === "table" || kept === "bars"
       ? kept
-      : groups === 1 && first && first.type !== "date" && (answer?.rows.length ?? 0) >= 2
+      : groups === 1 &&
+          first &&
+          first.type !== "date" &&
+          first.type !== "datetime" &&
+          (answer?.rows.length ?? 0) >= 2
         ? "bars"
         : "table";
   const rows = answer?.rows.length ?? 0;

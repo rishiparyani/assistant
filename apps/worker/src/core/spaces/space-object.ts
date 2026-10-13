@@ -3062,6 +3062,8 @@ export class SpaceObject extends DurableObject<Env> {
         const ref = m.field ? resolve(m.field) : null;
         if (ref?.bucket) throw new ObjectError("validation_failed", `Group by ${m.field}, don't count it`);
         const t = ref?.field?.type;
+        if (fn !== "count" && !ref)
+          throw new ObjectError("validation_failed", `Say which field to work out ${fn} of (field)`);
         let type: QueryColumnType = "number";
         if (fn === "sum" || fn === "avg") {
           if (t !== "number" && t !== "money")
@@ -3076,7 +3078,7 @@ export class SpaceObject extends DurableObject<Env> {
               "validation_failed",
               `${ref?.label ?? "That"} isn't a number, money or date field`,
             );
-          type = t === "datetime" ? "date" : t;
+          type = t;
         }
         const where = m.where?.length ? this.checkViewQuery(c, { filters: m.where }).filters : [];
         cols.push({ kind: "fn", name: m.as ?? measureName({ fn, field: ref?.label }), fn, ref, where, type });
@@ -3172,14 +3174,18 @@ export class SpaceObject extends DurableObject<Env> {
       return v;
     };
     /** A ref's values on one record (several through a link, or for a multi choice). */
-    const read = (r: RecordRow, ref: Ref): StoredValue[] => {
-      const from = ref.via ? (linkedOf(ref.via).get(r.id) ?? []) : [r];
-      if (!ref.field) return from.filter((x) => x !== r).map((x) => x.title);
-      const out: StoredValue[] = [];
+    const viaKey = (p: LinkPath) => `${p.field_id}:${p.dir}`;
+    /** A ref's values on one record, each with the record it came from (a linked one, through a link). */
+    const readFrom = (r: RecordRow, ref: Ref, only?: Set<string>): { v: StoredValue; src: RecordRow }[] => {
+      let from = ref.via ? (linkedOf(ref.via).get(r.id) ?? []) : [r];
+      // Grouped by a linked record's value: only the linked records in that group count.
+      if (only) from = from.filter((x) => only.has(x.id));
+      if (!ref.field) return from.filter((x) => x !== r).map((x) => ({ v: x.title, src: x }));
+      const out: { v: StoredValue; src: RecordRow }[] = [];
       for (const x of from) {
         const v = valuesOf(x)[ref.field.id];
-        if (Array.isArray(v)) out.push(...v);
-        else if (v !== null && v !== undefined) out.push(v);
+        if (Array.isArray(v)) out.push(...v.map((y) => ({ v: y as StoredValue, src: x })));
+        else if (v !== null && v !== undefined) out.push({ v, src: x });
       }
       return out;
     };
@@ -3208,29 +3214,51 @@ export class SpaceObject extends DurableObject<Env> {
       }
       return { key: nameKey(String(v)), raw: String(v), shown: String(v) };
     };
-    type Bucket = { raw: (string | number | null)[]; shown: string[]; recs: RecordRow[] };
+    // Each record in a group, with the linked records that put it there (by link), so a
+    // column over the same link reads only those (grouped by Payouts.Title, a payout's
+    // amount counts under its own title, not under every title of the gig).
+    type Entry = { r: RecordRow; links: Map<string, Set<string>> };
+    type Bucket = { raw: (string | number | null)[]; shown: string[]; recs: Entry[] };
+    type Combo = {
+      keys: string[];
+      raw: (string | number | null)[];
+      shown: string[];
+      links: Map<string, Set<string>>;
+    };
     const buckets = new Map<string, Bucket>();
     for (const r of rows) {
-      let combos: { keys: string[]; raw: (string | number | null)[]; shown: string[] }[] = [
-        { keys: [], raw: [], shown: [] },
-      ];
+      let combos: Combo[] = [{ keys: [], raw: [], shown: [], links: new Map() }];
       for (const g of groups) {
-        const vs = read(r, g);
-        const gv = (vs.length ? vs : [null]).map((v) => groupValue(g, v));
-        const uniq = [...new Map(gv.map((x) => [x.key, x])).values()];
+        const pairs = readFrom(r, g);
+        const byKey = new Map<string, { gv: ReturnType<typeof groupValue>; srcs: Set<string> }>();
+        for (const { v, src } of pairs.length ? pairs : [{ v: null, src: null }]) {
+          const gv = groupValue(g, v);
+          const at = byKey.get(gv.key) ?? { gv, srcs: new Set<string>() };
+          if (src) at.srcs.add(src.id);
+          byKey.set(gv.key, at);
+        }
         combos = combos.flatMap((cb) =>
-          uniq.map((x) => ({
-            keys: [...cb.keys, x.key],
-            raw: [...cb.raw, x.raw],
-            shown: [...cb.shown, x.shown],
-          })),
+          [...byKey.values()].map(({ gv, srcs }) => {
+            const links = new Map(cb.links);
+            if (g.via) {
+              const k = viaKey(g.via);
+              const had = links.get(k);
+              links.set(k, had ? new Set([...had].filter((id) => srcs.has(id))) : srcs);
+            }
+            return {
+              keys: [...cb.keys, gv.key],
+              raw: [...cb.raw, gv.raw],
+              shown: [...cb.shown, gv.shown],
+              links,
+            };
+          }),
         );
         if (combos.length > 50) combos = combos.slice(0, 50);
       }
       for (const cb of combos) {
         const k = JSON.stringify(cb.keys);
         const b = buckets.get(k) ?? { raw: cb.raw, shown: cb.shown, recs: [] };
-        b.recs.push(r);
+        b.recs.push({ r, links: cb.links });
         buckets.set(k, b);
       }
     }
@@ -3238,6 +3266,12 @@ export class SpaceObject extends DurableObject<Env> {
     if (!groups.length && !buckets.size) buckets.set("[]", { raw: [], shown: [], recs: [] });
 
     const asNumber = (v: StoredValue, t: QueryColumnType): number | null => {
+      // A date and time compares as the instant; a date as its day.
+      if (t === "datetime") {
+        if (typeof v !== "string") return null;
+        const ms = Date.parse(v);
+        return Number.isNaN(ms) ? null : ms;
+      }
       if (t === "date") {
         if (typeof v !== "string") return null;
         const ms = Date.parse(`${v.length > 10 ? istDate(v) : v}T00:00:00Z`);
@@ -3255,7 +3289,8 @@ export class SpaceObject extends DurableObject<Env> {
               const j = cols.findIndex((y) => nameKey(y.name) === nameKey(name));
               const v = vals[j];
               const t = cols[j]!.type;
-              return v === null || v === undefined
+              // A date and time has no arithmetic here (days only): it leaves the calc empty.
+              return v === null || v === undefined || t === "datetime"
                 ? null
                 : { t: t === "money" ? "money" : t === "date" ? "date" : "num", v };
             });
@@ -3265,12 +3300,15 @@ export class SpaceObject extends DurableObject<Env> {
           vals.push(r ? r.v : null);
           continue;
         }
-        const recs = only[i] ? b.recs.filter((r) => only[i]!.has(r.id)) : b.recs;
+        const recs = only[i] ? b.recs.filter((e) => only[i]!.has(e.r.id)) : b.recs;
         if (col.fn === "count" && !col.ref) {
           vals.push(recs.length);
           continue;
         }
-        const values = recs.flatMap((r) => read(r, col.ref!));
+        const ref = col.ref!;
+        const values = recs.flatMap((e) =>
+          readFrom(e.r, ref, ref.via ? e.links.get(viaKey(ref.via)) : undefined).map((x) => x.v),
+        );
         if (col.fn === "count") vals.push(values.length);
         else if (col.fn === "count_distinct")
           vals.push(
@@ -3326,6 +3364,12 @@ export class SpaceObject extends DurableObject<Env> {
       if (v === null) return "—";
       if (t === "money") return String(displayValue("money", Math.round(v)));
       if (t === "date") return dayWords(new Date(v).toISOString().slice(0, 10));
+      if (t === "datetime") {
+        const ist = new Date(v + 330 * 60_000).toISOString();
+        const h = Number(ist.slice(11, 13));
+        const m = ist.slice(14, 16);
+        return `${dayWords(ist.slice(0, 10))}, ${h % 12 || 12}${m === "00" ? "" : `:${m}`} ${h < 12 ? "am" : "pm"}`;
+      }
       return Number.isInteger(v)
         ? v.toLocaleString("en-IN")
         : v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -3334,7 +3378,13 @@ export class SpaceObject extends DurableObject<Env> {
       cells: [
         ...r.group.raw,
         ...r.vals.map((v, i) =>
-          v !== null && cols[i]!.type === "date" ? new Date(v).toISOString().slice(0, 10) : v,
+          v === null
+            ? v
+            : cols[i]!.type === "date"
+              ? new Date(v).toISOString().slice(0, 10)
+              : cols[i]!.type === "datetime"
+                ? new Date(v).toISOString()
+                : v,
         ),
       ],
       shown: [...r.group.shown, ...r.vals.map((v, i) => show(v, cols[i]!.type))],

@@ -35,7 +35,7 @@ export type QuerySpecInput = z.input<typeof QuerySpec>;
 
 export const QueryInput = SpaceRef.extend(QuerySpec.shape);
 
-export type QueryColumnType = "text" | "number" | "money" | "date";
+export type QueryColumnType = "text" | "number" | "money" | "date" | "datetime";
 export interface QueryColumn {
   name: string;
   kind: "group" | "measure";
