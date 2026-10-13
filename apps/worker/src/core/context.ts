@@ -146,6 +146,7 @@ export function aiSettings(env: Env): AiSettings {
     personCapPaise: Math.round(num(vars.AI_PERSON_CAP_INR, 2000) * 100),
     usdInr: num(vars.USD_INR, 90),
     fake: vars.AI_FAKE === "1",
+    everydayModel: vars.AI_EVERYDAY_MODEL?.trim() || null,
   };
 }
 

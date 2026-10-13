@@ -61,6 +61,7 @@ export async function callModel(
         max_tokens: model.maxOutput,
         temperature: 0.2,
         ...(model.thinking === false ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+        ...(model.effort ? { reasoning_effort: model.effort } : {}),
       } as never,
       {
         gateway: { id: gateway, skipCache: true },

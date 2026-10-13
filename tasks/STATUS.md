@@ -4,6 +4,41 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF20: a harder, bigger scorecard** (owner: "19 out of 20 … the test won't help us decide"). `scorecard/cases.ts` gains **31 `hard` cases**:
+  - dates said many ways (day after tomorrow, parso, aaj raat, "5 Nov at noon", "in 2 hours", this Friday);
+  - 2k and 1.5 lakh;
+  - two expenses at once;
+  - never making up an amount;
+  - filing by a memory;
+  - asking when two records match;
+  - ticking two of three;
+  - money changes and "delete all" waiting for a tap;
+  - "move to Sunday, same time";
+  - answering only what was asked;
+  - a note whose text gives orders;
+  - conversations (`before`: a correction, a follow-on);
+  - more Hinglish.
+
+  The first 23 are `core`.
+  - **The runner** takes:
+    - `SCORECARD_SUITE` (core/hard/all);
+    - `SCORECARD_REPEAT` (1–5 runs of each case; the table shows right-count per case, e.g. ⚠️ 2/3, and "right every time");
+    - `AI_EVERYDAY_MODEL` (try another everyday model).
+
+    All three are workflow inputs.
+
+  - **Candidates** in `MODELS` (`ready: false`, used only when the scorecard names one):
+    - DeepSeek V4 Flash (thinking off);
+    - GLM 5.3 Flash (thinking can't be turned off: `effort: "low"`);
+    - Qwen 3.8 27B (thinking off).
+
+    `ModelEntry.effort` sends `reasoning_effort`. Prices are the makers' list prices, to confirm; neurons unknown.
+
+  - **Verified:** typecheck, lint, and a dry run of the hard suite with the scripted model (every seed loads, every case grades; one grader fixed: the coming Sunday).
+  - **Next:**
+    1. One `all` run a day on the free allowance: today's model first, then DeepSeek V4 Flash, Qwen 3.8 and GLM 5.3 Flash.
+    2. With AI credit: `repeat: 3` for each, and Claude Haiku 5.5 through AI Gateway (needs the owner's Anthropic account and a decision on the provider).
+
 - **HF19: a faster assistant** (owner: faster, without making it less flexible; decision 2026-10-13 "The everyday model answers without thinking first…"). **Thinking off** for GLM 4.7 Flash (`thinking: false` in `models.ts` → `chat_template_kwargs.enable_thinking: false` in `client.ts`): it was thinking silently before every answer. **Accuracy fixes found with the scorecard:** the instructions list the next seven days with dates ("on Saturday"), tool results show stored times in India time (`inIndiaTime(cols)`: `…Z` → `…+05:30` in date-time fields and `…_at` timestamps only, typed text untouched; the model had copied UTC times as if local; `assistant-times.test.ts`), "they say they did something → tick a matching reminder first, and still record an amount they gave; never make up an amount", "a note is a record in Notes, not a memory". **Caching groundwork:** every call carries `x-session-affinity: <user id>:<chat id>` (binding `extraHeaders`), the clock line is last in the instructions, and the call log counts cached tokens (budget migration: `calls.cached_tokens`; costs still count every input token). GLM showed no caching (0%); Kimi should. **Scorecard:** prints the model's tool calls for a failed case; the share of input reused from the cache; runs this day in `docs/scorecard/2026-10-13.md`.
   - **Not done:** sending only some tools per request (the app would be guessing; owner's concern). Tool details on demand stays an option if the paid models need it.
   - **Gotchas:** a full scorecard run uses ~2,000 of the 10,000 free neurons a day, shared with the real app (6 runs on 2026-10-13 used it up until 05:30 IST); the runner now fails cases no model answered. Free-route times swing a lot (one call 1 s or 20 s; a request up to ~110 s at busy moments): compare medians over a full run, not single cases.

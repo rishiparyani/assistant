@@ -22,6 +22,10 @@ export default defineConfig({
           // Empty until the owner sets up AI credit; then setups (level 2) are scored too.
           AI_PAID_GATEWAY: process.env.AI_PAID_GATEWAY ?? "",
           SCORECARD_ONLY: process.env.SCORECARD_ONLY ?? "",
+          SCORECARD_SUITE: process.env.SCORECARD_SUITE ?? "",
+          SCORECARD_REPEAT: process.env.SCORECARD_REPEAT ?? "",
+          // A candidate everyday model to try (an id from MODELS in core/assistant/models.ts).
+          AI_EVERYDAY_MODEL: process.env.AI_EVERYDAY_MODEL ?? "",
         },
       },
     })),
@@ -29,6 +33,6 @@ export default defineConfig({
   test: {
     include: ["scorecard/**/*.score.ts"],
     setupFiles: ["./test/setup.ts"],
-    testTimeout: 30 * 60_000,
+    testTimeout: 120 * 60_000,
   },
 });
