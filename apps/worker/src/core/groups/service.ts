@@ -220,9 +220,10 @@ export async function saveGroupMessage(
   groupId: string,
   messageId: string,
 ): Promise<SaveProposal> {
+  // Membership first (anyone outside the group gets 404, whatever their assistant), then access.
+  const m = await groupOf(ctx, groupId).message(ctx.user.id, messageId);
   if (!(await assistantAllowed(ctx)))
     throw new AppError("forbidden", "The assistant isn't on for you; save it to your Inbox instead.");
-  const m = await groupOf(ctx, groupId).message(ctx.user.id, messageId);
   await newChat({ ...ctx, idempotencyKey: null }, groupId);
   const who = m.author_id === ctx.user.id ? "me" : m.author;
   const text = [

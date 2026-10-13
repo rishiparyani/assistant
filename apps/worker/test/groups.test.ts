@@ -201,6 +201,8 @@ describe("group chats", () => {
     // Without the assistant (Dev) it's refused (the phone offers the Inbox); outsiders get 404.
     expect((await api(dev)(`/groups/${g.id}/messages/${msg.id}/save`, { body: {} })).status).toBe(403);
     expect((await api(outsider)(`/groups/${g.id}/messages/${msg.id}/save`, { body: {} })).status).toBe(404);
+    const stranger = await signUp("Test Stranger", undefined, { assistant: false });
+    expect((await api(stranger)(`/groups/${g.id}/messages/${msg.id}/save`, { body: {} })).status).toBe(404);
     expect(
       (await api(outsider)(`/groups/${g.id}/messages/${msg.id}/saved`, { body: { label: "Test" } })).status,
     ).toBe(404);

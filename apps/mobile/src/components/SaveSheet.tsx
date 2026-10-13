@@ -77,9 +77,20 @@ export function SaveSheet({
     setBusy(true);
     setError("");
     try {
-      await answerProposal(chatId, item.card.action_id, what);
-      if (what === "confirm") finish(savedLabel(item.card.title));
-      else setItems((xs) => (xs ?? []).filter((x) => x.id !== item.id));
+      const view = await answerProposal(chatId, item.card.action_id, what);
+      if (what === "cancel") {
+        setItems((xs) => (xs ?? []).filter((x) => x.id !== item.id));
+        return;
+      }
+      // Only a card the server actually carried out counts as saved.
+      const card = view.items.find((x) => x.card?.action_id === item.card!.action_id)?.card;
+      if (card?.status === "done") finish(savedLabel(item.card.title));
+      else {
+        setItems((xs) => (xs ?? []).filter((x) => x.id !== item.id));
+        setError(
+          `Couldn't save it${card?.result ? `: ${card.result}` : ""}. Try again, or put it in your Inbox.`,
+        );
+      }
     } catch (e) {
       setError(isOffline(e) ? "Saving needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {

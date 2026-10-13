@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   ulid,
   type ChatPerson,
+  type ChatView,
   type GroupMessage,
   type GroupSummary,
   type GroupView,
@@ -147,7 +148,7 @@ export const proposeSave = (groupId: string, messageId: string) =>
 
 // online-only: a proposal is confirmed (or dropped) on the server, where it waits.
 export const answerProposal = (chatId: string, actionId: string, what: "confirm" | "cancel") =>
-  request("POST", `/api/chats/${enc(chatId)}/actions/${enc(actionId)}/${what}`, {});
+  request<ChatView>("POST", `/api/chats/${enc(chatId)}/actions/${enc(actionId)}/${what}`, {});
 
 /** "Saved to Gigs ✓" under a message (only I see it); works offline. */
 export function markSaved(groupId: string, messageId: string, label: string) {
