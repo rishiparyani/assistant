@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   ulid,
   type ChatPerson,
+  type ChatView,
   type CreatedShare,
+  type SaveProposal,
   type GroupSummary,
   type GroupView,
   type RecordView,
@@ -163,5 +165,44 @@ describe("group chats", () => {
     await api(owner)(`/groups/${duo.id}/messages`, { body: { text: "Test while you were out" } });
     await api(owner)(`/groups/${duo.id}/people`, { body: { people: ["Test Dev"] } });
     expect(await duoUnread()).toBe(0);
+  });
+
+  it("saves a message only after a tap, and marks it saved for the saver alone", async () => {
+    const { owner, dev, outsider } = await setUp();
+    const g = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Band", people: ["Test Dev"] } }),
+    );
+    await api(dev)(`/groups/${g.id}/messages`, { body: { text: "Test PA needs two DI boxes" } });
+    const msg = (await json<GroupView>(await api(owner)(`/groups/${g.id}`))).messages.find(
+      (m) => m.kind === "person",
+    )!;
+    // The owner's assistant proposes; nothing is saved yet.
+    const res = await api(owner)(`/groups/${g.id}/messages/${msg.id}/save`, { body: {} });
+    expect(res.status).toBe(200);
+    const proposal = await json<SaveProposal>(res);
+    const card = proposal.items.find((i) => i.card)?.card;
+    expect([card?.tool, card?.status]).toEqual(["add_record", "waiting"]);
+    const notes = async () =>
+      (await json<{ items: { title: string }[] }>(await api(owner)("/collections/Notes/find", { body: {} })))
+        .items;
+    expect((await notes()).some((r) => r.title === "Test PA needs two DI boxes")).toBe(false);
+    // It waits in the owner's own chat about the group; the tap saves it.
+    const chat = await json<ChatView>(await api(owner)(`/chats/${proposal.chat_id}`));
+    expect(chat.items.some((i) => i.card?.action_id === card!.action_id)).toBe(true);
+    expect(
+      (await api(owner)(`/chats/${proposal.chat_id}/actions/${card!.action_id}/confirm`, { method: "POST" }))
+        .status,
+    ).toBe(200);
+    expect((await notes()).some((r) => r.title === "Test PA needs two DI boxes")).toBe(true);
+    // "Saved to Notes" shows for the owner, not for Dev.
+    await api(owner)(`/groups/${g.id}/messages/${msg.id}/saved`, { body: { label: "Notes" } });
+    expect((await json<GroupView>(await api(owner)(`/groups/${g.id}`))).saved).toEqual({ [msg.id]: "Notes" });
+    expect((await json<GroupView>(await api(dev)(`/groups/${g.id}`))).saved).toEqual({});
+    // Without the assistant (Dev) it's refused (the phone offers the Inbox); outsiders get 404.
+    expect((await api(dev)(`/groups/${g.id}/messages/${msg.id}/save`, { body: {} })).status).toBe(403);
+    expect((await api(outsider)(`/groups/${g.id}/messages/${msg.id}/save`, { body: {} })).status).toBe(404);
+    expect(
+      (await api(outsider)(`/groups/${g.id}/messages/${msg.id}/saved`, { body: { label: "Test" } })).status,
+    ).toBe(404);
   });
 });

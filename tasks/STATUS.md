@@ -4,6 +4,12 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF29: saving chat messages; live home and lists on the phone** (decision 2026-10-13 "Saving chat messages, and searching chats").
+  - **Server:** `POST /api/groups/:id/messages/:message_id/save` runs the asker's assistant, proposals only, in their own assistant chat for the group (`chat_id` = group id) and returns that turn's cards; `POST …/saved` (`{label}`) marks it saved for that person only (group object `saves` table, migration). Refused (403) without the assistant; non-members 404. Scripted model files "Test PA needs two DI boxes" as a note.
+  - **Phone:** hold a message → `src/components/SaveSheet.tsx` (the message, "Finding where it goes…", the card with "Add to Notes" / "Not this", or "Save to my Inbox" without the assistant); "Saved to Notes ✓" under the message, at once (outbox). The home (`index.tsx`) and the full list (`list.tsx`) load again on live `space_changed` pings (debounced, not while own changes wait).
+  - **Verified here:** web build against the local Worker at 390 light and dark: hold, proposal, Add, the note in Notes, the mark. Tests: `groups.test.ts` (+1).
+  - **Next:** push notifications for new messages on the phone (needs the owner's Apple/Google setup), then search in chats.
+
 - **HF28: chats with people, step 1** (decision 2026-10-13 "Chats with people"; owner approved the mock-up).
   - **Server:**
     - chats for two: `POST /api/groups` with `direct: true` and one person; one per pair (D1 `direct_chats`, migration 0012), named after the other person for each reader; no adding people or leaving;

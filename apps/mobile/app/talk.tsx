@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { sendChatMessage, useChat, type GroupMessage, type Pending } from "@/chats";
 import { dropFailed } from "@/outbox";
+import { SaveSheet } from "@/components/SaveSheet";
 import { useSession } from "@/session";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
@@ -37,8 +38,10 @@ export default function Talk() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { me } = useSession();
   const myId = me?.user.id ?? null;
-  const { chat, pending, error } = useChat(id ?? "");
+  const { chat, pending, error, reload } = useChat(id ?? "");
   const [text, setText] = useState("");
+  // The message being saved (the Save sheet is open for it).
+  const [saving, setSaving] = useState<GroupMessage | null>(null);
   const list = useRef<FlatList<Item>>(null);
 
   // Newest at the bottom: the list is drawn upside down, so it opens at the latest message.
@@ -114,8 +117,8 @@ export default function Talk() {
               chat && !chat.messages.some((m) => m.kind === "person") ? (
                 <Text style={[s.hello, { color: t.fg2 }]}>
                   {chat.direct
-                    ? `This is your chat with ${chat.name}. Only the two of you see it.`
-                    : `Only the people in ${chat.name} see what's written here.`}
+                    ? `This is your chat with ${chat.name}. Only the two of you see it. Hold any message to save it to your lists.`
+                    : `Only the people in ${chat.name} see what's written here. Hold any message to save it to your lists.`}
                 </Text>
               ) : null
             }
@@ -140,38 +143,53 @@ export default function Talk() {
               if (m.kind === "note")
                 return <Text style={[s.notice, { color: t.fg2, backgroundColor: t.fill }]}>{m.text}</Text>;
               const mine = m.kind === "person" && m.author_id === myId;
+              const saved = chat?.saved?.[m.id];
+              const savedNote = saved ? (
+                <Text style={[s.saved, { color: t.good }, mine && s.savedMine]}>Saved to {saved} ✓</Text>
+              ) : null;
+              // Hold any message to save it to your lists (only you see the proposal).
+              const hold = {
+                onLongPress: () => setSaving(m),
+                delayLongPress: 350,
+                accessibilityHint: "Hold to save it to your lists",
+                accessibilityActions: [{ name: "longpress" as const, label: "Save" }],
+                onAccessibilityAction: () => setSaving(m),
+              };
               if (mine)
                 return (
-                  <Animated.View
-                    entering={FadeInDown.duration(180)}
-                    style={[s.bubble, s.mine, { backgroundColor: mineBg }]}
-                  >
-                    <Text style={[s.text, { color: mineFg }]}>{m.text}</Text>
-                    <Text style={[s.meta, { color: mineFg }]}>{when(m.created_at)}</Text>
+                  <Animated.View entering={FadeInDown.duration(180)} style={s.mineWrap}>
+                    <Pressable {...hold} style={[s.bubble, s.mine, { backgroundColor: mineBg }]}>
+                      <Text style={[s.text, { color: mineFg }]}>{m.text}</Text>
+                      <Text style={[s.meta, { color: mineFg }]}>{when(m.created_at)}</Text>
+                    </Pressable>
+                    {savedNote}
                   </Animated.View>
                 );
               const c = colour(colourFor(m.author));
               return (
                 <Animated.View
                   entering={FadeInDown.duration(180)}
-                  style={[s.theirs, item.first && { marginTop: 6 }]}
+                  style={[s.themCol, item.first && { marginTop: 6 }]}
                 >
-                  {!chat?.direct ? (
-                    item.first ? (
-                      <Avatar name={m.author} size={28} />
-                    ) : (
-                      <View style={{ width: 28 }} />
-                    )
-                  ) : null}
-                  <View style={[s.bubble, s.them, { backgroundColor: t.cell }]}>
-                    {!chat?.direct && item.first ? (
-                      <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
-                        {m.author}
-                      </Text>
+                  <View style={s.theirs}>
+                    {!chat?.direct ? (
+                      item.first ? (
+                        <Avatar name={m.author} size={28} />
+                      ) : (
+                        <View style={{ width: 28 }} />
+                      )
                     ) : null}
-                    <Text style={[s.text, { color: t.fg }]}>{m.text}</Text>
-                    <Text style={[s.meta, { color: t.fg3 }]}>{when(m.created_at)}</Text>
+                    <Pressable {...hold} style={[s.bubble, s.them, { backgroundColor: t.cell }]}>
+                      {!chat?.direct && item.first ? (
+                        <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
+                          {m.author}
+                        </Text>
+                      ) : null}
+                      <Text style={[s.text, { color: t.fg }]}>{m.text}</Text>
+                      <Text style={[s.meta, { color: t.fg3 }]}>{when(m.created_at)}</Text>
+                    </Pressable>
                   </View>
+                  {saved ? <View style={!chat?.direct && s.savedIndent}>{savedNote}</View> : null}
                 </Animated.View>
               );
             }}
@@ -202,6 +220,15 @@ export default function Talk() {
           </View>
         </View>
       </KeyboardAvoidingView>
+      <SaveSheet
+        groupId={id ?? ""}
+        message={saving}
+        canAsk={chat?.can_ask ?? false}
+        onClose={() => {
+          setSaving(null);
+          void reload();
+        }}
+      />
     </View>
   );
 }
@@ -252,8 +279,13 @@ const s = StyleSheet.create({
   },
   theirs: { flexDirection: "row", alignItems: "flex-end", gap: 8, maxWidth: "86%" },
   bubble: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 18, gap: 2, maxWidth: "82%" },
-  mine: { alignSelf: "flex-end", borderBottomRightRadius: 6 },
+  mine: { alignSelf: "flex-end", borderBottomRightRadius: 6, maxWidth: "100%" },
   them: { flexShrink: 1, maxWidth: "100%", borderBottomLeftRadius: 6 },
+  mineWrap: { alignSelf: "flex-end", maxWidth: "82%", gap: 3 },
+  themCol: { gap: 3 },
+  savedIndent: { marginLeft: 36 },
+  saved: { fontSize: 12, fontWeight: "700", paddingHorizontal: 6 },
+  savedMine: { alignSelf: "flex-end" },
   author: { fontSize: 12, fontWeight: "800" },
   text: { fontSize: 16, lineHeight: 22 },
   meta: { fontSize: 11, opacity: 0.6, alignSelf: "flex-end" },

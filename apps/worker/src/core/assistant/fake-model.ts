@@ -46,6 +46,12 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // A capture about the PA: the model files it as a note (the Inbox turn makes it a card).
   if (lastUser.startsWith("Captured from ") && lastUser.includes("Test PA needs two DI boxes"))
     return call("add_record", { collection: "Notes", values: { Title: "Test PA needs two DI boxes" } });
+  // A chat message being saved (chats step 2): the model files it as a note (a card to tap).
+  if (
+    lastUser.startsWith("Save this chat message") &&
+    lastUser.includes("<message>Test PA needs two DI boxes")
+  )
+    return call("add_record", { collection: "Notes", values: { Title: "Test PA needs two DI boxes" } });
   // "Test: put the rehearsal in my calendar": a calendar card, when the calendar tool is offered.
   if (lastUser === "Test: put the rehearsal in my calendar")
     return has("calendar_add_event")

@@ -1,6 +1,13 @@
 // Group chats (chat-first step 7): in the app only (never API tokens or MCP).
 import { z } from "zod";
-import { AddGroupPeopleInput, CreateGroupInput, GroupRef, PostGroupMessageInput } from "@assistant/shared";
+import {
+  AddGroupPeopleInput,
+  CreateGroupInput,
+  GroupMessageRef,
+  GroupRef,
+  MarkSavedInput,
+  PostGroupMessageInput,
+} from "@assistant/shared";
 import { defineOperation, type AnyOperation } from "../operations.ts";
 import {
   addGroupPeople,
@@ -8,8 +15,10 @@ import {
   createGroup,
   groupView,
   leaveGroup,
+  markGroupMessageSaved,
   markGroupRead,
   myGroups,
+  saveGroupMessage,
   postGroupMessage,
 } from "./service.ts";
 
@@ -74,6 +83,27 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       http: { method: "POST", path: "/groups/:group_id/messages" },
       input: PostGroupMessageInput,
       handler: (ctx, i) => postGroupMessage(ctx, all(), i.group_id, i.text),
+    }),
+    defineOperation({
+      id: "core.save_group_message",
+      tool: "save_group_message",
+      description:
+        "Ask my assistant where a chat message should be saved; it proposes, nothing is saved yet.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/groups/:group_id/messages/:message_id/save" },
+      input: GroupMessageRef,
+      handler: (ctx, i) => saveGroupMessage(ctx, all(), i.group_id, i.message_id),
+    }),
+    defineOperation({
+      id: "core.mark_group_message_saved",
+      tool: "mark_group_message_saved",
+      description: "Remember that I saved a chat message, and where to.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/groups/:group_id/messages/:message_id/saved" },
+      input: MarkSavedInput,
+      handler: (ctx, i) => markGroupMessageSaved(ctx, i.group_id, i.message_id, i.label),
     }),
     defineOperation({
       id: "core.add_group_people",

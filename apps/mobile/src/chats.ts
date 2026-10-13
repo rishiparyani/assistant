@@ -8,6 +8,7 @@ import {
   type GroupMessage,
   type GroupSummary,
   type GroupView,
+  type SaveProposal,
 } from "@assistant/shared";
 import { isOffline, request } from "./api.ts";
 import { outboxState, send, subscribe, type Change, type FailedChange } from "./outbox.ts";
@@ -80,15 +81,29 @@ export function useChat(id: string) {
     }
   }, [id]);
   useEffect(() => void load(), [load]);
-  // Once a sent message has left the outbox, fetch so it shows as sent.
-  const waitingHere = pending.filter((p) => !p.failed).length;
+  // "Saved to …" marks still on their way show at once too.
+  const prefix = `/api/groups/${enc(id)}/messages/`;
+  const savingNow = box.waiting.flatMap((c) =>
+    c.path.startsWith(prefix) && c.path.endsWith("/saved")
+      ? [
+          [
+            decodeURIComponent(c.path.slice(prefix.length, -"/saved".length)),
+            String((c.body as { label?: string }).label ?? ""),
+          ] as const,
+        ]
+      : [],
+  );
+  const shown =
+    chat && savingNow.length ? { ...chat, saved: { ...chat.saved, ...Object.fromEntries(savingNow) } } : chat;
+  // Once a sent message (or a mark) has left the outbox, fetch so it shows as done.
+  const waitingHere = pending.filter((p) => !p.failed).length + savingNow.length;
   useEffect(() => {
     if (!waitingHere) void load();
   }, [waitingHere, load]);
   useLive((m) => {
     if ((m.type === "group_changed" && m.group_id === id) || m.type === "reconnected") void load();
   });
-  return { chat, pending, error, reload: load };
+  return { chat: shown, pending, error, reload: load };
 }
 
 /** Writes in a chat; works offline (sent when there's a connection). */
@@ -125,3 +140,36 @@ export async function startChat(input: { people: string[]; name?: string }): Pro
 }
 
 export type { GroupMessage, GroupSummary, GroupView, ChatPerson };
+
+// online-only: the assistant proposes where a message goes; that needs the server and the model.
+export const proposeSave = (groupId: string, messageId: string) =>
+  request<SaveProposal>("POST", `/api/groups/${enc(groupId)}/messages/${enc(messageId)}/save`, {});
+
+// online-only: a proposal is confirmed (or dropped) on the server, where it waits.
+export const answerProposal = (chatId: string, actionId: string, what: "confirm" | "cancel") =>
+  request("POST", `/api/chats/${enc(chatId)}/actions/${enc(actionId)}/${what}`, {});
+
+/** "Saved to Gigs ✓" under a message (only I see it); works offline. */
+export function markSaved(groupId: string, messageId: string, label: string) {
+  send({
+    kind: "chat_saved",
+    method: "POST",
+    path: `/api/groups/${enc(groupId)}/messages/${enc(messageId)}/saved`,
+    body: { label },
+    label: `Saved to ${label}`,
+  });
+}
+
+/** Without the assistant: the message goes to my Inbox as it is (works offline). */
+export function saveToInbox(text: string) {
+  send({
+    kind: "capture",
+    method: "POST",
+    path: "/api/inbox",
+    body: { text, source: "chat" },
+    label: text.length > 40 ? text.slice(0, 40) + "…" : text,
+  });
+}
+
+/** Where a proposal saves to, for the label: "Add to Gigs" → "Gigs". */
+export const savedLabel = (title: string) => title.replace(/^Add to\s+/i, "").trim() || "your lists";
