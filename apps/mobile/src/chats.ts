@@ -105,14 +105,21 @@ export function sendChatMessage(id: string, text: string) {
 // online-only: who I can chat with comes from the server (it checks who I know).
 export const chatPeople = () => request<ChatPerson[]>("GET", "/api/chat-people");
 
+// The chat being started: the same id and Idempotency-Key until it's made, so trying again
+// after a lost reply opens the one already made instead of making a second.
+let attempt: { what: string; id: string; key: string } | null = null;
+
 // online-only: starting a chat needs the server to check the people and make the chat once.
 export async function startChat(input: { people: string[]; name?: string }): Promise<GroupView> {
   const direct = input.people.length === 1 && !input.name;
-  const made = await request<GroupView>("POST", "/api/groups", {
-    id: ulid(),
-    people: input.people,
+  const body = {
+    people: [...input.people].sort(),
     ...(direct ? { direct: true } : { name: input.name ?? "" }),
-  });
+  };
+  const what = JSON.stringify(body);
+  if (attempt?.what !== what) attempt = { what, id: ulid(), key: ulid() };
+  const made = await request<GroupView>("POST", "/api/groups", { id: attempt.id, ...body }, attempt.key);
+  attempt = null;
   writeJson(ONE(made.id), made);
   return made;
 }

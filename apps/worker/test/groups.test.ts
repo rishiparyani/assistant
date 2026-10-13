@@ -150,5 +150,18 @@ describe("group chats", () => {
     expect((await api(owner)(`/groups/${first.id}/read`, { body: {} })).status).toBe(200);
     expect(await unread(owner)).toBe(0);
     expect((await api(outsider)(`/groups/${first.id}/read`, { body: {} })).status).toBe(404);
+
+    // In a group, what was said before someone (re)joined isn't unread for them; what comes after is.
+    const duo = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Duo", people: ["Test Dev"] } }),
+    );
+    const duoUnread = async () =>
+      (await json<GroupSummary[]>(await api(dev)("/groups"))).find((g) => g.id === duo.id)?.unread;
+    await api(owner)(`/groups/${duo.id}/messages`, { body: { text: "Test hello" } });
+    expect(await duoUnread()).toBe(1);
+    await api(dev)(`/groups/${duo.id}/leave`, { body: {} });
+    await api(owner)(`/groups/${duo.id}/messages`, { body: { text: "Test while you were out" } });
+    await api(owner)(`/groups/${duo.id}/people`, { body: { people: ["Test Dev"] } });
+    expect(await duoUnread()).toBe(0);
   });
 });

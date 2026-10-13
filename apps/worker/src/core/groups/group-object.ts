@@ -60,6 +60,9 @@ const MIGRATIONS: Migrations = [
   // with people").
   `alter table grp add column direct integer not null default 0;
    alter table members add column read_at text;`,
+  // Everything sent before unread counts existed counts as read, so nobody gets a pile of old
+  // messages marked new.
+  `update members set read_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') where read_at is null;`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -129,10 +132,12 @@ export class GroupObject extends DurableObject<Env> {
       );
       for (const m of [input.owner, ...input.members.filter((x) => x.user_id !== input.owner.user_id)])
         this.sql.exec(
-          `insert or ignore into members (user_id, name, role, added_at) values (?, ?, ?, ?)`,
+          // Read up to when they joined: what came before isn't news to them.
+          `insert or ignore into members (user_id, name, role, added_at, read_at) values (?, ?, ?, ?, ?)`,
           m.user_id,
           m.name,
           m.user_id === input.owner.user_id ? "owner" : "member",
+          ts,
           ts,
         );
       if (!input.direct) this.note("note", null, "Group", `${input.owner.name} made the group`, ts);
@@ -337,10 +342,11 @@ export class GroupObject extends DurableObject<Env> {
         throw new ObjectError("validation_failed", `A group can have up to ${MAX_MEMBERS} people`);
       for (const p of fresh) {
         this.sql.exec(
-          `insert into members (user_id, name, role, added_at) values (?, ?, 'member', ?)
-           on conflict (user_id) do update set left_at = null, name = excluded.name`,
+          `insert into members (user_id, name, role, added_at, read_at) values (?, ?, 'member', ?, ?)
+           on conflict (user_id) do update set left_at = null, name = excluded.name, read_at = excluded.read_at`,
           p.user_id,
           p.name,
+          ts,
           ts,
         );
       }
