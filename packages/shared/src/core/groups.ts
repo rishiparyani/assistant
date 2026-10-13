@@ -1,6 +1,6 @@
-// Group chats (chat-first step 7): people talk to each other; the assistant answers only
-// when someone with assistant access writes @assistant, from that person's allowance and with
-// that person's own data. One object per group holds its members and messages.
+// Chats with people (decision 2026-10-13 "Chats with people"): groups and chats for two. The
+// assistant is asked privately (only the asker sees it); an answer they share shows in the chat.
+// One object per chat holds its members and messages.
 import { z } from "zod";
 import type { ChatItem } from "./spaces.ts";
 
@@ -40,13 +40,19 @@ export const PostGroupMessageInput = GroupRef.extend({
   text: z.string().trim().min(1).max(2000),
 });
 export const AddGroupPeopleInput = GroupRef.extend({ people: people.min(1) });
+/** How a Save turn starts in my assistant chat (the app shows it as a short note instead). */
+export const SAVE_TURN_PREFIX = "Save this chat message to my lists.";
+
+/** Asking my own assistant about a chat (only I see it). */
+export const AskInGroupInput = GroupRef.extend({
+  text: z.string().trim().min(1).max(2000),
+  think_harder: z.boolean().optional(),
+});
+/** Sharing one of my assistant's answers into the chat. */
+export const ShareAnswerInput = GroupRef.extend({ item_id: z.string().trim().min(1).max(60) });
 export const GroupMessageRef = GroupRef.extend({ message_id: z.string().trim().min(1).max(40) });
 /** "Saved to Gigs ✓" under a message, for the person who saved it only. */
 export const MarkSavedInput = GroupMessageRef.extend({ label: z.string().trim().min(1).max(80) });
-
-/** How a group message is written to ask the assistant (a fixed word, like a command). */
-export const ASSISTANT_MENTION = "@assistant";
-export const mentionsAssistant = (text: string) => text.toLowerCase().includes(ASSISTANT_MENTION);
 
 export interface GroupMember {
   user_id: string;

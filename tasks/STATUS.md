@@ -4,6 +4,12 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF31: asking privately in a chat** (decision 2026-10-13 "Asking privately in a chat").
+  - **Server:** `GET/POST /api/groups/:id/assistant` (my own assistant chat about the group: members only, assistant required; POST asks), `POST /api/groups/:id/share` (`{item_id}`: one of my assistant's answers, posted once as "Assistant (shared by me)"). `postGroupMessage` no longer answers @assistant; `mentionsAssistant` is gone (the web group page's hint too). Save's turn starts with `SAVE_TURN_PREFIX` so the phone shows it as a note.
+  - **Phone:** the **Gs** button in a chat's message box opens `src/components/AskSheet.tsx` (dark panel, "only you see this", cards with Confirm / Not now, live cards, "Share to chat" under each answer); a shared answer shows in the chat with the Gs mark.
+  - **Verified here:** web build against the local Worker at 390: ask, answer in the panel only, Share, the answer in the chat. Tests: `groups.test.ts` (the @assistant test now checks the private ask and share).
+  - **Next:** push notifications (waiting on the owner's choice of relay), then Ask everyone, photos, the shared-cards strip.
+
 - **HF30: search in chats** (decision 2026-10-13 "Saving chat messages, and searching chats").
   - **Group object:** messages are put into pieces of conversation (up to 6 messages, none more than 30 minutes apart; `chunks`, `messages.chunk_id`, migration) by the alarm, which sends changed pieces, with embeddings, to every member's own search index (`group:<id>:<chunk>` documents under space id `group:<id>`). People added get the whole chat (`index_fill`); people who leave have it removed (`index_gone`). Retries after 30 s on failure; writes are replaces.
   - **Search:** `GET /api/search` also returns `{kind: "message", group_id, chat, message_id, snippet}`, after the chat itself confirms I'm still in it (named as I see it). `POST /api/search/rebuild` fills my chats too. Snippets show more text around the match (40 tokens).

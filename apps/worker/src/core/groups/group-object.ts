@@ -367,7 +367,7 @@ export class GroupObject extends DurableObject<Env> {
   ): Promise<GroupMessage> {
     const m = this.member(actor.userId);
     return this.write(actor, key, ["post", input], (ts) => {
-      const author = input.kind === "assistant" ? `Assistant (asked by ${m.name})` : m.name;
+      const author = input.kind === "assistant" ? `Assistant (shared by ${m.name})` : m.name;
       const id = this.note(input.kind, actor.userId, author, input.text.trim(), ts);
       audit(this.sql, actor, { action: "post_group_message", entityType: "group_message", entityId: id });
       return {

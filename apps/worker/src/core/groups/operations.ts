@@ -2,6 +2,8 @@
 import { z } from "zod";
 import {
   AddGroupPeopleInput,
+  AskInGroupInput,
+  ShareAnswerInput,
   CreateGroupInput,
   GetGroupInput,
   GroupMessageRef,
@@ -12,6 +14,9 @@ import {
 import { defineOperation, type AnyOperation } from "../operations.ts";
 import {
   addGroupPeople,
+  askInGroup,
+  groupAssistant,
+  shareAnswer,
   chatPeople,
   createGroup,
   groupView,
@@ -78,12 +83,42 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
     defineOperation({
       id: "core.post_group_message",
       tool: "post_group_message",
-      description: "Write in a group chat; @assistant asks the assistant (if it's on for me).",
+      description: "Write in a group chat.",
       kind: "write",
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/messages" },
       input: PostGroupMessageInput,
-      handler: (ctx, i) => postGroupMessage(ctx, all(), i.group_id, i.text),
+      handler: (ctx, i) => postGroupMessage(ctx, i.group_id, i.text),
+    }),
+    defineOperation({
+      id: "core.group_assistant",
+      tool: "group_assistant",
+      description: "My own assistant chat about a group chat (only I see it).",
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/groups/:group_id/assistant" },
+      input: GroupRef,
+      handler: (ctx, i) => groupAssistant(ctx, i.group_id),
+    }),
+    defineOperation({
+      id: "core.ask_in_group",
+      tool: "ask_in_group",
+      description: "Ask my own assistant about a group chat (only I see it).",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/groups/:group_id/assistant" },
+      input: AskInGroupInput,
+      handler: (ctx, i) => askInGroup(ctx, all(), i.group_id, i),
+    }),
+    defineOperation({
+      id: "core.share_answer",
+      tool: "share_answer",
+      description: "Share one of my assistant's answers into the group chat.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/groups/:group_id/share" },
+      input: ShareAnswerInput,
+      handler: (ctx, i) => shareAnswer(ctx, i.group_id, i.item_id),
     }),
     defineOperation({
       id: "core.save_group_message",
