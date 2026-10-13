@@ -4,6 +4,12 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF32: ask everyone in a chat** (decision 2026-10-14 "Ask everyone").
+  - **Server:** `POST /api/groups/:id/polls` (`{question, options?}`, Yes/No/Maybe by default, 2 to 6 different answers) posts a `poll` message; `POST /api/groups/:id/polls/:message_id/vote` (`{option}` or `null` to take it back): one answer each, changeable. Group object `polls`, `poll_votes` (migration); `GroupView.polls` (answers, who picked each, mine).
+  - **Phone:** the **+** by the message box opens `AskEveryoneSheet` (`src/components/Poll.tsx`); `PollCard` in the chat (a button per answer with its count, names underneath; tap again to take it back). Asking and answering go through the outbox; my answer shows at once.
+  - **Verified here:** web build against the local Worker at 390, light and dark: ask, two bandmates answer, my answer, counts and names. Tests: `groups.test.ts` (+1).
+  - **Next:** answers that fill a record (the lineup), photos, the shared-cards strip; push notifications wait on the owner's choice of relay.
+
 - **HF31: asking privately in a chat** (decision 2026-10-13 "Asking privately in a chat").
   - **Server:** `GET/POST /api/groups/:id/assistant` (my own assistant chat about the group: members only, assistant required; POST asks), `POST /api/groups/:id/share` (`{item_id}`: one of my assistant's answers, posted once as "Assistant (shared by me)"). `postGroupMessage` no longer answers @assistant; `mentionsAssistant` is gone (the web group page's hint too). Save's turn starts with `SAVE_TURN_PREFIX` so the phone shows it as a note.
   - **Phone:** the **Gs** button in a chat's message box opens `src/components/AskSheet.tsx` (dark panel, "only you see this", cards with Confirm / Not now, live cards, "Share to chat" under each answer); a shared answer shows in the chat with the Gs mark.

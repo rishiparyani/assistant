@@ -54,6 +54,22 @@ export const AskInGroupInput = GroupRef.extend({
   text: z.string().trim().min(1).max(2000),
   think_harder: z.boolean().optional(),
 });
+/** Asking everyone in a chat (decision 2026-10-14 "Ask everyone"): a question with a few answers. */
+export const CreatePollInput = GroupRef.extend({
+  question: z.string().trim().min(1).max(300),
+  options: z
+    .array(z.string().trim().min(1).max(40))
+    .min(2)
+    .max(6)
+    .default(["Yes", "No", "Maybe"])
+    .refine((o) => new Set(o.map((x) => x.toLowerCase())).size === o.length, "Answers must differ"),
+});
+/** My answer to a question in a chat (null takes it back). */
+export const VoteInput = GroupRef.extend({
+  message_id: z.string().trim().min(1).max(40),
+  option: z.string().trim().min(1).max(40).nullable(),
+});
+
 /** Sharing one of my assistant's answers into the chat. */
 export const ShareAnswerInput = GroupRef.extend({ item_id: z.string().trim().min(1).max(60) });
 export const GroupMessageRef = GroupRef.extend({ message_id: z.string().trim().min(1).max(40) });
@@ -68,7 +84,7 @@ export interface GroupMember {
 
 export interface GroupMessage {
   id: string;
-  kind: "person" | "assistant" | "note";
+  kind: "person" | "assistant" | "note" | "poll";
   author_id: string | null;
   /** The person who wrote it, or "Assistant (asked by Dev)". */
   author: string;
@@ -103,6 +119,8 @@ export interface GroupView {
   saved: Record<string, string>;
   /** Answers from the reader's own assistant they shared here (item ids), so each is shared once. */
   shared_answers: string[];
+  /** Questions asked of everyone (by message id): the answers, who picked what, and mine. */
+  polls: Record<string, PollView>;
 }
 
 /** What the assistant proposes for a message someone wants to save (nothing is saved yet). */
@@ -117,4 +135,13 @@ export interface SaveProposal {
 export interface ChatPerson {
   user_id: string;
   name: string;
+}
+
+export interface PollView {
+  question: string;
+  options: string[];
+  /** Who picked each answer, in the order of `options`. */
+  votes: { option: string; people: string[] }[];
+  /** My answer, if any. */
+  mine: string | null;
 }

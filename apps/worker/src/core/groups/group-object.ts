@@ -2,7 +2,13 @@
 // can read or write it; anything else is 404. A message leaves one outbox note; the alarm then
 // pings every member's live object (no data in the ping), so open apps fetch again.
 import { DurableObject } from "cloudflare:workers";
-import { ulid, type GroupMember, type GroupMessage, type GroupSummary } from "@assistant/shared";
+import {
+  ulid,
+  type GroupMember,
+  type GroupMessage,
+  type GroupSummary,
+  type PollView,
+} from "@assistant/shared";
 import {
   BASE_TABLES,
   audit,
@@ -92,6 +98,17 @@ const MIGRATIONS: Migrations = [
      item_id text not null,
      message_id text not null,
      primary key (user_id, item_id)
+   );`,
+  // Questions asked of everyone (decision 2026-10-14 "Ask everyone"): the answers to pick from,
+  // and each member's pick (one each, changeable).
+  `create table polls (message_id text primary key, options_json text not null);
+   create table poll_votes (
+     message_id text not null,
+     user_id text not null,
+     name text not null,
+     option text not null,
+     at text not null,
+     primary key (message_id, user_id)
    );`,
 ];
 
@@ -281,6 +298,7 @@ export class GroupObject extends DurableObject<Env> {
     messages: GroupMessage[];
     saved: Record<string, string>;
     shared_answers: string[];
+    polls: Record<string, PollView>;
   }> {
     this.member(userId);
     const g = this.group();
@@ -340,6 +358,9 @@ export class GroupObject extends DurableObject<Env> {
         .exec<{ item_id: string }>(`select item_id from shared_answers where user_id = ?`, userId)
         .toArray()
         .map((r) => r.item_id),
+      polls: Object.fromEntries(
+        messages.filter((m) => m.kind === "poll").map((m) => [m.id, this.poll(m.id, m.text, userId)]),
+      ),
     };
   }
 
@@ -481,6 +502,90 @@ export class GroupObject extends DurableObject<Env> {
     });
     this.changed();
     return { message_id: id, shared: true };
+  }
+
+  private poll(messageId: string, question: string, userId: string): PollView {
+    const row = this.sql
+      .exec<{ options_json: string }>(`select options_json from polls where message_id = ?`, messageId)
+      .toArray()[0];
+    const options = row ? (JSON.parse(row.options_json) as string[]) : [];
+    const votes = this.sql
+      .exec<{ user_id: string; name: string; option: string }>(
+        `select user_id, name, option from poll_votes where message_id = ? order by at`,
+        messageId,
+      )
+      .toArray();
+    return {
+      question,
+      options,
+      votes: options.map((o) => ({
+        option: o,
+        people: votes.filter((v) => v.option === o).map((v) => v.name),
+      })),
+      mine: votes.find((v) => v.user_id === userId)?.option ?? null,
+    };
+  }
+
+  /** A question for everyone here, with the answers to pick from. */
+  async createPoll(
+    actor: Actor & { userId: string },
+    key: string | null,
+    question: string,
+    options: string[],
+  ): Promise<{ message_id: string }> {
+    const m = this.member(actor.userId);
+    return this.write(actor, key, ["poll", question, options], (ts) => {
+      const id = this.note("poll", actor.userId, m.name, question.trim(), ts);
+      this.sql.exec(
+        `insert into polls (message_id, options_json) values (?, ?)`,
+        id,
+        JSON.stringify(options),
+      );
+      audit(this.sql, actor, {
+        action: "create_poll",
+        entityType: "group_message",
+        entityId: id,
+        after: { options },
+      });
+      return { message_id: id };
+    });
+  }
+
+  /** My answer to a question here (one each; picking again changes it, null takes it back). */
+  async vote(
+    actor: Actor & { userId: string },
+    key: string | null,
+    messageId: string,
+    option: string | null,
+  ): Promise<{ message_id: string; option: string | null }> {
+    const m = this.member(actor.userId);
+    const row = this.sql
+      .exec<{ options_json: string }>(`select options_json from polls where message_id = ?`, messageId)
+      .toArray()[0];
+    if (!row) throw new ObjectError("not_found", "Question not found");
+    if (option !== null && !(JSON.parse(row.options_json) as string[]).includes(option))
+      throw new ObjectError("validation_failed", "That isn't one of the answers");
+    return this.write(actor, key, ["vote", messageId, option], (ts) => {
+      if (option === null)
+        this.sql.exec(`delete from poll_votes where message_id = ? and user_id = ?`, messageId, actor.userId);
+      else
+        this.sql.exec(
+          `insert into poll_votes (message_id, user_id, name, option, at) values (?, ?, ?, ?, ?)
+           on conflict (message_id, user_id) do update set option = excluded.option, at = excluded.at, name = excluded.name`,
+          messageId,
+          actor.userId,
+          m.name,
+          option,
+          ts,
+        );
+      audit(this.sql, actor, {
+        action: "vote",
+        entityType: "group_message",
+        entityId: messageId,
+        after: { option },
+      });
+      return { message_id: messageId, option };
+    });
   }
 
   /** The owner adds people (they appear in the group at once). */
