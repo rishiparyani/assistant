@@ -638,3 +638,9 @@ The owner isn't an active developer: he sends a message about once a day and loo
 **Decision:** the everyday model (GLM 4.7 Flash) is called with its built-in thinking **off** (`thinking: false` in the models table, sent as `chat_template_kwargs.enable_thinking: false`); other models keep their defaults. To make up for it, the instructions name the next seven days with their dates, tool results show stored times in India time (`+05:30`, not UTC), and the instructions say to tick a matching reminder before adding anything and that a note is a record, not a memory. Every model call also carries `x-session-affinity` (one id per person and chat) and the clock line sits at the end of the instructions, so models that cache what they've read (Kimi on Workers AI) can reuse it; the call log counts cached tokens. Sending only some tools per request is **not** done for now: the app would be guessing which tools a message needs.
 
 **Why:** the scorecard: thinking off cut the middle reply from ~12–13 s to ~4–8 s with the same or a better score (17–19/20 vs 17–18/20); GLM showed no caching (0% reused), and with thinking off, reading the instructions is no longer the slow part (what's left is mostly waiting on the free servers, up to a minute at busy moments). Keeping every tool keeps the assistant flexible.
+
+**Addendum (2026-10-13, owner: "compare all the models"):**
+
+- **Candidates:** everyday-model candidates are added to the models table switched off (`ready: false`): DeepSeek V4 Flash, GLM 5.3 Flash and Qwen 3.8, all on Workers AI. The scorecard tries one with its `model` input.
+- **Which wins:** a candidate replaces today's model only if it scores at least as well on the harder 54-case run, ideally right 3/3 on repeats, and is faster or cheaper.
+- **Outside providers:** models outside Cloudflare (Claude Haiku 5.5, GPT, Gemini, via AI Gateway) need the owner's account with that provider. Each is a separate decision before it's wired in.

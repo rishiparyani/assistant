@@ -21,6 +21,8 @@ export interface ModelEntry {
   maxOutput: number;
   /** false: answer without thinking first (much faster; the scorecard says whether it's as right). */
   thinking?: boolean;
+  /** For models whose thinking can only be turned down, not off: the lowest level that works. */
+  effort?: "none" | "low" | "high" | "max";
   /** Wired up in code; entries still waiting stay in the table, switched off. */
   ready: boolean;
 }
@@ -38,6 +40,44 @@ export const MODELS: ModelEntry[] = [
     // It thinks before every answer unless told not to; everyday requests don't need it.
     thinking: false,
     ready: true,
+  },
+  // Candidates for the everyday level, tried through the scorecard (AI_EVERYDAY_MODEL picks one
+  // there); not used by the app until one wins and is made ready. Prices are the makers' own
+  // list prices as found 2026-10-13, to confirm against Workers AI's; neurons not known yet.
+  {
+    id: "@cf/deepseek-ai/deepseek-v4-flash-0731",
+    label: "DeepSeek V4 Flash",
+    level: 1,
+    route: "free",
+    provider: "workers-ai",
+    price: { input: 0.3, output: 1.2 },
+    maxOutput: 1_200,
+    thinking: false,
+    effort: "none",
+    ready: false,
+  },
+  {
+    id: "@cf/zai-org/glm-5.3-flash",
+    label: "GLM 5.3 Flash",
+    level: 1,
+    route: "free",
+    provider: "workers-ai",
+    price: { input: 0.15, output: 0.5 },
+    maxOutput: 1_200,
+    // Its thinking can't be turned off, only down.
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "@cf/qwen/qwen3.8-27b",
+    label: "Qwen 3.8 27B",
+    level: 1,
+    route: "free",
+    provider: "workers-ai",
+    price: { input: 0.15, output: 0.47 },
+    maxOutput: 1_200,
+    thinking: false,
+    ready: false,
   },
   {
     id: "@cf/moonshotai/kimi-k2.6",
@@ -76,6 +116,8 @@ export interface AiSettings {
   usdInr: number;
   /** Tests only: a scripted model instead of Workers AI. */
   fake: boolean;
+  /** The scorecard only: try this model (an id from MODELS) for everyday requests. */
+  everydayModel?: string | null;
 }
 
 /** Paise for a call of this size (rounded up). */
@@ -94,5 +136,8 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 
 /** Models a level may use now, in order. */
 export function modelsFor(level: Level, s: AiSettings): ModelEntry[] {
+  const tried = level === 1 && s.everydayModel ? MODELS.find((m) => m.id === s.everydayModel) : null;
+  // With AI credit the candidate is billed to it (repeats would use up the free allowance).
+  if (tried) return [s.paidGateway ? { ...tried, route: "paid" } : tried];
   return MODELS.filter((m) => m.level === level && m.ready && (m.route === "free" || !!s.paidGateway));
 }

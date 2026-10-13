@@ -1,7 +1,8 @@
 # The model scorecard (apps/worker/scorecard): real requests through the whole app on fake
 # data, with only the AI calls going to Workers AI on the owner's account. Started by hand
 # (or by an agent through the API); prints the scorecard table, which an agent copies into
-# docs/scorecard/. The free model uses the daily allowance (about 1,000 neurons a run);
+# docs/scorecard/. The free model uses the daily allowance (about 2,000 neurons for the core
+# 23, ~5,000 for all 54, shared with the real app);
 # setups run only when a paid gateway is named, and then spend prepaid credit within the cap.
 name: Scorecard
 
@@ -16,6 +17,20 @@ on:
         description: "Comma-separated case ids to run (empty: all)"
         required: false
         default: ""
+      suite:
+        description: "Which cases: core (the first 23), hard (the harder 31) or all"
+        required: false
+        default: "all"
+        type: choice
+        options: [all, core, hard]
+      repeat:
+        description: "Runs of each case (1-5), to see how steady a model is"
+        required: false
+        default: "1"
+      model:
+        description: "Everyday model to try instead of the current one (an id from core/assistant/models.ts; empty: current)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -27,7 +42,7 @@ concurrency:
 jobs:
   scorecard:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,6 +61,9 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           AI_PAID_GATEWAY: ${{ inputs.paid_gateway }}
           SCORECARD_ONLY: ${{ inputs.only }}
+          SCORECARD_SUITE: ${{ inputs.suite }}
+          SCORECARD_REPEAT: ${{ inputs.repeat }}
+          AI_EVERYDAY_MODEL: ${{ inputs.model }}
         # Only the table and per-case lines are printed (fake data); the token stays in env.
         run: |
           set -o pipefail
