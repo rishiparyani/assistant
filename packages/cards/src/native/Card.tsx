@@ -38,31 +38,18 @@ export function Card({
   // Half-height sizes: one line of title and one figure, nothing else (no empty space).
   if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} />;
 
-  // A band across the top in a wash of the list's colour, so the title reads as the card's
-  // name and not as one more row (owner's pick, 2026-10-13).
+  // A plain bold title on the white card, and what's going on as a tag in the list's colour
+  // (decision 2026-10-13 "A warmer home", from the mock-up the owner chose).
+  const tag = field
+    ? `${card.records.filter((r) => r.values[field] !== true).length} left`
+    : answerTag(card.answer, size, card.spec.arrangement === "bars");
   const header = (
-    <View
-      style={[
-        s.head,
-        s.band,
-        { backgroundColor: tint(c, dark ? 0.16 : 0.09), borderBottomColor: tint(c, dark ? 0.3 : 0.2) },
-      ]}
-    >
-      {/* The list's colour as a small tile with its first letter, like an app icon. */}
-      <View style={[s.badge, { backgroundColor: c }]}>
-        <Text style={[s.badgeText, { color: t.onAccent }]}>{initial(card.spec.title)}</Text>
-      </View>
+    <View style={s.head}>
       <Text style={[s.title, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 1}>
         {card.spec.title}
       </Text>
-      {field ? (
-        <Text style={[s.tag, { color: t.fg2, backgroundColor: t.fill }]}>
-          {card.records.filter((r) => r.values[field] !== true).length} left
-        </Text>
-      ) : answerTag(card.answer, size, card.spec.arrangement === "bars") ? (
-        <Text style={[s.tag, { color: t.fg2, backgroundColor: t.fill }]}>
-          {answerTag(card.answer, size, card.spec.arrangement === "bars")}
-        </Text>
+      {tag ? (
+        <Text style={[s.tag, { color: c, backgroundColor: tint(c, dark ? 0.2 : 0.12) }]}>{tag}</Text>
       ) : null}
     </View>
   );
@@ -518,12 +505,6 @@ function istDay(v: unknown): string {
   return Number.isNaN(t) ? "" : new Date(t + 330 * 60_000).toISOString().slice(0, 10);
 }
 
-/** The first letter or digit of a title, for its badge ("Coming up" → "C"). */
-function initial(title: string): string {
-  const m = /[\p{L}\p{N}]/u.exec(title);
-  return m ? m[0].toUpperCase() : "•";
-}
-
 /** "just now", "2 h ago", "3 days ago". */
 function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
@@ -566,22 +547,12 @@ const s = StyleSheet.create({
     gap: 8,
     borderWidth: StyleSheet.hairlineWidth,
     shadowOpacity: 1,
-    shadowRadius: 20,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
     elevation: 3,
     overflow: "hidden",
   },
   head: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
-  // Full width across the card's top (the card's padding is 14).
-  band: {
-    marginTop: -14,
-    marginHorizontal: -14,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  badge: { width: 24, height: 24, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  badgeText: { fontSize: 12.5, fontWeight: "800" },
   eyebrow: {
     fontSize: 10.5,
     fontWeight: "800",
@@ -590,14 +561,14 @@ const s = StyleSheet.create({
     flexShrink: 1,
   },
   dot: { width: 9, height: 9, borderRadius: 3 },
-  title: { fontSize: 16.5, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
+  title: { fontSize: 17, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
   tag: {
     marginLeft: "auto",
-    fontSize: 10.5,
-    fontWeight: "700",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 10,
+    fontSize: 12,
+    fontWeight: "800",
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 11,
     overflow: "hidden",
   },
   grow: { flex: 1, justifyContent: "flex-end" },

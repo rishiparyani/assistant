@@ -733,3 +733,19 @@ A structured question keeps the model doing what it does well (naming things) an
 - Questions across spaces.
 - Questions for people with a share only (today it needs a role in the space).
 - Keeping a pinned question by field ids, so it survives renames.
+
+## 2026-10-13: A warmer home (owner, on the mock-up: "Yes this is way better")
+
+**Decision:** the phone app's home takes the look of the approved mock-up.
+
+- A warm off-white page with white cards and softer shadows.
+- Plain bold card titles with a tag in the list's colour. This replaces the tinted band and letter badge.
+- A greeting with today's date on Now.
+- A "Next up" hero card: the soonest dated record across the home's cards, within two weeks and not ticked. It shows a countdown, a date tile, the details and amounts, and the row's button (directions, call, open).
+- A dark chat bar with a send button, and round Help and Search buttons.
+
+The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `good`, `warn`. The iPhone's own font stays: no font package.
+
+**Why:** the owner found the mock-up "way better". One big card for what's next makes the home useful at a glance.
+
+**Next:** the chat answer card from the mock-up (a big total, a coloured category bar, a list), then the grouped gigs agenda (month headers, filter chips).

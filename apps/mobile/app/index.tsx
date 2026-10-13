@@ -17,9 +17,9 @@ import {
 } from "react-native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { CardSize } from "@assistant/cards";
+import { nextUp, type CardSize } from "@assistant/cards";
 import type { StoredValue } from "@assistant/shared";
-import { Card, CardGrid } from "@assistant/cards/native";
+import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { SearchSheet } from "@/components/SearchSheet";
 import { HelpSheet } from "@/components/HelpSheet";
@@ -48,7 +48,6 @@ import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
-const logoLight = require("../assets/logo-light.png");
 const logoDark = require("../assets/logo-dark.png");
 const SIDE = 16;
 /** From this width the home is one dashboard (four columns) instead of swipeable pages. */
@@ -57,7 +56,7 @@ const DASH_MAX = 1180;
 
 export default function Home() {
   const { me, loaded, refresh } = useSession();
-  const { t, dark } = useTheme();
+  const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -237,17 +236,28 @@ export default function Home() {
       tintColor={t.fg2}
     />
   );
+  // The soonest thing coming up across every card (decision 2026-10-13 "A warmer home").
+  const next = nextUp((pages ?? []).flatMap((p) => p.cards));
   const renderPage = (item: HomePage, index: number) => (
-    <View key={item.name} style={{ gap: 10 }}>
-      <View style={s.pageHead}>
-        <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
-        <View style={s.meta}>
-          {item.auto ? <View style={[s.pulse, { backgroundColor: t.accent }]} /> : null}
-          <Text style={[s.metaText, { color: t.fg2 }]}>
-            {item.auto ? "arranged for you" : "hold a card to arrange"}
-          </Text>
+    <View key={item.name} style={{ gap: 12 }}>
+      {item.auto ? (
+        // Now: today's date and a greeting, then what's next, big.
+        <View style={s.greet}>
+          <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords()}</Text>
+          <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name)}</Text>
         </View>
-      </View>
+      ) : (
+        <View style={s.pageHead}>
+          <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
+          <Text style={[s.metaText, { color: t.fg2 }]}>hold a card to arrange</Text>
+        </View>
+      )}
+      {item.auto && next ? (
+        // On a laptop it keeps a phone card's width, so its buttons stay buttons.
+        <View style={wide ? s.heroWide : undefined}>
+          <HeroCard next={next} onOpen={() => ask(next.card)} />
+        </View>
+      ) : null}
       {item.cards.length ? (
         <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
           <CardGrid
@@ -362,7 +372,10 @@ export default function Home() {
         />
       )}
 
-      <View style={[s.bottom, { paddingBottom: insets.bottom + 10 }]} pointerEvents="box-none">
+      <View
+        style={[s.bottom, { paddingBottom: insets.bottom + 10, backgroundColor: t.page }]}
+        pointerEvents="box-none"
+      >
         {failed[0] ? (
           <Pressable
             accessibilityRole="button"
@@ -392,10 +405,10 @@ export default function Home() {
             onPress={() => setHelp(true)}
             style={({ pressed }) => [
               s.searchBtn,
-              { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
+              { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
             ]}
           >
-            <Text style={{ color: t.fg2, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
+            <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
           </Pressable>
           {assistant ? (
             <Pressable
@@ -405,10 +418,10 @@ export default function Home() {
               onPress={() => setSearch(true)}
               style={({ pressed }) => [
                 s.searchBtn,
-                { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
+                { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
               ]}
             >
-              <Text style={{ color: t.fg2, fontSize: 18, lineHeight: 20 }}>⌕</Text>
+              <Text style={{ color: t.fg, fontSize: 20, fontWeight: "700", lineHeight: 22 }}>⌕</Text>
             </Pressable>
           ) : null}
           <Pressable
@@ -418,17 +431,16 @@ export default function Home() {
             onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
             style={({ pressed }) => [
               s.bar,
-              { backgroundColor: t.glass, borderColor: t.hair, opacity: pressed ? 0.85 : 1 },
+              { backgroundColor: t.ink, shadowColor: t.shadow, opacity: pressed ? 0.9 : 1 },
             ]}
           >
-            <Image
-              source={dark ? logoDark : logoLight}
-              style={{ width: 28, height: 28 }}
-              accessibilityIgnoresInvertColors
-            />
-            <Text style={[s.barText, { color: t.fg2 }]}>
+            <Image source={logoDark} style={{ width: 26, height: 26 }} accessibilityIgnoresInvertColors />
+            <Text style={[s.barText, { color: t.onInk }]} numberOfLines={1}>
               {assistant ? "Ask, add or arrange…" : "Search your cards"}
             </Text>
+            <View style={[s.send, { backgroundColor: t.accent }]}>
+              <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
+            </View>
           </Pressable>
         </View>
       </View>
@@ -514,10 +526,11 @@ const s = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 4,
   },
-  h2: { fontSize: 26, fontWeight: "800", letterSpacing: -1 },
-  meta: { flexDirection: "row", alignItems: "center", gap: 5 },
+  h2: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },
+  greet: { gap: 2, paddingHorizontal: 4 },
+  heroWide: { maxWidth: 560 },
+  eyebrow: { fontSize: 13, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },
   metaText: { fontSize: 12, fontWeight: "600" },
-  pulse: { width: 8, height: 8, borderRadius: 4 },
   empty: {
     borderRadius: radius.card,
     padding: 24,
@@ -532,6 +545,7 @@ const s = StyleSheet.create({
     bottom: 0,
     alignItems: "center",
     gap: 8,
+    paddingTop: 8,
     paddingHorizontal: 21,
   },
   /** On a laptop the bar keeps a phone's width, centred under the dashboard. */
@@ -539,25 +553,33 @@ const s = StyleSheet.create({
   dots: { flexDirection: "row", gap: 6, alignItems: "center" },
   dotI: { height: 7, borderRadius: 4 },
   searchBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: StyleSheet.hairlineWidth,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: "center",
     justifyContent: "center",
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   barRow: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 8 },
   bar: {
     flex: 1,
-    height: 48,
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
+    height: 52,
+    borderRadius: 26,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingHorizontal: 16,
+    paddingLeft: 14,
+    paddingRight: 9,
+    shadowOpacity: 1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
-  barText: { fontSize: 15, fontWeight: "600" },
+  barText: { flex: 1, fontSize: 15, fontWeight: "600", opacity: 0.75 },
+  send: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   failed: {
     alignSelf: "stretch",
     flexDirection: "row",
@@ -569,3 +591,19 @@ const s = StyleSheet.create({
   },
   failedText: { flex: 1, fontSize: 13 },
 });
+
+/** "TUE 13 OCT", India time. */
+function todayWords(now = new Date()): string {
+  const d = new Date(now.getTime() + 330 * 60_000);
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${DAYS[d.getUTCDay()]} ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+/** "Good morning, Rishi" by the India-time hour; the first name only. */
+function greeting(name: string | undefined, now = new Date()): string {
+  const h = new Date(now.getTime() + 330 * 60_000).getUTCHours();
+  const part = h < 5 ? "Hello" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const first = name?.trim().split(/\s+/)[0];
+  return first ? `${part}, ${first}` : part;
+}

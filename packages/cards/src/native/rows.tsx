@@ -76,8 +76,8 @@ export function tint(hex: string, alpha: number): string {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 
-const ACTION_WORDS = { directions: "Directions", call: "Call", open: "Open" } as const;
-function act(as: keyof typeof ACTION_WORDS, value: string) {
+export const ACTION_WORDS = { directions: "Directions", call: "Call", open: "Open" } as const;
+export function act(as: keyof typeof ACTION_WORDS, value: string) {
   const url =
     as === "directions"
       ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`
