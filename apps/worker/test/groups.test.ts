@@ -76,40 +76,46 @@ describe("group chats", () => {
     expect((await api(dev)(`/groups/${g.id}`)).status).toBe(404);
   });
 
-  it("answers @assistant for people who have it, and refuses others", async () => {
-    const { owner, dev } = await setUp();
+  it("asks my assistant privately, and shares an answer only when I choose", async () => {
+    const { owner, dev, outsider } = await setUp();
     const g = await json<GroupView>(
       await api(owner)("/groups", { body: { id: ulid(), name: "Test Band", people: ["Test Dev"] } }),
     );
-    // Dev has no assistant: the message isn't sent, and says why.
-    const no = await api(dev)(`/groups/${g.id}/messages`, { body: { text: "@assistant what's on?" } });
-    expect(no.status).toBe(403);
-    const view = await json<GroupView>(await api(dev)(`/groups/${g.id}`));
-    expect(view.can_ask).toBe(false);
-    expect(view.messages.some((m) => m.text.includes("what's on"))).toBe(false);
-    // The owner asks: the answer is posted for everyone, from the owner's assistant.
-    const asked = await json<GroupView>(
+    // @assistant in the chat is just words now: nothing answers in the group.
+    const plain = await json<GroupView>(
       await api(owner)(`/groups/${g.id}/messages`, { body: { text: "@assistant what's on?" } }),
     );
-    expect(asked.can_ask).toBe(true);
-    const last = asked.messages.at(-1)!;
-    expect(last.kind).toBe("assistant");
-    expect(last.author).toBe("Assistant (asked by Test Owner)");
-    expect(last.text.length).toBeGreaterThan(0);
-    // A repeat of the same send posts nothing twice.
-    const again = await json<GroupView>(
-      await api(owner)(`/groups/${g.id}/messages`, {
-        body: { text: "@assistant again" },
-        idempotencyKey: "k-group",
-      }),
+    expect(plain.messages.filter((m) => m.kind === "assistant")).toEqual([]);
+    // The owner asks privately: the answer is in the owner's own chat, not the group.
+    const chat = await json<ChatView>(
+      await api(owner)(`/groups/${g.id}/assistant`, { body: { text: "What's on this week?" } }),
     );
-    const twice = await json<GroupView>(
-      await api(owner)(`/groups/${g.id}/messages`, {
-        body: { text: "@assistant again" },
-        idempotencyKey: "k-group",
-      }),
+    const answer = chat.items.filter((i) => i.role === "assistant").at(-1)!;
+    expect(answer.text.length).toBeGreaterThan(0);
+    expect(
+      (await json<GroupView>(await api(dev)(`/groups/${g.id}`))).messages.some((m) => m.kind === "assistant"),
+    ).toBe(false);
+    expect((await json<ChatView>(await api(owner)(`/groups/${g.id}/assistant`))).items.length).toBe(
+      chat.items.length,
     );
-    expect(twice.messages.length).toBe(again.messages.length);
+    // Sharing posts it for everyone, once, as the owner's.
+    for (let n = 0; n < 2; n++)
+      expect((await api(owner)(`/groups/${g.id}/share`, { body: { item_id: answer.id } })).status).toBe(200);
+    const shared = (await json<GroupView>(await api(dev)(`/groups/${g.id}`))).messages.filter(
+      (m) => m.kind === "assistant",
+    );
+    expect(shared.map((m) => [m.author, m.text])).toEqual([
+      ["Assistant (shared by Test Owner)", answer.text],
+    ]);
+    // Remembered for good (not just a day), and shown to me as shared.
+    expect((await json<GroupView>(await api(owner)(`/groups/${g.id}`))).shared_answers).toEqual([answer.id]);
+    // A group id is a ULID, so it can never be the id of my own first chat ("main").
+    expect((await api(owner)("/groups", { body: { id: "main", name: "Test Main" } })).status).toBe(400);
+    // Only a real answer from my own chat can be shared; Dev (no assistant) can't ask; outsiders get 404.
+    expect((await api(owner)(`/groups/${g.id}/share`, { body: { item_id: "nope" } })).status).toBe(404);
+    expect((await api(dev)(`/groups/${g.id}/assistant`, { body: { text: "Hi" } })).status).toBe(403);
+    expect((await api(outsider)(`/groups/${g.id}/assistant`)).status).toBe(404);
+    expect((await api(outsider)(`/groups/${g.id}/share`, { body: { item_id: answer.id } })).status).toBe(404);
   });
 
   it("keeps one chat per pair, from either side, and counts what's unread", async () => {

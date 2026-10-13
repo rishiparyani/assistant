@@ -19,6 +19,7 @@ import { Text, TextInput } from "@assistant/cards/native";
 import { sendChatMessage, useChat, type GroupMessage, type Pending } from "@/chats";
 import { dropFailed } from "@/outbox";
 import { SaveSheet } from "@/components/SaveSheet";
+import { AskSheet } from "@/components/AskSheet";
 import { useSession } from "@/session";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
@@ -43,6 +44,8 @@ export default function Talk() {
   const [text, setText] = useState("");
   // The message being saved (the Save sheet is open for it).
   const [saving, setSaving] = useState<GroupMessage | null>(null);
+  // The private assistant panel is open.
+  const [asking, setAsking] = useState(false);
   const list = useRef<FlatList<Item>>(null);
 
   // Newest at the bottom: the list is drawn upside down, so it opens at the latest message.
@@ -202,9 +205,15 @@ export default function Talk() {
                   style={[s.themCol, item.first && { marginTop: 6 }]}
                 >
                   <View style={s.theirs}>
-                    {!chat?.direct ? (
+                    {!chat?.direct || m.kind === "assistant" ? (
                       item.first ? (
-                        <Avatar name={m.author} size={28} />
+                        m.kind === "assistant" ? (
+                          <View style={[s.gsAvatar, { backgroundColor: t.hero }]}>
+                            <Text style={[s.gsAvatarText, { color: t.onHero }]}>Gs</Text>
+                          </View>
+                        ) : (
+                          <Avatar name={m.author} size={28} />
+                        )
                       ) : (
                         <View style={{ width: 28 }} />
                       )
@@ -213,7 +222,7 @@ export default function Talk() {
                       {...hold}
                       style={[s.bubble, s.them, { backgroundColor: t.cell }, m.id === marked && ring]}
                     >
-                      {!chat?.direct && item.first ? (
+                      {(!chat?.direct || m.kind === "assistant") && item.first ? (
                         <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
                           {m.author}
                         </Text>
@@ -248,6 +257,18 @@ export default function Talk() {
                 accessibilityLabel="Message"
                 style={[s.input, { color: t.fg }]}
               />
+              {chat?.can_ask ? (
+                // Ask my own assistant (only I see it), as in the mock-up.
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ask your assistant privately"
+                  onPress={() => setAsking(true)}
+                  hitSlop={6}
+                  style={[s.gs, { backgroundColor: t.accentSoft }]}
+                >
+                  <Text style={[s.gsText, { color: t.accent }]}>Gs</Text>
+                </Pressable>
+              ) : null}
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Send"
@@ -262,6 +283,14 @@ export default function Talk() {
           </View>
         </View>
       </KeyboardAvoidingView>
+      <AskSheet
+        groupId={id ?? ""}
+        chatName={chat?.name ?? ""}
+        open={asking}
+        onClose={() => setAsking(false)}
+        onShared={() => void reload()}
+        sharedAnswers={chat?.shared_answers ?? []}
+      />
       <SaveSheet
         groupId={id ?? ""}
         message={saving}
@@ -352,5 +381,9 @@ const s = StyleSheet.create({
     paddingVertical: 7,
   },
   input: { flex: 1, fontSize: 16, maxHeight: 120, paddingTop: 6, paddingBottom: 6 },
+  gsAvatar: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
+  gsAvatarText: { fontSize: 11, fontWeight: "800", fontStyle: "italic" },
+  gs: { height: 36, paddingHorizontal: 10, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  gsText: { fontSize: 14, fontWeight: "800", fontStyle: "italic" },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
 });

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { mentionsAssistant, type GroupView } from "@assistant/shared";
+  import type { GroupView } from "@assistant/shared";
   import ArrowUp from "@lucide/svelte/icons/arrow-up";
   import type { Person } from "@assistant/shared";
   import { Button, EmptyState, PageHeader, Sheet, Skeleton, Spinner, toast, confirm } from "../ui/index.ts";
@@ -10,8 +10,8 @@
   import { session } from "../session.svelte.ts";
   import { groupKey, groupsApi } from "./groups-api.ts";
 
-  // A group chat (chat-first step 7): people talk; @assistant asks the assistant, for people
-  // who have it (it answers from their data and allowance, for everyone in the group to read).
+  // A group chat (chat-first step 7): people talk. The assistant is asked privately, in the phone
+  // app (decision 2026-10-13 "Chats with people"); answers someone shares show here.
   let { id }: { id: string } = $props();
   const group = createQuery<GroupView>(
     () => groupKey(id),
@@ -20,13 +20,11 @@
 
   let text = $state("");
   let sending = $state<string | null>(null);
-  const asks = $derived(mentionsAssistant(text));
-  const blocked = $derived(asks && group.data?.can_ask === false);
 
-  // online-only: messages are delivered by the server (and @assistant answers there).
+  // online-only: messages are delivered by the server.
   async function send() {
     const t = text.trim();
-    if (!t || sending || blocked) return;
+    if (!t || sending) return;
     if (!connection.online) {
       toast.error("Sending needs a connection.");
       return;
@@ -140,14 +138,6 @@
     </ol>
   </div>
   <div class="dock">
-    {#if blocked}
-      <p class="off">
-        The assistant isn't on for you, so it can't answer here. Ask the group's owner to switch it on, or
-        send without @assistant.
-      </p>
-    {:else if asks}
-      <p class="hint">The assistant will answer from your own lists, for everyone here to read.</p>
-    {/if}
     <form
       class="box"
       onsubmit={(e) => {
@@ -160,11 +150,9 @@
         onkeydown={onKey}
         rows="1"
         maxlength="2000"
-        placeholder={connection.online
-          ? "Message the group (@assistant to ask)"
-          : "Offline: sending needs a connection"}
+        placeholder={connection.online ? "Message the group" : "Offline: sending needs a connection"}
         aria-label="Message the group"></textarea>
-      <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending || blocked}>
+      <button type="submit" class="send" aria-label="Send" disabled={!text.trim() || !!sending}>
         <ArrowUp size={20} />
       </button>
     </form>
@@ -314,14 +302,6 @@
       left: var(--sidebar-w);
     }
   }
-  .off,
-  .hint {
-    max-width: var(--content-max);
-    margin: 0 auto var(--space-2);
-    padding: 0 var(--space-2);
-    font-size: var(--text-sm);
-    color: var(--text-2);
-  }
   .box {
     display: flex;
     align-items: flex-end;
@@ -371,5 +351,12 @@
   .send:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+  .hint {
+    max-width: var(--content-max);
+    margin: 0 auto var(--space-2);
+    padding: 0 var(--space-2);
+    font-size: var(--text-sm);
+    color: var(--text-2);
   }
 </style>

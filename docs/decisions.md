@@ -785,3 +785,9 @@ The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `
 - **"Saved to Gigs ✓"** under a message is a per-person mark in the group object (`saves` table), shown only to the person who saved it; it goes through the outbox, so it shows at once.
 - **Searching chats** (a later step): chats stay on the server (they need to, for search, links to records and the assistant). Each message a person can see goes into **their own search index**, the same one that holds their records: words (FTS5) plus meaning (embeddings from Workers AI's free text model), merged as today. A few messages in a row are embedded together as one piece of conversation (context, and less to store). Leaving a group takes its messages out. Embeddings only turn text into numbers (no decisions, no actions, tiny cost), so this is not "the AI reading every message"; a chat model still only runs when someone taps Save or asks.
 - **Live updates on the phone** now cover the home and the full list too (they load again on a change, unless the person's own changes are still on their way). Push notifications for new messages are the next step.
+
+## 2026-10-13: Asking privately in a chat (chats step 3)
+
+- In a chat, the **Gs** button opens **my own assistant** about that chat, in a panel only I see (the same assistant chat Save uses, id = the chat's id). It never reads the chat's messages; it answers from my lists, my allowance and my access, as many messages as I like.
+- **Share to chat** posts one of its answers into the chat as "Assistant (shared by me)", once per answer (the server takes only a real answer from my own chat, never text the app sends). Cards and live cards stay in my panel for now; sharing live cards comes with the shared-cards strip.
+- Writing **@assistant** in a chat no longer does anything special (the 2026-10-10 public answers are retired); the old website's group page no longer suggests it.
