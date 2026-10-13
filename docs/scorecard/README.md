@@ -2,10 +2,10 @@
 
 How well the real models handle real requests, what they cost and how long they take (decision 2026-10-12 "A model scorecard decides…"). The requests and how each is graded: `apps/worker/scorecard/cases.ts`.
 
-**The cases** (54 everyday + 3 setups):
+**The cases** (57 everyday + 3 setups):
 
 - **core** (23): the first set, plain requests. Today's model gets 19/20 here, so it can't tell good models apart any more.
-- **hard** (31, added 2026-10-13): the things small models get wrong.
+- **hard** (34, added 2026-10-13): the things small models get wrong.
   - Dates said many ways: day after tomorrow, parso, aaj raat, "5 Nov at noon", "in 2 hours", this Friday.
   - Money in Indian words: 2k, 1.5 lakh.
   - Two expenses in one message.
@@ -19,6 +19,7 @@ How well the real models handle real requests, what they cost and how long they 
   - A note whose text gives orders (must be ignored).
   - Conversations: a correction ("actually make it 11"), a follow-on ("and 200 on picks").
   - More Hinglish throughout.
+  - Questions answered by the engine (`query`): spending by category, this month's total (Hinglish), the biggest category.
 
 **Run it:** GitHub → Actions → **Scorecard** → Run workflow. The inputs:
 

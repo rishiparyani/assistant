@@ -96,6 +96,10 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       );
     case "Test: show my notes":
       return call("find_records", { collection: "Notes", search: "Test" });
+    case "Test: notes by month":
+      return call("query", { from: "Notes", group_by: ["Created:month"], measures: [{ fn: "count" }] });
+    case "Test: how many notes":
+      return call("query", { from: "Notes", measures: [{ fn: "count", as: "Notes" }], title: "Test notes" });
     case "Test: bad tool":
       return call("add_record", { collection: "Nope", values: {} });
     default:

@@ -706,3 +706,30 @@ The owner isn't an active developer: he sends a message about once a day and loo
 - These were the three gaps between "rules and simple flows" and the processes the owner described (a weekly spending note, chasing every unpaid invoice, a different path for big amounts).
 - Keeping them as generic blocks keeps workflow logic in people's setups (rule 15).
 - Per-space alarms keep the "partition by entity" rule: nothing runs from one shared place, and a quiet space costs nothing.
+
+## 2026-10-13: Questions, not SQL (owner: "Okay build it and complete it")
+
+**Decision:** the assistant asks questions about the data with a structured question, not SQL: `{from, where, group_by, measures, sort, limit}` by names.
+
+- **What it can ask:**
+  - Filters are the same ones `find_records` uses.
+  - `group_by` takes a field, a date by day, week, month or year (`Date:month`), or one link away (`Client.Name`, or `Payouts.Amount` for a list that links here).
+  - Measures are count, sum, avg, min, max and count_distinct. Each column can have its own filter (this year next to last year). A `calc` column does arithmetic on earlier columns (`{Earned} - {Paid out}`) in the formula language.
+- **How it runs:** the space's engine checks every name, as the person asking, and errors list the real names so the model can retry. It reads the rows through the same find as everything else and works the arithmetic out exactly (money in paise).
+- **Limits:** at most 20,000 records are read (more fails with "narrow the question"), and at most 200 rows come back.
+- **What people see:** the answer is a live card in the chat. On the phone, "Pin to home" keeps it as a saved view whose card (`table` or `bars`) asks the same question each time it shows. The question is kept by names and checked when saved.
+
+**Why not SQL, even restricted:**
+
+- The storage is generic (records, values, links), so SQL over it is hard for a small model to get right.
+- Access rules (shares, personal answers) would have to be rewritten into every query.
+- A safe SQL subset needs a parser and a blocklist, which is easy to get wrong.
+- Money and time zones would leak into the model's hands.
+
+A structured question keeps the model doing what it does well (naming things) and the engine doing the sums.
+
+**Later:**
+
+- Questions across spaces.
+- Questions for people with a share only (today it needs a role in the space).
+- Keeping a pinned question by field ids, so it survives renames.

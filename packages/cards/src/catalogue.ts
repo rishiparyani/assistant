@@ -96,6 +96,16 @@ export const ARRANGEMENT_INFO: Record<Arrangement, ArrangementInfo> = {
     needs: "answer_field: the yes/no field that means done",
     use: "songs ready for the gig, tasks done this week",
   },
+  table: {
+    shows: "an answer as a small table: a row per group, a column per total or count, kept live",
+    needs: "card.question (group_by, measures, as for the query tool); the view's filters narrow it",
+    use: "earnings by venue this year, spending by category this month",
+  },
+  bars: {
+    shows: "an answer as bars: one bar per group, sized by the first column, kept live",
+    needs: "card.question with one group_by and a total or count first",
+    use: "spending by category, gigs per month",
+  },
 };
 
 /** The catalogue as the assistant reads it: one line per arrangement it may choose. */

@@ -43,6 +43,8 @@ export const ARRANGEMENT_SIZES: Record<Arrangement, readonly CardSize[]> = {
   process: ["s", "m", "l"],
   memory: ["s", "m"],
   progress: ["xs", "s", "bar", "m"],
+  table: ["m", "l"],
+  bars: ["m", "l"],
 };
 
 /** What a card reads: a collection, optionally filtered and sorted (like a saved view). */

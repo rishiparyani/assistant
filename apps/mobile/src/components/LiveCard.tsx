@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
-import { setValue, stillShown, tick, type HomeCard } from "../home.ts";
+import { pinAnswer, setValue, stillShown, tick, type HomeCard } from "../home.ts";
 import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
@@ -66,6 +66,7 @@ export function LiveCard({
     );
   if (data.kind === "record")
     return <RecordCard record={data.record} collection={data.collection} onAsk={onAsk} />;
+  if (data.kind === "answer") return <AnswerCard data={data} onAsk={onAsk} />;
   return <ListCard card={data.card} more={data.more} onAsk={onAsk} />;
 }
 
@@ -159,7 +160,54 @@ function ListCard({
   );
 }
 
+/** An answer in the chat: the table or bars, and a button that keeps it on the home. */
+function AnswerCard({
+  data,
+  onAsk,
+}: {
+  data: Extract<LiveData, { kind: "answer" }>;
+  onAsk?: (title: string) => void;
+}) {
+  const { t } = useTheme();
+  const [pinned, setPinned] = useState(false);
+  const { card, ref } = data;
+  return (
+    <View style={{ gap: 6 }}>
+      <View style={{ height: cardHeight(card) }}>
+        <Card card={card} onOpen={() => onAsk?.(card.spec.title)} />
+      </View>
+      <View style={s.actions}>
+        {card.answer ? (
+          <Text style={[s.sub, { color: t.fg3, flex: 1 }]} numberOfLines={2}>
+            {card.answer.words}
+          </Text>
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={pinned ? "Pinned to your home" : "Pin to home"}
+          disabled={pinned}
+          onPress={() => {
+            pinAnswer(ref, card);
+            setPinned(true);
+          }}
+          style={({ pressed }) => [
+            s.pin,
+            { backgroundColor: pinned ? t.fill : t.accent, opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Text style={[s.pinText, { color: pinned ? t.fg2 : t.onAccent }]}>
+            {pinned ? "On your home" : "Pin to home"}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
+  actions: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 },
+  pin: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, justifyContent: "center" },
+  pinText: { fontSize: 14, fontWeight: "700" },
   box: {
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,

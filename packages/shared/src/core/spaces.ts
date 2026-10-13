@@ -385,6 +385,8 @@ export const PERIODS = [
   "last_7_days",
   "next_30_days",
   "last_30_days",
+  "this_year",
+  "last_year",
   "past",
   "future",
 ] as const;
@@ -469,6 +471,8 @@ export const ARRANGEMENTS = [
   "process",
   "memory",
   "progress",
+  "table",
+  "bars",
 ] as const;
 export type Arrangement = (typeof ARRANGEMENTS)[number];
 
@@ -526,6 +530,8 @@ export interface CardConfig {
   controls: CardControl[];
   /** The rows' layout (list cards); null: title and one detail. */
   row?: RowLayout | null;
+  /** table / bars: the question it answers live (names, checked when saved). */
+  question?: CardQuestion | null;
 }
 
 /** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
@@ -611,6 +617,58 @@ const rowLayout = z
   })
   .nullish()
   .describe("How each row of a list card looks; only when the person asks for a richer list");
+// Questions about the data (data-query.ts): the parts a card can keep, so a pinned answer
+// stays live on the home.
+export const QUERY_FNS = ["count", "sum", "avg", "min", "max", "count_distinct"] as const;
+export type QueryFn = (typeof QUERY_FNS)[number];
+export const DATE_BUCKETS = ["day", "week", "month", "year"] as const;
+export type DateBucket = (typeof DATE_BUCKETS)[number];
+/** At most this many records are read for one question; more fails ("narrow it"). */
+export const MAX_QUERY_RECORDS = 20_000;
+export const MAX_QUERY_ROWS = 200;
+
+export const QueryPath = z
+  .string()
+  .trim()
+  .min(1)
+  .max(160)
+  .describe(
+    'A field ("Fee"); a linked list\'s field ("Client.Name", "Payouts.Amount" for a list that links here); a date by "day", "week", "month" or "year" ("Date:month")',
+  );
+
+export const QueryMeasure = z.object({
+  fn: z.enum(QUERY_FNS).optional().describe('What to work out (left out with "calc": a sum of others)'),
+  field: QueryPath.optional().describe('The field it reads (left out for "count": count the records)'),
+  where: z
+    .array(FilterInput)
+    .max(5)
+    .optional()
+    .describe(
+      "Only records matching these, for this column only (e.g. Date period last_year next to this_year)",
+    ),
+  calc: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe('Arithmetic on earlier columns by name, e.g. "{Earned} - {Paid out}" (+ - * / and brackets)'),
+  as: z.string().trim().min(1).max(40).optional().describe("The column's name"),
+});
+export type QueryMeasure = z.infer<typeof QueryMeasure>;
+
+/** A question kept on a card: the view's list and filters are its "from" and "where". */
+export const CardQuestion = z
+  .object({
+    group_by: z.array(QueryPath).max(2).default([]),
+    measures: z.array(QueryMeasure).min(1).max(6),
+    sort: z
+      .object({ by: z.string().trim().min(1).max(160), dir: z.enum(["asc", "desc"]).default("desc") })
+      .optional(),
+    limit: z.number().int().min(1).max(MAX_QUERY_ROWS).default(20),
+  })
+  .describe("With arrangement table or bars: the question the card answers live (as for the query tool)");
+export type CardQuestion = z.infer<typeof CardQuestion>;
 const cardConfig = z
   .object({
     arrangement: z
@@ -619,6 +677,7 @@ const cardConfig = z
       .describe("How the card shows its records (see the card catalogue)"),
     controls: z.array(cardControl).max(4).optional().describe("Controls on each row, bound to fields"),
     row: rowLayout,
+    question: CardQuestion.nullish(),
   })
   .nullish()
   .describe(
@@ -811,6 +870,7 @@ export function periodRange(
     const d = new Date(today);
     return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1);
   };
+  const yearStart = (offset: number) => Date.UTC(new Date(today).getUTCFullYear() + offset, 0, 1);
   let a: number | null;
   let b: number | null;
   switch (period) {
@@ -852,6 +912,12 @@ export function periodRange(
       break;
     case "last_30_days":
       [a, b] = [today - 29 * DAY, today + DAY];
+      break;
+    case "this_year":
+      [a, b] = [yearStart(0), yearStart(1)];
+      break;
+    case "last_year":
+      [a, b] = [yearStart(-1), yearStart(0)];
       break;
     case "past":
       [a, b] = [null, today];
@@ -896,6 +962,21 @@ export type LiveRef =
   | { kind: "question"; question_id: string }
   /** A workflow (chat-first step 5): diagram, plain words, on/off. */
   | { kind: "workflow"; workflow_id: string }
+  /** An answer (decision 2026-10-13 "Questions, not SQL"): worked out fresh each time it shows. */
+  | {
+      kind: "query";
+      /** The space it was asked in (null: the person's own). */
+      space_id: string | null;
+      title: string;
+      query: {
+        from: string;
+        where?: RuleFilter[];
+        group_by?: string[];
+        measures?: Record<string, unknown>[];
+        sort?: { by: string; dir: "asc" | "desc" };
+        limit?: number;
+      };
+    }
   /** Something in an app (a Songbook song): what it was then, opening the app's own screen. */
   | { kind: "app"; app: string; title: string; subtitle?: string | null; href: string };
 

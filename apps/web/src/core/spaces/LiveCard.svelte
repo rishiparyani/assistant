@@ -56,7 +56,7 @@
   const collection = $derived(
     live.kind === "view"
       ? (view.data?.collection ?? null)
-      : live.kind === "question" || live.kind === "workflow" || live.kind === "app"
+      : live.kind === "question" || live.kind === "workflow" || live.kind === "app" || live.kind === "query"
         ? null
         : collectionOf(live.collection_id),
   );

@@ -8,6 +8,7 @@ import type { HomeCard } from "./model.ts";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
 import { RichRows, richRows, tint } from "./rows.tsx";
+import { AnswerBars, AnswerTable, answerTag } from "./answer.tsx";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
@@ -57,6 +58,10 @@ export function Card({
       {field ? (
         <Text style={[s.tag, { color: t.fg2, backgroundColor: t.fill }]}>
           {card.records.filter((r) => r.values[field] !== true).length} left
+        </Text>
+      ) : answerTag(card.answer, size, card.spec.arrangement === "bars") ? (
+        <Text style={[s.tag, { color: t.fg2, backgroundColor: t.fill }]}>
+          {answerTag(card.answer, size, card.spec.arrangement === "bars")}
         </Text>
       ) : null}
     </View>
@@ -128,6 +133,20 @@ export function Card({
     );
   } else
     switch (card.spec.arrangement) {
+      case "table":
+        body = card.answer ? (
+          <AnswerTable answer={card.answer} size={size} />
+        ) : (
+          <Text style={[s.sub, { color: t.fg2 }]}>Working it out…</Text>
+        );
+        break;
+      case "bars":
+        body = card.answer ? (
+          <AnswerBars answer={card.answer} size={size} colour={c} />
+        ) : (
+          <Text style={[s.sub, { color: t.fg2 }]}>Working it out…</Text>
+        );
+        break;
       case "memory": {
         const kept = card.memory ?? [];
         const shown = kept.slice(0, size === "s" ? 2 : 3);

@@ -1,9 +1,16 @@
 // Live cards in the chat (home-first.md §7 step 3): a record, a list or a saved view the
 // assistant worked with, loaded fresh so a change made anywhere shows here. The same card
 // drawing as the home; ticks go through the outbox.
-import type { CollectionView, FindResult, LiveRef, OpenedView, RecordView } from "@assistant/shared";
+import type {
+  CollectionView,
+  FindResult,
+  LiveRef,
+  OpenedView,
+  QueryResult,
+  RecordView,
+} from "@assistant/shared";
 import { request } from "./api.ts";
-import { cardFor, findAll, type HomeCard } from "./home.ts";
+import { answerCard, cardFor, findAll, type HomeCard } from "./home.ts";
 
 const enc = encodeURIComponent;
 const ROWS = 8;
@@ -11,6 +18,8 @@ const ROWS = 8;
 export type LiveData =
   | { kind: "record"; record: RecordView; collection: CollectionView }
   | { kind: "card"; card: HomeCard; more: boolean }
+  /** An answer worked out by the space; it can be pinned to the home. */
+  | { kind: "answer"; card: HomeCard; ref: Extract<LiveRef, { kind: "query" }> }
   | { kind: "plain"; title: string; subtitle: string | null };
 
 export async function loadLive(
@@ -46,11 +55,34 @@ export async function loadLive(
     case "view": {
       const opened = await request<OpenedView>("GET", `/api/views/${enc(ref.view_id)}`);
       const v = opened.view;
+      // A card that answers a question: the space works it out.
+      if (v.card?.question) {
+        const answer = await request<QueryResult>("POST", "/api/query", {
+          from: v.collection_id,
+          where: v.filters,
+          ...v.card.question,
+          title: v.name,
+        });
+        return { kind: "card", card: answerCard(opened.collection, answer, v), more: false };
+      }
       return withWholeTotal(
         cardFor(opened.collection, opened.result.items, v),
         { filters: v.filters, sort: v.sort ?? undefined, search: v.search ?? undefined },
         !!opened.result.next_cursor,
       );
+    }
+    case "query": {
+      const [answer, cols] = await Promise.all([
+        request<QueryResult>("POST", "/api/query", {
+          ...(ref.space_id ? { space: ref.space_id } : {}),
+          ...ref.query,
+          title: ref.title,
+        }),
+        collections(),
+      ]);
+      const collection = cols.find((c) => c.id === answer.collection_id);
+      if (!collection) throw new Error("That list is gone");
+      return { kind: "answer", card: answerCard(collection, answer, null, ref.title), ref };
     }
     case "question":
       return {

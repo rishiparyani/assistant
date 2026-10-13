@@ -4,6 +4,39 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF24: questions about the data** (decision 2026-10-13 "Questions, not SQL"; owner: "build it and complete it").
+  - **Shared:**
+    - `packages/shared/src/core/data-query.ts`: `QuerySpec`, `QueryInput`, `QueryResult`, `queryWords`, `measureName`.
+    - In `spaces.ts`, because of an import cycle: `QueryMeasure`, `QueryPath`, `CardQuestion`, the `table` and `bars` arrangements, and `LiveRef` kind `query`.
+    - New periods `this_year` and `last_year`.
+  - **Engine:** `query()` / `runQuery()` in `space-object.ts`.
+    - It resolves names, link paths both ways and date buckets.
+    - It reads every matching record with `findRows` (as the asker), loads each link once, groups the records, and works out the columns: their own `where`, and `calc` via `parseFormula` / `evalFormula`, so money stays money.
+    - It sorts the rows and returns `cells` plus `shown` and `words`.
+    - `checkCard` checks a card's `question` by answering it once.
+  - **API / tool:** `POST /api/query`, tool `query` (level 1), and a rule in the prompt: "never add numbers up yourself".
+  - **Cards:** `packages/cards/src/native/answer.tsx` draws `AnswerTable` and `AnswerBars` (M shows 3 rows, L shows 8–9, and the header says "3 of 5"). Both are in the catalogue and the gallery.
+  - **Phone:**
+    - The chat shows an answer card with "Pin to home". Pinning goes through the outbox and saves a view with `card.question`.
+    - The home asks pinned questions live (`answerCard`, `pinAnswer` in `home.ts`).
+    - A shown view with a question is answered too.
+  - **Website (fixes only):** `AnswerCard.svelte` in the chat shows the table.
+  - **Tests:** `apps/worker/test/query.test.ts` covers:
+    - venue totals with linked payouts and a calc;
+    - months, this year vs last, distinct counts, linked titles;
+    - errors that name the fields;
+    - a stranger gets 404;
+    - card questions are checked when saved.
+
+    `assistant.test.ts` checks the live answer card. The scorecard has 3 new hard cases (`query-*`).
+
+  - **Verified here:** typecheck, lint and all tests; the gallery at 390 (light and dark), 820 and 1280; a pinned bars card on a real home through the local Worker.
+  - **Gotchas:**
+    - A pinned question keeps field names: renaming a field breaks it, and the card then shows "Working it out…" with no answer.
+    - Pinning from the chat is on the phone only.
+    - Collaborators with only a share can't ask questions yet.
+  - **Next:** a scorecard run with the `query-*` cases; questions across spaces.
+
 - **HF23: flows on a schedule, over many records, with branches** (decision 2026-10-13; owner: "do all the 3").
   - **Shared** (`packages/shared/src/core/workflows.ts`): the `schedule` event (`every`, `days`, `day_of_month`, `at`), and the steps `summary`, `for_each` and `if`. Each part has its words, and `nextScheduleTime` works out the next run in India time.
   - **Engine** (`space-object.ts`):

@@ -56,6 +56,16 @@ import {
   type WorkflowSchedule,
   type CondView,
   type SimpleStepView,
+  DATE_BUCKETS,
+  MAX_QUERY_RECORDS,
+  measureName,
+  queryWords,
+  formulaFields,
+  type DateBucket,
+  type QueryColumnType,
+  type QueryFn,
+  type QueryResult,
+  type QuerySpec,
   type ShareKind,
   type ShareView,
   type SharedCardView,
@@ -67,6 +77,7 @@ import {
   type ViewMode,
   type CardSizeValue,
   type CardConfig,
+  type CardQuestion,
   type CardControl,
   type RowAction,
   type RowLayout,
@@ -715,6 +726,22 @@ function flowFields(def: WorkflowDef): Set<string> {
     }
   }
   return ids;
+}
+/** A UTC instant's day in India ("2026-10-13"). */
+const istDate = (iso: string) => new Date(Date.parse(iso) + 330 * 60_000).toISOString().slice(0, 10);
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "13 Oct 2026". */
+const dayWords = (d: string) =>
+  `${Number(d.slice(8, 10))} ${MONTHS[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}`;
+/** A day's bucket: its key (sorts in time order) and how it reads. Weeks start on Monday. */
+function bucketOf(day: string, b: DateBucket): { key: string; shown: string } {
+  if (b === "day") return { key: day, shown: dayWords(day) };
+  if (b === "month")
+    return { key: day.slice(0, 7), shown: `${MONTHS[Number(day.slice(5, 7)) - 1]} ${day.slice(0, 4)}` };
+  if (b === "year") return { key: day.slice(0, 4), shown: day.slice(0, 4) };
+  const ms = Date.parse(`${day}T00:00:00Z`);
+  const monday = new Date(ms - ((new Date(ms).getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(0, 10);
+  return { key: monday, shown: `Week of ${dayWords(monday)}` };
 }
 /** A summary's number against an "if" step's (more than, at most…). */
 function compareNumbers(got: number, op: FilterOp, want: number): boolean {
@@ -1547,6 +1574,7 @@ export class SpaceObject extends DurableObject<Env> {
                   return name ? [{ ...c, field: name }] : [];
                 }),
                 ...(v.card.row ? { row: rowByName(v.card.row, (id) => fieldName(v.collection_id, id)) } : {}),
+                ...(v.card.question ? { question: v.card.question } : {}),
               },
             }
           : {}),
@@ -2926,6 +2954,435 @@ export class SpaceObject extends DurableObject<Env> {
     return { items: rows.map((r) => this.recordView(r, actor)), next_cursor };
   }
 
+  // --- Questions about the data (decision 2026-10-13 "Questions, not SQL") ----------------
+
+  /**
+   * A question by names (list, filters, group by, count / add up), run as the person asking:
+   * every name is checked here, the rows come from the same find as everything else (so the
+   * same access), and the arithmetic is the engine's, never the model's.
+   */
+  async query(actor: Actor, spec: QuerySpec): Promise<QueryResult> {
+    this.role(actor);
+    return this.runQuery(actor, spec);
+  }
+
+  /** The question itself, without the role check (a card's question is checked when saved). */
+  private runQuery(actor: Actor, spec: Omit<QuerySpec, "limit"> & { limit?: number }): QueryResult {
+    const limit = spec.limit ?? 50;
+    const c = this.requireCollection(spec.from);
+    const fields = this.fieldRows(c.id);
+    type Ref = {
+      label: string;
+      field: FieldRow | null;
+      via: (LinkPath & { target: string }) | null;
+      bucket: DateBucket | null;
+    };
+    const usable = (f: FieldRow) => {
+      if (toField(f).options.personal)
+        throw new ObjectError(
+          "validation_failed",
+          `${f.name} is a personal answer; questions can't read it yet`,
+        );
+      return f;
+    };
+    // "Fee", "Date:month", "Client" (a link: the linked titles), "Client.Name", "Payouts.Amount".
+    const resolve = (path: string): Ref => {
+      const [base, bucketRaw] = path.split(":").map((x) => x.trim()) as [string, string | undefined];
+      let bucket: DateBucket | null = null;
+      if (bucketRaw !== undefined) {
+        if (!(DATE_BUCKETS as readonly string[]).includes(bucketRaw.toLowerCase()))
+          throw new ObjectError(
+            "validation_failed",
+            `Group a date by ${DATE_BUCKETS.join(", ")} (e.g. "Date:month")`,
+          );
+        bucket = bucketRaw.toLowerCase() as DateBucket;
+      }
+      const own = fields.find(
+        (f) =>
+          f.id === base ||
+          f.name_key === nameKey(base) ||
+          (JSON.parse(f.aliases_json) as string[]).some((a) => nameKey(a) === nameKey(base)),
+      );
+      let ref: Ref;
+      if (own && own.type === "link") {
+        const p = this.linkPath(c.id, own.name);
+        ref = { label: own.name, field: null, via: p, bucket: null };
+      } else if (own) ref = { label: own.name, field: usable(own), via: null, bucket: null };
+      else {
+        const dot = base.indexOf(".");
+        if (dot < 0) this.matchField(fields, base); // throws, naming the fields there are
+        const p = this.linkPath(c.id, base.slice(0, dot));
+        const rest = base.slice(dot + 1);
+        const tf = this.fieldRows(p.target);
+        const f = usable(this.matchField(tf, rest));
+        if (f.type === "link")
+          throw new ObjectError("validation_failed", `Questions follow one link at a time (${base})`);
+        ref = { label: `${this.linkPathName(p)}.${f.name}`, field: f, via: p, bucket: null };
+      }
+      if (bucket) {
+        if (!ref.field || (ref.field.type !== "date" && ref.field.type !== "datetime"))
+          throw new ObjectError(
+            "validation_failed",
+            `${ref.label} isn't a date, so it can't be grouped by ${bucket}`,
+          );
+        ref = { ...ref, label: `${ref.label} (${bucket})`, bucket };
+      }
+      return ref;
+    };
+
+    const groups = spec.group_by.map(resolve);
+    type Col =
+      | { kind: "fn"; name: string; fn: QueryFn; ref: Ref | null; where: Filter[]; type: QueryColumnType }
+      | { kind: "calc"; name: string; tree: FormulaNode; type: QueryColumnType };
+    const cols: Col[] = [];
+    const taken = new Set(groups.map((g) => nameKey(g.label)));
+    for (const m of spec.measures) {
+      if (m.calc && m.fn)
+        throw new ObjectError(
+          "validation_failed",
+          "A column either works something out (fn) or does arithmetic (calc)",
+        );
+      if (m.calc) {
+        if (!m.as) throw new ObjectError("validation_failed", "Name the calc column (as)");
+        let tree: FormulaNode;
+        try {
+          tree = parseFormula(m.calc);
+        } catch (e) {
+          throw new ObjectError("validation_failed", e instanceof Error ? e.message : String(e));
+        }
+        for (const name of formulaFields(tree))
+          if (!cols.some((x) => nameKey(x.name) === nameKey(name)))
+            throw new ObjectError(
+              "validation_failed",
+              `{${name}} isn't an earlier column. Columns so far: ${cols.map((x) => x.name).join(", ") || "none"}`,
+            );
+        cols.push({ kind: "calc", name: m.as, tree, type: "number" });
+      } else {
+        const fn = m.fn ?? "count";
+        const ref = m.field ? resolve(m.field) : null;
+        if (ref?.bucket) throw new ObjectError("validation_failed", `Group by ${m.field}, don't count it`);
+        const t = ref?.field?.type;
+        let type: QueryColumnType = "number";
+        if (fn === "sum" || fn === "avg") {
+          if (t !== "number" && t !== "money")
+            throw new ObjectError(
+              "validation_failed",
+              `${ref?.label ?? "That"} isn't a number or money field to ${fn === "sum" ? "add up" : "average"}`,
+            );
+          type = t;
+        } else if (fn === "min" || fn === "max") {
+          if (t !== "number" && t !== "money" && t !== "date" && t !== "datetime")
+            throw new ObjectError(
+              "validation_failed",
+              `${ref?.label ?? "That"} isn't a number, money or date field`,
+            );
+          type = t === "datetime" ? "date" : t;
+        }
+        const where = m.where?.length ? this.checkViewQuery(c, { filters: m.where }).filters : [];
+        cols.push({ kind: "fn", name: m.as ?? measureName({ fn, field: ref?.label }), fn, ref, where, type });
+      }
+      const last = cols[cols.length - 1]!;
+      if (taken.has(nameKey(last.name)))
+        throw new ObjectError(
+          "validation_failed",
+          `Two columns are called ${last.name}; name them apart (as)`,
+        );
+      taken.add(nameKey(last.name));
+    }
+    // Arithmetic on money stays money: a calc's type follows its parts (the engine's formula rules).
+    for (const col of cols)
+      if (col.kind === "calc") {
+        try {
+          const r = evalFormula(col.tree, (name) => {
+            const x = cols.find((y) => nameKey(y.name) === nameKey(name))!;
+            return { t: x.type === "money" ? "money" : x.type === "date" ? "date" : "num", v: 1 };
+          });
+          col.type = r?.t === "money" ? "money" : r?.t === "date" ? "date" : "number";
+        } catch (e) {
+          throw new ObjectError("validation_failed", e instanceof Error ? e.message : String(e));
+        }
+      }
+
+    const where = this.checkViewQuery(c, { filters: spec.where }).filters;
+    // Every matching record (as the asker: "me" is them), never more than the limit.
+    const all = (filters: Filter[]) => {
+      const out: RecordRow[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = this.findRows(actor, c, { filters, limit: 500, cursor });
+        out.push(...page.rows);
+        if (out.length > MAX_QUERY_RECORDS)
+          throw new ObjectError(
+            "validation_failed",
+            `More than ${MAX_QUERY_RECORDS.toLocaleString("en-IN")} records match; narrow the question`,
+          );
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor);
+      return out;
+    };
+    const rows = all(where);
+    // A column with its own filter counts only the records that also match it.
+    const only = cols.map((col) =>
+      col.kind === "fn" && col.where.length ? new Set(all([...where, ...col.where]).map((r) => r.id)) : null,
+    );
+
+    // Linked records, loaded once per link: record id → the linked records.
+    const ids = new Set(rows.map((r) => r.id));
+    const linkCache = new Map<string, Map<string, RecordRow[]>>();
+    const linkedOf = (p: LinkPath) => {
+      const k = `${p.field_id}:${p.dir}`;
+      let m = linkCache.get(k);
+      if (m) return m;
+      m = new Map();
+      const pairs = this.sql
+        .exec<{ a: string; b: string }>(
+          p.dir === "out"
+            ? `select from_id as a, to_id as b from links where field_id = ?`
+            : `select to_id as a, from_id as b from links where field_id = ?`,
+          p.field_id,
+        )
+        .toArray()
+        .filter((x) => ids.has(x.a));
+      const targets = new Map<string, RecordRow>();
+      const want = [...new Set(pairs.map((x) => x.b))];
+      for (let i = 0; i < want.length; i += 100) {
+        const chunk = want.slice(i, i + 100);
+        for (const r of this.sql
+          .exec<RecordRow>(
+            `select * from records where deleted_at is null and id in (${chunk.map(() => "?").join(", ")})`,
+            ...chunk,
+          )
+          .toArray())
+          targets.set(r.id, r);
+      }
+      for (const x of pairs) {
+        const t = targets.get(x.b);
+        if (!t) continue;
+        const list = m.get(x.a) ?? [];
+        list.push(t);
+        m.set(x.a, list);
+      }
+      linkCache.set(k, m);
+      return m;
+    };
+    const parsed = new Map<string, Record<string, StoredValue>>();
+    const valuesOf = (r: RecordRow) => {
+      let v = parsed.get(r.id);
+      if (!v) parsed.set(r.id, (v = JSON.parse(r.values_json) as Record<string, StoredValue>));
+      return v;
+    };
+    /** A ref's values on one record (several through a link, or for a multi choice). */
+    const read = (r: RecordRow, ref: Ref): StoredValue[] => {
+      const from = ref.via ? (linkedOf(ref.via).get(r.id) ?? []) : [r];
+      if (!ref.field) return from.filter((x) => x !== r).map((x) => x.title);
+      const out: StoredValue[] = [];
+      for (const x of from) {
+        const v = valuesOf(x)[ref.field.id];
+        if (Array.isArray(v)) out.push(...v);
+        else if (v !== null && v !== undefined) out.push(v);
+      }
+      return out;
+    };
+
+    // Group values as keys (raw) and words (shown).
+    const groupValue = (
+      ref: Ref,
+      v: StoredValue,
+    ): { key: string; raw: string | number | null; shown: string } => {
+      if (v === null || v === undefined) return { key: "", raw: null, shown: "(none)" };
+      if (ref.bucket && typeof v === "string") {
+        const day = ref.field?.type === "datetime" ? istDate(v) : v.slice(0, 10);
+        const b = bucketOf(day, ref.bucket);
+        return { key: b.key, raw: b.key, shown: b.shown };
+      }
+      if (ref.field) {
+        const shown = displayValue(ref.field.type, v);
+        const s = Array.isArray(shown) ? shown.join(", ") : (shown ?? "");
+        if (typeof v === "object") return { key: nameKey(s), raw: s, shown: s };
+        if (ref.field.type === "date") return { key: String(v), raw: String(v), shown: dayWords(String(v)) };
+        if (ref.field.type === "datetime") {
+          const d = istDate(String(v));
+          return { key: d, raw: d, shown: dayWords(d) };
+        }
+        return { key: typeof v === "string" ? nameKey(v) : String(v), raw: v as string | number, shown: s };
+      }
+      return { key: nameKey(String(v)), raw: String(v), shown: String(v) };
+    };
+    type Bucket = { raw: (string | number | null)[]; shown: string[]; recs: RecordRow[] };
+    const buckets = new Map<string, Bucket>();
+    for (const r of rows) {
+      let combos: { keys: string[]; raw: (string | number | null)[]; shown: string[] }[] = [
+        { keys: [], raw: [], shown: [] },
+      ];
+      for (const g of groups) {
+        const vs = read(r, g);
+        const gv = (vs.length ? vs : [null]).map((v) => groupValue(g, v));
+        const uniq = [...new Map(gv.map((x) => [x.key, x])).values()];
+        combos = combos.flatMap((cb) =>
+          uniq.map((x) => ({
+            keys: [...cb.keys, x.key],
+            raw: [...cb.raw, x.raw],
+            shown: [...cb.shown, x.shown],
+          })),
+        );
+        if (combos.length > 50) combos = combos.slice(0, 50);
+      }
+      for (const cb of combos) {
+        const k = JSON.stringify(cb.keys);
+        const b = buckets.get(k) ?? { raw: cb.raw, shown: cb.shown, recs: [] };
+        b.recs.push(r);
+        buckets.set(k, b);
+      }
+    }
+    // No grouping: one row for everything (even when nothing matched).
+    if (!groups.length && !buckets.size) buckets.set("[]", { raw: [], shown: [], recs: [] });
+
+    const asNumber = (v: StoredValue, t: QueryColumnType): number | null => {
+      if (t === "date") {
+        if (typeof v !== "string") return null;
+        const ms = Date.parse(`${v.length > 10 ? istDate(v) : v}T00:00:00Z`);
+        return Number.isNaN(ms) ? null : ms;
+      }
+      return typeof v === "number" ? v : null;
+    };
+    const out = [...buckets.values()].map((b) => {
+      const vals: (number | null)[] = [];
+      for (const [i, col] of cols.entries()) {
+        if (col.kind === "calc") {
+          let r: FormulaValue;
+          try {
+            r = evalFormula(col.tree, (name) => {
+              const j = cols.findIndex((y) => nameKey(y.name) === nameKey(name));
+              const v = vals[j];
+              const t = cols[j]!.type;
+              return v === null || v === undefined
+                ? null
+                : { t: t === "money" ? "money" : t === "date" ? "date" : "num", v };
+            });
+          } catch {
+            r = null;
+          }
+          vals.push(r ? r.v : null);
+          continue;
+        }
+        const recs = only[i] ? b.recs.filter((r) => only[i]!.has(r.id)) : b.recs;
+        if (col.fn === "count" && !col.ref) {
+          vals.push(recs.length);
+          continue;
+        }
+        const values = recs.flatMap((r) => read(r, col.ref!));
+        if (col.fn === "count") vals.push(values.length);
+        else if (col.fn === "count_distinct")
+          vals.push(
+            new Set(
+              values.map((v) =>
+                typeof v === "object" && v ? nameKey((v as { name: string }).name) : String(v),
+              ),
+            ).size,
+          );
+        else {
+          const nums = values.map((v) => asNumber(v, col.type)).filter((n): n is number => n !== null);
+          if (!nums.length) vals.push(col.fn === "sum" ? 0 : null);
+          else if (col.fn === "sum") vals.push(nums.reduce((a, n) => a + n, 0));
+          else if (col.fn === "avg") {
+            const avg = nums.reduce((a, n) => a + n, 0) / nums.length;
+            vals.push(col.type === "money" ? Math.round(avg) : avg);
+          } else vals.push(col.fn === "min" ? Math.min(...nums) : Math.max(...nums));
+        }
+      }
+      return { group: b, vals };
+    });
+
+    // Order: by the column asked for, else the first number (biggest first), else the groups.
+    const sortBy = spec.sort?.by;
+    const dir = spec.sort?.dir === "asc" ? 1 : -1;
+    const gi =
+      sortBy !== undefined
+        ? groups.findIndex(
+            (g) =>
+              nameKey(g.label) === nameKey(sortBy) || nameKey(g.label.split(" (")[0]!) === nameKey(sortBy),
+          )
+        : -1;
+    const mi = sortBy !== undefined ? cols.findIndex((x) => nameKey(x.name) === nameKey(sortBy)) : -1;
+    if (sortBy !== undefined && gi < 0 && mi < 0)
+      throw new ObjectError(
+        "validation_failed",
+        `No column "${sortBy}" to sort by. Columns: ${[...groups.map((g) => g.label), ...cols.map((x) => x.name)].join(", ")}`,
+      );
+    const cmp = (a: unknown, b: unknown) =>
+      a === null || a === undefined ? 1 : b === null || b === undefined ? -1 : a < b ? -1 : a > b ? 1 : 0;
+    if (gi >= 0) out.sort((a, b) => dir * cmp(a.group.raw[gi], b.group.raw[gi]));
+    else if (mi >= 0)
+      out.sort((a, b) =>
+        a.vals[mi] === null ? 1 : b.vals[mi] === null ? -1 : dir * cmp(a.vals[mi], b.vals[mi]),
+      );
+    else if (groups.some((g) => g.bucket)) {
+      const k = groups.findIndex((g) => g.bucket);
+      out.sort((a, b) => cmp(a.group.raw[k], b.group.raw[k]));
+    } else if (cols.length)
+      out.sort((a, b) => (a.vals[0] === null ? 1 : b.vals[0] === null ? -1 : -cmp(a.vals[0], b.vals[0])));
+
+    const show = (v: number | null, t: QueryColumnType): string => {
+      if (v === null) return "—";
+      if (t === "money") return String(displayValue("money", Math.round(v)));
+      if (t === "date") return dayWords(new Date(v).toISOString().slice(0, 10));
+      return Number.isInteger(v)
+        ? v.toLocaleString("en-IN")
+        : v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+    };
+    const shownRows = out.slice(0, limit).map((r) => ({
+      cells: [
+        ...r.group.raw,
+        ...r.vals.map((v, i) =>
+          v !== null && cols[i]!.type === "date" ? new Date(v).toISOString().slice(0, 10) : v,
+        ),
+      ],
+      shown: [...r.group.shown, ...r.vals.map((v, i) => show(v, cols[i]!.type))],
+    }));
+    const name = (id: string) => this.liveField(id)?.name ?? id;
+    const fw = (fs: Filter[]) =>
+      fs.map((f) => ({
+        ...f,
+        field: name(f.field),
+        ...(f.op === "eq" || f.op === "ne" ? { value: this.shownValue(f).shown ?? f.value } : {}),
+      }));
+    return {
+      title:
+        spec.title ?? (groups.length ? `${c.name} by ${groups.map((g) => g.label).join(" and ")}` : c.name),
+      collection_id: c.id,
+      collection: c.name,
+      columns: [
+        ...groups.map((g) => ({
+          name: g.label,
+          kind: "group" as const,
+          type: (g.bucket
+            ? "text"
+            : g.field?.type === "money"
+              ? "money"
+              : g.field?.type === "number"
+                ? "number"
+                : g.field?.type === "date" || g.field?.type === "datetime"
+                  ? "date"
+                  : "text") as QueryColumnType,
+        })),
+        ...cols.map((x) => ({ name: x.name, kind: "measure" as const, type: x.type })),
+      ],
+      rows: shownRows,
+      more: Math.max(0, out.length - limit),
+      scanned: rows.length,
+      words: queryWords({
+        from: c.name,
+        where: fw(where),
+        group_by: groups.map((g) => g.label),
+        measures: cols.map((x, i) =>
+          x.kind === "calc"
+            ? { name: x.name, calc: spec.measures[i]!.calc }
+            : { name: x.name, fn: x.fn, field: x.ref?.label, where: fw(x.where) },
+        ),
+      }),
+    };
+  }
+
   /** The find itself, without the role check (shares check their own access first). */
   private findRows(
     actor: Actor,
@@ -3433,7 +3890,7 @@ export class SpaceObject extends DurableObject<Env> {
       const problem = this.quickAddProblem(fields, add);
       if (problem) throw new ObjectError("validation_failed", problem);
     }
-    const card = q.card ? this.checkCard(fields, q.card) : null;
+    const card = q.card ? this.checkCard(fields, q.card, { c, filters }) : null;
     return {
       filters,
       search: q.search?.trim() || null,
@@ -3451,7 +3908,9 @@ export class SpaceObject extends DurableObject<Env> {
       arrangement?: Arrangement | null;
       controls?: CardControlInputValue[];
       row?: RowLayoutInput | null;
+      question?: CardQuestion | null;
     },
+    view?: { c: CollectionRow; filters: Filter[] },
   ): CardConfig | null {
     const controls: CardControl[] = (card.controls ?? []).map((c) => {
       const f = this.matchField(fields, c.field);
@@ -3491,6 +3950,33 @@ export class SpaceObject extends DurableObject<Env> {
       return out;
     });
     const row = card.row ? this.checkRow(fields, card.row) : null;
+    // A table or bars card answers a question about the view's records, live.
+    const ANSWERS: Arrangement[] = ["table", "bars"];
+    if (card.question) {
+      if (card.arrangement && !ANSWERS.includes(card.arrangement))
+        throw new ObjectError(
+          "validation_failed",
+          `A question is shown as a table or bars, not ${card.arrangement}`,
+        );
+      if (controls.length || row)
+        throw new ObjectError("validation_failed", "A table or bars card has no controls or row layout");
+      if (!view) throw new ObjectError("validation_failed", "A question card needs its list");
+      // Checked now by answering it once (bad names fail here, not on the home).
+      this.runQuery(
+        { userId: null, source: "system" },
+        {
+          from: view.c.id,
+          where: view.filters,
+          ...card.question,
+        },
+      );
+      return { arrangement: card.arrangement ?? "table", controls: [], question: card.question };
+    }
+    if (card.arrangement && ANSWERS.includes(card.arrangement))
+      throw new ObjectError(
+        "validation_failed",
+        `A ${card.arrangement} card needs a question (group_by and measures, as for the query tool)`,
+      );
     if (!card.arrangement && !controls.length && !row) return null;
     // Controls and row layouts live on a list's rows: such a card is a list card.
     const LISTS: Arrangement[] = ["list-plain", "list-ticks", "next"];
@@ -3601,6 +4087,7 @@ export class SpaceObject extends DurableObject<Env> {
             arrangement: q.card.arrangement,
             controls: q.card.controls.filter((c) => live.has(c.field)),
             ...(q.card.row ? { row: rowOfLive(q.card.row, live) } : {}),
+            ...(q.card.question ? { question: q.card.question } : {}),
           }
         : null,
       updated_at: v.updated_at,
