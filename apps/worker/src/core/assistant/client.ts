@@ -55,7 +55,13 @@ export async function callModel(
   try {
     raw = (await ai.run(
       model.id as keyof AiModels,
-      { messages, tools, max_tokens: model.maxOutput, temperature: 0.2 } as never,
+      {
+        messages,
+        tools,
+        max_tokens: model.maxOutput,
+        temperature: 0.2,
+        ...(model.thinking === false ? { chat_template_kwargs: { enable_thinking: false } } : {}),
+      } as never,
       {
         gateway: { id: gateway, skipCache: true },
         ...(affinity ? { extraHeaders: { "x-session-affinity": affinity } } : {}),
