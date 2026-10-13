@@ -30,6 +30,7 @@ const D1_TABLES: Record<string, readonly string[]> = {
   shared_with: [],
   assistant_access: [],
   group_members: [],
+  direct_chats: [],
 };
 
 /**

@@ -43,6 +43,7 @@ import {
 } from "@/home";
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
+import { useChats } from "@/chats";
 import { colourFor, radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
@@ -164,6 +165,10 @@ export default function Home() {
     [userId],
   );
 
+  // Chats with something unread (the dot on the Chats button); refreshes on live pings.
+  const unread = (useChats().chats ?? []).filter((c) => c.unread > 0).length;
+  const [search, setSearch] = useState(false);
+
   if (loaded && !me) return <Redirect href="/login" />;
 
   const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) => {
@@ -211,7 +216,6 @@ export default function Home() {
     if (!assistant) return;
     router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
   };
-  const [search, setSearch] = useState(false);
   /** A whole list, on its own screen (its saved view chosen when the card is one). */
   const openList = (collection: string, view?: string) =>
     router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } });
@@ -277,9 +281,29 @@ export default function Home() {
     <View key={item.name} style={{ gap: 12 }}>
       {item.auto ? (
         // Now: today's date and a greeting, then what's next, big.
-        <View style={s.greet}>
-          <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords(new Date(now))}</Text>
-          <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
+        <View style={s.greetRow}>
+          <View style={s.greet}>
+            <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords(new Date(now))}</Text>
+            <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
+          </View>
+          {/* Chats with people (decision 2026-10-13 "Chats with people"), with a dot when
+              something's unread. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={unread ? `Chats, ${unread} with new messages` : "Chats"}
+            onPress={() => router.push("/chats")}
+            style={({ pressed }) => [
+              s.searchBtn,
+              { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <View style={[s.bubbleIcon, { borderColor: t.fg }]} />
+            {unread ? (
+              <View style={[s.unread, { backgroundColor: t.accent, borderColor: t.cell }]}>
+                <Text style={[s.unreadText, { color: t.onAccent }]}>{unread > 9 ? "9+" : unread}</Text>
+              </View>
+            ) : null}
+          </Pressable>
         </View>
       ) : (
         <View style={s.pageHead}>
@@ -601,7 +625,22 @@ const s = StyleSheet.create({
     paddingHorizontal: 4,
   },
   h2: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },
-  greet: { gap: 2, paddingHorizontal: 4 },
+  greet: { flex: 1, gap: 2, paddingHorizontal: 4 },
+  greetRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  bubbleIcon: { width: 20, height: 16, borderRadius: 6, borderWidth: 2, borderBottomLeftRadius: 2 },
+  unread: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 5,
+    borderRadius: 10,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  unreadText: { fontSize: 10, fontWeight: "800" },
   heroWide: { maxWidth: 560 },
   lists: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   listTile: {

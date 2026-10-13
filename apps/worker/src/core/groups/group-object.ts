@@ -56,6 +56,10 @@ const MIGRATIONS: Migrations = [
   // Every audit entry gets a ULID (architecture rule 4): "what changed" names entries by it.
   `alter table _audit add column change_id text;
    create index _audit_change_idx on _audit (change_id);`,
+  // Chats with one person, and where each member has read up to (decision 2026-10-13 "Chats
+  // with people").
+  `alter table grp add column direct integer not null default 0;
+   alter table members add column read_at text;`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -63,8 +67,14 @@ const MAX_MEMBERS = 100;
 const PAGE = 200;
 const LIVE_DELAY_MS = 300;
 
-type MemberRow = { user_id: string; name: string; role: "owner" | "member"; left_at: string | null };
-type GroupRow = { id: string; name: string; owner_user_id: string; updated_at: string };
+type MemberRow = {
+  user_id: string;
+  name: string;
+  role: "owner" | "member";
+  left_at: string | null;
+  read_at: string | null;
+};
+type GroupRow = { id: string; name: string; owner_user_id: string; updated_at: string; direct: number };
 
 export class GroupObject extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -94,22 +104,28 @@ export class GroupObject extends DurableObject<Env> {
    */
   async init(
     actor: Actor & { userId: string },
-    input: { id: string; name: string; owner: GroupMember; members: GroupMember[] },
+    input: { id: string; name: string; owner: GroupMember; members: GroupMember[]; direct?: boolean },
   ): Promise<void> {
     const have = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
     if (have) {
-      if (have.owner_user_id === input.owner.user_id && have.name === input.name.trim()) return;
+      if (
+        have.owner_user_id === input.owner.user_id &&
+        have.name === input.name.trim() &&
+        !!have.direct === !!input.direct
+      )
+        return;
       throw new ObjectError("conflict", "That group id is already taken");
     }
     const ts = nowIso();
     this.ctx.storage.transactionSync(() => {
       this.sql.exec(
-        `insert into grp (id, name, owner_user_id, created_at, updated_at) values (?, ?, ?, ?, ?)`,
+        `insert into grp (id, name, owner_user_id, created_at, updated_at, direct) values (?, ?, ?, ?, ?, ?)`,
         input.id,
         input.name.trim(),
         input.owner.user_id,
         ts,
         ts,
+        input.direct ? 1 : 0,
       );
       for (const m of [input.owner, ...input.members.filter((x) => x.user_id !== input.owner.user_id)])
         this.sql.exec(
@@ -119,12 +135,12 @@ export class GroupObject extends DurableObject<Env> {
           m.user_id === input.owner.user_id ? "owner" : "member",
           ts,
         );
-      this.note("note", null, "Group", `${input.owner.name} made the group`, ts);
+      if (!input.direct) this.note("note", null, "Group", `${input.owner.name} made the group`, ts);
       audit(this.sql, actor, {
         action: "create_group",
         entityType: "group",
         entityId: input.id,
-        after: { name: input.name, members: input.members.map((m) => m.user_id) },
+        after: { name: input.name, direct: !!input.direct, members: input.members.map((m) => m.user_id) },
       });
       // Everyone in it hears about the new group (their open apps add it to the list).
       this.changed();
@@ -155,6 +171,15 @@ export class GroupObject extends DurableObject<Env> {
       )
       .toArray()
       .map((m) => ({ user_id: m.user_id, name: m.name, role: m.role }));
+  }
+
+  /** What the reader calls this chat: a group's name, or the other person in a chat for two. */
+  private nameFor(g: GroupRow, userId: string): string {
+    if (!g.direct) return g.name;
+    const other = this.sql
+      .exec<{ name: string }>(`select name from members where user_id != ? order by added_at limit 1`, userId)
+      .toArray()[0];
+    return other?.name ?? "Chat";
   }
 
   private note(
@@ -200,6 +225,7 @@ export class GroupObject extends DurableObject<Env> {
   async view(userId: string): Promise<{
     id: string;
     name: string;
+    direct: boolean;
     owner_id: string;
     members: GroupMember[];
     messages: GroupMessage[];
@@ -221,12 +247,28 @@ export class GroupObject extends DurableObject<Env> {
         PAGE,
       )
       .toArray();
-    return { id: g.id, name: g.name, owner_id: g.owner_user_id, members: this.members(), messages };
+    return {
+      id: g.id,
+      name: this.nameFor(g, userId),
+      direct: !!g.direct,
+      owner_id: g.owner_user_id,
+      members: this.members(),
+      messages,
+    };
   }
 
   async summary(userId: string): Promise<GroupSummary> {
-    this.member(userId);
+    const me = this.member(userId);
     const g = this.group();
+    const unread =
+      this.sql
+        .exec<{ n: number }>(
+          `select count(*) as n from messages
+           where kind != 'note' and (author_id is null or author_id != ?) and created_at > ?`,
+          userId,
+          me.read_at ?? "",
+        )
+        .toArray()[0]?.n ?? 0;
     const last = this.sql
       .exec<{ author: string; text: string; created_at: string }>(
         `select author, text, created_at from messages where kind != 'note' order by created_at desc, id desc limit 1`,
@@ -234,8 +276,10 @@ export class GroupObject extends DurableObject<Env> {
       .toArray()[0];
     return {
       id: g.id,
-      name: g.name,
+      name: this.nameFor(g, userId),
+      direct: !!g.direct,
       members: this.members().length,
+      unread,
       last: last ? { author: last.author, text: last.text.slice(0, 120), at: last.created_at } : null,
       updated_at: g.updated_at,
     };
@@ -263,6 +307,15 @@ export class GroupObject extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Marks everything up to now as read by this person. A read marker only (nothing anyone
+   * else sees changes), so it isn't audited or keyed; repeating it is harmless.
+   */
+  async markRead(userId: string): Promise<void> {
+    this.member(userId);
+    this.sql.exec(`update members set read_at = ? where user_id = ?`, nowIso(), userId);
+  }
+
   /** The owner adds people (they appear in the group at once). */
   async addPeople(
     actor: Actor & { userId: string },
@@ -270,6 +323,8 @@ export class GroupObject extends DurableObject<Env> {
     people: GroupMember[],
   ): Promise<GroupMember[]> {
     const me = this.member(actor.userId);
+    if (this.group().direct)
+      throw new ObjectError("conflict", "This is a chat for two; make a group to talk with more people");
     if (me.role !== "owner") throw new ObjectError("forbidden", "Only the group's owner can add people");
     return this.write(actor, key, ["add", people.map((p) => p.user_id)], (ts) => {
       const count = this.members().length;
@@ -304,6 +359,7 @@ export class GroupObject extends DurableObject<Env> {
   /** Leaving (the owner can't leave their own group; they'd delete it later). */
   async leave(actor: Actor & { userId: string }, key: string | null): Promise<{ left: string }> {
     const me = this.member(actor.userId);
+    if (this.group().direct) throw new ObjectError("conflict", "A chat for two can't be left");
     if (me.role === "owner") throw new ObjectError("conflict", "You made this group, so you can't leave it");
     return this.write(actor, key, ["leave"], (ts) => {
       this.sql.exec(`update members set left_at = ? where user_id = ?`, ts, actor.userId);

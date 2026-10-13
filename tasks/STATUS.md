@@ -4,6 +4,20 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF28: chats with people, step 1** (decision 2026-10-13 "Chats with people"; owner approved the mock-up).
+  - **Server:**
+    - chats for two: `POST /api/groups` with `direct: true` and one person; one per pair (D1 `direct_chats`, migration 0012), named after the other person for each reader; no adding people or leaving;
+    - `GET /api/chat-people`: people I share with, who share with me, or share a group with me (also who `create_group` / `add_group_people` accept);
+    - unread counts in `GET /api/groups` (`unread`, from each member's `read_at`, group object migration), `POST /api/groups/:id/read`.
+  - **Phone** (`apps/mobile`):
+    - `app/chats.tsx`: the assistant first, then chats newest first with unread badges; "+" picks people (one is a chat for two, more asks for a group name);
+    - `app/talk.tsx`: one chat (mine on the right, others with name and initials, notes in the middle, day labels); sending goes through the outbox, so it works offline ("Sending…", "Not sent · tap to remove");
+    - `src/chats.ts` (kept copies for offline, `useChats`, `useChat`, `startChat`), `src/live-socket.ts` (live updates on the phone), `src/components/ChatBits.tsx`;
+    - the home's greeting has a round Chats button with the count of chats with something unread.
+  - **Fixed in passing:** the home's `search` state hook sat after an early return (hook order); moved up.
+  - **Verified here:** web build against the local Worker at 390 (light, dark) and 1280, with fake people: a group, a chat for two started from both sides (same chat), sending, unread counts; no page errors. Tests: `groups.test.ts` (+1).
+  - **Next:** step 2, Save (hold a message → the assistant proposes where it goes, only you see it, one tap).
+
 - **HF27: the whole list on its own screen** (decision 2026-10-13 "The whole list"; owner: "Fine, do it").
   - **Screen:** `apps/mobile/app/list.tsx` (route `/list?collection=<id or name>&view=<id>`).
     - Chips along the top: All, then the list's saved views. Chips only switch; nothing is made here.

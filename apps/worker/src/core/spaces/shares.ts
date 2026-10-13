@@ -111,8 +111,8 @@ export async function knownPeople(ctx: OpUserCtx): Promise<Person[]> {
  * Names (or ids) to people I know: the exact name, or the first name when only one person
  * has it. More than one match gives candidates; none lists who I know. Never a guess.
  */
-export async function resolvePeople(ctx: OpUserCtx, refs: string[]): Promise<Person[]> {
-  const known = await knownPeople(ctx);
+export async function resolvePeople(ctx: OpUserCtx, refs: string[], among?: Person[]): Promise<Person[]> {
+  const known = among ?? (await knownPeople(ctx));
   const out = new Map<string, Person>();
   for (const ref of refs) {
     const key = nameKey(ref);

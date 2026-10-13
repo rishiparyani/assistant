@@ -2,7 +2,16 @@
 import { z } from "zod";
 import { AddGroupPeopleInput, CreateGroupInput, GroupRef, PostGroupMessageInput } from "@assistant/shared";
 import { defineOperation, type AnyOperation } from "../operations.ts";
-import { addGroupPeople, createGroup, groupView, leaveGroup, myGroups, postGroupMessage } from "./service.ts";
+import {
+  addGroupPeople,
+  chatPeople,
+  createGroup,
+  groupView,
+  leaveGroup,
+  markGroupRead,
+  myGroups,
+  postGroupMessage,
+} from "./service.ts";
 
 export function groupOperations(all: () => readonly AnyOperation[]) {
   return [
@@ -17,9 +26,29 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       handler: (ctx) => myGroups(ctx),
     }),
     defineOperation({
+      id: "core.list_chat_people",
+      tool: "list_chat_people",
+      description: "People I can start a chat with.",
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/chat-people" },
+      input: z.object({}),
+      handler: (ctx) => chatPeople(ctx),
+    }),
+    defineOperation({
+      id: "core.read_group",
+      tool: "read_group",
+      description: "Mark a chat as read up to now.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/groups/:group_id/read" },
+      input: GroupRef,
+      handler: (ctx, i) => markGroupRead(ctx, i.group_id),
+    }),
+    defineOperation({
       id: "core.create_group",
       tool: "create_group",
-      description: "Make a group chat with people I know.",
+      description: "Make a group chat with people I know, or a chat with one person (direct).",
       kind: "write",
       sessionOnly: true,
       http: { method: "POST", path: "/groups", status: 201 },
