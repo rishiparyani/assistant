@@ -3,7 +3,8 @@
 // browser; the app keeps the access sealed in my own storage; Disconnect forgets it.
 // online-only: connecting and disconnecting happen on the server and at Google.
 import { useCallback, useEffect, useState } from "react";
-import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

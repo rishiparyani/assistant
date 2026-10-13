@@ -2,7 +2,8 @@
 // draws, at every size, with made-up data, in the current theme. For checking the look on a
 // phone and in the simulator screenshots; nothing here reads or writes data.
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View, useWindowDimensions, Pressable } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions, Pressable } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ARRANGEMENT_INFO, nextUp } from "@assistant/cards";

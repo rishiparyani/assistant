@@ -3,7 +3,8 @@
 // search, help) with the rest dimmed. Shown once per person on this device; Help → "Take the
 // tour again" brings it back. Skippable at every step. Nothing here changes any data.
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { kv } from "@/storage";
 import { useTheme } from "@/theme";

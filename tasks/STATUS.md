@@ -17,6 +17,13 @@ _Updated: 2026-10-13_
     - a solid backdrop behind the bar;
     - on a laptop the hero keeps a phone card's width.
   - **Verified here:** the web build against the local Worker at 390 (light and dark) and 1280 (dark).
+  - **Closer to the mock-up** (owner: the screens didn't match it):
+    - Manrope everywhere (`@expo-google-fonts/manrope`, the `text.tsx` wrapper);
+    - square tick boxes (`tick.tsx`);
+    - no lines between list rows;
+    - a process card at M shows the question as its headline;
+    - rich rows with a note fit 2 rows on an L card.
+  - **Gotcha:** import `Text` and `TextInput` from `@assistant/cards/native` (or `./text.tsx` inside the cards package), never from `react-native`, or the text falls back to the system font.
   - **Next:** the mock-up's chat answer card (a total, a stacked category bar, a list), then the grouped gigs agenda.
 
 - **HF24: questions about the data** (decision 2026-10-13 "Questions, not SQL"; owner: "build it and complete it").

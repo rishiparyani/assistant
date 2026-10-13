@@ -2,7 +2,8 @@
 // says where it came from and can be forgotten; a forget asks once more on the row itself.
 // online-only: memory lives in the person's chat object on the server.
 import { useEffect, useState } from "react";
-import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Memory } from "@assistant/shared";

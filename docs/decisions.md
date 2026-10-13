@@ -744,7 +744,13 @@ A structured question keeps the model doing what it does well (naming things) an
 - A "Next up" hero card: the soonest dated record across the home's cards, within two weeks and not ticked. It shows a countdown, a date tile, the details and amounts, and the row's button (directions, call, open).
 - A dark chat bar with a send button, and round Help and Search buttons.
 
-The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `good`, `warn`. The iPhone's own font stays: no font package.
+The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `good`, `warn`, `tileInk`.
+
+**Matching the mock-up** (owner: "I like your mockups much better"):
+
+- **Typeface:** Manrope, through the new dependency `@expo-google-fonts/manrope`. It's loaded at start in `_layout.tsx`, and the app waits for it for at most 1.5 s, then falls back to the system font. Every `Text` and `TextInput` comes from `packages/cards/src/native/text.tsx`, which maps the weight to its face.
+- **Tick boxes:** rounded squares that fill with the accent (`tick.tsx`).
+- **List rows:** no lines between them, and 15 pt row text.
 
 **Why:** the owner found the mock-up "way better". One big card for what's next makes the home useful at a glance.
 

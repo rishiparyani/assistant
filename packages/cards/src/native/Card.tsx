@@ -1,10 +1,12 @@
 // Draws a card from its spec (docs/design/home-first.md §2.3): the arrangement decides the
 // layout, the size how much shows, the collection the colour. The model never positions
 // anything; this file does.
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
+import { Tick } from "./tick.tsx";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
 import { RichRows, richRows, tint } from "./rows.tsx";
@@ -163,10 +165,20 @@ export function Card({
         const askedMe = !!w.share_id && w.mine === null;
         body = (
           <View style={s.grow}>
-            <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
-              {w.record}
-            </Text>
-            <Text style={[s.sub, { color: t.fg }]} numberOfLines={size === "l" ? 3 : 2}>
+            {/* At M the question (which names the record) is the headline: everything else has
+                to fit beside a 44-point button. */}
+            {size === "l" ? (
+              <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
+                {w.record}
+              </Text>
+            ) : null}
+            <Text
+              style={[
+                s.sub,
+                { color: t.fg, fontWeight: size === "l" ? "500" : "700", fontSize: size === "l" ? 12.5 : 14 },
+              ]}
+              numberOfLines={size === "l" ? 3 : 1}
+            >
               {w.text}
             </Text>
             <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
@@ -320,9 +332,9 @@ export function Card({
                       void Haptics.selectionAsync().catch(() => undefined);
                       onTick?.(r, !done);
                     }}
-                    style={[s.circle, { borderColor: done ? c : t.fg3 }]}
+                    style={s.tickHit}
                   >
-                    {done ? <View style={[s.circleIn, { backgroundColor: c }]} /> : null}
+                    <Tick done={done} />
                   </Pressable>
                   <Text
                     style={[
@@ -575,7 +587,7 @@ const s = StyleSheet.create({
   // Lists read from the top, right under the title (a short list leaves room below, not above).
   list: { flex: 1, justifyContent: "flex-start" },
   ctlList: { flex: 1, overflow: "hidden" },
-  ctlRow: { gap: 6, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  ctlRow: { gap: 6, paddingVertical: 6 },
   ctlLine: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
   fill: { flex: 1, justifyContent: "space-between" },
   mini: {
@@ -597,28 +609,21 @@ const s = StyleSheet.create({
   },
   answerText: { fontSize: 14, fontWeight: "700" },
   num: { fontSize: 30, fontWeight: "800", letterSpacing: -1.2, fontVariant: ["tabular-nums"] },
-  sub: { fontSize: 12, fontWeight: "500" },
+  sub: { fontSize: 12.5, lineHeight: 17, fontWeight: "500" },
   of: { fontSize: 16, fontWeight: "700", letterSpacing: 0 },
   bar: { height: 8, borderRadius: 4, overflow: "hidden", marginVertical: 4 },
   barIn: { height: 8, borderRadius: 4 },
+  // List rows: no lines between them (the mock-up's cleaner list); the tick and the spacing
+  // keep them apart.
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 10,
     minHeight: 32,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowText: { flex: 1, fontSize: 13.5 },
+  rowText: { flex: 1, fontSize: 15 },
   end: { fontSize: 11.5, fontVariant: ["tabular-nums"] },
-  circle: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circleIn: { width: 13, height: 13, borderRadius: 7 },
+  tickHit: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   compact: { padding: 11, gap: 2, justifyContent: "space-between" },
   compactWide: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14 },
   compactLeft: { flex: 1, gap: 3, minWidth: 0 },

@@ -2,7 +2,8 @@
 // share goes into the Inbox; the assistant says where it probably belongs. Online it answers
 // at once; offline the capture waits in the outbox and syncs later.
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline, request } from "@/api";

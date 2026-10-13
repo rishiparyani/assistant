@@ -2,7 +2,8 @@
 // thing still to come across the home's cards, big: when (a countdown), a date tile, its
 // title and details, highlighted amounts and states, and its button (directions, call, open).
 // Every part comes from the record's fields and the card's row layout; nothing is made up.
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./text.tsx";
 import type { FieldView } from "@assistant/shared";
 import { countdown, type NextUp } from "../next-up.ts";
 import { ACTION_WORDS, act, shown } from "./rows.tsx";

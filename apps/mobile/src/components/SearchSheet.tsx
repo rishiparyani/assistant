@@ -2,7 +2,8 @@
 // once (titles, rows, fields; works offline), and the person's own index on the server
 // (every record they can see, by part of a word) a moment later when there's a connection.
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@assistant/cards/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { request } from "../api.ts";
 import type { HomeCard } from "../home.ts";

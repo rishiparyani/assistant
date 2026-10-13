@@ -2,10 +2,12 @@
 // date, the title, a line of details with colour dots for choices, highlighted pills, a
 // callout box for a note and a button that acts on a field (directions, call, open). Every
 // part is a field of the list; this file decides how it looks.
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { FieldView, RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
+import { Tick } from "./tick.tsx";
 import { COLLECTION_COLOURS, useTheme, type CollectionColour } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
 
@@ -20,7 +22,8 @@ const DOTS: CollectionColour[] = ["people", "time", "music", "flow", "money", "h
 export function richRows(size: string, row: Row, belowControls = false): number {
   // A row is about 44 points, 70 with pills, more with a callout or a line of chips.
   const tall = !!row.callout || row.pills.length > 0 || belowControls;
-  if (size === "l") return tall ? 3 : 5;
+  // A note box takes two lines more: an L card fits two such rows (Manrope runs taller).
+  if (size === "l") return row.callout ? 2 : tall ? 3 : 5;
   if (size === "m") return tall ? 1 : 2;
   return 1;
 }
@@ -157,9 +160,9 @@ export function RichRows({
                   void Haptics.selectionAsync().catch(() => undefined);
                   onTick?.(r, !done);
                 }}
-                style={[s.circle, { borderColor: done ? colour : t.fg3 }]}
+                style={s.tickHit}
               >
-                {done ? <View style={[s.circleIn, { backgroundColor: colour }]} /> : null}
+                <Tick done={done} />
               </Pressable>
             ) : null}
             {row.date ? (
@@ -322,15 +325,7 @@ const s = StyleSheet.create({
   calloutLabel: { fontWeight: "800" },
   action: { paddingHorizontal: 10, height: 28, borderRadius: 14, justifyContent: "center" },
   actionText: { fontSize: 12, fontWeight: "700" },
-  circle: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circleIn: { width: 13, height: 13, borderRadius: 7 },
+  tickHit: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   empty: { fontSize: 12, fontWeight: "500" },
   below: { gap: 8, alignItems: "center" },
 });
