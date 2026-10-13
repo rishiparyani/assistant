@@ -1,7 +1,8 @@
 // An answer on a card (decision 2026-10-13 "Questions, not SQL"): the table the space worked
 // out for a question, drawn as a small table or as bars. Every number here was calculated by
 // the space; the card only lays it out.
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Text } from "./text.tsx";
 import type { QueryResult } from "@assistant/shared";
 import type { CardSize } from "../spec.ts";
 import { tint } from "./rows.tsx";

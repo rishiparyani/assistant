@@ -178,6 +178,34 @@ function totalOf(spec: CardSpec, records: RecordView[]): number | null {
   return records.reduce((n, r) => n + (typeof r.values[f] === "number" ? (r.values[f] as number) : 0), 0);
 }
 
+/**
+ * The soonest records still to come on a dated card (for "Next up"), asked by date: the card's
+ * own rows are its first page in its own order, so the soonest may not be among them.
+ */
+async function upcomingOf(
+  c: CollectionView,
+  spec: CardSpec,
+  query: { filters: unknown[]; search?: string },
+): Promise<RecordView[] | undefined> {
+  const src = spec.sources[0];
+  const date =
+    spec.row?.date ?? src?.date_field ?? c.fields.find((f) => f.type === "datetime" || f.type === "date")?.id;
+  if (!date) return undefined;
+  const done = src?.answer_field;
+  return request<FindResult>("POST", `/api/collections/${enc(c.id)}/find`, {
+    filters: [
+      ...query.filters,
+      { field: date, op: "period", value: "future" },
+      ...(done ? [{ field: done, op: "ne", value: true }] : []),
+    ],
+    ...(query.search ? { search: query.search } : {}),
+    sort: { field: date, dir: "asc" },
+    limit: 3,
+  })
+    .then((r) => r.items)
+    .catch(() => undefined);
+}
+
 /** Loads the home from the server; falls back to the copy on the device. */
 export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
@@ -227,6 +255,7 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
         colour: colourFor(c.name),
         records: spec.arrangement === "number" ? records.slice(0, LIST_ROWS) : records,
         total: totalOf(spec, records),
+        upcoming: await upcomingOf(c, spec, query),
       });
     }
     // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in

@@ -1,6 +1,7 @@
 // The card's menu (hold a card): ask about it, change its size, hand it to the chat to share,
 // make a form or send on a schedule ("chat makes, screens use"), or take it off the home.
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CardSize } from "@assistant/cards";
 import { sizesFor, type HomeCard } from "../home.ts";

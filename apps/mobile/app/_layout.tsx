@@ -1,4 +1,13 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import {
+  useFonts,
+  Manrope_400Regular,
+  Manrope_500Medium,
+  Manrope_600SemiBold,
+  Manrope_700Bold,
+  Manrope_800ExtraBold,
+} from "@expo-google-fonts/manrope";
+import { setAppFont } from "@assistant/cards/native";
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -35,6 +44,22 @@ function SessionGate() {
 
 export default function Layout() {
   const { t, dark } = useTheme();
+  // The app's typeface (decision 2026-10-13 "A warmer home"). The first screen waits for it a
+  // moment so text doesn't jump; past a second and a half it goes on in the system font.
+  const [fontsLoaded, fontError] = useFonts({
+    Manrope_400Regular,
+    Manrope_500Medium,
+    Manrope_600SemiBold,
+    Manrope_700Bold,
+    Manrope_800ExtraBold,
+  });
+  const [waited, setWaited] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setWaited(true), 1500);
+    return () => clearTimeout(id);
+  }, []);
+  setAppFont(fontsLoaded && !fontError);
+  if (!fontsLoaded && !fontError && !waited) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.canvas }}>
       <SessionProvider>

@@ -3,7 +3,8 @@
 // last runs in plain words. Read fresh from the server; the card on the home stays the quick way.
 // online-only: a process's state lives in its space's object.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { WaitingItem, WorkflowDetail } from "@assistant/shared";

@@ -4,3 +4,6 @@ export * from "./model.ts";
 export * from "./Card.tsx";
 export * from "./CardGrid.tsx";
 export * from "./samples.ts";
+export * from "./hero.tsx";
+export * from "./text.tsx";
+export * from "./tick.tsx";

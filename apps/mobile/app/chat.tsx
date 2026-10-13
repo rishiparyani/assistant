@@ -2,16 +2,8 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatItem, ChatView, CollectionView, HistoryItem } from "@assistant/shared";

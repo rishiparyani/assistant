@@ -5,7 +5,8 @@
 // exists only on localhost) and goes to the path. Against any other server the route does
 // nothing but go home, so it can't be used to sign anyone in.
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Text, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { Redirect, useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { signInWithEmail } from "@/auth";
 import { API_URL, LOCAL } from "@/config";

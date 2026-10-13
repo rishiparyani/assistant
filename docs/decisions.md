@@ -733,3 +733,25 @@ A structured question keeps the model doing what it does well (naming things) an
 - Questions across spaces.
 - Questions for people with a share only (today it needs a role in the space).
 - Keeping a pinned question by field ids, so it survives renames.
+
+## 2026-10-13: A warmer home (owner, on the mock-up: "Yes this is way better")
+
+**Decision:** the phone app's home takes the look of the approved mock-up.
+
+- A warm off-white page with white cards and softer shadows.
+- Plain bold card titles with a tag in the list's colour. This replaces the tinted band and letter badge.
+- A greeting with today's date on Now.
+- A "Next up" hero card: the soonest dated record across the home's cards, within two weeks and not ticked. It shows a countdown, a date tile, the details and amounts, and the row's button (directions, call, open).
+- A dark chat bar with a send button, and round Help and Search buttons.
+
+The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `good`, `warn`, `tileInk`.
+
+**Matching the mock-up** (owner: "I like your mockups much better"):
+
+- **Typeface:** Manrope, through the new dependency `@expo-google-fonts/manrope`. It's loaded at start in `_layout.tsx`, and the app waits for it for at most 1.5 s, then falls back to the system font. Every `Text` and `TextInput` comes from `packages/cards/src/native/text.tsx`, which maps the weight to its face.
+- **Tick boxes:** rounded squares that fill with the accent (`tick.tsx`).
+- **List rows:** no lines between them, and 15 pt row text.
+
+**Why:** the owner found the mock-up "way better". One big card for what's next makes the home useful at a glance.
+
+**Next:** the chat answer card from the mock-up (a big total, a coloured category bar, a list), then the grouped gigs agenda (month headers, filter chips).

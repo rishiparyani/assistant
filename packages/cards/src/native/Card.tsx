@@ -1,10 +1,12 @@
 // Draws a card from its spec (docs/design/home-first.md §2.3): the arrangement decides the
 // layout, the size how much shows, the collection the colour. The model never positions
 // anything; this file does.
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
+import { Tick } from "./tick.tsx";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
 import { RichRows, richRows, tint } from "./rows.tsx";
@@ -38,31 +40,18 @@ export function Card({
   // Half-height sizes: one line of title and one figure, nothing else (no empty space).
   if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} />;
 
-  // A band across the top in a wash of the list's colour, so the title reads as the card's
-  // name and not as one more row (owner's pick, 2026-10-13).
+  // A plain bold title on the white card, and what's going on as a tag in the list's colour
+  // (decision 2026-10-13 "A warmer home", from the mock-up the owner chose).
+  const tag = field
+    ? `${card.records.filter((r) => r.values[field] !== true).length} left`
+    : answerTag(card.answer, size, card.spec.arrangement === "bars");
   const header = (
-    <View
-      style={[
-        s.head,
-        s.band,
-        { backgroundColor: tint(c, dark ? 0.16 : 0.09), borderBottomColor: tint(c, dark ? 0.3 : 0.2) },
-      ]}
-    >
-      {/* The list's colour as a small tile with its first letter, like an app icon. */}
-      <View style={[s.badge, { backgroundColor: c }]}>
-        <Text style={[s.badgeText, { color: t.onAccent }]}>{initial(card.spec.title)}</Text>
-      </View>
+    <View style={s.head}>
       <Text style={[s.title, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 1}>
         {card.spec.title}
       </Text>
-      {field ? (
-        <Text style={[s.tag, { color: t.fg2, backgroundColor: t.fill }]}>
-          {card.records.filter((r) => r.values[field] !== true).length} left
-        </Text>
-      ) : answerTag(card.answer, size, card.spec.arrangement === "bars") ? (
-        <Text style={[s.tag, { color: t.fg2, backgroundColor: t.fill }]}>
-          {answerTag(card.answer, size, card.spec.arrangement === "bars")}
-        </Text>
+      {tag ? (
+        <Text style={[s.tag, { color: c, backgroundColor: tint(c, dark ? 0.2 : 0.12) }]}>{tag}</Text>
       ) : null}
     </View>
   );
@@ -176,10 +165,20 @@ export function Card({
         const askedMe = !!w.share_id && w.mine === null;
         body = (
           <View style={s.grow}>
-            <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
-              {w.record}
-            </Text>
-            <Text style={[s.sub, { color: t.fg }]} numberOfLines={size === "l" ? 3 : 2}>
+            {/* At M the question (which names the record) is the headline: everything else has
+                to fit beside a 44-point button. */}
+            {size === "l" ? (
+              <Text style={[s.rowText, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
+                {w.record}
+              </Text>
+            ) : null}
+            <Text
+              style={[
+                s.sub,
+                { color: t.fg, fontWeight: size === "l" ? "500" : "700", fontSize: size === "l" ? 12.5 : 14 },
+              ]}
+              numberOfLines={size === "l" ? 3 : 1}
+            >
               {w.text}
             </Text>
             <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
@@ -333,9 +332,9 @@ export function Card({
                       void Haptics.selectionAsync().catch(() => undefined);
                       onTick?.(r, !done);
                     }}
-                    style={[s.circle, { borderColor: done ? c : t.fg3 }]}
+                    style={s.tickHit}
                   >
-                    {done ? <View style={[s.circleIn, { backgroundColor: c }]} /> : null}
+                    <Tick done={done} />
                   </Pressable>
                   <Text
                     style={[
@@ -518,12 +517,6 @@ function istDay(v: unknown): string {
   return Number.isNaN(t) ? "" : new Date(t + 330 * 60_000).toISOString().slice(0, 10);
 }
 
-/** The first letter or digit of a title, for its badge ("Coming up" → "C"). */
-function initial(title: string): string {
-  const m = /[\p{L}\p{N}]/u.exec(title);
-  return m ? m[0].toUpperCase() : "•";
-}
-
 /** "just now", "2 h ago", "3 days ago". */
 function ago(iso: string): string {
   const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
@@ -566,22 +559,12 @@ const s = StyleSheet.create({
     gap: 8,
     borderWidth: StyleSheet.hairlineWidth,
     shadowOpacity: 1,
-    shadowRadius: 20,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
     elevation: 3,
     overflow: "hidden",
   },
   head: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
-  // Full width across the card's top (the card's padding is 14).
-  band: {
-    marginTop: -14,
-    marginHorizontal: -14,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  badge: { width: 24, height: 24, borderRadius: 7, alignItems: "center", justifyContent: "center" },
-  badgeText: { fontSize: 12.5, fontWeight: "800" },
   eyebrow: {
     fontSize: 10.5,
     fontWeight: "800",
@@ -590,21 +573,21 @@ const s = StyleSheet.create({
     flexShrink: 1,
   },
   dot: { width: 9, height: 9, borderRadius: 3 },
-  title: { fontSize: 16.5, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
+  title: { fontSize: 17, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
   tag: {
     marginLeft: "auto",
-    fontSize: 10.5,
-    fontWeight: "700",
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 10,
+    fontSize: 12,
+    fontWeight: "800",
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 11,
     overflow: "hidden",
   },
   grow: { flex: 1, justifyContent: "flex-end" },
   // Lists read from the top, right under the title (a short list leaves room below, not above).
   list: { flex: 1, justifyContent: "flex-start" },
   ctlList: { flex: 1, overflow: "hidden" },
-  ctlRow: { gap: 6, paddingVertical: 6, borderBottomWidth: StyleSheet.hairlineWidth },
+  ctlRow: { gap: 6, paddingVertical: 6 },
   ctlLine: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 28 },
   fill: { flex: 1, justifyContent: "space-between" },
   mini: {
@@ -626,28 +609,21 @@ const s = StyleSheet.create({
   },
   answerText: { fontSize: 14, fontWeight: "700" },
   num: { fontSize: 30, fontWeight: "800", letterSpacing: -1.2, fontVariant: ["tabular-nums"] },
-  sub: { fontSize: 12, fontWeight: "500" },
+  sub: { fontSize: 12.5, lineHeight: 17, fontWeight: "500" },
   of: { fontSize: 16, fontWeight: "700", letterSpacing: 0 },
   bar: { height: 8, borderRadius: 4, overflow: "hidden", marginVertical: 4 },
   barIn: { height: 8, borderRadius: 4 },
+  // List rows: no lines between them (the mock-up's cleaner list); the tick and the spacing
+  // keep them apart.
   row: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 9,
+    gap: 10,
     minHeight: 32,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  rowText: { flex: 1, fontSize: 13.5 },
+  rowText: { flex: 1, fontSize: 15 },
   end: { fontSize: 11.5, fontVariant: ["tabular-nums"] },
-  circle: {
-    width: 21,
-    height: 21,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circleIn: { width: 13, height: 13, borderRadius: 7 },
+  tickHit: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   compact: { padding: 11, gap: 2, justifyContent: "space-between" },
   compactWide: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14 },
   compactLeft: { flex: 1, gap: 3, minWidth: 0 },

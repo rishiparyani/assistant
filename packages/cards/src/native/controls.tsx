@@ -3,10 +3,12 @@
 // dependency), themed, at least 44 points to tap, and quick: the change shows at once and
 // goes through the outbox, so it works offline.
 import { useState } from "react";
-import { Pressable, Switch, Text, View, StyleSheet, type LayoutChangeEvent } from "react-native";
+import { Pressable, Switch, View, StyleSheet, type LayoutChangeEvent } from "react-native";
+import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { FieldView, StoredValue } from "@assistant/shared";
 import type { CardControl } from "@assistant/shared";
+import { Tick as TickBox } from "./tick.tsx";
 import { useTheme } from "./theme.ts";
 
 const tap = () => void Haptics.selectionAsync().catch(() => undefined);
@@ -49,8 +51,7 @@ export function Control(p: ControlProps) {
   }
 }
 
-function Tick({ value, colour, onSet, label }: ControlProps) {
-  const { t } = useTheme();
+function Tick({ value, onSet, label }: ControlProps) {
   const on = value === true;
   return (
     <Pressable
@@ -62,9 +63,9 @@ function Tick({ value, colour, onSet, label }: ControlProps) {
         tap();
         onSet(!on);
       }}
-      style={[s.circle, { borderColor: on ? colour : t.fg3 }]}
+      style={s.tickHit}
     >
-      {on ? <View style={[s.circleIn, { backgroundColor: colour }]} /> : null}
+      <TickBox done={on} />
     </Pressable>
   );
 }
@@ -242,15 +243,7 @@ function Button({ value, control, colour, onSet, label }: ControlProps) {
 }
 
 const s = StyleSheet.create({
-  circle: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  circleIn: { width: 13, height: 13, borderRadius: 7 },
+  tickHit: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   switch: { transform: [{ scale: 0.8 }], marginVertical: -6 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   chip: {

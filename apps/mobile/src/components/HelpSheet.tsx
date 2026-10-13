@@ -1,7 +1,8 @@
 // Help (decision 2026-10-13 "Guide people, no presets"), one tap from the home's "?" button:
 // take the tour again, ideas for cards (the gallery), and "How do I…?" asked in the chat.
 // Nothing is set up from here; the person or the assistant makes everything.
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "@/theme";
 

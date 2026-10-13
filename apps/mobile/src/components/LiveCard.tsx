@@ -1,7 +1,8 @@
 // A live card in the chat: a record (its values), or a list / saved view drawn like a home
 // card (ticks work). Loaded when shown; "Open" hands the card to the chat as context.
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
 import { pinAnswer, setValue, stillShown, tick, type HomeCard } from "../home.ts";

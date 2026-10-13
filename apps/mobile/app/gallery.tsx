@@ -2,14 +2,16 @@
 // draws, at every size, with made-up data, in the current theme. For checking the look on a
 // phone and in the simulator screenshots; nothing here reads or writes data.
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View, useWindowDimensions, Pressable } from "react-native";
+import { ScrollView, StyleSheet, View, useWindowDimensions, Pressable } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ARRANGEMENT_INFO } from "@assistant/cards";
+import { ARRANGEMENT_INFO, nextUp } from "@assistant/cards";
 import {
   Card,
   CardGrid,
   GALLERY_ARRANGEMENTS,
+  HeroCard,
   controlCards,
   richCards,
   sampleCards,
@@ -59,6 +61,12 @@ export default function Gallery() {
           {GALLERY_ARRANGEMENTS.length} kinds of card at every size they come in. Made-up data; nothing is
           saved.
         </Text>
+        {/* The "Next up" card Now opens with: the soonest dated record among these cards. */}
+        {nextUp(cards) ? (
+          <View style={{ width: gridWidth, marginBottom: 12 }}>
+            <HeroCard next={nextUp(cards)!} />
+          </View>
+        ) : null}
         <View style={{ width: gridWidth }}>
           <CardGrid
             cards={cards}

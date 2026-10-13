@@ -2,7 +2,8 @@
 // change, docs/design/home-first.md §7 step 1); email/password exists only on a local test
 // server, so the simulator tests can sign in.
 import { useState } from "react";
-import { Image, Platform, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { signInWithEmail, signInWithGoogle } from "@/auth";

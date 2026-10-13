@@ -26,6 +26,9 @@ export interface HomeCard {
   total: number | null;
   /** A process card (home-first.md §2 point 9): the step waiting on people. */
   waiting?: WaitingItem;
+  /** The soonest records still to come (by its date), for "Next up": a list card shows only
+   *  its first rows, which needn't be the soonest. */
+  upcoming?: RecordView[];
   /** table / bars: the answer to the card's question, worked out by the space. */
   answer?: QueryResult;
   /** The memory card (home-first.md §2 point 16): what the assistant remembers for me. */

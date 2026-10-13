@@ -4,6 +4,28 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF25: a warmer home** (decision 2026-10-13 "A warmer home"; the owner approved the mock-up at claude.ai, "Gigspree home refresh").
+  - **Tokens** (`packages/cards/src/native/theme.ts`): a warm page `#f4f2ee`, white cells, accent `#4f46e5`, plus `ink`, `hero`, `good` and `warn`, light and dark.
+  - **Cards:** a plain bold title with a coloured tag (`N left`, `3 of 5`); the band and badge are gone.
+  - **Next up:**
+    - `packages/cards/src/next-up.ts` has `nextUp` and `countdown`, with tests.
+    - `native/hero.tsx` draws `HeroCard`, shown at the top of Now and in the gallery.
+  - **Home** (`apps/mobile/app/index.tsx`):
+    - a greeting with the date;
+    - a dark chat bar with a send button;
+    - round Help and Search buttons;
+    - a solid backdrop behind the bar;
+    - on a laptop the hero keeps a phone card's width.
+  - **Verified here:** the web build against the local Worker at 390 (light and dark) and 1280 (dark).
+  - **Closer to the mock-up** (owner: the screens didn't match it):
+    - Manrope everywhere (`@expo-google-fonts/manrope`, the `text.tsx` wrapper);
+    - square tick boxes (`tick.tsx`);
+    - no lines between list rows;
+    - a process card at M shows the question as its headline;
+    - rich rows with a note fit 2 rows on an L card.
+  - **Gotcha:** import `Text` and `TextInput` from `@assistant/cards/native` (or `./text.tsx` inside the cards package), never from `react-native`, or the text falls back to the system font.
+  - **Next:** the mock-up's chat answer card (a total, a stacked category bar, a list), then the grouped gigs agenda.
+
 - **HF24: questions about the data** (decision 2026-10-13 "Questions, not SQL"; owner: "build it and complete it").
   - **Shared:**
     - `packages/shared/src/core/data-query.ts`: `QuerySpec`, `QueryInput`, `QueryResult`, `queryWords`, `measureName`.

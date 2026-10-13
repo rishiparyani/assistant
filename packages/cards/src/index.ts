@@ -3,3 +3,4 @@
 // The React Native drawing is in "@assistant/cards/native".
 export * from "./spec.ts";
 export * from "./catalogue.ts";
+export * from "./next-up.ts";

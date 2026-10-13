@@ -3,7 +3,8 @@
 // (inline: just what that reply did) or as a sheet with the recent list.
 // online-only: the log and Undo live on the server.
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@assistant/cards/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HistoryItem } from "@assistant/shared";
 import { isOffline, request } from "../api.ts";
