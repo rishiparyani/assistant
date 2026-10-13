@@ -166,12 +166,30 @@ export default function Home() {
 
   if (loaded && !me) return <Redirect href="/login" />;
 
-  const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) =>
+  const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) => {
     update((prev) => {
       const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
       const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
       return replaceCard(prev, { ...current, records });
     });
+    // Ticked off a card that only shows what's open ("Today"): it stays a beat, struck
+    // through with its box filled, then slides away (the motion demo the owner approved).
+    const field = card.spec.sources[0]?.answer_field;
+    const after = field ? { ...record, values: { ...record.values, [field]: value } } : record;
+    if (value && !stillShown(card, after, userId))
+      setTimeout(
+        () =>
+          update((prev) => {
+            const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id);
+            if (!current) return prev;
+            const records = current.records.filter(
+              (r) => r.id !== record.id || stillShown(current, r, userId),
+            );
+            return replaceCard(prev, { ...current, records });
+          }),
+        650,
+      );
+  };
   const onSet = (card: HomeCard) => (record: Parameters<typeof tick>[1], field: string, value: StoredValue) =>
     update((prev) => {
       const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;

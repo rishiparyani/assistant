@@ -2,6 +2,7 @@
 // layout, the size how much shows, the collection the colour. The model never positions
 // anything; this file does.
 import { Pressable, StyleSheet, View } from "react-native";
+import Animated, { FadeOutRight, LinearTransition, ZoomIn } from "react-native-reanimated";
 import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { RecordView, StoredValue } from "@assistant/shared";
@@ -51,7 +52,10 @@ export function Card({
         {card.spec.title}
       </Text>
       {tag ? (
-        <Text style={[s.tag, { color: c, backgroundColor: tint(c, dark ? 0.2 : 0.12) }]}>{tag}</Text>
+        // Keyed by its words: a new count pops in ("8 left" → "7 left").
+        <Animated.View key={tag} entering={ZoomIn.springify().damping(12)} style={s.tagWrap}>
+          <Text style={[s.tag, { color: c, backgroundColor: tint(c, dark ? 0.2 : 0.12) }]}>{tag}</Text>
+        </Animated.View>
       ) : null}
     </View>
   );
@@ -322,7 +326,13 @@ export function Card({
             {card.records.slice(0, ROWS[size]).map((r) => {
               const done = field ? r.values[field] === true : false;
               return (
-                <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
+                // A ticked row that leaves the card slides away; the rest close up.
+                <Animated.View
+                  key={r.id}
+                  style={s.row}
+                  exiting={FadeOutRight.duration(260)}
+                  layout={LinearTransition.springify().damping(18)}
+                >
                   <Pressable
                     accessibilityRole="checkbox"
                     accessibilityState={{ checked: done }}
@@ -345,7 +355,7 @@ export function Card({
                   >
                     {r.title}
                   </Text>
-                </View>
+                </Animated.View>
               );
             })}
             {card.records.length === 0 ? (
@@ -574,8 +584,8 @@ const s = StyleSheet.create({
   },
   dot: { width: 9, height: 9, borderRadius: 3 },
   title: { fontSize: 17, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
+  tagWrap: { marginLeft: "auto" },
   tag: {
-    marginLeft: "auto",
     fontSize: 12,
     fontWeight: "800",
     paddingHorizontal: 9,

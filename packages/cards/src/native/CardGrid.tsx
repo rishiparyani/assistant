@@ -10,6 +10,7 @@ import Animated, {
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -232,6 +233,7 @@ export function CardGrid({
         return (
           <Slot
             key={id}
+            order={stable.current.indexOf(id)}
             card={card}
             rect={rect}
             hidden={dragging?.card.id === id}
@@ -270,6 +272,7 @@ export function CardGrid({
 }
 
 function Slot({
+  order,
   card,
   rect,
   hidden,
@@ -282,6 +285,8 @@ function Slot({
   placeholderColour,
   children,
 }: {
+  /** Its place among the cards when it first shows (how long it waits to rise in). */
+  order: number;
   card: HomeCard;
   rect: Rect;
   hidden: boolean;
@@ -308,7 +313,18 @@ function Slot({
       top.value = withSpring(rect.y, SETTLE);
     }
   }, [rect.x, rect.y, left, top]);
-  const place = useAnimatedStyle(() => ({ left: left.value, top: top.value }));
+  // A card rises in the first time it shows, the next one a moment later (the motion demo).
+  const shown = useSharedValue(0);
+  useEffect(() => {
+    shown.value = withDelay(Math.min(order, 8) * 60, withSpring(1, { damping: 18, stiffness: 170 }));
+    // Only on first show: later order changes slide instead (above).
+  }, []);
+  const place = useAnimatedStyle(() => ({
+    left: left.value,
+    top: top.value,
+    opacity: Math.min(1, shown.value * 1.4),
+    transform: [{ translateY: (1 - shown.value) * 20 }],
+  }));
 
   const moved = useSharedValue(false);
   // Hold: the card lifts. Let go without moving: its menu. Move: it follows the finger.

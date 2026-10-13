@@ -1,7 +1,15 @@
 // An answer on a card (decision 2026-10-13 "Questions, not SQL"): the table the space worked
 // out for a question, drawn as a small table or as bars. Every number here was calculated by
 // the space; the card only lays it out.
+import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 import { Text } from "./text.tsx";
 import type { QueryResult } from "@assistant/shared";
 import type { CardSize } from "../spec.ts";
@@ -91,7 +99,7 @@ export function AnswerBars({
             {g >= 0 ? r.shown[g] : answer.columns[m]!.name}
           </Text>
           <View style={[s.track, { backgroundColor: tint(colour, dark ? 0.16 : 0.1) }]}>
-            <View style={[s.fill, { width: `${(nums[j]! / top) * 100}%`, backgroundColor: colour }]} />
+            <Grow to={nums[j]! / top} delay={j * 90} colour={colour} />
           </View>
           <Text style={[s.barValue, { color: t.fg2 }]} numberOfLines={1}>
             {r.shown[m]}
@@ -101,6 +109,16 @@ export function AnswerBars({
       {!answer.rows.length ? <Text style={[s.sub, { color: t.fg2 }]}>Nothing matches yet.</Text> : null}
     </View>
   );
+}
+
+/** A bar that grows from nothing to its share when it first shows (the motion demo). */
+function Grow({ to, delay, colour }: { to: number; delay: number; colour: string }) {
+  const w = useSharedValue(0);
+  useEffect(() => {
+    w.value = withDelay(delay, withTiming(to, { duration: 700, easing: Easing.out(Easing.cubic) }));
+  }, [to, delay, w]);
+  const style = useAnimatedStyle(() => ({ width: `${w.value * 100}%` }));
+  return <Animated.View style={[s.fill, { backgroundColor: colour }, style]} />;
 }
 
 const s = StyleSheet.create({

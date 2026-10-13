@@ -1,8 +1,17 @@
 // A live card in the chat: a record (its values), or a list / saved view drawn like a home
 // card (ticks work). Loaded when shown; "Open" hands the card to the chat as context.
 import { useEffect, useState } from "react";
+import * as Haptics from "expo-haptics";
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { Text } from "@assistant/cards/native";
+import { Text, faceOf } from "@assistant/cards/native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
 import { pinAnswer, setValue, stillShown, tick, type HomeCard } from "../home.ts";
@@ -172,11 +181,16 @@ function AnswerCard({
   const { t } = useTheme();
   const [pinned, setPinned] = useState(false);
   const { card, ref } = data;
+  // Pinning: the card dips toward the home and springs back, with a tap (the motion demo).
+  const dip = useSharedValue(1);
+  const dipStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dip.value }, { translateY: (1 - dip.value) * 120 }],
+  }));
   return (
     <View style={{ gap: 6 }}>
-      <View style={{ height: cardHeight(card) }}>
+      <Animated.View style={[{ height: cardHeight(card) }, dipStyle]}>
         <Card card={card} onOpen={() => onAsk?.(card.spec.title)} />
-      </View>
+      </Animated.View>
       <View style={s.actions}>
         {card.answer ? (
           <Text style={[s.sub, { color: t.fg3, flex: 1 }]} numberOfLines={2}>
@@ -190,15 +204,24 @@ function AnswerCard({
           onPress={() => {
             pinAnswer(ref, card);
             setPinned(true);
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+            dip.value = withSequence(withTiming(0.9, { duration: 160 }), withSpring(1, { damping: 11 }));
           }}
           style={({ pressed }) => [
             s.pin,
             { backgroundColor: pinned ? t.fill : t.accent, opacity: pressed ? 0.85 : 1 },
           ]}
         >
-          <Text style={[s.pinText, { color: pinned ? t.fg2 : t.onAccent }]}>
-            {pinned ? "On your home" : "Pin to home"}
-          </Text>
+          {pinned ? (
+            <Animated.Text
+              entering={FadeInDown.springify().damping(14)}
+              style={[s.pinText, { color: t.fg2 }, faceOf(s.pinText)]}
+            >
+              On your home ✓
+            </Animated.Text>
+          ) : (
+            <Text style={[s.pinText, { color: t.onAccent }]}>Pin to home</Text>
+          )}
         </Pressable>
       </View>
     </View>
