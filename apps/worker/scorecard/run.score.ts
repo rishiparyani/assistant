@@ -25,9 +25,7 @@ const budget = () => {
 const steps = async (userId: string): Promise<string> => {
   const ns = (env as unknown as { CHATS: DurableObjectNamespace }).CHATS;
   const chat = ns.get(ns.idFromName(`chat:${userId}`)) as unknown as {
-    context(
-      userId: string,
-    ): Promise<
+    context(userId: string): Promise<
       {
         role: string;
         content: string | null;
