@@ -36,6 +36,7 @@ const DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
 type Chip = { id: string; name: string; view: SavedView | null };
 type Saved = { collection: CollectionView; views: SavedView[] };
+type Kept = { items?: RecordView[]; next_cursor?: string | null };
 
 /** The India-time day of a date or a stored date-time ("2026-10-13"). */
 const istDay = (v: unknown): string | null => {
@@ -89,7 +90,12 @@ export default function ListPage() {
     [saved],
   );
   const current = chips.find((x) => x.id === chip) ?? chips[0]!;
+  // Grouped on the date the records are sorted by, so each month shows once.
+  const sortDate = c?.fields.find(
+    (f) => f.id === current.view?.sort?.field && (f.type === "date" || f.type === "datetime"),
+  )?.id;
   const dateField =
+    sortDate ??
     current.view?.card?.row?.date ??
     c?.fields.find((f) => f.type === "date" || f.type === "datetime")?.id ??
     null;
@@ -104,6 +110,13 @@ export default function ListPage() {
     };
   }, [current, dateField]);
   const pageKey = `${key}:${current.id}`;
+  // The first page this phone kept, and whether more come after it (so a partial copy
+  // never shows as the whole count or total).
+  const restore = useCallback(() => {
+    const kept = readJson<Kept>(pageKey);
+    setRecords(kept?.items ?? null);
+    setCursor(kept?.next_cursor ?? null);
+  }, [pageKey]);
   const loadPage = useCallback(
     async (after: string | null) => {
       if (!c) return;
@@ -115,9 +128,9 @@ export default function ListPage() {
         });
         setRecords((prev) => (after ? [...(prev ?? []), ...r.items] : r.items));
         setCursor(r.next_cursor);
-        if (!after) writeJson(pageKey, r.items);
+        if (!after) writeJson(pageKey, { items: r.items, next_cursor: r.next_cursor });
       } catch (e) {
-        if (!after) setRecords(readJson<RecordView[]>(pageKey) ?? []);
+        if (!after) restore();
         setNote(
           isOffline(e)
             ? "Offline: showing what this phone kept."
@@ -127,13 +140,12 @@ export default function ListPage() {
         );
       }
     },
-    [c, query, pageKey],
+    [c, query, pageKey, restore],
   );
   useEffect(() => {
-    setRecords(readJson<RecordView[]>(pageKey));
-    setCursor(null);
+    restore();
     void loadPage(null);
-  }, [loadPage, pageKey]);
+  }, [loadPage, restore]);
 
   // Grouped by month (when the list has a date), in the order the records came.
   const rows = useMemo(() => {
@@ -169,6 +181,10 @@ export default function ListPage() {
     if (!ticker) return;
     const next = tick(ticker, r, value);
     setRecords((prev) => (prev ?? []).map((x) => (x.id === r.id ? next : x)));
+    // The kept page too, so reopening the list before the change syncs still shows it.
+    const kept = readJson<Kept>(pageKey);
+    if (kept?.items)
+      writeJson(pageKey, { ...kept, items: kept.items.map((x) => (x.id === r.id ? next : x)) });
   };
   const money = c?.fields.filter((f) => f.type === "money") ?? [];
   const total =
@@ -438,9 +454,9 @@ const s = StyleSheet.create({
   column: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" },
   top: { paddingHorizontal: 16, paddingBottom: 4 },
   back: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
     shadowOpacity: 1,
@@ -459,7 +475,7 @@ const s = StyleSheet.create({
   meta: { fontSize: 13, fontWeight: "700" },
   chipRow: { flexGrow: 0, marginTop: 10 },
   chips: { gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
-  chip: { minHeight: 38, paddingHorizontal: 14, borderRadius: 19, borderWidth: 1, justifyContent: "center" },
+  chip: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, borderWidth: 1, justifyContent: "center" },
   chipText: { fontSize: 14, fontWeight: "700" },
   note: { fontSize: 13, paddingHorizontal: 20, paddingTop: 6 },
   empty: { fontSize: 15, textAlign: "center", paddingTop: 40 },
@@ -498,7 +514,7 @@ const s = StyleSheet.create({
     overflow: "hidden",
   },
   callout: { marginTop: 4, padding: 8, borderRadius: 12, overflow: "hidden", fontSize: 13 },
-  action: { minHeight: 36, paddingHorizontal: 12, borderRadius: 18, justifyContent: "center" },
+  action: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, justifyContent: "center" },
   actionText: { fontSize: 13, fontWeight: "800" },
   bottom: { position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 8, paddingHorizontal: 16 },
   bar: {

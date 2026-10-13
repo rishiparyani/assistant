@@ -42,7 +42,7 @@ export function Card({
   const size = card.spec.size;
   const field = card.spec.sources[0]?.answer_field;
   // Half-height sizes: one line of title and one figure, nothing else (no empty space).
-  if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} />;
+  if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} onSeeAll={onSeeAll} />;
 
   // A plain bold title on the white card, and what's going on as a tag in the list's colour
   // (decision 2026-10-13 "A warmer home", from the mock-up the owner chose).
@@ -477,7 +477,7 @@ function figureOf(card: HomeCard): { big: string; small: string; ratio: number |
   }
 }
 
-function Compact({ card, onOpen }: { card: HomeCard; onOpen?: () => void }) {
+function Compact({ card, onOpen, onSeeAll }: { card: HomeCard; onOpen?: () => void; onSeeAll?: () => void }) {
   const { t, colour } = useTheme();
   const c = colour(card.colour);
   const wide = card.spec.size === "bar";
@@ -505,9 +505,24 @@ function Compact({ card, onOpen }: { card: HomeCard; onOpen?: () => void }) {
       <View style={wide ? s.compactLeft : undefined}>
         <View style={s.head}>
           {/* Half-height cards: a small coloured label over the figure ("SPENT THIS MONTH"). */}
-          <Text style={[s.eyebrow, { color: c }]} numberOfLines={1}>
-            {card.spec.title}
-          </Text>
+          {onSeeAll ? (
+            // The label opens the whole list, like a full card's title; the rest asks the chat.
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={`See all of ${card.spec.title}`}
+              hitSlop={12}
+              onPress={onSeeAll}
+              style={s.titleLink}
+            >
+              <Text style={[s.eyebrow, { color: c }]} numberOfLines={1}>
+                {card.spec.title} ›
+              </Text>
+            </Pressable>
+          ) : (
+            <Text style={[s.eyebrow, { color: c }]} numberOfLines={1}>
+              {card.spec.title}
+            </Text>
+          )}
         </View>
         {wide && f.small ? (
           <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
