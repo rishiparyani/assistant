@@ -22,9 +22,12 @@ export function Card({
   onOpen,
   onAnswer,
   onNudge,
+  onSeeAll,
   busy,
 }: {
   card: HomeCard;
+  /** The card's title opens its whole list (with "›" after it). */
+  onSeeAll?: () => void;
   onTick?: (record: RecordView, value: boolean) => void;
   /** A control on a row changed a field (switches, chips, steppers, stars, sliders, buttons). */
   onSet?: (record: RecordView, fieldId: string, value: StoredValue) => void;
@@ -48,9 +51,24 @@ export function Card({
     : answerTag(card.answer, size, card.spec.arrangement === "bars");
   const header = (
     <View style={s.head}>
-      <Text style={[s.title, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 1}>
-        {card.spec.title}
-      </Text>
+      {onSeeAll ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`See all of ${card.spec.title}`}
+          hitSlop={8}
+          onPress={onSeeAll}
+          style={s.titleLink}
+        >
+          <Text style={[s.title, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 1}>
+            {card.spec.title}
+            <Text style={[s.chev, { color: t.fg3 }]}> ›</Text>
+          </Text>
+        </Pressable>
+      ) : (
+        <Text style={[s.title, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 1}>
+          {card.spec.title}
+        </Text>
+      )}
       {tag ? (
         // Keyed by its words: a new count pops in ("8 left" → "7 left").
         <Animated.View key={tag} entering={ZoomIn.springify().damping(12)} style={s.tagWrap}>
@@ -585,6 +603,8 @@ const s = StyleSheet.create({
   dot: { width: 9, height: 9, borderRadius: 3 },
   title: { fontSize: 17, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
   tagWrap: { marginLeft: "auto" },
+  titleLink: { flexShrink: 1 },
+  chev: { fontSize: 19, fontWeight: "700" },
   tag: {
     fontSize: 12,
     fontWeight: "800",

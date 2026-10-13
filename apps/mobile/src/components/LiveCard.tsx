@@ -1,6 +1,7 @@
 // A live card in the chat: a record (its values), or a list / saved view drawn like a home
 // card (ticks work). Loaded when shown; "Open" hands the card to the chat as context.
 import { useEffect, useState } from "react";
+import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Animated, {
   FadeInDown,
@@ -137,7 +138,6 @@ function ListCard({
   more: boolean;
   onAsk?: (title: string) => void;
 }) {
-  const { t } = useTheme();
   const { me } = useSession();
   const [card, setCard] = useState(given);
   useEffect(() => setCard(given), [given]);
@@ -165,8 +165,24 @@ function ListCard({
           onOpen={() => onAsk?.(card.spec.title)}
         />
       </View>
-      {more ? <Text style={[s.sub, { color: t.fg3, paddingHorizontal: 6 }]}>and more…</Text> : null}
+      {card.collection ? <OpenList collection={card.collection.id} view={card.view?.id} more={more} /> : null}
     </View>
+  );
+}
+
+/** "Open list ›": the whole list on its own screen (owner, 2026-10-13). */
+function OpenList({ collection, view, more }: { collection: string; view?: string; more?: boolean }) {
+  const { t } = useTheme();
+  const router = useRouter();
+  return (
+    <Pressable
+      accessibilityRole="link"
+      onPress={() => router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } })}
+      hitSlop={8}
+      style={s.openList}
+    >
+      <Text style={[s.openListText, { color: t.accent }]}>{more ? "See all ›" : "Open list ›"}</Text>
+    </Pressable>
   );
 }
 
@@ -229,6 +245,8 @@ function AnswerCard({
 }
 
 const s = StyleSheet.create({
+  openList: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center", paddingHorizontal: 6 },
+  openListText: { fontSize: 14, fontWeight: "800" },
   actions: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 },
   pin: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, justifyContent: "center" },
   pinText: { fontSize: 14, fontWeight: "700" },

@@ -26,8 +26,13 @@ export function SearchSheet({
   onClose,
   onOpen,
   onOpenResult,
+  lists = [],
+  onOpenList,
 }: {
   cards: HomeCard[];
+  /** Every list the person has: a name that matches opens the whole list. */
+  lists?: { id: string; name: string }[];
+  onOpenList?: (id: string) => void;
   onClose: () => void;
   onOpen: (card: HomeCard) => void;
   /** A hit from the server's index (a record somewhere the person can see). */
@@ -86,6 +91,24 @@ export function SearchSheet({
           style={[s.input, { backgroundColor: t.cell, color: t.fg, borderColor: t.sep }]}
         />
         <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+          {onOpenList && text.trim().length >= 2
+            ? lists
+                .filter((l) => l.name.toLowerCase().includes(text.trim().toLowerCase()))
+                .slice(0, 3)
+                .map((l) => (
+                  <Pressable
+                    key={`list:${l.id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open the list ${l.name}`}
+                    onPress={() => onOpenList(l.id)}
+                    style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+                  >
+                    <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                      {l.name} <Text style={{ color: t.fg2, fontWeight: "600" }}>· list ›</Text>
+                    </Text>
+                  </Pressable>
+                ))
+            : null}
           {hits.map(({ card, rows }) => (
             <Pressable
               key={card.id}

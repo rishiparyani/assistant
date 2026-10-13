@@ -755,3 +755,14 @@ The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `
 **Why:** the owner found the mock-up "way better". One big card for what's next makes the home useful at a glance.
 
 **Next:** the chat answer card from the mock-up (a big total, a coloured category bar, a list), then the grouped gigs agenda (month headers, filter chips).
+
+## 2026-10-13: Motion (owner, on the motion demo: "I like your animations idea", "no changes to the motion demo")
+
+- Motion says what happened: a tick pops and fills; a row that no longer belongs to a card slides away after a short beat; a changed count pops; cards rise in one after another; answer bars grow; pinning dips the card toward the home with a tap.
+- Built with Reanimated (already a dependency) and expo-haptics. Short (under 0.7 s) and springy, never in the way of the next tap. Reduce Motion turns it off.
+
+## 2026-10-13: The whole list (owner: "Fine, do it")
+
+- Cards show a few rows; the whole list has its own screen (`/list`), not a chat answer. It is a screen for using what exists ("Chat makes, screens use"): chips switch between "All" and the list's saved views, records can be ticked, tapping one asks the chat about it, and adding goes through the chat bar at the bottom. New chips (views) are made in the chat.
+- Grouped by month when the list has a date, otherwise one plain run; pages of 50.
+- Ways in: the card's title ("Notes ›"), "Open list ›" under a list card in the chat, Search, and an "All lists" page at the end of the home.
