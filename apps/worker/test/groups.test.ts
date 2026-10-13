@@ -207,4 +207,45 @@ describe("group chats", () => {
       (await api(outsider)(`/groups/${g.id}/messages/${msg.id}/saved`, { body: { label: "Test" } })).status,
     ).toBe(404);
   });
+
+  it("finds chat messages in search, for the people in the chat only", async () => {
+    const { owner, dev, outsider } = await setUp();
+    const until = async (check: () => Promise<boolean>, ms = 8000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (await check()) return true;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return false;
+    };
+    type Hit = { kind: string; chat?: string; group_id?: string; snippet: string };
+    const search = async (u: User, q: string) =>
+      (await json<Hit[]>(await api(u)(`/search?q=${encodeURIComponent(q)}&limit=12`))).filter(
+        (h) => h.kind === "message",
+      );
+    const g = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Band", people: ["Test Dev"] } }),
+    );
+    await api(dev)(`/groups/${g.id}/messages`, { body: { text: "Can we do 12 Dec at Test Taj?" } });
+    await api(owner)(`/groups/${g.id}/messages`, { body: { text: "They offered sixty thousand" } });
+    // Both find it (one piece of conversation, named as each sees the chat); nobody else does.
+    expect(await until(async () => (await search(owner, "Test Taj")).length === 1)).toBe(true);
+    expect((await search(owner, "Test Taj"))[0]).toMatchObject({
+      kind: "message",
+      chat: "Test Band",
+      group_id: g.id,
+    });
+    expect(await until(async () => (await search(dev, "sixty")).length === 1)).toBe(true);
+    expect(await search(outsider, "Test Taj")).toEqual([]);
+    // A hit opens the chat around its message.
+    const hit = (
+      await json<{ message_id: string }[]>(await api(owner)(`/search?q=Test%20Taj&limit=12`))
+    ).find((h) => "message_id" in h)!;
+    const around = await json<GroupView>(await api(owner)(`/groups/${g.id}?around=${hit.message_id}`));
+    expect(around.messages.some((m) => m.id === hit.message_id)).toBe(true);
+    // Leaving the chat takes it out of Dev's results.
+    await api(dev)(`/groups/${g.id}/leave`, { body: {} });
+    expect(await until(async () => (await search(dev, "Test Taj")).length === 0)).toBe(true);
+    expect((await search(owner, "Test Taj")).length).toBe(1);
+  });
 });

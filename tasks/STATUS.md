@@ -4,6 +4,14 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF30: search in chats** (decision 2026-10-13 "Saving chat messages, and searching chats").
+  - **Group object:** messages are put into pieces of conversation (up to 6 messages, none more than 30 minutes apart; `chunks`, `messages.chunk_id`, migration) by the alarm, which sends changed pieces, with embeddings, to every member's own search index (`group:<id>:<chunk>` documents under space id `group:<id>`). People added get the whole chat (`index_fill`); people who leave have it removed (`index_gone`). Retries after 30 s on failure; writes are replaces.
+  - **Search:** `GET /api/search` also returns `{kind: "message", group_id, chat, message_id, snippet}`, after the chat itself confirms I'm still in it (named as I see it). `POST /api/search/rebuild` fills my chats too. Snippets show more text around the match (40 tokens).
+  - **Phone:** chat hits in the Search sheet ("Test Band · chat", the lines), opening the chat around that message (`GET /api/groups/:id?around=`) with a ring on the message that has the words, and a "Latest messages ↓" button.
+  - **Review fixes:** a chat from before search gets indexed on its own (the object sets an alarm when it finds messages not yet in pieces); a failing member index is tried 5 times with growing waits, then let go (a rebuild fills it), so nothing retries or embeds for ever.
+  - **Verified here:** web build against the local Worker at 390: "Taj" finds the band chat and opens it. Tests: `groups.test.ts` (+1: both members find it, an outsider doesn't, leaving removes it).
+  - **Next:** push notifications (waiting on the owner's choice of relay: Expo recommended), then Ask privately and Share to chat.
+
 - **HF29: saving chat messages; live home and lists on the phone** (decision 2026-10-13 "Saving chat messages, and searching chats").
   - **Server:** `POST /api/groups/:id/messages/:message_id/save` runs the asker's assistant, proposals only, in their own assistant chat for the group (`chat_id` = group id) and returns that turn's cards; `POST …/saved` (`{label}`) marks it saved for that person only (group object `saves` table, migration). Refused (403) without the assistant; non-members 404. Scripted model files "Test PA needs two DI boxes" as a note.
   - **Phone:** hold a message → `src/components/SaveSheet.tsx` (the message, "Finding where it goes…", the card with "Add to Notes" / "Not this", or "Save to my Inbox" without the assistant); "Saved to Notes ✓" under the message, at once (outbox). The home (`index.tsx`) and the full list (`list.tsx`) load again on live `space_changed` pings (debounced, not while own changes wait).

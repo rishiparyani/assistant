@@ -9,7 +9,19 @@ import { request } from "../api.ts";
 import type { HomeCard } from "../home.ts";
 import { radius, useTheme } from "../theme.ts";
 
-export interface SearchResult {
+export type SearchResult = RecordHit | MessageHit;
+
+/** A piece of a chat I'm in. */
+export interface MessageHit {
+  kind: "message";
+  group_id: string;
+  chat: string;
+  message_id: string;
+  snippet: string;
+  updated_at: string;
+}
+
+export interface RecordHit {
   kind: "record";
   space_id: string;
   space: string;
@@ -36,7 +48,7 @@ export function SearchSheet({
   onClose: () => void;
   onOpen: (card: HomeCard) => void;
   /** A hit from the server's index (a record somewhere the person can see). */
-  onOpenResult?: (hit: SearchResult) => void;
+  onOpenResult?: (hit: SearchResult, q: string) => void;
 }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
@@ -127,22 +139,39 @@ export function SearchSheet({
             </Pressable>
           ))}
           {remote.length ? <Text style={[s.kicker, { color: t.fg2 }]}>Everything you can see</Text> : null}
-          {remote.map((h) => (
-            <Pressable
-              key={`${h.space_id}:${h.record_id}`}
-              accessibilityRole="button"
-              onPress={() => onOpenResult?.(h)}
-              style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
-            >
-              <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                {h.title}
-              </Text>
-              <Text style={[s.row, { color: t.fg2 }]} numberOfLines={2}>
-                {h.collection}
-                {h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : ""}
-              </Text>
-            </Pressable>
-          ))}
+          {remote.map((h) =>
+            h.kind === "message" ? (
+              // A piece of a chat: who said what, opening the chat.
+              <Pressable
+                key={`${h.group_id}:${h.message_id}`}
+                accessibilityRole="button"
+                onPress={() => onOpenResult?.(h, text.trim())}
+                style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+              >
+                <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                  {h.chat} · chat
+                </Text>
+                <Text style={[s.row, { color: t.fg2 }]} numberOfLines={3}>
+                  {h.snippet.replace(/[[\]]/g, "")}
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                key={`${h.space_id}:${h.record_id}`}
+                accessibilityRole="button"
+                onPress={() => onOpenResult?.(h, text.trim())}
+                style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+              >
+                <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                  {h.title}
+                </Text>
+                <Text style={[s.row, { color: t.fg2 }]} numberOfLines={2}>
+                  {h.collection}
+                  {h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : ""}
+                </Text>
+              </Pressable>
+            ),
+          )}
           {!hits.length && !remote.length ? (
             <Text style={[s.row, { color: t.fg2, padding: 12 }]}>Nothing matches.</Text>
           ) : null}

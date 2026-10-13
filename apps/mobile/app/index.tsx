@@ -614,8 +614,12 @@ export default function Home() {
             if (assistant) ask(card);
             else openOnWeb(card);
           }}
-          onOpenResult={(hit) => {
+          onOpenResult={(hit, q) => {
             setSearch(false);
+            if (hit.kind === "message") {
+              router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
+              return;
+            }
             if (assistant)
               router.push({
                 pathname: "/chat",

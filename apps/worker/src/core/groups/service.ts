@@ -130,8 +130,8 @@ export async function myGroups(ctx: OpUserCtx): Promise<GroupSummary[]> {
     .sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1));
 }
 
-export async function groupView(ctx: OpUserCtx, id: string): Promise<GroupView> {
-  const v = await groupOf(ctx, id).view(ctx.user.id);
+export async function groupView(ctx: OpUserCtx, id: string, around?: string): Promise<GroupView> {
+  const v = await groupOf(ctx, id).view(ctx.user.id, around);
   return { ...v, can_ask: await assistantAllowed(ctx) };
 }
 

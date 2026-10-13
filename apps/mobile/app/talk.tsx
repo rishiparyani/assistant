@@ -35,10 +35,11 @@ export default function Talk() {
   const mineFg = dark ? t.onHero : t.onInk;
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  // `message`: opened from a search hit, around that message (highlighted).
+  const { id, message, q } = useLocalSearchParams<{ id: string; message?: string; q?: string }>();
   const { me } = useSession();
   const myId = me?.user.id ?? null;
-  const { chat, pending, error, reload } = useChat(id ?? "");
+  const { chat, pending, error, reload } = useChat(id ?? "", message || undefined);
   const [text, setText] = useState("");
   // The message being saved (the Save sheet is open for it).
   const [saving, setSaving] = useState<GroupMessage | null>(null);
@@ -62,6 +63,26 @@ export default function Talk() {
     for (const p of pending) out.push({ kind: "pending", id: `p:${p.id}`, p });
     return out.reverse();
   }, [chat, pending]);
+
+  // From a search hit: the hit is a piece of conversation starting at `message`; the ring goes
+  // on the message in it that has the words searched for (else on its first message).
+  const ring = { borderWidth: 2, borderColor: t.accent };
+  const marked = useMemo(() => {
+    const all = chat?.messages ?? [];
+    const start = all.findIndex((m) => m.id === message);
+    if (start < 0) return message;
+    const words = (q ?? "").trim().toLowerCase();
+    const piece = all.slice(start, start + 6).filter((m) => m.kind !== "note");
+    return (words && piece.find((m) => m.text.toLowerCase().includes(words))?.id) || message;
+  }, [chat, message, q]);
+  const shownAt = useRef(false);
+  useEffect(() => {
+    if (!message || shownAt.current || !chat) return;
+    const index = items.findIndex((x) => x.id === marked);
+    if (index < 0) return;
+    shownAt.current = true;
+    setTimeout(() => list.current?.scrollToIndex({ index, viewPosition: 0.5, animated: false }), 50);
+  }, [message, marked, chat, items]);
 
   const go = () => {
     const body = text.trim();
@@ -109,6 +130,12 @@ export default function Talk() {
             ref={list}
             inverted
             data={items}
+            onScrollToIndexFailed={(info) =>
+              setTimeout(
+                () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: false }),
+                150,
+              )
+            }
             keyExtractor={(x) => x.id}
             style={s.list}
             contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}
@@ -158,7 +185,10 @@ export default function Talk() {
               if (mine)
                 return (
                   <Animated.View entering={FadeInDown.duration(180)} style={s.mineWrap}>
-                    <Pressable {...hold} style={[s.bubble, s.mine, { backgroundColor: mineBg }]}>
+                    <Pressable
+                      {...hold}
+                      style={[s.bubble, s.mine, { backgroundColor: mineBg }, m.id === marked && ring]}
+                    >
                       <Text style={[s.text, { color: mineFg }]}>{m.text}</Text>
                       <Text style={[s.meta, { color: mineFg }]}>{when(m.created_at)}</Text>
                     </Pressable>
@@ -179,7 +209,10 @@ export default function Talk() {
                         <View style={{ width: 28 }} />
                       )
                     ) : null}
-                    <Pressable {...hold} style={[s.bubble, s.them, { backgroundColor: t.cell }]}>
+                    <Pressable
+                      {...hold}
+                      style={[s.bubble, s.them, { backgroundColor: t.cell }, m.id === marked && ring]}
+                    >
                       {!chat?.direct && item.first ? (
                         <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
                           {m.author}
@@ -194,6 +227,15 @@ export default function Talk() {
               );
             }}
           />
+          {message ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.replace({ pathname: "/talk", params: { id: id ?? "" } })}
+              style={[s.latest, { backgroundColor: t.fg }]}
+            >
+              <Text style={[s.latestText, { color: t.page }]}>Latest messages ↓</Text>
+            </Pressable>
+          ) : null}
           <View style={[s.composer, { paddingBottom: insets.bottom + 10 }]}>
             <View style={[s.box, { backgroundColor: t.cell }]}>
               <TextInput
@@ -289,6 +331,15 @@ const s = StyleSheet.create({
   author: { fontSize: 12, fontWeight: "800" },
   text: { fontSize: 16, lineHeight: 22 },
   meta: { fontSize: 11, opacity: 0.6, alignSelf: "flex-end" },
+  latest: {
+    alignSelf: "center",
+    minHeight: 40,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  latestText: { fontSize: 13, fontWeight: "800" },
   composer: { paddingHorizontal: 12, paddingTop: 6 },
   box: {
     flexDirection: "row",

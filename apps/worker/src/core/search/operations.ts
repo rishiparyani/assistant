@@ -12,7 +12,21 @@ import { embed } from "./embed.ts";
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 const indexOf = (ctx: OpUserCtx) => ctx.objects.SEARCH.getByName(`search:${ctx.user.id}`);
 
-export interface SearchResult {
+export type SearchResult = RecordResult | MessageResult;
+
+/** A piece of a chat I'm in (decision 2026-10-13 "Saving chat messages, and searching chats"). */
+export interface MessageResult {
+  kind: "message";
+  group_id: string;
+  /** The chat's name as I see it (a group's name, or the other person). */
+  chat: string;
+  /** The first message of the matching piece of conversation. */
+  message_id: string;
+  snippet: string;
+  updated_at: string;
+}
+
+export interface RecordResult {
   kind: "record";
   space_id: string;
   space: string;
@@ -34,7 +48,7 @@ export const searchOperations = [
     id: "core.search",
     tool: "search",
     description:
-      "Search everything I can see (records in my spaces) by words; part of a word matches. Returns the best hits with a snippet.",
+      "Search everything I can see (records in my spaces, and messages in my chats) by words and meaning; part of a word matches. Returns the best hits with a snippet.",
     kind: "read",
     http: { method: "GET", path: "/search" },
     input: SearchInput,
@@ -46,8 +60,31 @@ export const searchOperations = [
       // Re-check every hit with its space (deleted, or no longer mine, drops out), by space.
       const spaces = await mySpaces(ctx);
       const bySpace = new Map<string, SearchHit[]>();
-      for (const h of hits) bySpace.set(h.space_id, [...(bySpace.get(h.space_id) ?? []), h]);
+      const byGroup = new Map<string, SearchHit[]>();
+      for (const h of hits) {
+        const into = h.space_id.startsWith("group:") ? byGroup : bySpace;
+        const key = h.space_id.startsWith("group:") ? h.space_id.slice("group:".length) : h.space_id;
+        into.set(key, [...(into.get(key) ?? []), h]);
+      }
       const out: SearchResult[] = [];
+      // Chat hits: only from chats I'm still in (the chat itself says), named as I see them.
+      await Promise.all(
+        [...byGroup].map(async ([groupId, list]) => {
+          const chat = await ctx.objects.GROUPS.getByName(`group:${groupId}`)
+            .summary(ctx.user.id)
+            .catch(() => null);
+          if (!chat) return;
+          for (const h of list)
+            out.push({
+              kind: "message",
+              group_id: groupId,
+              chat: chat.name,
+              message_id: h.record_id,
+              snippet: h.snippet || h.title,
+              updated_at: h.updated_at,
+            });
+        }),
+      );
       await Promise.all(
         [...bySpace].map(async ([spaceId, list]) => {
           const space = spaces.find((s) => s.id === spaceId);
@@ -74,9 +111,8 @@ export const searchOperations = [
         }),
       );
       const order = new Map(hits.map((h, i) => [h.record_id, i]));
-      return out
-        .sort((a, b) => (order.get(a.record_id) ?? 0) - (order.get(b.record_id) ?? 0))
-        .slice(0, i.limit);
+      const idOf = (r: SearchResult) => (r.kind === "record" ? r.record_id : r.message_id);
+      return out.sort((a, b) => (order.get(idOf(a)) ?? 0) - (order.get(idOf(b)) ?? 0)).slice(0, i.limit);
     },
   }),
   defineOperation({
@@ -100,6 +136,15 @@ export const searchOperations = [
         let indexed = 0;
         for (const s of await mySpaces(ctx))
           indexed += await ctx.objects.SPACES.getByName(spaceName(s.id)).rebuildSearch(actorOf(ctx));
+        // My chats too.
+        const groups = await ctx.d1
+          .prepare(`select group_id from group_members where user_id = ? limit 100`)
+          .bind(ctx.user.id)
+          .all<{ group_id: string }>();
+        for (const g of groups.results)
+          indexed += await ctx.objects.GROUPS.getByName(`group:${g.group_id}`)
+            .rebuildSearch(ctx.user.id)
+            .catch(() => 0);
         if (key) await index.rebuildDone(key, { indexed });
         return { indexed };
       } catch (e) {
