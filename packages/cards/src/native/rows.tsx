@@ -2,7 +2,7 @@
 // date, the title, a line of details with colour dots for choices, highlighted pills, a
 // callout box for a note and a button that acts on a field (directions, call, open). Every
 // part is a field of the list; this file decides how it looks.
-import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import type { FieldView, RecordView, StoredValue } from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
@@ -17,9 +17,9 @@ const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DOTS: CollectionColour[] = ["people", "time", "music", "flow", "money", "home", "neutral"];
 
 /** How many rich rows fit: a callout or pills make a row taller. */
-export function richRows(size: string, row: Row): number {
-  // A row is about 44 points, 70 with pills, more with a callout.
-  const tall = !!row.callout || row.pills.length > 0;
+export function richRows(size: string, row: Row, belowControls = false): number {
+  // A row is about 44 points, 70 with pills, more with a callout or a line of chips.
+  const tall = !!row.callout || row.pills.length > 0 || belowControls;
   if (size === "l") return tall ? 3 : 5;
   if (size === "m") return tall ? 1 : 2;
   return 1;
@@ -43,6 +43,11 @@ function when(v: unknown): { y: number; m: number; d: number; dow: number; time:
 
 /** A value as the row shows it ("₹5,000", "Sat · 6 pm", "Vibe Tribe"); "" when there's nothing. */
 export function shown(f: FieldView, r: RecordView, tileField: string | null): string {
+  // Links and people live in `named` (their titles), not in `values`.
+  if (f.type === "link" || f.type === "person") {
+    const n = r.named[f.name];
+    return Array.isArray(n) ? n.join(", ") : typeof n === "string" ? n : "";
+  }
   const v = r.values[f.id];
   if (v === null || v === undefined || v === "") return "";
   switch (f.type) {
@@ -60,11 +65,6 @@ export function shown(f: FieldView, r: RecordView, tileField: string | null): st
       return v === true ? f.name : "";
     case "multi_choice":
       return Array.isArray(v) ? v.join(", ") : String(v);
-    case "link":
-    case "person": {
-      const n = r.named[f.name];
-      return typeof n === "string" ? n : "";
-    }
     default:
       return String(v);
   }
@@ -108,10 +108,14 @@ export function RichRows({
   const fields = card.collection?.fields ?? [];
   const byId = (id: string | null | undefined) => (id ? fields.find((f) => f.id === id) : undefined);
   const tickField = card.spec.arrangement === "list-ticks" ? card.spec.sources[0]?.answer_field : null;
-  const inline = (card.spec.controls ?? []).flatMap((ctl) => {
+  const controls = (card.spec.controls ?? []).flatMap((ctl) => {
     const f = byId(ctl.field);
-    return f && INLINE.has(ctl.as) ? [{ ctl, f }] : [];
+    return f ? [{ ctl, f }] : [];
   });
+  // Ticks, switches, steppers, stars and buttons sit at the end of the row; chips and sliders
+  // take a line under the row's text.
+  const inline = controls.filter((x) => INLINE.has(x.ctl.as));
+  const below = controls.filter((x) => !INLINE.has(x.ctl.as));
   const today = new Date(Date.now() + IST).toISOString().slice(0, 10);
   const palette = COLLECTION_COLOURS[dark ? "dark" : "light"];
 
@@ -223,6 +227,22 @@ export function RichRows({
                   </Text>
                 </View>
               ) : null}
+              {below.length ? (
+                // One line that scrolls sideways (wrapped chips would be cut off at the card's edge).
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.below}>
+                  {below.map(({ ctl, f }) => (
+                    <Control
+                      key={`${ctl.field}:${ctl.as}`}
+                      control={ctl}
+                      field={f}
+                      value={r.values[f.id]}
+                      colour={colour}
+                      label={`${r.title} · ${f.name}`}
+                      onSet={(v) => onSet?.(r, f.id, v)}
+                    />
+                  ))}
+                </ScrollView>
+              ) : null}
             </View>
             {inline.map(({ ctl, f }) => (
               <Control
@@ -312,4 +332,5 @@ const s = StyleSheet.create({
   },
   circleIn: { width: 13, height: 13, borderRadius: 7 },
   empty: { fontSize: 12, fontWeight: "500" },
+  below: { gap: 8, alignItems: "center" },
 });

@@ -61,7 +61,17 @@ export function Card({
   if (card.spec.row && listy)
     // Rich rows: a date tile, details, pills, a callout and a button (inline controls too).
     body = (
-      <RichRows card={card} colour={c} limit={richRows(size, card.spec.row)} onTick={onTick} onSet={onSet} />
+      <RichRows
+        card={card}
+        colour={c}
+        limit={richRows(
+          size,
+          card.spec.row,
+          controls.some((x) => !INLINE.has(x.ctl.as)),
+        )}
+        onTick={onTick}
+        onSet={onSet}
+      />
     );
   else if (controls.length && listy) {
     const inline = controls.filter((x) => INLINE.has(x.ctl.as));

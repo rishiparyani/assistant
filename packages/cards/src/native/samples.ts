@@ -303,7 +303,14 @@ export function richCards(): HomeCard[] {
   };
   return [
     make("gigs-l", "Coming up", "l", full),
-    make("gigs-m", "Next gigs", "m", { ...full, callout: null }),
+    {
+      // Chips on a rich row: the band, changeable from the card.
+      ...make("gigs-m", "Next gigs", "m", { ...full, callout: null, pills: [] }),
+      spec: {
+        ...make("gigs-m", "Next gigs", "m", { ...full, callout: null, pills: [] }).spec,
+        controls: [{ field: "g_band", as: "chips" as const }],
+      },
+    },
     make("paid", "Paid yet?", "m", { ...full, callout: null, action: null, pills: ["g_fee"] }, "list-ticks"),
     make("gig-s", "Next gig", "s", {
       date: "g_when",
