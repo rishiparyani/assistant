@@ -21,6 +21,31 @@ const budget = () => {
     callsFor(userId: string, since: string): Promise<CallLog[]>;
   };
 };
+/** What the model did in a case (made-up test data only), printed when the case fails. */
+const steps = async (userId: string): Promise<string> => {
+  const ns = (env as unknown as { CHATS: DurableObjectNamespace }).CHATS;
+  const chat = ns.get(ns.idFromName(`chat:${userId}`)) as unknown as {
+    context(
+      userId: string,
+    ): Promise<
+      {
+        role: string;
+        content: string | null;
+        tool_calls?: { function: { name: string; arguments: string } }[];
+      }[]
+    >;
+  };
+  const cut = (t: string) => (t.length > 240 ? `${t.slice(0, 240)}…` : t);
+  return (await chat.context(userId))
+    .flatMap((m) =>
+      m.tool_calls?.length
+        ? m.tool_calls.map((t) => `    → ${t.function.name} ${cut(t.function.arguments)}`)
+        : m.role === "tool"
+          ? [`    ← ${cut(m.content ?? "")}`]
+          : [],
+    )
+    .join("\n");
+};
 const paid = !!(env as unknown as { AI_PAID_GATEWAY?: string }).AI_PAID_GATEWAY?.trim();
 const only = (env as unknown as { SCORECARD_ONLY?: string }).SCORECARD_ONLY?.trim();
 
@@ -53,6 +78,7 @@ it("scorecard", { timeout: 30 * 60_000 }, async () => {
     const ms = Date.now() - started;
     rows.push({ c, ok, why, ms, calls: await budget().callsFor(u.id, since) });
     console.log(`${ok ? "PASS" : "FAIL"} ${c.id} (${ms} ms)${ok ? "" : `: ${why}`}`);
+    if (!ok) console.log(await steps(u.id).catch(() => "    (steps not readable)"));
   }
   console.log("\n=== SCORECARD ===\n" + table(rows) + "\n=== END ===");
 });
