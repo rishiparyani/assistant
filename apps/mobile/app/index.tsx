@@ -43,7 +43,7 @@ import {
 } from "@/home";
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
-import { radius, useTheme } from "@/theme";
+import { colourFor, radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
@@ -56,7 +56,7 @@ const DASH_MAX = 1180;
 
 export default function Home() {
   const { me, loaded, refresh } = useSession();
-  const { t } = useTheme();
+  const { t, colour } = useTheme();
   // The clock the greeting, the date and Next up read: moves on at every minute.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -166,12 +166,30 @@ export default function Home() {
 
   if (loaded && !me) return <Redirect href="/login" />;
 
-  const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) =>
+  const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) => {
     update((prev) => {
       const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
       const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
       return replaceCard(prev, { ...current, records });
     });
+    // Ticked off a card that only shows what's open ("Today"): it stays a beat, struck
+    // through with its box filled, then slides away (the motion demo the owner approved).
+    const field = card.spec.sources[0]?.answer_field;
+    const after = field ? { ...record, values: { ...record.values, [field]: value } } : record;
+    if (value && !stillShown(card, after, userId))
+      setTimeout(
+        () =>
+          update((prev) => {
+            const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id);
+            if (!current) return prev;
+            const records = current.records.filter(
+              (r) => r.id !== record.id || stillShown(current, r, userId),
+            );
+            return replaceCard(prev, { ...current, records });
+          }),
+        650,
+      );
+  };
   const onSet = (card: HomeCard) => (record: Parameters<typeof tick>[1], field: string, value: StoredValue) =>
     update((prev) => {
       const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
@@ -194,6 +212,9 @@ export default function Home() {
     router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
   };
   const [search, setSearch] = useState(false);
+  /** A whole list, on its own screen (its saved view chosen when the card is one). */
+  const openList = (collection: string, view?: string) =>
+    router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } });
   // Process cards: my answer, or a nudge; then the home reads again (the run went on).
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
@@ -263,7 +284,9 @@ export default function Home() {
       ) : (
         <View style={s.pageHead}>
           <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
-          <Text style={[s.metaText, { color: t.fg2 }]}>hold a card to arrange</Text>
+          <Text style={[s.metaText, { color: t.fg2 }]}>
+            {item.lists ? "every list, whole" : "hold a card to arrange"}
+          </Text>
         </View>
       )}
       {item.auto && next ? (
@@ -272,7 +295,34 @@ export default function Home() {
           <HeroCard next={next} now={now} onOpen={() => ask(next.card)} />
         </View>
       ) : null}
-      {item.cards.length ? (
+      {item.lists ? (
+        // All lists: a tile per list, each opening its whole list.
+        <View style={s.lists}>
+          {item.lists.map((l) => (
+            <Pressable
+              key={l.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${l.name}`}
+              onPress={() => openList(l.id)}
+              style={({ pressed }) => [
+                s.listTile,
+                {
+                  backgroundColor: t.cell,
+                  shadowColor: t.shadow,
+                  width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
+                },
+                pressed && { transform: [{ scale: 0.97 }] },
+              ]}
+            >
+              <View style={[s.listDot, { backgroundColor: colour(colourFor(l.name)) }]} />
+              <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
+                {l.name}
+              </Text>
+              <Text style={[s.listMeta, { color: t.fg2 }]}>See all ›</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : item.cards.length ? (
         <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
           <CardGrid
             cards={item.cards}
@@ -286,6 +336,11 @@ export default function Home() {
                 card={card}
                 onTick={onTick(card)}
                 onSet={onSet(card)}
+                onSeeAll={
+                  card.collection && !card.shared && !card.waiting && !card.memory
+                    ? () => canOpen() && openList(card.collection!.id, card.view?.id)
+                    : undefined
+                }
                 onOpen={() =>
                   canOpen() &&
                   (card.memory
@@ -512,6 +567,11 @@ export default function Home() {
       {search ? (
         <SearchSheet
           cards={pagesRef.current?.flatMap((p) => p.cards) ?? []}
+          lists={pagesRef.current?.find((p) => p.lists)?.lists ?? []}
+          onOpenList={(id) => {
+            setSearch(false);
+            openList(id);
+          }}
           onClose={() => setSearch(false)}
           onOpen={(card) => {
             setSearch(false);
@@ -543,6 +603,21 @@ const s = StyleSheet.create({
   h2: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },
   greet: { gap: 2, paddingHorizontal: 4 },
   heroWide: { maxWidth: 560 },
+  lists: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  listTile: {
+    minHeight: 104,
+    borderRadius: radius.card,
+    padding: 14,
+    gap: 6,
+    justifyContent: "space-between",
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 2,
+  },
+  listDot: { width: 12, height: 12, borderRadius: 4 },
+  listName: { fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
+  listMeta: { fontSize: 12.5, fontWeight: "700" },
   eyebrow: { fontSize: 13, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },
   metaText: { fontSize: 12, fontWeight: "600" },
   empty: {

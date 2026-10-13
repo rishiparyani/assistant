@@ -1,8 +1,18 @@
 // A live card in the chat: a record (its values), or a list / saved view drawn like a home
 // card (ticks work). Loaded when shown; "Open" hands the card to the chat as context.
 import { useEffect, useState } from "react";
+import { useRouter } from "expo-router";
+import * as Haptics from "expo-haptics";
+import Animated, {
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { Text } from "@assistant/cards/native";
+import { Text, faceOf } from "@assistant/cards/native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
 import { pinAnswer, setValue, stillShown, tick, type HomeCard } from "../home.ts";
@@ -128,7 +138,6 @@ function ListCard({
   more: boolean;
   onAsk?: (title: string) => void;
 }) {
-  const { t } = useTheme();
   const { me } = useSession();
   const [card, setCard] = useState(given);
   useEffect(() => setCard(given), [given]);
@@ -156,8 +165,24 @@ function ListCard({
           onOpen={() => onAsk?.(card.spec.title)}
         />
       </View>
-      {more ? <Text style={[s.sub, { color: t.fg3, paddingHorizontal: 6 }]}>and more…</Text> : null}
+      {card.collection ? <OpenList collection={card.collection.id} view={card.view?.id} more={more} /> : null}
     </View>
+  );
+}
+
+/** "Open list ›": the whole list on its own screen (owner, 2026-10-13). */
+function OpenList({ collection, view, more }: { collection: string; view?: string; more?: boolean }) {
+  const { t } = useTheme();
+  const router = useRouter();
+  return (
+    <Pressable
+      accessibilityRole="link"
+      onPress={() => router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } })}
+      hitSlop={8}
+      style={s.openList}
+    >
+      <Text style={[s.openListText, { color: t.accent }]}>{more ? "See all ›" : "Open list ›"}</Text>
+    </Pressable>
   );
 }
 
@@ -172,11 +197,16 @@ function AnswerCard({
   const { t } = useTheme();
   const [pinned, setPinned] = useState(false);
   const { card, ref } = data;
+  // Pinning: the card dips toward the home and springs back, with a tap (the motion demo).
+  const dip = useSharedValue(1);
+  const dipStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: dip.value }, { translateY: (1 - dip.value) * 120 }],
+  }));
   return (
     <View style={{ gap: 6 }}>
-      <View style={{ height: cardHeight(card) }}>
+      <Animated.View style={[{ height: cardHeight(card) }, dipStyle]}>
         <Card card={card} onOpen={() => onAsk?.(card.spec.title)} />
-      </View>
+      </Animated.View>
       <View style={s.actions}>
         {card.answer ? (
           <Text style={[s.sub, { color: t.fg3, flex: 1 }]} numberOfLines={2}>
@@ -190,15 +220,24 @@ function AnswerCard({
           onPress={() => {
             pinAnswer(ref, card);
             setPinned(true);
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+            dip.value = withSequence(withTiming(0.9, { duration: 160 }), withSpring(1, { damping: 11 }));
           }}
           style={({ pressed }) => [
             s.pin,
             { backgroundColor: pinned ? t.fill : t.accent, opacity: pressed ? 0.85 : 1 },
           ]}
         >
-          <Text style={[s.pinText, { color: pinned ? t.fg2 : t.onAccent }]}>
-            {pinned ? "On your home" : "Pin to home"}
-          </Text>
+          {pinned ? (
+            <Animated.Text
+              entering={FadeInDown.springify().damping(14)}
+              style={[s.pinText, { color: t.fg2 }, faceOf(s.pinText)]}
+            >
+              On your home ✓
+            </Animated.Text>
+          ) : (
+            <Text style={[s.pinText, { color: t.onAccent }]}>Pin to home</Text>
+          )}
         </Pressable>
       </View>
     </View>
@@ -206,6 +245,8 @@ function AnswerCard({
 }
 
 const s = StyleSheet.create({
+  openList: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center", paddingHorizontal: 6 },
+  openListText: { fontSize: 14, fontWeight: "800" },
   actions: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 },
   pin: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, justifyContent: "center" },
   pinText: { fontSize: 14, fontWeight: "700" },

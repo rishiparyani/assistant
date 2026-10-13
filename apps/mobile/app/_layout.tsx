@@ -76,6 +76,8 @@ export default function Layout() {
           <Stack.Screen name="capture" options={{ presentation: "modal" }} />
           <Stack.Screen name="process" options={{ presentation: "modal" }} />
           <Stack.Screen name="connections" options={{ presentation: "modal" }} />
+          {/* A whole list: slides in from the right, back is a swipe. */}
+          <Stack.Screen name="list" />
         </Stack>
       </SessionProvider>
     </GestureHandlerRootView>

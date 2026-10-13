@@ -39,6 +39,8 @@ export interface HomePage {
   name: string;
   auto?: boolean;
   cards: HomeCard[];
+  /** The last page: every list the person has, each opening its whole list. */
+  lists?: { id: string; name: string }[];
 }
 
 // The device copy is per person: another account on the same device never sees it.
@@ -276,6 +278,16 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       // A person with nothing of their own (a collaborator) has no page to arrange.
       ...(mine.length || !sharedCards.length ? [{ name: "My day", cards: mine }] : []),
       ...(sharedCards.length ? [{ name: "Shared with you", cards: sharedCards }] : []),
+      // Every list, so one without a card is still a tap away (owner, 2026-10-13).
+      ...(collections.length
+        ? [
+            {
+              name: "All lists",
+              cards: [],
+              lists: collections.map((c) => ({ id: c.id, name: c.name })),
+            },
+          ]
+        : []),
     ];
     writeJson(keyFor(userId), pages);
     return pages;

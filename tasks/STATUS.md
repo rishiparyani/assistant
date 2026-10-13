@@ -4,6 +4,27 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF27: the whole list on its own screen** (decision 2026-10-13 "The whole list"; owner: "Fine, do it").
+  - **Screen:** `apps/mobile/app/list.tsx` (route `/list?collection=<id or name>&view=<id>`).
+    - Chips along the top: All, then the list's saved views. Chips only switch; nothing is made here.
+    - Records a page of 50 at a time; the first page is kept for offline (`gigspree:list:<id>[:chip]`).
+    - Grouped by month (IST) when the list has a date. Each record is a small card: tick, date tile (today filled), title, details, money pills, note, action.
+    - The header shows the count and, once everything is loaded, the total of the first money field.
+    - Tapping a record asks the chat about it; the dark bar at the bottom adds to the list or asks about it.
+    - On a tablet or laptop it keeps a 760 px column.
+  - **Ways in:**
+    - a card's title is now a link ("Notes ›") on cards with a list (`onSeeAll` on `Card`);
+    - "Open list ›" / "See all ›" under a list card in the chat (`LiveCard.tsx`);
+    - list names come first in Search;
+    - an "All lists" page at the end of the home pages (`HomePage.lists` in `home.ts`).
+  - **Verified here:** web build against the local Worker at 390 (light, dark), 820 (dark) and 1280; no page errors.
+
+- **HF26: motion** (decision 2026-10-13 "Motion"; the owner approved the motion demo).
+  - `tick.tsx`: the box pops and fills, the check grows in.
+  - List rows that stop matching the card after a tick slide away after a beat (`index.tsx`, `stillShown`); the tag pops when it changes (`Card.tsx`).
+  - Cards rise in one after another (`CardGrid.tsx`); answer bars grow (`answer.tsx`); pinning an answer dips the card with a tap and "On your home ✓" (`LiveCard.tsx`).
+  - Reanimated skips all of it when Reduce Motion is on.
+
 - **HF25: a warmer home** (decision 2026-10-13 "A warmer home"; the owner approved the mock-up at claude.ai, "Gigspree home refresh").
   - **Tokens** (`packages/cards/src/native/theme.ts`): a warm page `#f4f2ee`, white cells, accent `#4f46e5`, plus `ink`, `hero`, `good` and `warn`, light and dark.
   - **Cards:** a plain bold title with a coloured tag (`N left`, `3 of 5`); the band and badge are gone.
