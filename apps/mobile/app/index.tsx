@@ -616,6 +616,10 @@ export default function Home() {
           }}
           onOpenResult={(hit) => {
             setSearch(false);
+            if (hit.kind === "message") {
+              router.push({ pathname: "/talk", params: { id: hit.group_id } });
+              return;
+            }
             if (assistant)
               router.push({
                 pathname: "/chat",

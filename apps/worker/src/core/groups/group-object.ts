@@ -23,6 +23,8 @@ import {
 } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import { liveOf } from "../live/live-object.ts";
+import { searchOf, type SearchDoc } from "../search/search-object.ts";
+import { embed } from "../search/embed.ts";
 
 const MIGRATIONS: Migrations = [
   BASE_TABLES,
@@ -72,12 +74,25 @@ const MIGRATIONS: Migrations = [
      primary key (message_id, user_id)
    );
    create index saves_user_idx on saves (user_id);`,
+  // Search (decision 2026-10-13 "Saving chat messages, and searching chats"): messages go
+  // into each member's own index as short pieces of conversation ("chunks"). The alarm fills
+  // them in: chunks to send, people to fill from the start (joined), people to empty (left).
+  `create table chunks (id text primary key, last_at text not null, n integer not null, body text not null);
+   alter table messages add column chunk_id text;
+   create index messages_unchunked_idx on messages (chunk_id, created_at);
+   create table chunk_dirty (id text primary key);
+   create table index_fill (user_id text primary key);
+   create table index_gone (user_id text primary key);`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
 const MAX_MEMBERS = 100;
 const PAGE = 200;
 const LIVE_DELAY_MS = 300;
+/** A piece of conversation for search: up to this many messages, none further apart than the gap. */
+const CHUNK_SIZE = 6;
+const CHUNK_GAP_MS = 30 * 60_000;
+const SEARCH_RETRY_MS = 30_000;
 
 type MemberRow = {
   user_id: string;
@@ -418,6 +433,11 @@ export class GroupObject extends DurableObject<Env> {
       }
       if (fresh.length)
         this.note("note", null, "Group", `${me.name} added ${fresh.map((p) => p.name).join(", ")}`, ts);
+      // New people can search what was said before they joined (they can read it too).
+      for (const p of fresh) {
+        this.sql.exec(`insert or ignore into index_fill (user_id) values (?)`, p.user_id);
+        this.sql.exec(`delete from index_gone where user_id = ?`, p.user_id);
+      }
       audit(this.sql, actor, {
         action: "add_group_people",
         entityType: "group",
@@ -437,12 +457,143 @@ export class GroupObject extends DurableObject<Env> {
       this.sql.exec(`update members set left_at = ? where user_id = ?`, ts, actor.userId);
       this.sql.exec(`insert or ignore into live_extra (user_id) values (?)`, actor.userId);
       this.note("note", null, "Group", `${me.name} left`, ts);
+      // Their search index forgets this chat (by the alarm, like every other change elsewhere).
+      this.sql.exec(`insert or ignore into index_gone (user_id) values (?)`, actor.userId);
+      this.sql.exec(`delete from index_fill where user_id = ?`, actor.userId);
       audit(this.sql, actor, { action: "leave_group", entityType: "group", entityId: this.group().id });
       return { left: this.group().id };
     });
   }
 
+  /** The search document for one chunk (the chat's name is re-read on every search hit). */
+  private chunkDoc(g: GroupRow, c: { id: string; last_at: string; body: string }): SearchDoc {
+    return {
+      id: `group:${g.id}:${c.id}`,
+      space_id: `group:${g.id}`,
+      collection_id: "",
+      collection: g.direct ? "Chat" : g.name,
+      record_id: c.id,
+      title: g.direct ? "Chat" : g.name,
+      body: c.body,
+      updated_at: c.last_at,
+    };
+  }
+
+  /** Puts new messages into chunks (in order), marking the chunks that changed. */
+  private chunkNew() {
+    const fresh = this.sql
+      .exec<{ id: string; author: string; text: string; created_at: string }>(
+        `select id, author, text, created_at from messages
+         where chunk_id is null and kind != 'note' order by created_at, id limit 500`,
+      )
+      .toArray();
+    for (const m of fresh) {
+      const last = this.sql
+        .exec<{ id: string; last_at: string; n: number; body: string }>(
+          `select * from chunks order by last_at desc, id desc limit 1`,
+        )
+        .toArray()[0];
+      const line = `${m.author}: ${m.text}`;
+      const fits =
+        last && last.n < CHUNK_SIZE && Date.parse(m.created_at) - Date.parse(last.last_at) <= CHUNK_GAP_MS;
+      const id = fits ? last.id : m.id;
+      if (fits)
+        this.sql.exec(
+          `update chunks set n = n + 1, last_at = ?, body = body || char(10) || ? where id = ?`,
+          m.created_at,
+          line,
+          id,
+        );
+      else
+        this.sql.exec(
+          `insert into chunks (id, last_at, n, body) values (?, ?, 1, ?)`,
+          id,
+          m.created_at,
+          line,
+        );
+      this.sql.exec(`update messages set chunk_id = ? where id = ?`, id, m.id);
+      this.sql.exec(`insert or ignore into chunk_dirty (id) values (?)`, id);
+    }
+    return fresh.length;
+  }
+
+  /**
+   * Keeps members' search indexes up to date with this chat: changed chunks to everyone in it,
+   * every chunk to people who just joined, nothing left for people who left. Writes are
+   * replaces, so a retry is harmless. Returns a delay to try again after, or null when done.
+   */
+  private async syncSearch(): Promise<number | null> {
+    const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
+    if (!g) return null;
+    while (this.chunkNew() === 500);
+    const members = this.members().map((m) => m.user_id);
+    const dirty = this.sql
+      .exec<{ id: string; last_at: string; body: string }>(
+        `select c.id, c.last_at, c.body from chunk_dirty d join chunks c on c.id = d.id`,
+      )
+      .toArray();
+    const fill = this.sql
+      .exec<{ user_id: string }>(`select user_id from index_fill`)
+      .toArray()
+      .map((r) => r.user_id)
+      .filter((u) => members.includes(u));
+    const gone = this.sql
+      .exec<{ user_id: string }>(`select user_id from index_gone`)
+      .toArray()
+      .map((r) => r.user_id);
+    if (!dirty.length && !fill.length && !gone.length) return null;
+    const all = fill.length
+      ? this.sql
+          .exec<{ id: string; last_at: string; body: string }>(`select id, last_at, body from chunks`)
+          .toArray()
+      : [];
+    const send = async (users: string[], chunks: { id: string; last_at: string; body: string }[]) => {
+      if (!users.length || !chunks.length) return;
+      const docs = chunks.map((c) => this.chunkDoc(g, c));
+      // By meaning too when the model answers (best effort: words always work).
+      const vectors = await embed(
+        { ai: this.env.AI, fake: this.env.AI_FAKE === "1" },
+        docs.map((d) => d.body),
+      ).catch(() => null);
+      await Promise.all(
+        users.map(async (u) => {
+          const index = searchOf(this.env, u);
+          await index.upsert(docs);
+          if (vectors?.length)
+            await index.upsertVectors(docs.map((d, i) => ({ doc_id: d.id, vec: vectors[i]! })));
+        }),
+      );
+    };
+    try {
+      await send(
+        members.filter((u) => !fill.includes(u)),
+        dirty,
+      );
+      for (let i = 0; i < all.length; i += 100) await send(fill, all.slice(i, i + 100));
+      await Promise.all(gone.map((u) => searchOf(this.env, u).removeSpace(`group:${g.id}`)));
+    } catch (e) {
+      console.warn("group search sync failed", e instanceof Error ? e.message : String(e));
+      return SEARCH_RETRY_MS;
+    }
+    for (const c of dirty) this.sql.exec(`delete from chunk_dirty where id = ?`, c.id);
+    for (const u of fill) this.sql.exec(`delete from index_fill where user_id = ?`, u);
+    for (const u of gone) this.sql.exec(`delete from index_gone where user_id = ?`, u);
+    return null;
+  }
+
+  /** Fills one member's index with this whole chat (their search rebuild). */
+  async rebuildSearch(userId: string): Promise<number> {
+    this.member(userId);
+    this.sql.exec(`insert or ignore into index_fill (user_id) values (?)`, userId);
+    const retry = await this.syncSearch();
+    if (retry !== null) await this.ctx.storage.setAlarm(Date.now() + retry);
+    return Number(this.sql.exec<{ n: number }>(`select count(*) as n from chunks`).one().n);
+  }
+
   override async alarm(): Promise<void> {
+    // Search first (its own retry), then the live pings.
+    const retry = await this.syncSearch();
+    if (retry !== null) await this.ctx.storage.setAlarm(Date.now() + retry);
     const note = outboxNote(this.sql);
     if (!note) return;
     const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];

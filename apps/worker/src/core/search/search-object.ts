@@ -303,7 +303,7 @@ export class SearchObject extends DurableObject<Env> {
       ? this.sql
           .exec<HitRow>(
             `select d.space_id, d.collection_id, d.collection, d.record_id, d.title, d.updated_at, d.body,
-                    snippet(fts, 2, '[', ']', '…', 12) as snippet, bm25(fts, 4.0, 1.0) as rank
+                    snippet(fts, 2, '[', ']', '…', 40) as snippet, bm25(fts, 4.0, 1.0) as rank
              from fts join docs d on d.id = fts.doc_id
              where fts match ? order by rank limit ?`,
             match,
