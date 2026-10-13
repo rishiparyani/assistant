@@ -107,6 +107,10 @@ describe("group chats", () => {
     expect(shared.map((m) => [m.author, m.text])).toEqual([
       ["Assistant (shared by Test Owner)", answer.text],
     ]);
+    // Remembered for good (not just a day), and shown to me as shared.
+    expect((await json<GroupView>(await api(owner)(`/groups/${g.id}`))).shared_answers).toEqual([answer.id]);
+    // A group id is a ULID, so it can never be the id of my own first chat ("main").
+    expect((await api(owner)("/groups", { body: { id: "main", name: "Test Main" } })).status).toBe(400);
     // Only a real answer from my own chat can be shared; Dev (no assistant) can't ask; outsiders get 404.
     expect((await api(owner)(`/groups/${g.id}/share`, { body: { item_id: "nope" } })).status).toBe(404);
     expect((await api(dev)(`/groups/${g.id}/assistant`, { body: { text: "Hi" } })).status).toBe(403);

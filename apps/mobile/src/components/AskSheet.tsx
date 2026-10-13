@@ -27,9 +27,12 @@ export function AskSheet({
   open,
   onClose,
   onShared,
+  sharedAnswers = [],
 }: {
   groupId: string;
   chatName: string;
+  /** Answers I already shared here (kept by the chat), so they show "Shared ✓". */
+  sharedAnswers?: string[];
   open: boolean;
   onClose: () => void;
   /** An answer went into the chat (load it again). */
@@ -211,7 +214,7 @@ export function AskSheet({
                     {item.text}
                   </Text>
                 );
-              const done = shared.has(item.id);
+              const done = shared.has(item.id) || sharedAnswers.includes(item.id);
               return (
                 <View key={item.id} style={s.answer}>
                   <View style={[s.bubble, s.them, { backgroundColor: t.onInk }]}>

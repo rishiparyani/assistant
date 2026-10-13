@@ -86,6 +86,13 @@ const MIGRATIONS: Migrations = [
    create table chunk_dirty (id text primary key);
    create table index_fill (user_id text primary key);
    create table index_gone (user_id text primary key);`,
+  // Answers someone shared from their own assistant chat: each one once, for good.
+  `create table shared_answers (
+     user_id text not null,
+     item_id text not null,
+     message_id text not null,
+     primary key (user_id, item_id)
+   );`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -273,6 +280,7 @@ export class GroupObject extends DurableObject<Env> {
     members: GroupMember[];
     messages: GroupMessage[];
     saved: Record<string, string>;
+    shared_answers: string[];
   }> {
     this.member(userId);
     const g = this.group();
@@ -328,6 +336,10 @@ export class GroupObject extends DurableObject<Env> {
           .toArray()
           .map((r) => [r.message_id, r.label]),
       ),
+      shared_answers: this.sql
+        .exec<{ item_id: string }>(`select item_id from shared_answers where user_id = ?`, userId)
+        .toArray()
+        .map((r) => r.item_id),
     };
   }
 
@@ -435,6 +447,40 @@ export class GroupObject extends DurableObject<Env> {
   async markRead(userId: string): Promise<void> {
     this.member(userId);
     this.sql.exec(`update members set read_at = ? where user_id = ?`, nowIso(), userId);
+  }
+
+  /**
+   * One of a member's own assistant answers, shared here as "Assistant (shared by …)". Each
+   * answer once, for good (kept in `shared_answers`, not just under a 24-hour key).
+   */
+  async shareAnswer(
+    actor: Actor & { userId: string },
+    itemId: string,
+    text: string,
+  ): Promise<{ message_id: string; shared: boolean }> {
+    const m = this.member(actor.userId);
+    const had = this.sql
+      .exec<{ message_id: string }>(
+        `select message_id from shared_answers where user_id = ? and item_id = ?`,
+        actor.userId,
+        itemId,
+      )
+      .toArray()[0];
+    if (had) return { message_id: had.message_id, shared: false };
+    const ts = nowIso();
+    const id = this.ctx.storage.transactionSync(() => {
+      const id = this.note("assistant", actor.userId, `Assistant (shared by ${m.name})`, text.trim(), ts);
+      this.sql.exec(
+        `insert into shared_answers (user_id, item_id, message_id) values (?, ?, ?)`,
+        actor.userId,
+        itemId,
+        id,
+      );
+      audit(this.sql, actor, { action: "share_answer", entityType: "group_message", entityId: id });
+      return id;
+    });
+    this.changed();
+    return { message_id: id, shared: true };
   }
 
   /** The owner adds people (they appear in the group at once). */

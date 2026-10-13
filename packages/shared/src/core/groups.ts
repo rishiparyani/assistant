@@ -12,7 +12,13 @@ const people = z
 
 export const CreateGroupInput = z
   .object({
-    id: z.string().trim().min(1).max(40).describe("Made on the device (ULID), so a retry makes one group"),
+    // A ULID: the group's id is also the id of each member's own assistant chat about it, so it
+    // can't be anything else (never "main", the person's own first chat).
+    id: z
+      .string()
+      .trim()
+      .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Not a chat id")
+      .describe("Made on the device (ULID), so a retry makes one group"),
     name: z
       .string()
       .trim()
@@ -95,6 +101,8 @@ export interface GroupView {
   can_ask: boolean;
   /** Messages the reader saved, by message id: where to ("Gigs"). Only theirs. */
   saved: Record<string, string>;
+  /** Answers from the reader's own assistant they shared here (item ids), so each is shared once. */
+  shared_answers: string[];
 }
 
 /** What the assistant proposes for a message someone wants to save (nothing is saved yet). */

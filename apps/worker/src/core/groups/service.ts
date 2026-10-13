@@ -188,6 +188,7 @@ export async function saveGroupMessage(
 ): Promise<SaveProposal> {
   // Membership first (anyone outside the group gets 404, whatever their assistant), then access.
   const m = await groupOf(ctx, groupId).message(ctx.user.id, messageId);
+  if (!ULID.test(groupId)) throw new AppError("not_found", "This chat can't use the assistant");
   if (!(await assistantAllowed(ctx)))
     throw new AppError("forbidden", "The assistant isn't on for you; save it to your Inbox instead.");
   await newChat({ ...ctx, idempotencyKey: null }, groupId);
@@ -224,8 +225,12 @@ export async function markGroupMessageSaved(
  * chat is private). Its chat is mine (id = the group's id, the same one Save uses); it never sees
  * the group's messages. Members only (anyone else 404), and only with the assistant.
  */
+/** A group's id doubles as my assistant chat's id about it: only a ULID (never "main"). */
+const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
+
 async function myGroupChat(ctx: OpUserCtx, groupId: string) {
   await groupOf(ctx, groupId).summary(ctx.user.id);
+  if (!ULID.test(groupId)) throw new AppError("not_found", "This chat can't use the assistant");
   if (!(await assistantAllowed(ctx))) throw new AppError("forbidden", "The assistant isn't on for you.");
   await newChat({ ...ctx, idempotencyKey: null }, groupId);
 }
@@ -254,9 +259,6 @@ export async function shareAnswer(ctx: OpUserCtx, groupId: string, itemId: strin
   const item = (await chatView(ctx, groupId)).items.find((i) => i.id === itemId);
   if (!item || item.role !== "assistant" || !item.text.trim())
     throw new AppError("not_found", "That answer isn't in your chat about this group");
-  await groupOf(ctx, groupId).post(actorOf(ctx), `share:${groupId}:${itemId}`, {
-    kind: "assistant",
-    text: item.text,
-  });
+  await groupOf(ctx, groupId).shareAnswer(actorOf(ctx), itemId, item.text);
   return groupView(ctx, groupId);
 }

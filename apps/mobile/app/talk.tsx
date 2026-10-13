@@ -205,7 +205,7 @@ export default function Talk() {
                   style={[s.themCol, item.first && { marginTop: 6 }]}
                 >
                   <View style={s.theirs}>
-                    {!chat?.direct ? (
+                    {!chat?.direct || m.kind === "assistant" ? (
                       item.first ? (
                         m.kind === "assistant" ? (
                           <View style={[s.gsAvatar, { backgroundColor: t.hero }]}>
@@ -222,7 +222,7 @@ export default function Talk() {
                       {...hold}
                       style={[s.bubble, s.them, { backgroundColor: t.cell }, m.id === marked && ring]}
                     >
-                      {!chat?.direct && item.first ? (
+                      {(!chat?.direct || m.kind === "assistant") && item.first ? (
                         <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
                           {m.author}
                         </Text>
@@ -289,6 +289,7 @@ export default function Talk() {
         open={asking}
         onClose={() => setAsking(false)}
         onShared={() => void reload()}
+        sharedAnswers={chat?.shared_answers ?? []}
       />
       <SaveSheet
         groupId={id ?? ""}
