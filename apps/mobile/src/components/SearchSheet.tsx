@@ -48,7 +48,7 @@ export function SearchSheet({
   onClose: () => void;
   onOpen: (card: HomeCard) => void;
   /** A hit from the server's index (a record somewhere the person can see). */
-  onOpenResult?: (hit: SearchResult) => void;
+  onOpenResult?: (hit: SearchResult, q: string) => void;
 }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
@@ -145,7 +145,7 @@ export function SearchSheet({
               <Pressable
                 key={`${h.group_id}:${h.message_id}`}
                 accessibilityRole="button"
-                onPress={() => onOpenResult?.(h)}
+                onPress={() => onOpenResult?.(h, text.trim())}
                 style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
               >
                 <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
@@ -159,7 +159,7 @@ export function SearchSheet({
               <Pressable
                 key={`${h.space_id}:${h.record_id}`}
                 accessibilityRole="button"
-                onPress={() => onOpenResult?.(h)}
+                onPress={() => onOpenResult?.(h, text.trim())}
                 style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
               >
                 <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>

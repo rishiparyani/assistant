@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   AddGroupPeopleInput,
   CreateGroupInput,
+  GetGroupInput,
   GroupMessageRef,
   GroupRef,
   MarkSavedInput,
@@ -71,8 +72,8 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       kind: "read",
       sessionOnly: true,
       http: { method: "GET", path: "/groups/:group_id" },
-      input: GroupRef,
-      handler: (ctx, i) => groupView(ctx, i.group_id),
+      input: GetGroupInput,
+      handler: (ctx, i) => groupView(ctx, i.group_id, i.around),
     }),
     defineOperation({
       id: "core.post_group_message",

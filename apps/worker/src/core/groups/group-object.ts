@@ -14,6 +14,9 @@ import {
   nowIso,
   outboxFailed,
   outboxNote,
+  getMeta,
+  setMeta,
+  retryDelayMs,
   backupTables,
   exportTables,
   importTables,
@@ -92,7 +95,8 @@ const LIVE_DELAY_MS = 300;
 /** A piece of conversation for search: up to this many messages, none further apart than the gap. */
 const CHUNK_SIZE = 6;
 const CHUNK_GAP_MS = 30 * 60_000;
-const SEARCH_RETRY_MS = 30_000;
+/** Tries for a search push before giving up on it (a rebuild fills that index again). */
+const SEARCH_ATTEMPTS = 5;
 
 type MemberRow = {
   user_id: string;
@@ -109,7 +113,14 @@ export class GroupObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+    ctx.blockConcurrencyWhile(async () => {
+      migrate(this.sql, MIGRATIONS);
+      // Messages from before search (or a sync that never ran) get into the index soon.
+      const waiting = this.sql
+        .exec(`select 1 from messages where chunk_id is null and kind != 'note' limit 1`)
+        .toArray().length;
+      if (waiting && (await ctx.storage.getAlarm()) === null) await ctx.storage.setAlarm(Date.now() + 1000);
+    });
   }
 
   /** Everything needed to restore this group (not idempotency records or the outbox). */
@@ -251,7 +262,10 @@ export class GroupObject extends DurableObject<Env> {
     });
   }
 
-  async view(userId: string): Promise<{
+  async view(
+    userId: string,
+    around?: string,
+  ): Promise<{
     id: string;
     name: string;
     direct: boolean;
@@ -270,13 +284,34 @@ export class GroupObject extends DurableObject<Env> {
       text: string;
       created_at: string;
     };
-    const messages: GroupMessage[] = this.sql
-      .exec<MessageRow>(
-        `select id, kind, author_id, author, text, created_at from
-           (select * from messages order by created_at desc, id desc limit ?) order by created_at, id`,
-        PAGE,
-      )
-      .toArray();
+    // Around a message: half a page either side of it; else the newest page.
+    const at = around
+      ? this.sql
+          .exec<{ created_at: string }>(`select created_at from messages where id = ?`, around)
+          .toArray()[0]?.created_at
+      : undefined;
+    const messages: GroupMessage[] = at
+      ? this.sql
+          .exec<MessageRow>(
+            `select id, kind, author_id, author, text, created_at from
+               (select * from messages where created_at < ? order by created_at desc, id desc limit ?)
+             union all
+             select id, kind, author_id, author, text, created_at from
+               (select * from messages where created_at >= ? order by created_at, id limit ?)
+             order by created_at, id`,
+            at,
+            PAGE / 2,
+            at,
+            PAGE / 2,
+          )
+          .toArray()
+      : this.sql
+          .exec<MessageRow>(
+            `select id, kind, author_id, author, text, created_at from
+               (select * from messages order by created_at desc, id desc limit ?) order by created_at, id`,
+            PAGE,
+          )
+          .toArray();
     return {
       id: g.id,
       name: this.nameFor(g, userId),
@@ -571,9 +606,20 @@ export class GroupObject extends DurableObject<Env> {
       );
       for (let i = 0; i < all.length; i += 100) await send(fill, all.slice(i, i + 100));
       await Promise.all(gone.map((u) => searchOf(this.env, u).removeSpace(`group:${g.id}`)));
+      setMeta(this.sql, "search_attempts", "0");
     } catch (e) {
-      console.warn("group search sync failed", e instanceof Error ? e.message : String(e));
-      return SEARCH_RETRY_MS;
+      // A few tries with growing waits, then let it go: that person's search can be filled
+      // again with a rebuild, and nothing here retries (or embeds) for ever.
+      const attempts = Number(getMeta(this.sql, "search_attempts") ?? "0") + 1;
+      console.warn(
+        `group search sync failed (attempt ${attempts})`,
+        e instanceof Error ? e.message : String(e),
+      );
+      if (attempts < SEARCH_ATTEMPTS) {
+        setMeta(this.sql, "search_attempts", String(attempts));
+        return retryDelayMs(attempts);
+      }
+      setMeta(this.sql, "search_attempts", "0");
     }
     for (const c of dirty) this.sql.exec(`delete from chunk_dirty where id = ?`, c.id);
     for (const u of fill) this.sql.exec(`delete from index_fill where user_id = ?`, u);

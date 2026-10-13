@@ -63,15 +63,19 @@ function pendingFor(id: string, waiting: Change[], failed: FailedChange[]): Pend
 }
 
 /** One chat: the kept copy at once, then fresh; refreshes on live pings and after sends. */
-export function useChat(id: string) {
-  const [chat, setChat] = useState<GroupView | null>(() => readJson<GroupView>(ONE(id)));
+export function useChat(id: string, around?: string) {
+  const [chat, setChat] = useState<GroupView | null>(() => (around ? null : readJson<GroupView>(ONE(id))));
   const [error, setError] = useState("");
   const box = useSyncExternalStore(subscribe, outboxState, outboxState);
   const pending = pendingFor(id, box.waiting, box.failed);
   const load = useCallback(async () => {
     try {
-      const fresh = await request<GroupView>("GET", `/api/groups/${enc(id)}`);
-      writeJson(ONE(id), fresh);
+      const fresh = await request<GroupView>(
+        "GET",
+        `/api/groups/${enc(id)}${around ? `?around=${enc(around)}` : ""}`,
+      );
+      // The kept copy is the newest part (what opens offline), not a search's window.
+      if (!around) writeJson(ONE(id), fresh);
       setChat(fresh);
       setError("");
       // Opening it reads it (a read marker; fine to miss offline).
@@ -80,7 +84,7 @@ export function useChat(id: string) {
       if (isOffline(e)) setError(readJson(ONE(id)) ? "" : "Offline: this chat isn't on the phone yet.");
       else setError(e instanceof Error ? e.message : String(e));
     }
-  }, [id]);
+  }, [id, around]);
   useEffect(() => void load(), [load]);
   // "Saved to …" marks still on their way show at once too.
   const prefix = `/api/groups/${enc(id)}/messages/`;

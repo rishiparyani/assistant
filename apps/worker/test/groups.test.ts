@@ -237,6 +237,12 @@ describe("group chats", () => {
     });
     expect(await until(async () => (await search(dev, "sixty")).length === 1)).toBe(true);
     expect(await search(outsider, "Test Taj")).toEqual([]);
+    // A hit opens the chat around its message.
+    const hit = (
+      await json<{ message_id: string }[]>(await api(owner)(`/search?q=Test%20Taj&limit=12`))
+    ).find((h) => "message_id" in h)!;
+    const around = await json<GroupView>(await api(owner)(`/groups/${g.id}?around=${hit.message_id}`));
+    expect(around.messages.some((m) => m.id === hit.message_id)).toBe(true);
     // Leaving the chat takes it out of Dev's results.
     await api(dev)(`/groups/${g.id}/leave`, { body: {} });
     expect(await until(async () => (await search(dev, "Test Taj")).length === 0)).toBe(true);

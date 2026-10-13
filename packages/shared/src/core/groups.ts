@@ -34,6 +34,8 @@ export const CreateGroupInput = z
       ctx.addIssue({ code: "custom", path: ["name"], message: "A group needs a name" });
   });
 export const GroupRef = z.object({ group_id: groupId });
+/** A chat, optionally around one message (opened from a search hit) instead of the newest. */
+export const GetGroupInput = GroupRef.extend({ around: z.string().trim().min(1).max(40).optional() });
 export const PostGroupMessageInput = GroupRef.extend({
   text: z.string().trim().min(1).max(2000),
 });
