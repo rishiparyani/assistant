@@ -39,8 +39,11 @@ export function Card({
 
   const header = (
     <View style={s.head}>
-      <View style={[s.dot, { backgroundColor: c }]} />
-      <Text style={[s.title, { color: c }]} numberOfLines={size === "s" ? 2 : 1}>
+      {/* The list's colour as a small tile with its first letter, like an app icon. */}
+      <View style={[s.badge, { backgroundColor: c }]}>
+        <Text style={[s.badgeText, { color: t.onAccent }]}>{initial(card.spec.title)}</Text>
+      </View>
+      <Text style={[s.title, { color: t.fg }]} numberOfLines={size === "s" ? 2 : 1}>
         {card.spec.title}
       </Text>
       {field ? (
@@ -447,8 +450,8 @@ function Compact({ card, onOpen }: { card: HomeCard; onOpen?: () => void }) {
     >
       <View style={wide ? s.compactLeft : undefined}>
         <View style={s.head}>
-          <View style={[s.dot, { backgroundColor: c }]} />
-          <Text style={[s.title, { color: c }]} numberOfLines={1}>
+          {/* Half-height cards: a small coloured label over the figure ("SPENT THIS MONTH"). */}
+          <Text style={[s.eyebrow, { color: c }]} numberOfLines={1}>
             {card.spec.title}
           </Text>
         </View>
@@ -486,6 +489,12 @@ function istDay(v: unknown): string {
   if (!v.includes("T")) return v.slice(0, 10);
   const t = Date.parse(v);
   return Number.isNaN(t) ? "" : new Date(t + 330 * 60_000).toISOString().slice(0, 10);
+}
+
+/** The first letter or digit of a title, for its badge ("Coming up" → "C"). */
+function initial(title: string): string {
+  const m = /[\p{L}\p{N}]/u.exec(title);
+  return m ? m[0].toUpperCase() : "•";
 }
 
 /** "just now", "2 h ago", "3 days ago". */
@@ -535,9 +544,18 @@ const s = StyleSheet.create({
     elevation: 3,
     overflow: "hidden",
   },
-  head: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 18 },
+  head: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 24 },
+  badge: { width: 24, height: 24, borderRadius: 7, alignItems: "center", justifyContent: "center" },
+  badgeText: { fontSize: 12.5, fontWeight: "800" },
+  eyebrow: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+    flexShrink: 1,
+  },
   dot: { width: 9, height: 9, borderRadius: 3 },
-  title: { fontSize: 12, fontWeight: "700", letterSpacing: -0.1, flexShrink: 1 },
+  title: { fontSize: 16.5, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
   tag: {
     marginLeft: "auto",
     fontSize: 10.5,
