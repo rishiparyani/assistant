@@ -669,3 +669,22 @@ The owner isn't an active developer: he sends a message about once a day and loo
 1. A hero card for the next item, with a countdown.
 2. A grouped agenda: month headers with counts, and filter chips.
 3. A calendar card: a month grid with dots; tap a day to see its items.
+
+## 2026-10-13: Guide people, no presets (owner: "A blank canvas will overwhelm a user… no presets… interactive help")
+
+**Decision:** nothing in the app is pre-made for a person. Instead they're guided in five ways, built in this order:
+
+1. **A first-run tour:** a short walk over the real home, each step lighting up the part it talks about (the chat bar, the cards, the pages, search, help) with the rest dimmed.
+   - It ends with "Tell me about your week" when the home is empty, so the first lists come from the person's own words.
+   - It's shown once per person on each device, skippable at every step, and Help → "Take the tour again" brings it back.
+2. **One-time hints:** a small tip the first time something becomes possible ("Want a card with this month's total?").
+   - They're worked out from the person's lists' field types, never from what they typed. Each can be dismissed for good.
+3. **"What can I do here?" on a card:** a few things that card could do, from its fields ("highlight the fee", "add a Paid button"). Each one opens the chat with the request filled in.
+4. **Ideas, not presets:** the card gallery doubles as an ideas page; "make me something like this" asks the assistant to build it from the person's own data.
+5. **Help in the chat:** "How do I…?" is answered in words. A later step points at the real button on the home.
+
+**Why:**
+
+- A blank home overwhelms, and presets make everyone's app look the same and fill it with things they don't use.
+- Guidance that reacts to what the person has keeps "chat makes, screens use", and keeps every list theirs.
+- Hints come from facts (field types, counts), so no one's messages are pattern-parsed.

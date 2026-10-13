@@ -4,6 +4,27 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF22: the first-run tour and Help** (decision 2026-10-13 "Guide people, no presets"; owner liked all five guidance ideas).
+  - **The tour:** `apps/mobile/src/components/Tour.tsx`. Steps:
+    1. welcome;
+    2. the chat bar;
+    3. the cards;
+    4. the pages (phone, more than one);
+    5. search;
+    6. help;
+    7. "Ask for any change".
+
+    Steps for parts a home doesn't have are left out (no cards, a collaborator without the assistant). Each step dims the screen and lights its real target: one view whose very wide border is the dim colour leaves a rounded hole, with no masking library. Targets are measured with `measureInWindow` (refs on the home). It ends with "Tell me about your week" on an empty home. It's shown once per person per device (`tour:<user id>` in device storage) and is skippable.
+
+  - **Help:** a "?" button left of search on the home's bottom bar opens `HelpSheet`: take the tour again, ideas for cards (the gallery), and "How do I…?" (opens the chat).
+  - **Screenshots:** the simulator's test sign-in turns the tour off (`tour:off`) unless launched with `-testTour 1`; the job takes one tour shot (`phone-light-1b-tour`).
+  - **Verified here:** typecheck, lint; the web build against the local server with fake data, every step at 390 px, light and dark.
+  - **Next:**
+    1. One-time hints and "What can I do here?" on a card.
+    2. Ideas in the gallery ("make me something like this").
+    3. "Show me" pointing from the chat.
+  - **Gotchas:** to check the Expo web build against the local Worker, serve both from one origin (the scratch `serve-proxy.mjs` approach: /api and /auth passed through) and build without `EXPO_PUBLIC_API_URL`; across two ports the browser blocks the calls.
+
 - **HF21: rich rows on list cards** (decision 2026-10-13 "Cards get rich rows"; owner's ask, from the old Gigs screen).
   - **The layout:** a saved view's card can have `row: {date, details, pills, callout, action}` (`RowLayout` in shared; `save_view` / `update_view` take field names).
   - **Checks:** `checkRow` in the space object checks each part against its field and stores ids; a row layout makes the card a list card. Shared setups carry it by names (`rowByName`); a hidden field drops out of it (`rowOfLive`).

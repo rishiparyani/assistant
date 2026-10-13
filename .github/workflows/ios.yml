@@ -159,7 +159,8 @@ jobs:
           # instead (read by the home against the local test server only, see app/test.tsx).
           go() {
             xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
-            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" > /dev/null
+            # A fourth argument shows the first-run tour (it stays off for the other shots).
+            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" ${4:+-testTour 1} > /dev/null
             sleep "${3:-14}"
           }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
@@ -177,6 +178,9 @@ jobs:
             go "$dev" "/"
             shot "$dev" "$label-light-1-home"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
+            # The first-run tour's first step over the home.
+            go "$dev" "/" 14 tour
+            shot "$dev" "$label-light-1b-tour"
             go "$dev" "/chat"
             shot "$dev" "$label-light-2-chat"
             # The chat with a message started: the keyboard is up, the message box must clear it.
