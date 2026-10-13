@@ -212,6 +212,39 @@ describe("flow steps", () => {
       ).status,
     ).toBe(400);
     expect((await post({ ...base, then: [{ do: "summary", sum: "What", name: "Week" }] })).status).toBe(400);
+    // A record's {Field} has nothing to fill it on a schedule; a summary's does.
+    const field = await post({ ...base, then: [{ do: "notify", text: "Spent on {What}" }] });
+    expect(field.status).toBe(400);
+    expect(await field.text()).toContain("for each");
+    expect(
+      (
+        await post({
+          ...base,
+          then: [
+            { do: "summary", sum: "Amount", name: "Day" },
+            { do: "notify", text: "Spent {Day.total}" },
+          ],
+        })
+      ).status,
+    ).toBe(201);
+  });
+
+  it("keeps a field that a step inside for each sets", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/workflows", {
+      body: {
+        name: "Mark food",
+        when: { event: "schedule", collection: "Expenses", every: "day" },
+        then: [
+          {
+            do: "for_each",
+            where: [{ field: "What", op: "contains", value: "chai" }],
+            then: [{ do: "set", field: "Paid with", value: "Cash" }],
+          },
+        ],
+      },
+    });
+    expect((await api(me)("/collections/Expenses/fields/Paid with", { method: "DELETE" })).status).toBe(409);
   });
 });
 

@@ -692,9 +692,15 @@ const MAX_SUMMARY_ROWS = 10_000;
 function flowFields(def: WorkflowDef): Set<string> {
   const ids = new Set<string>();
   const filters = (fs: Filter[] | undefined) => (fs ?? []).forEach((x) => ids.add(x.field));
-  const simple = (a: SimpleDef) => a.do === "set" && filters(a.where);
+  const simple = (a: SimpleDef) => {
+    if (a.do === "set") {
+      ids.add(a.field_id);
+      filters(a.where);
+    } else if (a.do === "add") Object.keys(a.values).forEach((k) => ids.add(k));
+    else (a.to_fields ?? []).forEach((k) => ids.add(k));
+  };
   for (const a of def.then) {
-    if (a.do === "set") simple(a);
+    if (a.do === "notify" || a.do === "set" || a.do === "add") simple(a);
     else if (a.do === "summary") {
       filters(a.where);
       if (a.sum) ids.add(a.sum);
@@ -4334,7 +4340,17 @@ export class SpaceObject extends DurableObject<Env> {
       };
     };
     /** A notify, set or add step, on records of `col` (none when `record` is false). */
+    // Without a record, {…} can only name a summary made in an earlier step ({Week.total}).
+    const noRecordFields = (texts: unknown[]) => {
+      for (const t of texts)
+        for (const m of typeof t === "string" ? t.matchAll(/\{([^{}]{1,80})\}/g) : []) {
+          const v = /^(.+)\.(total|count|by)$/i.exec(m[1]!.trim());
+          if (!v || !summaries.has(nameKey(v[1]!))) throw needsRecord(`{${m[1]}}`);
+        }
+    };
     const simple = (a: SimpleSpec, col: CollectionRow, colFields: FieldRow[], record: boolean): SimpleDef => {
+      if (!record)
+        noRecordFields(a.do === "notify" ? [a.text] : a.do === "add" ? Object.values(a.values) : []);
       if (a.do === "notify") {
         if (!record && a.to_fields?.length) throw needsRecord(`Telling {${a.to_fields[0]}}`);
         return {
@@ -5210,7 +5226,12 @@ export class SpaceObject extends DurableObject<Env> {
         }
       }
       cursor = page.next_cursor ?? undefined;
-    } while (cursor && count < MAX_SUMMARY_ROWS);
+      if (cursor && count >= MAX_SUMMARY_ROWS)
+        throw new ObjectError(
+          "validation_failed",
+          `More than ${MAX_SUMMARY_ROWS.toLocaleString("en-IN")} records match this summary; narrow its filter`,
+        );
+    } while (cursor);
     const show = (n: number, k: number) =>
       sum ? String(displayValue(sum.type, n)) : `${k} record${k === 1 ? "" : "s"}`;
     const top = [...groups.entries()].sort((x, y) =>
