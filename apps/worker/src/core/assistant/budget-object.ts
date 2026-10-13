@@ -45,6 +45,8 @@ const MIGRATIONS: Migrations = [
   create index calls_at_idx on calls (at);
   `,
   `create index calls_user_at_idx on calls (user_id, at);`,
+  // Input tokens the model reused from its prompt cache (part of input_tokens).
+  `alter table calls add column cached_tokens integer not null default 0;`,
 ];
 
 /** Months and days in India time (the cap resets on the 1st, IST). */
@@ -61,6 +63,8 @@ export interface CallLog {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Of inputTokens, how many the model reused from its prompt cache. */
+  cachedTokens?: number;
   costPaise: number;
   neurons: number;
   ms: number;
@@ -171,14 +175,15 @@ export class BudgetObject extends DurableObject<Env> {
 
   async log(c: CallLog): Promise<void> {
     this.sql.exec(
-      `insert into calls (at, user_id, level, model, input_tokens, output_tokens, cost_paise, neurons, ms, outcome)
-       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `insert into calls (at, user_id, level, model, input_tokens, output_tokens, cached_tokens, cost_paise, neurons, ms, outcome)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       nowIso(),
       c.userId,
       c.level,
       c.model,
       c.inputTokens,
       c.outputTokens,
+      c.cachedTokens ?? 0,
       c.costPaise,
       c.neurons,
       c.ms,
@@ -196,12 +201,13 @@ export class BudgetObject extends DurableObject<Env> {
         model: string;
         input_tokens: number;
         output_tokens: number;
+        cached_tokens: number;
         cost_paise: number;
         neurons: number;
         ms: number;
         outcome: string;
       }>(
-        `select level, model, input_tokens, output_tokens, cost_paise, neurons, ms, outcome
+        `select level, model, input_tokens, output_tokens, cached_tokens, cost_paise, neurons, ms, outcome
          from calls where user_id = ? and at >= ? order by at`,
         userId,
         since,
@@ -213,6 +219,7 @@ export class BudgetObject extends DurableObject<Env> {
         model: r.model,
         inputTokens: r.input_tokens,
         outputTokens: r.output_tokens,
+        cachedTokens: r.cached_tokens,
         costPaise: r.cost_paise,
         neurons: r.neurons,
         ms: r.ms,

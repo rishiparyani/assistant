@@ -19,6 +19,8 @@ export interface ModelEntry {
   /** Workers AI neurons per million tokens (the free allowance is 10,000 a day). */
   neurons?: { input: number; output: number };
   maxOutput: number;
+  /** false: answer without thinking first (much faster; the scorecard says whether it's as right). */
+  thinking?: boolean;
   /** Wired up in code; entries still waiting stay in the table, switched off. */
   ready: boolean;
 }
@@ -33,6 +35,8 @@ export const MODELS: ModelEntry[] = [
     price: { input: 0.0605, output: 0.4 },
     neurons: { input: 5_500, output: 36_400 },
     maxOutput: 1_200,
+    // It thinks before every answer unless told not to; everyday requests don't need it.
+    thinking: false,
     ready: true,
   },
   {

@@ -5,3 +5,5 @@ How well the real models handle real requests, what they cost and how long they 
 **Run it:** GitHub → Actions → **Scorecard** → Run workflow. Leave `paid_gateway` empty for the everyday (free) model only; put the paid gateway's id (`paid`) to score setups too, once AI credit is loaded. The run's summary page shows the table; copy it here as `YYYY-MM-DD.md`.
 
 Runs so far: [2026-10-12](2026-10-12.md) (everyday, GLM 4.7 Flash: 18/20, median 12 s).
+
+**Mind the free allowance:** a full everyday run uses about 2,000 of the 10,000 free neurons a day, and the allowance is shared with the real app (dev and prod are one Cloudflare account). Two or three full runs a day at most; use `only` for a few cases while fixing one.

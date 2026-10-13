@@ -21,6 +21,29 @@ const budget = () => {
     callsFor(userId: string, since: string): Promise<CallLog[]>;
   };
 };
+/** What the model did in a case (made-up test data only), printed when the case fails. */
+const steps = async (userId: string): Promise<string> => {
+  const ns = (env as unknown as { CHATS: DurableObjectNamespace }).CHATS;
+  const chat = ns.get(ns.idFromName(`chat:${userId}`)) as unknown as {
+    context(userId: string): Promise<
+      {
+        role: string;
+        content: string | null;
+        tool_calls?: { function: { name: string; arguments: string } }[];
+      }[]
+    >;
+  };
+  const cut = (t: string) => (t.length > 240 ? `${t.slice(0, 240)}…` : t);
+  return (await chat.context(userId))
+    .flatMap((m) =>
+      m.tool_calls?.length
+        ? m.tool_calls.map((t) => `    → ${t.function.name} ${cut(t.function.arguments)}`)
+        : m.role === "tool"
+          ? [`    ← ${cut(m.content ?? "")}`]
+          : [],
+    )
+    .join("\n");
+};
 const paid = !!(env as unknown as { AI_PAID_GATEWAY?: string }).AI_PAID_GATEWAY?.trim();
 const only = (env as unknown as { SCORECARD_ONLY?: string }).SCORECARD_ONLY?.trim();
 
@@ -51,8 +74,15 @@ it("scorecard", { timeout: 30 * 60_000 }, async () => {
       why = `error: ${e instanceof Error ? e.message : String(e)}`;
     }
     const ms = Date.now() - started;
-    rows.push({ c, ok, why, ms, calls: await budget().callsFor(u.id, since) });
+    const made = await budget().callsFor(u.id, since);
+    // A case the model never answered (allowance used up, an outage) isn't a pass.
+    if (ok && !made.some((m) => m.outcome === "ok" && m.outputTokens > 0)) {
+      ok = false;
+      why = "no model answered";
+    }
+    rows.push({ c, ok, why, ms, calls: made });
     console.log(`${ok ? "PASS" : "FAIL"} ${c.id} (${ms} ms)${ok ? "" : `: ${why}`}`);
+    if (!ok) console.log(await steps(u.id).catch(() => "    (steps not readable)"));
   }
   console.log("\n=== SCORECARD ===\n" + table(rows) + "\n=== END ===");
 });
@@ -76,6 +106,7 @@ function table(rows: Row[]): string {
         `median ${(ms[Math.floor(ms.length / 2)]! / 1000).toFixed(1)} s, slowest ${(ms.at(-1)! / 1000).toFixed(1)} s · ` +
         `${calls.length} model calls, ${tokensIn} tokens in / ${tokensOut} out per run total · ` +
         `≈ ${Math.round(tokensIn / rs.length)} in / ${Math.round(tokensOut / rs.length)} out per request · ` +
+        `${tokensIn ? Math.round((100 * sum(calls.map((c) => c.cachedTokens ?? 0))) / tokensIn) : 0}% of input reused from the cache · ` +
         `${sum(calls.map((c) => c.neurons))} neurons · ₹${(sum(calls.map((c) => c.costPaise)) / 100).toFixed(2)}`,
     );
     for (const lang of ["en", "hi-en"] as const) {

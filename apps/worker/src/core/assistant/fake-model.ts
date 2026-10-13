@@ -8,12 +8,12 @@ let n = 0;
 const call = (name: string, args: unknown): ModelAnswer => ({
   content: null,
   tool_calls: [{ id: `call_${++n}`, type: "function", function: { name, arguments: JSON.stringify(args) } }],
-  usage: { input: 900, output: 60 },
+  usage: { input: 900, output: 60, cached: 0 },
 });
 const say = (content: string): ModelAnswer => ({
   content,
   tool_calls: [],
-  usage: { input: 900, output: 40 },
+  usage: { input: 900, output: 40, cached: 0 },
 });
 
 export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: ToolSpec[]): ModelAnswer {
