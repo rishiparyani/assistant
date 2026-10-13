@@ -9,11 +9,29 @@ const people = z
   .max(50)
   .describe("People you know (from list_people): their names or ids");
 
-export const CreateGroupInput = z.object({
-  id: z.string().trim().min(1).max(40).describe("Made on the device (ULID), so a retry makes one group"),
-  name: z.string().trim().min(1).max(60).describe("e.g. Band, Family"),
-  people: people.default([]),
-});
+export const CreateGroupInput = z
+  .object({
+    id: z.string().trim().min(1).max(40).describe("Made on the device (ULID), so a retry makes one group"),
+    name: z
+      .string()
+      .trim()
+      .max(60)
+      .default("")
+      .describe("e.g. Band, Family (none for a chat with one person)"),
+    people: people.default([]),
+    /** A chat with one person (decision 2026-10-13 "Chats with people"): one per pair. */
+    direct: z.boolean().default(false),
+  })
+  .superRefine((v, ctx) => {
+    if (v.direct && v.people.length !== 1)
+      ctx.addIssue({
+        code: "custom",
+        path: ["people"],
+        message: "A chat with one person names exactly one person",
+      });
+    if (!v.direct && !v.name)
+      ctx.addIssue({ code: "custom", path: ["name"], message: "A group needs a name" });
+  });
 export const GroupRef = z.object({ group_id: groupId });
 export const PostGroupMessageInput = GroupRef.extend({
   text: z.string().trim().min(1).max(2000),
@@ -42,19 +60,31 @@ export interface GroupMessage {
 
 export interface GroupSummary {
   id: string;
+  /** For a chat with one person, the other person's name. */
   name: string;
+  direct: boolean;
   members: number;
+  /** Messages from others since I last opened it. */
+  unread: number;
   last: { author: string; text: string; at: string } | null;
   updated_at: string;
 }
 
 export interface GroupView {
   id: string;
+  /** For a chat with one person, the other person's name. */
   name: string;
+  direct: boolean;
   owner_id: string;
   members: GroupMember[];
   /** Newest last. */
   messages: GroupMessage[];
   /** Whether the person reading may ask the assistant here. */
   can_ask: boolean;
+}
+
+/** Someone I can start a chat with: people I share with, who share with me, or share a group. */
+export interface ChatPerson {
+  user_id: string;
+  name: string;
 }

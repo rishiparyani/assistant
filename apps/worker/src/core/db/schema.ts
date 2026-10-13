@@ -206,3 +206,14 @@ export const groupMembers = sqliteTable(
     index("group_members_user_idx").on(t.userId),
   ],
 );
+
+/**
+ * Chats with one person (decision 2026-10-13 "Chats with people"): one per pair of people, so
+ * starting a chat with someone again opens the same one. `pair` is the two user ids, sorted,
+ * joined by a colon; the chat itself is a group object like any other.
+ */
+export const directChats = sqliteTable("direct_chats", {
+  pair: text("pair").primaryKey(),
+  groupId: text("group_id").notNull(),
+  createdAt: timestamp("created_at"),
+});

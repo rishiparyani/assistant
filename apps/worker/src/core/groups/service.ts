@@ -3,10 +3,16 @@
 // assistant answers in a group only when someone with assistant access writes @assistant: it
 // runs as that person (their data, their allowance), in a chat of theirs for the group, and
 // its reply is posted to the group.
-import { mentionsAssistant, type GroupMember, type GroupSummary, type GroupView } from "@assistant/shared";
+import {
+  mentionsAssistant,
+  type ChatPerson,
+  type GroupMember,
+  type GroupSummary,
+  type GroupView,
+} from "@assistant/shared";
 import { AppError } from "../errors.ts";
 import type { AnyOperation, OpUserCtx } from "../operations.ts";
-import { resolvePeople } from "../spaces/shares.ts";
+import { knownPeople, resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed } from "../assistant/access.ts";
 import { newChat, sendMessage } from "../assistant/service.ts";
 
@@ -25,16 +31,83 @@ async function index(ctx: OpUserCtx, groupId: string, userIds: string[]) {
   );
 }
 
+/**
+ * People I can chat with (decision 2026-10-13 "Chats with people": anyone in the app can start
+ * a chat, with people they already know here): people I share with, the owners of what's shared
+ * with me, and people in my groups. Never anyone else, so nobody gets messages from strangers.
+ */
+export async function chatPeople(ctx: OpUserCtx): Promise<ChatPerson[]> {
+  const [known, sharers, groupmates] = await Promise.all([
+    knownPeople(ctx),
+    ctx.d1
+      .prepare(
+        `select distinct u.id as user_id, u.name as name from shared_with w
+         join spaces s on s.id = w.space_id join user u on u.id = s.owner_user_id
+         where w.user_id = ? and u.id != ? limit 500`,
+      )
+      .bind(ctx.user.id, ctx.user.id)
+      .all<ChatPerson>(),
+    ctx.d1
+      .prepare(
+        `select distinct u.id as user_id, u.name as name from group_members a
+         join group_members b on b.group_id = a.group_id join user u on u.id = b.user_id
+         where a.user_id = ? and b.user_id != ? limit 500`,
+      )
+      .bind(ctx.user.id, ctx.user.id)
+      .all<ChatPerson>(),
+  ]);
+  const byId = new Map<string, ChatPerson>();
+  for (const p of [...known, ...sharers.results, ...groupmates.results])
+    if (!byId.has(p.user_id)) byId.set(p.user_id, { user_id: p.user_id, name: p.name });
+  return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 export async function createGroup(
   ctx: OpUserCtx,
-  input: { id: string; name: string; people: string[] },
+  input: { id: string; name: string; people: string[]; direct?: boolean },
 ): Promise<GroupView> {
-  const people = input.people.length ? await resolvePeople(ctx, input.people) : [];
-  const id = input.id;
+  const people = input.people.length ? await resolvePeople(ctx, input.people, await chatPeople(ctx)) : [];
   const members = people.map((p): GroupMember => ({ user_id: p.user_id, name: p.name, role: "member" }));
-  await groupOf(ctx, id).init(actorOf(ctx), { id, name: input.name, owner: me(ctx), members });
+  let id = input.id;
+  if (input.direct) {
+    const other = members[0];
+    if (!other || other.user_id === ctx.user.id)
+      throw new AppError("validation_failed", "A chat for two is with one other person");
+    // One chat per pair: starting it again (from either side) opens the same one.
+    const pair = [ctx.user.id, other.user_id].sort().join(":");
+    await ctx.d1
+      .prepare(`insert or ignore into direct_chats (pair, group_id) values (?, ?)`)
+      .bind(pair, id)
+      .run();
+    const row = await ctx.d1
+      .prepare(`select group_id from direct_chats where pair = ?`)
+      .bind(pair)
+      .first<{ group_id: string }>();
+    if (row && row.group_id !== id) {
+      try {
+        return await groupView(ctx, row.group_id);
+      } catch (e) {
+        // Its first start stopped before the chat itself was made: make it now, under that id.
+        if (!(e instanceof Error) || !/not found/i.test(e.message)) throw e;
+        id = row.group_id;
+      }
+    }
+  }
+  await groupOf(ctx, id).init(actorOf(ctx), {
+    id,
+    name: input.direct ? "" : input.name,
+    owner: me(ctx),
+    members,
+    direct: !!input.direct,
+  });
   await index(ctx, id, [ctx.user.id, ...members.map((m) => m.user_id)]);
   return groupView(ctx, id);
+}
+
+/** I've read this chat up to now (its unread count goes to 0). */
+export async function markGroupRead(ctx: OpUserCtx, id: string): Promise<{ read: string }> {
+  await groupOf(ctx, id).markRead(ctx.user.id);
+  return { read: id };
 }
 
 export async function myGroups(ctx: OpUserCtx): Promise<GroupSummary[]> {
@@ -62,7 +135,7 @@ export async function groupView(ctx: OpUserCtx, id: string): Promise<GroupView> 
 }
 
 export async function addGroupPeople(ctx: OpUserCtx, id: string, refs: string[]): Promise<GroupView> {
-  const people = await resolvePeople(ctx, refs);
+  const people = await resolvePeople(ctx, refs, await chatPeople(ctx));
   await groupOf(ctx, id).addPeople(
     actorOf(ctx),
     ctx.idempotencyKey,

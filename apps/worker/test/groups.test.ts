@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ulid,
+  type ChatPerson,
   type CreatedShare,
   type GroupSummary,
   type GroupView,
@@ -107,5 +108,60 @@ describe("group chats", () => {
       }),
     );
     expect(twice.messages.length).toBe(again.messages.length);
+  });
+
+  it("keeps one chat per pair, from either side, and counts what's unread", async () => {
+    const { owner, dev, outsider } = await setUp();
+    // Dev knows the owner because the owner shared with Dev; the outsider knows nobody.
+    const devKnows = await json<ChatPerson[]>(await api(dev)("/chat-people"));
+    expect(devKnows.map((p) => p.name)).toEqual(["Test Owner"]);
+    expect(await json<ChatPerson[]>(await api(outsider)("/chat-people"))).toEqual([]);
+    expect(
+      (await api(outsider)("/groups", { body: { id: ulid(), direct: true, people: ["Test Owner"] } })).status,
+    ).not.toBe(201);
+
+    const first = await json<GroupView>(
+      await api(dev)("/groups", { body: { id: ulid(), direct: true, people: ["Test Owner"] } }),
+    );
+    expect([first.direct, first.name]).toEqual([true, "Test Owner"]);
+    // The owner starting it too (with their own new id) opens the same chat, named after Dev.
+    const second = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), direct: true, people: ["Test Dev"] } }),
+    );
+    expect([second.id, second.name]).toEqual([first.id, "Test Dev"]);
+    expect((await json<GroupSummary[]>(await api(owner)("/groups"))).map((g) => g.id)).toEqual([first.id]);
+    // A chat for two names one person, and stays two.
+    expect(
+      (await api(dev)("/groups", { body: { id: ulid(), direct: true, people: ["Test Owner", "Test Dev"] } }))
+        .status,
+    ).toBe(400);
+    expect((await api(dev)(`/groups/${first.id}/people`, { body: { people: ["Test Owner"] } })).status).toBe(
+      409,
+    );
+    expect((await api(dev)(`/groups/${first.id}/leave`, { body: {} })).status).toBe(409);
+
+    // Two messages from Dev are unread for the owner, not for Dev; reading clears them.
+    for (const text of ["Test free on Friday?", "Test 8 pm"])
+      await api(dev)(`/groups/${first.id}/messages`, { body: { text } });
+    const unread = async (u: User) =>
+      (await json<GroupSummary[]>(await api(u)("/groups"))).find((g) => g.id === first.id)!.unread;
+    expect(await unread(owner)).toBe(2);
+    expect(await unread(dev)).toBe(0);
+    expect((await api(owner)(`/groups/${first.id}/read`, { body: {} })).status).toBe(200);
+    expect(await unread(owner)).toBe(0);
+    expect((await api(outsider)(`/groups/${first.id}/read`, { body: {} })).status).toBe(404);
+
+    // In a group, what was said before someone (re)joined isn't unread for them; what comes after is.
+    const duo = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Duo", people: ["Test Dev"] } }),
+    );
+    const duoUnread = async () =>
+      (await json<GroupSummary[]>(await api(dev)("/groups"))).find((g) => g.id === duo.id)?.unread;
+    await api(owner)(`/groups/${duo.id}/messages`, { body: { text: "Test hello" } });
+    expect(await duoUnread()).toBe(1);
+    await api(dev)(`/groups/${duo.id}/leave`, { body: {} });
+    await api(owner)(`/groups/${duo.id}/messages`, { body: { text: "Test while you were out" } });
+    await api(owner)(`/groups/${duo.id}/people`, { body: { people: ["Test Dev"] } });
+    expect(await duoUnread()).toBe(0);
   });
 });
