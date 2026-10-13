@@ -56,7 +56,7 @@ export function HeroCard({ next, onOpen, now }: { next: NextUp; onOpen?: () => v
       >
         <View style={[s.tile, { backgroundColor: t.onHero }]}>
           <Text style={[s.month, { color: t.warn }]}>{MONTHS[day.getUTCMonth()]}</Text>
-          <Text style={[s.day, { color: "#17161c" }]}>{day.getUTCDate()}</Text>
+          <Text style={[s.day, { color: t.tileInk }]}>{day.getUTCDate()}</Text>
         </View>
         <View style={s.words}>
           <Text style={[s.title, { color: t.onHero }]} numberOfLines={2}>

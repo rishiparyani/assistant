@@ -63,6 +63,14 @@ describe("next up", () => {
     expect(nextUp([card([rec("Test far", "2026-12-12T13:30:00Z")])], NOW)).toBeNull();
   });
 
+  it("finds the soonest even when it isn't among the card's first rows", () => {
+    const c = {
+      ...card([rec("Test next week", "2026-10-20T13:30:00Z")]),
+      upcoming: [rec("Test tomorrow", "2026-10-14T13:30:00Z")],
+    };
+    expect(nextUp([c], NOW)?.record.title).toBe("Test tomorrow");
+  });
+
   it("says when in words", () => {
     const at = (iso: string, allDay = false) => ({ at: Date.parse(iso), allDay });
     expect(countdown(at("2026-10-13T18:20:00+05:30"), NOW)).toBe("in 30 min");

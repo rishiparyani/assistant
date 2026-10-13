@@ -27,6 +27,8 @@ export const light = {
   /** The "Next up" card. */
   hero: "#2c2878",
   onHero: "#ffffff",
+  /** The date tile on the hero: dark figures on a white tile, in both themes. */
+  tileInk: "#17161c",
   /** Money in, money out and deadlines. */
   good: "#0e8a6a",
   warn: "#c2410c",
@@ -53,6 +55,7 @@ export const dark: typeof light = {
   onInk: "#ffffff",
   hero: "#2e2a7a",
   onHero: "#ffffff",
+  tileInk: "#17161c",
   good: "#34d399",
   warn: "#fb923c",
 };

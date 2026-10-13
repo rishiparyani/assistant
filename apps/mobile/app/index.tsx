@@ -57,6 +57,17 @@ const DASH_MAX = 1180;
 export default function Home() {
   const { me, loaded, refresh } = useSession();
   const { t } = useTheme();
+  // The clock the greeting, the date and Next up read: moves on at every minute.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      setNow(Date.now());
+      id = setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    };
+    id = setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    return () => clearTimeout(id);
+  }, []);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -237,14 +248,17 @@ export default function Home() {
     />
   );
   // The soonest thing coming up across every card (decision 2026-10-13 "A warmer home").
-  const next = nextUp((pages ?? []).flatMap((p) => p.cards));
+  const next = nextUp(
+    (pages ?? []).flatMap((p) => p.cards),
+    now,
+  );
   const renderPage = (item: HomePage, index: number) => (
     <View key={item.name} style={{ gap: 12 }}>
       {item.auto ? (
         // Now: today's date and a greeting, then what's next, big.
         <View style={s.greet}>
-          <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords()}</Text>
-          <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name)}</Text>
+          <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords(new Date(now))}</Text>
+          <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
         </View>
       ) : (
         <View style={s.pageHead}>
@@ -255,7 +269,7 @@ export default function Home() {
       {item.auto && next ? (
         // On a laptop it keeps a phone card's width, so its buttons stay buttons.
         <View style={wide ? s.heroWide : undefined}>
-          <HeroCard next={next} onOpen={() => ask(next.card)} />
+          <HeroCard next={next} now={now} onOpen={() => ask(next.card)} />
         </View>
       ) : null}
       {item.cards.length ? (

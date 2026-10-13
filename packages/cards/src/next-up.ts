@@ -36,7 +36,7 @@ export function nextUp(cards: HomeCard[], now = Date.now()): NextUp | null {
     const type = c.fields.find((f) => f.id === field)?.type;
     if (!field || (type !== "date" && type !== "datetime")) continue;
     const done = src?.answer_field;
-    for (const record of card.records) {
+    for (const record of [...(card.upcoming ?? []), ...card.records]) {
       if (done && record.values[done] === true) continue;
       const v = record.values[field];
       if (typeof v !== "string" || !v) continue;
