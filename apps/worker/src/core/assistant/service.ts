@@ -13,6 +13,9 @@ import {
   workflowWords,
   type FilterOp,
   type WorkflowEvent,
+  type SimpleStepView,
+  type WorkflowSchedule,
+  type WorkflowView,
   type ChatSummary,
   type ChatView,
   type CollectionView,
@@ -288,8 +291,36 @@ function describe(
         collection?: string;
         field?: string;
         offset_minutes?: number;
+        every?: WorkflowSchedule["every"];
+        days?: WorkflowSchedule["days"];
+        day_of_month?: number;
+        at?: string;
       };
       const then = Array.isArray(args.then) ? (args.then as Record<string, unknown>[]) : [];
+      const conds = (v: unknown) =>
+        (Array.isArray(v) ? (v as { field: string; op: FilterOp; value?: unknown }[]) : []).map((f) => ({
+          field_id: "",
+          field: f.field,
+          op: f.op,
+          value: f.value,
+        }));
+      const steps = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+      const simple = (a: Record<string, unknown>): SimpleStepView =>
+        a.do === "notify"
+          ? {
+              do: "notify",
+              text: String(a.text ?? ""),
+              to: (Array.isArray(a.to) ? (a.to as string[]) : ["me"]).map((n) => ({ user_id: "", name: n })),
+            }
+          : a.do === "set"
+            ? { do: "set", field_id: "", field: String(a.field ?? ""), value: a.value }
+            : {
+                do: "add",
+                collection_id: "",
+                collection: String(a.collection ?? ""),
+                values: (a.values ?? {}) as Record<string, unknown>,
+              };
+      const list = (v: unknown) => String(v ?? when.collection ?? "?");
       const words = workflowWords({
         when: {
           event: (when.event as WorkflowEvent) ?? "added",
@@ -298,54 +329,64 @@ function describe(
           field_id: null,
           field: when.field ?? null,
           offset_minutes: Number(when.offset_minutes ?? 0),
-        },
-        check: (Array.isArray(args.check)
-          ? (args.check as { field: string; op: FilterOp; value?: unknown }[])
-          : []
-        ).map((f) => ({ field_id: "", field: f.field, op: f.op, value: f.value })),
-        wait_minutes: Number(args.wait_minutes ?? 0),
-        then: then.map((a) =>
-          a.do === "notify"
+          ...(when.event === "schedule"
             ? {
-                do: "notify" as const,
+                schedule: {
+                  every: when.every ?? "day",
+                  days: when.days ?? [],
+                  day_of_month: when.day_of_month ?? null,
+                  at: when.at ?? "09:00",
+                },
+              }
+            : {}),
+        },
+        check: conds(args.check),
+        wait_minutes: Number(args.wait_minutes ?? 0),
+        then: then.map((a): WorkflowView["then"][number] =>
+          a.do === "ask"
+            ? {
+                do: "ask",
                 text: String(a.text ?? ""),
-                to: (Array.isArray(a.to) ? (a.to as string[]) : ["me"]).map((n) => ({
+                choices: Array.isArray(a.choices) ? (a.choices as string[]) : null,
+                who: (Array.isArray(a.who) ? (a.who as string[]) : []).map((n) => ({
                   user_id: "",
                   name: n,
                 })),
+                save_to_id: null,
+                save_to: typeof a.save_to === "string" ? a.save_to : null,
+                nudge_minutes: typeof a.nudge_minutes === "number" ? a.nudge_minutes : null,
+                until: a.until === "first" ? "first" : "all",
               }
-            : a.do === "set"
-              ? { do: "set" as const, field_id: "", field: String(a.field ?? ""), value: a.value }
-              : a.do === "ask"
+            : a.do === "repeat"
+              ? { do: "repeat", if: conds(a.if), from: Number(a.from ?? 1), at_most: Number(a.at_most ?? 3) }
+              : a.do === "summary"
                 ? {
-                    do: "ask" as const,
-                    text: String(a.text ?? ""),
-                    choices: Array.isArray(a.choices) ? (a.choices as string[]) : null,
-                    who: (Array.isArray(a.who) ? (a.who as string[]) : []).map((n) => ({
-                      user_id: "",
-                      name: n,
-                    })),
-                    save_to_id: null,
-                    save_to: typeof a.save_to === "string" ? a.save_to : null,
-                    nudge_minutes: typeof a.nudge_minutes === "number" ? a.nudge_minutes : null,
-                    until: a.until === "first" ? ("first" as const) : ("all" as const),
+                    do: "summary",
+                    collection_id: "",
+                    collection: list(a.collection),
+                    where: conds(a.where),
+                    sum_id: null,
+                    sum: typeof a.sum === "string" ? a.sum : null,
+                    by_id: null,
+                    by: typeof a.by === "string" ? a.by : null,
+                    name: String(a.name ?? "Summary"),
                   }
-                : a.do === "repeat"
+                : a.do === "for_each"
                   ? {
-                      do: "repeat" as const,
-                      if: (Array.isArray(a.if)
-                        ? (a.if as { field: string; op: FilterOp; value?: unknown }[])
-                        : []
-                      ).map((f) => ({ field_id: "", field: f.field, op: f.op, value: f.value })),
-                      from: Number(a.from ?? 1),
-                      at_most: Number(a.at_most ?? 3),
-                    }
-                  : {
-                      do: "add" as const,
+                      do: "for_each",
                       collection_id: "",
-                      collection: String(a.collection ?? ""),
-                      values: (a.values ?? {}) as Record<string, unknown>,
-                    },
+                      collection: list(a.collection),
+                      where: conds(a.where),
+                      then: steps(a.then).map(simple),
+                    }
+                  : a.do === "if"
+                    ? {
+                        do: "if",
+                        if: conds(a.if),
+                        then: steps(a.then).map(simple),
+                        else: steps(a.else).map(simple),
+                      }
+                    : simple(a),
         ),
       });
       return { title: `Make a workflow “${String(args.name ?? "")}” (saved off)`, details: words };

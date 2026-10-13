@@ -26,6 +26,20 @@ async function recipients(ctx: OpUserCtx, refs: string[]): Promise<Person[]> {
 }
 
 export async function createWorkflow(ctx: OpUserCtx, i: z.output<typeof CreateWorkflowInput>) {
+  // "{Who}" means the person in that field of the record; everything else is someone known.
+  const people = async (refs: string[]) => {
+    const field = (r: string) => /^\{(.+)\}$/.exec(r.trim())?.[1]?.trim();
+    return {
+      to: await recipients(
+        ctx,
+        refs.filter((r) => !field(r)),
+      ),
+      to_fields: refs.map(field).filter((f): f is string => !!f),
+    };
+  };
+  type Step = z.output<typeof CreateWorkflowInput>["then"][number];
+  const simple = async (a: Extract<Step, { do: "for_each" }>["then"][number]) =>
+    a.do === "notify" ? { ...a, ...(await people(a.to)) } : a;
   const spec: WorkflowSpec = {
     name: i.name,
     when: i.when,
@@ -33,16 +47,15 @@ export async function createWorkflow(ctx: OpUserCtx, i: z.output<typeof CreateWo
     wait_minutes: i.wait_minutes,
     then: await Promise.all(
       i.then.map(async (a) => {
-        if (a.do !== "notify" && a.do !== "ask") return a;
-        // "{Who}" means the person in that field of the record; everything else is someone known.
-        const field = (r: string) => /^\{(.+)\}$/.exec(r.trim())?.[1]?.trim();
-        const refs = a.do === "notify" ? a.to : a.who;
-        const to = await recipients(
-          ctx,
-          refs.filter((r) => !field(r)),
-        );
-        const to_fields = refs.map(field).filter((f): f is string => !!f);
-        if (a.do === "notify") return { ...a, to, to_fields };
+        if (a.do === "for_each") return { ...a, then: await Promise.all(a.then.map(simple)) };
+        if (a.do === "if")
+          return {
+            ...a,
+            then: await Promise.all(a.then.map(simple)),
+            else: await Promise.all(a.else.map(simple)),
+          };
+        if (a.do !== "ask") return a.do === "notify" ? simple(a) : a;
+        const { to, to_fields } = await people(a.who);
         const { who: _who, ...ask } = a;
         return { ...ask, to, to_fields };
       }),
@@ -59,7 +72,7 @@ export const workflowOperations = [
     id: "core.create_workflow",
     tool: "create_workflow",
     description:
-      "Make a workflow: when a record is added, changes, or a date comes (e.g. a day before), check it, maybe wait, then tell someone, set a field, add a record, ASK someone and wait for their answer (a process: nudges them, keeps the answer on the record), or go back to an earlier step. It is saved OFF; the person turns it on from its card.",
+      "Make a workflow: when a record is added, changes, a date comes (e.g. a day before), or on a schedule (every day, week or month at a time), check it, maybe wait, then tell someone, set a field, add a record, ASK someone and wait for their answer (a process: nudges them, keeps the answer on the record), go back to an earlier step, branch (if … else …), count or total a list (summary, e.g. this week's spending by category) or do steps for each matching record. It is saved OFF; the person turns it on from its card.",
     kind: "write",
     confirm: true,
     http: { method: "POST", path: "/workflows", status: 201 },

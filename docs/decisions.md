@@ -688,3 +688,21 @@ The owner isn't an active developer: he sends a message about once a day and loo
 - A blank home overwhelms, and presets make everyone's app look the same and fill it with things they don't use.
 - Guidance that reacts to what the person has keeps "chat makes, screens use", and keeps every list theirs.
 - Hints come from facts (field types, counts), so no one's messages are pattern-parsed.
+
+## 2026-10-13: Flows on a schedule, over many records, with branches (owner: "Okay then do all the 3")
+
+**Decision:** workflows get three new parts. All of them are data run by the space's engine, never code, and all show in the flow's words and diagram:
+
+1. **Schedules:** `when: {event: "schedule", every: day | week | month, days, day_of_month, at}`, India time (31 means the last day of the month).
+   - The space's own Durable Object alarm runs them, not a server cron. Each scheduled flow keeps exactly one job: when it runs, the next one is booked (a run missed while asleep runs once, late).
+   - A scheduled flow has no record, so steps that need one (set, ask, go back, a `{Field}` person) go inside "for each".
+2. **Many records:**
+   - **Summary** counts or adds up a list's matching records, optionally broken down by a field. Later steps read it as `{Name.total}`, `{Name.count}` and `{Name.by}`.
+   - **For each** runs notify / set / add on every matching record, at most 100 a run.
+3. **Branches:** an **if** step runs one set of steps or another. Its conditions are the record's fields, or a summary made earlier ("Week.total is more than 5000").
+
+**Why:**
+
+- These were the three gaps between "rules and simple flows" and the processes the owner described (a weekly spending note, chasing every unpaid invoice, a different path for big amounts).
+- Keeping them as generic blocks keeps workflow logic in people's setups (rule 15).
+- Per-space alarms keep the "partition by entity" rule: nothing runs from one shared place, and a quiet space costs nothing.

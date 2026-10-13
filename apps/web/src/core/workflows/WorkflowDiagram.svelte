@@ -8,15 +8,25 @@
   import Plus from "@lucide/svelte/icons/plus";
   import MessageCircleQuestionMark from "@lucide/svelte/icons/message-circle-question-mark";
   import Repeat2 from "@lucide/svelte/icons/repeat-2";
+  import Sigma from "@lucide/svelte/icons/sigma";
+  import ListChecks from "@lucide/svelte/icons/list-checks";
+  import Split from "@lucide/svelte/icons/split";
 
   // A workflow as a diagram (chat-first step 5): one box per part, in order, each with its
   // plain words. Both come from the saved definition, so the picture is what runs.
   let { workflow }: { workflow: WorkflowView } = $props();
 
   type Step = {
-    kind: "when" | "check" | "wait" | "notify" | "set" | "add" | "ask" | "repeat";
+    kind: "when" | "check" | "wait" | WorkflowView["then"][number]["do"];
     label: string;
     text: string;
+  };
+  const LABELS: Partial<Record<Step["kind"], string>> = {
+    ask: "Ask and wait",
+    repeat: "Go back",
+    summary: "Add up",
+    for_each: "For each",
+    if: "If",
   };
   const steps = $derived.by((): Step[] => {
     const w = workflow;
@@ -28,7 +38,7 @@
     for (const a of w.then)
       out.push({
         kind: a.do,
-        label: a.do === "ask" ? "Ask and wait" : a.do === "repeat" ? "Go back" : "Then",
+        label: LABELS[a.do] ?? "Then",
         text: words.shift() ?? "",
       });
     return out;
@@ -47,7 +57,11 @@
             size={16}
           />{:else if s.kind === "ask"}<MessageCircleQuestionMark
             size={16}
-          />{:else if s.kind === "repeat"}<Repeat2 size={16} />{:else}<Plus size={16} />{/if}
+          />{:else if s.kind === "repeat"}<Repeat2 size={16} />{:else if s.kind === "summary"}<Sigma
+            size={16}
+          />{:else if s.kind === "for_each"}<ListChecks size={16} />{:else if s.kind === "if"}<Split
+            size={16}
+          />{:else}<Plus size={16} />{/if}
       </span>
       <span class="body">
         <span class="label">{s.label}</span>
