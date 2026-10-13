@@ -4,6 +4,26 @@ _Updated: 2026-10-13_
 
 ## Last done
 
+- **HF23: flows on a schedule, over many records, with branches** (decision 2026-10-13; owner: "do all the 3").
+  - **Shared** (`packages/shared/src/core/workflows.ts`): the `schedule` event (`every`, `days`, `day_of_month`, `at`), and the steps `summary`, `for_each` and `if`. Each part has its words, and `nextScheduleTime` works out the next run in India time.
+  - **Engine** (`space-object.ts`):
+    - A migration rebuilds `workflow_jobs` so it allows kind `schedule` (record id `''`).
+    - `scheduleNext` books one job per scheduled flow. `runJob` books the next run before running, and a failed run books it too.
+    - `runSteps` takes no record for scheduled runs. `summarize` pages through `findRows`, and `runSimple` runs notify / set / add for one record (or none).
+    - `fillTemplate` reads `{Name.total|count|by}`.
+    - `flowFields` keeps fields that a flow uses from being removed.
+  - **Elsewhere:** the assistant's confirm card words cover the new parts, and the web diagram has icons for them. On the phone, the process screen shows the words.
+  - **Tests:** `apps/worker/test/flow-steps.test.ts` covers:
+    - a weekly summary with an if/else message, run through the alarm;
+    - for each with set;
+    - a branch on an added record;
+    - refusals;
+    - `nextScheduleTime`.
+  - **Gotchas:**
+    - Summaries are made again after an "ask" answer (values aren't kept in the wait).
+    - "if" conditions on a summary compare numbers only (eq/ne/lt/lte/gt/gte).
+  - **Next:** a picture for branches in the phone's process screen (two lanes); scorecard cases for schedules.
+
 - **HF22: the first-run tour and Help** (decision 2026-10-13 "Guide people, no presets"; owner liked all five guidance ideas).
   - **The tour:** `apps/mobile/src/components/Tour.tsx`. Steps:
     1. welcome;

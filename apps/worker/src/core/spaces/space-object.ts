@@ -52,6 +52,10 @@ import {
   type WorkflowRun,
   type WorkflowView,
   workflowWords,
+  nextScheduleTime,
+  type WorkflowSchedule,
+  type CondView,
+  type SimpleStepView,
   type ShareKind,
   type ShareView,
   type SharedCardView,
@@ -401,6 +405,25 @@ const MIGRATIONS: Migrations = [
   `,
   // Each "repeat" step counts its own loops (a JSON map by step), not one shared count.
   `alter table workflow_waits add column loops_json text;`,
+  // Scheduled workflows (decision 2026-10-13 "Flows on a schedule, over many records, with
+  // branches"): a job of kind 'schedule' with no record ('').
+  `
+  create table workflow_jobs_next (
+    id text primary key,
+    workflow_id text not null,
+    record_id text not null,
+    kind text not null check (kind in ('event', 'date', 'schedule')),
+    due_at text not null,
+    depth integer not null default 0,
+    wait_id text
+  );
+  insert into workflow_jobs_next (id, workflow_id, record_id, kind, due_at, depth, wait_id)
+    select id, workflow_id, record_id, kind, due_at, depth, wait_id from workflow_jobs;
+  drop table workflow_jobs;
+  alter table workflow_jobs_next rename to workflow_jobs;
+  create index workflow_jobs_due_idx on workflow_jobs (due_at);
+  create index workflow_jobs_record_idx on workflow_jobs (workflow_id, record_id, kind);
+  `,
 ];
 
 type ViewQuery = {
@@ -505,21 +528,43 @@ type ShareRow = {
 
 /** Records reached from the triggering one through a link (either way). */
 type LinkPath = { field_id: string; dir: "out" | "in" };
+/** Steps that need nothing but a record (also the steps inside "for each" and "if"). */
+type SimpleDef =
+  | {
+      do: "notify";
+      text: string;
+      to: Person[];
+      to_fields?: string[];
+      /** The people in a person field of linked records ({Lineup.Player}). */
+      to_linked?: (LinkPath & { person_field_id: string })[];
+    }
+  | { do: "set"; field_id: string; value: unknown; via?: LinkPath; where?: Filter[] }
+  | { do: "add"; collection_id: string; values: Record<string, unknown> };
+/** A condition on a summary made earlier in the run (Week.total is more than 5000). */
+type VarCond = { name: string; part: "total" | "count"; op: FilterOp; value: number };
+/** A summary as made in a run: what {Name.total}, {Name.count} and {Name.by} read. */
+type Summary = { total: number; count: number; shown: string; by: string };
 type WorkflowDef = {
-  when: { event: WorkflowEvent; field_id: string | null; offset_minutes: number };
+  when: {
+    event: WorkflowEvent;
+    field_id: string | null;
+    offset_minutes: number;
+    schedule?: WorkflowSchedule;
+  };
   check: Filter[];
   wait_minutes: number;
   then: (
+    | SimpleDef
     | {
-        do: "notify";
-        text: string;
-        to: Person[];
-        to_fields?: string[];
-        /** The people in a person field of linked records ({Lineup.Player}). */
-        to_linked?: (LinkPath & { person_field_id: string })[];
+        do: "summary";
+        collection_id: string;
+        where: Filter[];
+        sum: string | null;
+        by: string | null;
+        name: string;
       }
-    | { do: "set"; field_id: string; value: unknown; via?: LinkPath; where?: Filter[] }
-    | { do: "add"; collection_id: string; values: Record<string, unknown> }
+    | { do: "for_each"; collection_id: string; where: Filter[]; then: SimpleDef[] }
+    | { do: "if"; if: Filter[]; vars: VarCond[]; then: SimpleDef[]; else: SimpleDef[] }
     | {
         do: "ask";
         text: string;
@@ -550,8 +595,9 @@ type WorkflowRow = {
 type WorkflowJobRow = {
   id: string;
   workflow_id: string;
+  /** '' for a scheduled run (no record). */
   record_id: string;
-  kind: "event" | "date";
+  kind: "event" | "date" | "schedule";
   due_at: string;
   depth: number;
   /** A run going on after an "ask" step: the wait it comes from. */
@@ -584,15 +630,29 @@ export type Proposal = {
   details: string[];
 };
 /** A workflow as asked for: names (resolved here) and the people to tell (resolved before). */
+type SimpleSpec =
+  | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
+  | { do: "set"; field: string; value: unknown; via?: string; where?: Filter[] }
+  | { do: "add"; collection: string; values: Record<string, unknown> };
 export type WorkflowSpec = {
   name: string;
-  when: { event: WorkflowEvent; collection: string; field?: string; offset_minutes: number };
+  when: {
+    event: WorkflowEvent;
+    collection: string;
+    field?: string;
+    offset_minutes: number;
+    every?: WorkflowSchedule["every"];
+    days?: WorkflowSchedule["days"];
+    day_of_month?: number;
+    at?: string;
+  };
   check: Filter[];
   wait_minutes: number;
   then: (
-    | { do: "notify"; text: string; to: Person[]; to_fields?: string[] }
-    | { do: "set"; field: string; value: unknown; via?: string; where?: Filter[] }
-    | { do: "add"; collection: string; values: Record<string, unknown> }
+    | SimpleSpec
+    | { do: "summary"; collection?: string; where: Filter[]; sum?: string; by?: string; name: string }
+    | { do: "for_each"; collection?: string; where: Filter[]; then: SimpleSpec[] }
+    | { do: "if"; if: Filter[]; then: SimpleSpec[]; else: SimpleSpec[] }
     | {
         do: "ask";
         text: string;
@@ -625,6 +685,47 @@ const MAX_NUDGES = 10;
 type Tell = { userId: string; n: NewNotification & { share_id?: string } };
 /** A workflow sets a field on at most this many linked records at once. */
 const MAX_LINKED_SETS = 100;
+/** "For each" goes through at most this many records a run; a summary reads at most this many. */
+const MAX_FOR_EACH = 100;
+const MAX_SUMMARY_ROWS = 10_000;
+/** Fields a workflow's steps filter on or read (removing one would break it). */
+function flowFields(def: WorkflowDef): Set<string> {
+  const ids = new Set<string>();
+  const filters = (fs: Filter[] | undefined) => (fs ?? []).forEach((x) => ids.add(x.field));
+  const simple = (a: SimpleDef) => {
+    if (a.do === "set") {
+      ids.add(a.field_id);
+      filters(a.where);
+    } else if (a.do === "add") Object.keys(a.values).forEach((k) => ids.add(k));
+    else (a.to_fields ?? []).forEach((k) => ids.add(k));
+  };
+  for (const a of def.then) {
+    if (a.do === "notify" || a.do === "set" || a.do === "add") simple(a);
+    else if (a.do === "summary") {
+      filters(a.where);
+      if (a.sum) ids.add(a.sum);
+      if (a.by) ids.add(a.by);
+    } else if (a.do === "for_each") {
+      filters(a.where);
+      a.then.forEach(simple);
+    } else if (a.do === "if") {
+      filters(a.if);
+      a.then.forEach(simple);
+      a.else.forEach(simple);
+    }
+  }
+  return ids;
+}
+/** A summary's number against an "if" step's (more than, at most…). */
+function compareNumbers(got: number, op: FilterOp, want: number): boolean {
+  if (op === "eq") return got === want;
+  if (op === "ne") return got !== want;
+  if (op === "lt") return got < want;
+  if (op === "lte") return got <= want;
+  if (op === "gt") return got > want;
+  if (op === "gte") return got >= want;
+  return false;
+}
 const DAY_TIME_IST = "09:00:00+05:30";
 
 type RuleDef = {
@@ -2132,11 +2233,7 @@ export class SpaceObject extends DurableObject<Env> {
       const flow = this.sql
         .exec<WorkflowRow>(`select * from workflows where deleted_at is null`)
         .toArray()
-        .find((w) =>
-          (JSON.parse(w.def_json) as WorkflowDef).then.some(
-            (a) => a.do === "set" && (a.where ?? []).some((x) => x.field === f.id),
-          ),
-        );
+        .find((w) => flowFields(JSON.parse(w.def_json) as WorkflowDef).has(f.id));
       if (flow)
         throw new ObjectError(
           "conflict",
@@ -4163,7 +4260,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
       fieldId = f.id;
     } else if (spec.when.field) {
-      if (spec.when.event === "added")
+      if (spec.when.event === "added" || spec.when.event === "schedule")
         throw new ObjectError("validation_failed", "Pick a field only for “changed” or “date”");
       const f = this.matchField(fields, spec.when.field);
       if (f.type === "link" || toField(f).options.personal)
@@ -4174,13 +4271,45 @@ export class SpaceObject extends DurableObject<Env> {
       fieldId = f.id;
     }
     const check = this.checkViewQuery(c, { filters: spec.check }).filters;
+    const sched = spec.when.event === "schedule";
+    let schedule: WorkflowSchedule | undefined;
+    if (sched) {
+      const { every, days, day_of_month } = spec.when;
+      if (!every) throw new ObjectError("validation_failed", "Say how often: every day, week or month");
+      if (every === "week" && !days?.length)
+        throw new ObjectError("validation_failed", "Say which days of the week");
+      if (every === "month" && !day_of_month)
+        throw new ObjectError("validation_failed", "Say which day of the month (31 for the last day)");
+      if (check.length || spec.wait_minutes)
+        throw new ObjectError(
+          "validation_failed",
+          "A schedule runs at its time: put conditions in a summary's or for-each's filter, or an “if” step",
+        );
+      schedule = {
+        every,
+        days: every === "week" ? [...new Set(days)] : [],
+        day_of_month: every === "month" ? day_of_month! : null,
+        at: spec.when.at ?? "09:00",
+      };
+    }
     const noLinks = (f: FieldRow) => {
       if (f.type === "link")
         throw new ObjectError("validation_failed", `Workflows can't set links yet (${f.name})`);
     };
+    const needsRecord = (what: string) =>
+      new ObjectError(
+        "validation_failed",
+        `${what} needs a record, and a scheduled workflow has none: put it inside a “for each” step`,
+      );
     // {Who}: the person named in that field of the record (someone in the space or its shares);
     // {Lineup.Player}: the people in a person field of the records linked through Lineup.
-    const peopleIn = (refs: string[], fixed: Person[], verb: string) => {
+    const peopleIn = (
+      col: CollectionRow,
+      colFields: FieldRow[],
+      refs: string[],
+      fixed: Person[],
+      verb: string,
+    ) => {
       const person = (f: FieldRow) => {
         if (f.type !== "person" || toField(f).options.personal)
           throw new ObjectError("validation_failed", `${f.name} isn't a person field`);
@@ -4189,13 +4318,13 @@ export class SpaceObject extends DurableObject<Env> {
       const to_fields: string[] = [];
       const to_linked: (LinkPath & { person_field_id: string })[] = [];
       for (const ref of refs) {
-        const own = fields.find((f) => f.id === ref || f.name_key === nameKey(ref));
+        const own = colFields.find((f) => f.id === ref || f.name_key === nameKey(ref));
         const dot = ref.indexOf(".");
         if (own || dot < 0) {
-          to_fields.push(person(this.matchField(fields, ref)));
+          to_fields.push(person(this.matchField(colFields, ref)));
           continue;
         }
-        const path = this.linkPath(c.id, ref.slice(0, dot));
+        const path = this.linkPath(col.id, ref.slice(0, dot));
         const target = this.fieldRows(path.target);
         to_linked.push({
           field_id: path.field_id,
@@ -4210,11 +4339,151 @@ export class SpaceObject extends DurableObject<Env> {
         ...(to_linked.length ? { to_linked } : {}),
       };
     };
+    /** A notify, set or add step, on records of `col` (none when `record` is false). */
+    // Without a record, {…} can only name a summary made in an earlier step ({Week.total}).
+    const noRecordFields = (texts: unknown[]) => {
+      for (const t of texts)
+        for (const m of typeof t === "string" ? t.matchAll(/\{([^{}]{1,80})\}/g) : []) {
+          const v = /^(.+)\.(total|count|by)$/i.exec(m[1]!.trim());
+          if (!v || !summaries.has(nameKey(v[1]!))) throw needsRecord(`{${m[1]}}`);
+        }
+    };
+    const simple = (a: SimpleSpec, col: CollectionRow, colFields: FieldRow[], record: boolean): SimpleDef => {
+      if (!record)
+        noRecordFields(a.do === "notify" ? [a.text] : a.do === "add" ? Object.values(a.values) : []);
+      if (a.do === "notify") {
+        if (!record && a.to_fields?.length) throw needsRecord(`Telling {${a.to_fields[0]}}`);
+        return {
+          do: "notify",
+          text: a.text,
+          to: a.to,
+          ...peopleIn(col, colFields, a.to_fields ?? [], a.to, "tell"),
+        };
+      }
+      if (a.do === "set") {
+        if (!record) throw needsRecord("Setting a field");
+        if (a.via) {
+          // Set a field on the linked records (those matching `where`), e.g. release the holds.
+          const path = this.linkPath(col.id, a.via);
+          const tc = this.requireCollection(path.target);
+          const tf = this.fieldRows(tc.id);
+          const f = this.matchField(tf, a.field);
+          noLinks(f);
+          this.readValues(tf, { [f.id]: a.value });
+          const where = this.checkViewQuery(tc, { filters: a.where ?? [] }).filters;
+          return {
+            do: "set",
+            field_id: f.id,
+            value: a.value,
+            via: { field_id: path.field_id, dir: path.dir },
+            ...(where.length ? { where } : {}),
+          };
+        }
+        if (a.where?.length)
+          throw new ObjectError("validation_failed", "A filter only fits a set on linked records (via)");
+        const f = this.matchField(colFields, a.field);
+        noLinks(f);
+        this.readValues(colFields, { [f.id]: a.value });
+        return { do: "set", field_id: f.id, value: a.value };
+      }
+      const t = this.requireCollection(a.collection);
+      const tf = this.fieldRows(t.id);
+      const values: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(a.values)) {
+        const f = this.matchField(tf, k);
+        noLinks(f);
+        // Text with {Field} is filled in when it runs; anything else is checked now.
+        if (!(typeof v === "string" && /\{[^{}]+\}/.test(v))) this.readValues(tf, { [f.id]: v });
+        values[f.id] = v;
+      }
+      const missing = tf.filter((f) => f.required && f.type !== "link" && !(f.id in values));
+      if (missing.length)
+        throw new ObjectError(
+          "validation_failed",
+          `A new ${t.name} record needs ${missing.map((f) => f.name).join(", ")}`,
+        );
+      return { do: "add", collection_id: t.id, values };
+    };
+    const listOf = (name?: string) => {
+      const col = name ? this.requireCollection(name) : c;
+      return { col, colFields: col.id === c.id ? fields : this.fieldRows(col.id) };
+    };
+    // The summaries made so far, by name: an "if" may compare them, later text may use them.
+    const summaries = new Map<string, FieldRow | null>();
     const then = spec.then.map((a, i): WorkflowDef["then"][number] => {
-      if (a.do === "notify")
-        return { do: "notify", text: a.text, to: a.to, ...peopleIn(a.to_fields ?? [], a.to, "tell") };
+      if (a.do === "notify" || a.do === "set" || a.do === "add") return simple(a, c, fields, !sched);
+      if (a.do === "summary") {
+        const { col, colFields } = listOf(a.collection);
+        if (summaries.has(nameKey(a.name)))
+          throw new ObjectError("validation_failed", `Two summaries are called ${a.name}; name them apart`);
+        const where = this.checkViewQuery(col, { filters: a.where }).filters;
+        let sum: FieldRow | null = null;
+        if (a.sum) {
+          sum = this.matchField(colFields, a.sum);
+          if ((sum.type !== "number" && sum.type !== "money") || toField(sum).options.personal)
+            throw new ObjectError("validation_failed", `${sum.name} isn't a number or money field to add up`);
+        }
+        let by: string | null = null;
+        if (a.by) {
+          const f = this.matchField(colFields, a.by);
+          if (f.type === "link" || f.type === "long_text" || toField(f).options.personal)
+            throw new ObjectError("validation_failed", `A summary can't be broken down by ${f.name}`);
+          by = f.id;
+        }
+        summaries.set(nameKey(a.name), sum);
+        return { do: "summary", collection_id: col.id, where, sum: sum?.id ?? null, by, name: a.name };
+      }
+      if (a.do === "for_each") {
+        const { col, colFields } = listOf(a.collection);
+        const where = this.checkViewQuery(col, { filters: a.where }).filters;
+        if (!where.length)
+          throw new ObjectError("validation_failed", "Say which records “for each” goes through");
+        return {
+          do: "for_each",
+          collection_id: col.id,
+          where,
+          then: a.then.map((x) => simple(x, col, colFields, true)),
+        };
+      }
+      if (a.do === "if") {
+        const vars: VarCond[] = [];
+        const own: Filter[] = [];
+        for (const f of a.if) {
+          // "Week.total": a summary made in an earlier step, compared with a number.
+          const m = /^(.+)\.(total|count)$/i.exec(f.field);
+          if (m && summaries.has(nameKey(m[1]!))) {
+            if (!["eq", "ne", "lt", "lte", "gt", "gte"].includes(f.op))
+              throw new ObjectError(
+                "validation_failed",
+                `Compare ${f.field} with a number (more than, less than…)`,
+              );
+            const part = m[2]!.toLowerCase() as "total" | "count";
+            const sum = summaries.get(nameKey(m[1]!)) ?? null;
+            if (part === "total" && !sum)
+              throw new ObjectError("validation_failed", `${m[1]} counts records; compare ${m[1]}.count`);
+            const value =
+              part === "total"
+                ? normalizeValue(toField(sum!), f.value)
+                : normalizeValue({ name: f.field, type: "number", options: {} }, f.value);
+            if (typeof value !== "number")
+              throw new ObjectError("validation_failed", `Compare ${f.field} with a number`);
+            vars.push({ name: m[1]!, part, op: f.op, value });
+          } else {
+            if (sched) throw needsRecord(`Checking ${f.field}`);
+            own.push(f);
+          }
+        }
+        return {
+          do: "if",
+          if: this.checkViewQuery(c, { filters: own }).filters,
+          vars,
+          then: a.then.map((x) => simple(x, c, fields, !sched)),
+          else: a.else.map((x) => simple(x, c, fields, !sched)),
+        };
+      }
+      if (sched) throw needsRecord(a.do === "ask" ? "Asking" : "Going back");
       if (a.do === "ask") {
-        const who = peopleIn(a.to_fields ?? [], a.to, "ask");
+        const who = peopleIn(c, fields, a.to_fields ?? [], a.to, "ask");
         const choices = a.choices ? [...new Map(a.choices.map((x) => [nameKey(x), x])).values()] : null;
         if (choices && choices.length < 2)
           throw new ObjectError("validation_failed", "Give at least two different choices");
@@ -4268,48 +4537,7 @@ export class SpaceObject extends DurableObject<Env> {
           at_most: a.at_most,
         };
       }
-      if (a.do === "set") {
-        if (a.via) {
-          // Set a field on the linked records (those matching `where`), e.g. release the holds.
-          const path = this.linkPath(c.id, a.via);
-          const tc = this.requireCollection(path.target);
-          const tf = this.fieldRows(tc.id);
-          const f = this.matchField(tf, a.field);
-          noLinks(f);
-          this.readValues(tf, { [f.id]: a.value });
-          const where = this.checkViewQuery(tc, { filters: a.where ?? [] }).filters;
-          return {
-            do: "set",
-            field_id: f.id,
-            value: a.value,
-            via: { field_id: path.field_id, dir: path.dir },
-            ...(where.length ? { where } : {}),
-          };
-        }
-        if (a.where?.length)
-          throw new ObjectError("validation_failed", "A filter only fits a set on linked records (via)");
-        const f = this.matchField(fields, a.field);
-        noLinks(f);
-        this.readValues(fields, { [f.id]: a.value });
-        return { do: "set", field_id: f.id, value: a.value };
-      }
-      const t = this.requireCollection(a.collection);
-      const tf = this.fieldRows(t.id);
-      const values: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(a.values)) {
-        const f = this.matchField(tf, k);
-        noLinks(f);
-        // Text with {Field} is filled in when it runs; anything else is checked now.
-        if (!(typeof v === "string" && /\{[^{}]+\}/.test(v))) this.readValues(tf, { [f.id]: v });
-        values[f.id] = v;
-      }
-      const missing = tf.filter((f) => f.required && f.type !== "link" && !(f.id in values));
-      if (missing.length)
-        throw new ObjectError(
-          "validation_failed",
-          `A new ${t.name} record needs ${missing.map((f) => f.name).join(", ")}`,
-        );
-      return { do: "add", collection_id: t.id, values };
+      return a satisfies never;
     });
     return {
       collectionId: c.id,
@@ -4318,6 +4546,7 @@ export class SpaceObject extends DurableObject<Env> {
           event: spec.when.event,
           field_id: fieldId,
           offset_minutes: spec.when.event === "date" ? spec.when.offset_minutes : 0,
+          ...(schedule ? { schedule } : {}),
         },
         check,
         wait_minutes: spec.wait_minutes,
@@ -4333,6 +4562,57 @@ export class SpaceObject extends DurableObject<Env> {
       this.sql
         .exec<{ name: string }>(`select name from collections where id = ? and deleted_at is null`, id)
         .toArray()[0]?.name ?? "(removed list)";
+    const condView = (f: Filter): CondView => ({
+      field_id: f.field,
+      field: fieldName(f.field),
+      op: f.op,
+      value: f.value ?? null,
+      ...this.shownValue(f),
+    });
+    const peopleView = (a: {
+      to: Person[];
+      to_fields?: string[];
+      to_linked?: (LinkPath & { person_field_id: string })[];
+    }) => [
+      ...a.to,
+      ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
+      ...(a.to_linked ?? []).map((l) => ({
+        user_id: "",
+        name: `{${this.linkPathName(l)}.${fieldName(l.person_field_id)}}`,
+      })),
+    ];
+    const simpleView = (a: SimpleDef): SimpleStepView =>
+      a.do === "notify"
+        ? { do: "notify", text: a.text, to: peopleView(a) }
+        : a.do === "set"
+          ? {
+              do: "set",
+              field_id: a.field_id,
+              field: fieldName(a.field_id),
+              value: a.value,
+              ...(a.via ? { via: this.linkPathName(a.via), where: (a.where ?? []).map(condView) } : {}),
+            }
+          : {
+              do: "add",
+              collection_id: a.collection_id,
+              collection: colName(a.collection_id),
+              values: Object.fromEntries(Object.entries(a.values).map(([k, v]) => [fieldName(k), v])),
+            };
+    // A summary's total reads as money when it adds up money.
+    const sumType = (name: string) => {
+      const step = def.then.find((x) => x.do === "summary" && nameKey(x.name) === nameKey(name));
+      return step?.do === "summary" && step.sum ? this.liveField(step.sum)?.type : undefined;
+    };
+    const varView = (v: VarCond): CondView => ({
+      field_id: "",
+      field: `${v.name}.${v.part}`,
+      op: v.op,
+      value: v.value,
+      shown:
+        v.part === "total" && sumType(v.name) === "money"
+          ? String(displayValue("money", v.value))
+          : String(v.value),
+    });
     const base = {
       when: {
         event: def.when.event,
@@ -4341,86 +4621,52 @@ export class SpaceObject extends DurableObject<Env> {
         field_id: def.when.field_id,
         field: def.when.field_id ? fieldName(def.when.field_id) : null,
         offset_minutes: def.when.offset_minutes,
+        ...(def.when.schedule ? { schedule: def.when.schedule } : {}),
       },
-      check: def.check.map((f) => ({
-        field_id: f.field,
-        field: fieldName(f.field),
-        op: f.op,
-        value: f.value ?? null,
-        ...this.shownValue(f),
-      })),
+      check: def.check.map(condView),
       wait_minutes: def.wait_minutes,
-      then: def.then.map((a): WorkflowView["then"][number] =>
-        a.do === "notify"
-          ? {
-              do: "notify",
-              text: a.text,
-              to: [
-                ...a.to,
-                ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
-                ...(a.to_linked ?? []).map((l) => ({
-                  user_id: "",
-                  name: `{${this.linkPathName(l)}.${fieldName(l.person_field_id)}}`,
-                })),
-              ],
-            }
-          : a.do === "set"
-            ? {
-                do: "set",
-                field_id: a.field_id,
-                field: fieldName(a.field_id),
-                value: a.value,
-                ...(a.via
-                  ? {
-                      via: this.linkPathName(a.via),
-                      where: (a.where ?? []).map((f) => ({
-                        field_id: f.field,
-                        field: fieldName(f.field),
-                        op: f.op,
-                        value: f.value ?? null,
-                        ...this.shownValue(f),
-                      })),
-                    }
-                  : {}),
-              }
-            : a.do === "add"
-              ? {
-                  do: "add",
-                  collection_id: a.collection_id,
-                  collection: colName(a.collection_id),
-                  values: Object.fromEntries(Object.entries(a.values).map(([k, v]) => [fieldName(k), v])),
-                }
-              : a.do === "ask"
-                ? {
-                    do: "ask",
-                    text: a.text,
-                    choices: a.choices,
-                    who: [
-                      ...a.to,
-                      ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
-                      ...(a.to_linked ?? []).map((l) => ({
-                        user_id: "",
-                        name: `{${this.linkPathName(l)}.${fieldName(l.person_field_id)}}`,
-                      })),
-                    ],
-                    save_to_id: a.save_to,
-                    save_to: a.save_to ? fieldName(a.save_to) : null,
-                    nudge_minutes: a.nudge_minutes,
-                    until: a.until,
-                  }
-                : {
-                    do: "repeat",
-                    if: a.if.map((f) => ({
-                      field_id: f.field,
-                      field: fieldName(f.field),
-                      op: f.op,
-                      value: f.value ?? null,
-                      ...this.shownValue(f),
-                    })),
-                    from: a.from,
-                    at_most: a.at_most,
-                  },
-      ),
+      then: def.then.map((a): WorkflowView["then"][number] => {
+        if (a.do === "notify" || a.do === "set" || a.do === "add") return simpleView(a);
+        if (a.do === "summary")
+          return {
+            do: "summary",
+            collection_id: a.collection_id,
+            collection: colName(a.collection_id),
+            where: a.where.map(condView),
+            sum_id: a.sum,
+            sum: a.sum ? fieldName(a.sum) : null,
+            by_id: a.by,
+            by: a.by ? fieldName(a.by) : null,
+            name: a.name,
+          };
+        if (a.do === "for_each")
+          return {
+            do: "for_each",
+            collection_id: a.collection_id,
+            collection: colName(a.collection_id),
+            where: a.where.map(condView),
+            then: a.then.map(simpleView),
+          };
+        if (a.do === "if")
+          return {
+            do: "if",
+            if: [...a.vars.map(varView), ...a.if.map(condView)],
+            then: a.then.map(simpleView),
+            else: a.else.map(simpleView),
+          };
+        if (a.do === "ask")
+          return {
+            do: "ask",
+            text: a.text,
+            choices: a.choices,
+            who: peopleView(a),
+            save_to_id: a.save_to,
+            save_to: a.save_to ? fieldName(a.save_to) : null,
+            nudge_minutes: a.nudge_minutes,
+            until: a.until,
+          };
+        return { do: "repeat", if: a.if.map(condView), from: a.from, at_most: a.at_most };
+      }),
     };
     return {
       id: w.id,
@@ -4467,6 +4713,7 @@ export class SpaceObject extends DurableObject<Env> {
     for (const w of rows) {
       const def = JSON.parse(w.def_json) as WorkflowDef;
       const f = def.when.field_id;
+      if (def.when.event === "schedule") continue;
       if (def.when.event === "date") {
         this.scheduleDate(w.id, def, recordId, after, now);
         continue;
@@ -4509,6 +4756,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** A date workflow just turned on: schedules every record that already has a date. */
   private scheduleExisting(workflowId: string, collectionId: string, def: WorkflowDef) {
+    if (def.when.event === "schedule") return this.scheduleNext(workflowId, def, Date.now());
     if (def.when.event !== "date") return;
     const now = Date.now();
     let after = "";
@@ -4534,7 +4782,13 @@ export class SpaceObject extends DurableObject<Env> {
     }
   }
 
-  private addJob(workflowId: string, recordId: string, kind: "event" | "date", dueMs: number) {
+  /** A scheduled workflow's next run (one job at a time; a missed run runs once, late). */
+  private scheduleNext(workflowId: string, def: WorkflowDef, afterMs: number) {
+    if (def.when.schedule)
+      this.addJob(workflowId, "", "schedule", nextScheduleTime(def.when.schedule, afterMs));
+  }
+
+  private addJob(workflowId: string, recordId: string, kind: "event" | "date" | "schedule", dueMs: number) {
     this.sql.exec(
       `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth) values (?, ?, ?, ?, ?, ?)`,
       ulid(),
@@ -4571,7 +4825,28 @@ export class SpaceObject extends DurableObject<Env> {
         // The steps rolled back; note why, so the history says what happened.
         this.ctx.storage.transactionSync(() => {
           this.sql.exec(`delete from workflow_jobs where id = ?`, j.id);
-          this.noteRun(j.workflow_id, j.record_id, false, false, e instanceof Error ? e.message : String(e));
+          this.noteRun(
+            j.workflow_id,
+            j.record_id || null,
+            false,
+            false,
+            e instanceof Error ? e.message : String(e),
+          );
+          // A schedule that failed this time still runs next time.
+          if (j.kind === "schedule") {
+            const w = this.sql
+              .exec<WorkflowRow>(
+                `select * from workflows where id = ? and deleted_at is null and enabled = 1`,
+                j.workflow_id,
+              )
+              .toArray()[0];
+            if (w)
+              this.scheduleNext(
+                w.id,
+                JSON.parse(w.def_json) as WorkflowDef,
+                Math.max(Date.now(), Date.parse(j.due_at)),
+              );
+          }
         });
       } finally {
         this.wfDepth = 0;
@@ -4664,6 +4939,12 @@ export class SpaceObject extends DurableObject<Env> {
         wait.loops_json ? (JSON.parse(wait.loops_json) as Loops) : {},
       );
     }
+    if (j.kind === "schedule") {
+      if (def.when.event !== "schedule") return [];
+      this.scheduleNext(w.id, def, Math.max(Date.now(), Date.parse(j.due_at)));
+      this.wfDepth = j.depth + 1;
+      return this.runSteps(w, def, null, 0, {});
+    }
     const r = this.liveRecord(j.record_id);
     if (!r) {
       this.noteRun(w.id, j.record_id, true, false, "Skipped: the record was deleted");
@@ -4708,30 +4989,63 @@ export class SpaceObject extends DurableObject<Env> {
   /**
    * The steps from `from` on, in one transaction. An "ask" step stops here: the question goes
    * to the people, a wait is kept, and the run goes on (from the next step) once they answer.
+   * A scheduled run has no record (`r` is null); its steps are the ones that need none.
    */
-  private runSteps(w: WorkflowRow, def: WorkflowDef, r: RecordRow, from: number, loops: Loops): Tell[] {
+  private runSteps(
+    w: WorkflowRow,
+    def: WorkflowDef,
+    r: RecordRow | null,
+    from: number,
+    loops: Loops,
+  ): Tell[] {
     const actor: Actor = { userId: w.created_by, source: "system" };
     const ts = nowIso();
     const tell: Tell[] = [];
     const did: string[] = [];
+    const vars = new Map<string, Summary>();
+    // Going on after an answer: the summaries before it are made again, from today's records.
+    for (let i = 0; i < from; i++) {
+      const a = def.then[i]!;
+      if (a.do === "summary") vars.set(nameKey(a.name), this.summarize(actor, a));
+    }
+    const needRecord = (): RecordRow => {
+      if (!r) throw new ObjectError("validation_failed", "This step needs a record");
+      return r;
+    };
     for (let i = from; i < def.then.length; i++) {
       const a = def.then[i]!;
-      if (a.do === "notify") {
-        const current = this.requireRecord(r.id);
-        const body = this.fillTemplate(a.text, current);
-        const people = this.peopleOf(a, r);
-        for (const p of people)
-          if (p.user_id)
-            tell.push({
-              userId: p.user_id,
-              n: { kind: "workflow", title: w.name, body, url: `/c/${r.collection_id}/${r.id}` },
-            });
+      if (a.do === "notify" || a.do === "set" || a.do === "add") {
+        did.push(this.runSimple(w, a, r, actor, ts, tell, vars));
+      } else if (a.do === "summary") {
+        const sum = this.summarize(actor, a);
+        vars.set(nameKey(a.name), sum);
+        did.push(`${a.name}: ${sum.shown}${sum.by ? ` (${sum.by})` : ""}`);
+      } else if (a.do === "for_each") {
+        const c = this.requireCollection(a.collection_id);
+        const rows = this.findRows(actor, c, { filters: a.where, limit: MAX_FOR_EACH }).rows;
+        for (const rec of rows) for (const x of a.then) this.runSimple(w, x, rec, actor, ts, tell, vars);
         did.push(
-          people.length
-            ? `Told ${people.map((p) => p.name).join(", ")}: “${body}”`
-            : "Nobody to tell: the record names nobody in the space",
+          rows.length
+            ? `Went through ${rows.length} record${rows.length === 1 ? "" : "s"} in ${c.name}`
+            : `No records in ${c.name} matched`,
         );
+      } else if (a.do === "if") {
+        const holds =
+          a.vars.every((v) => {
+            const got = vars.get(nameKey(v.name));
+            return !!got && compareNumbers(v.part === "total" ? got.total : got.count, v.op, v.value);
+          }) &&
+          (!a.if.length ||
+            this.findRows(actor, this.requireCollection(needRecord().collection_id), {
+              filters: a.if,
+              ids: [needRecord().id],
+              limit: 1,
+            }).rows.length > 0);
+        const steps = holds ? a.then : a.else;
+        did.push(holds ? "It held" : steps.length ? "It didn't hold, so the other way" : "It didn't hold");
+        for (const x of steps) did.push(this.runSimple(w, x, r, actor, ts, tell, vars));
       } else if (a.do === "ask") {
+        const r = needRecord();
         const people = this.peopleOf(a, r).filter((p) => p.user_id);
         const text = this.fillTemplate(a.text, this.requireRecord(r.id));
         if (!people.length) {
@@ -4796,7 +5110,8 @@ export class SpaceObject extends DurableObject<Env> {
         this.noteRun(w.id, r.id, true, from === 0, did.join(" · "));
         this.changed();
         return tell;
-      } else if (a.do === "repeat") {
+      } else {
+        const r = needRecord();
         const c = this.requireCollection(r.collection_id);
         // Each repeat step counts its own goings-back.
         const done = loops[String(i)] ?? 0;
@@ -4812,40 +5127,126 @@ export class SpaceObject extends DurableObject<Env> {
         did.push(
           done >= a.at_most ? `Stopped going back after ${a.at_most}` : "Went on (no need to go back)",
         );
-      } else if (a.do === "set" && a.via) {
-        const field = this.liveField(a.field_id);
-        const ids = field
-          ? this.matchingIn(
-              field.collection_id,
-              a.where ?? [],
-              this.linkedIds(a.via.field_id, a.via.dir, r.id),
-              actor, // as the workflow's maker, like its check ("me" is them)
-            ).slice(0, MAX_LINKED_SETS)
-          : [];
-        for (const id of ids)
-          this.changeRecord(actor, ts, this.requireRecord(id), { values: { [a.field_id]: a.value } });
-        did.push(
-          `Set ${field?.name ?? "a field"} on ${ids.length} linked record${ids.length === 1 ? "" : "s"} (${this.linkPathName(a.via)})`,
-        );
-      } else if (a.do === "set") {
-        this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });
-        did.push(`Set ${this.liveField(a.field_id)?.name ?? "a field"}`);
-      } else {
-        const t = this.requireCollection(a.collection_id);
-        const current = this.requireRecord(r.id);
-        const values = Object.fromEntries(
-          Object.entries(a.values).map(([k, v]) => [
-            k,
-            typeof v === "string" ? this.fillTemplate(v, current) : v,
-          ]),
-        );
-        const added = this.insertRecord(actor, ts, t, { values });
-        did.push(`Added “${added.title}” to ${t.name}`);
       }
     }
-    this.noteRun(w.id, r.id, true, from === 0, did.length ? did.join(" · ") : "Done");
+    this.noteRun(w.id, r?.id ?? null, true, from === 0, did.length ? did.join(" · ") : "Done");
     this.changed();
     return tell;
+  }
+
+  /** A notify, set or add step on one record (or none, in a scheduled run); what it did. */
+  private runSimple(
+    w: WorkflowRow,
+    a: SimpleDef,
+    r: RecordRow | null,
+    actor: Actor,
+    ts: string,
+    tell: Tell[],
+    vars: Map<string, Summary>,
+  ): string {
+    if (a.do === "notify") {
+      const body = this.fillTemplate(a.text, r ? this.requireRecord(r.id) : null, vars);
+      const people = r ? this.peopleOf(a, r) : a.to;
+      for (const p of people)
+        if (p.user_id)
+          tell.push({
+            userId: p.user_id,
+            n: {
+              kind: "workflow",
+              title: w.name,
+              body,
+              url: r ? `/c/${r.collection_id}/${r.id}` : `/c/${w.collection_id}`,
+            },
+          });
+      return people.length
+        ? `Told ${people.map((p) => p.name).join(", ")}: “${body}”`
+        : "Nobody to tell: the record names nobody in the space";
+    }
+    if (a.do === "set" && !r) throw new ObjectError("validation_failed", "This step needs a record");
+    if (a.do === "set" && r && a.via) {
+      const field = this.liveField(a.field_id);
+      const ids = field
+        ? this.matchingIn(
+            field.collection_id,
+            a.where ?? [],
+            this.linkedIds(a.via.field_id, a.via.dir, r.id),
+            actor, // as the workflow's maker, like its check ("me" is them)
+          ).slice(0, MAX_LINKED_SETS)
+        : [];
+      for (const id of ids)
+        this.changeRecord(actor, ts, this.requireRecord(id), { values: { [a.field_id]: a.value } });
+      return `Set ${field?.name ?? "a field"} on ${ids.length} linked record${ids.length === 1 ? "" : "s"} (${this.linkPathName(a.via)})`;
+    }
+    if (a.do === "set" && r) {
+      this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });
+      return `Set ${this.liveField(a.field_id)?.name ?? "a field"}`;
+    }
+    if (a.do !== "add") return "";
+    const t = this.requireCollection(a.collection_id);
+    const current = r ? this.requireRecord(r.id) : null;
+    const values = Object.fromEntries(
+      Object.entries(a.values).map(([k, v]) => [
+        k,
+        typeof v === "string" ? this.fillTemplate(v, current, vars) : v,
+      ]),
+    );
+    const added = this.insertRecord(actor, ts, t, { values });
+    return `Added “${added.title}” to ${t.name}`;
+  }
+
+  /** Counts (or adds up) a list's matching records, maybe broken down by a field. */
+  private summarize(
+    actor: Actor,
+    a: { collection_id: string; where: Filter[]; sum: string | null; by: string | null },
+  ): Summary {
+    const c = this.requireCollection(a.collection_id);
+    const sum = a.sum ? this.liveField(a.sum) : null;
+    const by = a.by ? this.liveField(a.by) : null;
+    if ((a.sum && !sum) || (a.by && !by))
+      throw new ObjectError("validation_failed", "A field this summary reads was removed");
+    let total = 0;
+    let count = 0;
+    const groups = new Map<string, { total: number; count: number }>();
+    let cursor: string | undefined;
+    do {
+      const page = this.findRows(actor, c, { filters: a.where, limit: 500, cursor });
+      for (const rec of page.rows) {
+        const values = JSON.parse(rec.values_json) as Record<string, StoredValue>;
+        const v = sum ? values[sum.id] : null;
+        const n = typeof v === "number" ? v : 0;
+        total += n;
+        count++;
+        if (by) {
+          const shown = displayValue(by.type, values[by.id] ?? null);
+          const key = (Array.isArray(shown) ? shown.join(", ") : shown) || "(none)";
+          const g = groups.get(key) ?? { total: 0, count: 0 };
+          g.total += n;
+          g.count++;
+          groups.set(key, g);
+        }
+      }
+      cursor = page.next_cursor ?? undefined;
+      if (cursor && count >= MAX_SUMMARY_ROWS)
+        throw new ObjectError(
+          "validation_failed",
+          `More than ${MAX_SUMMARY_ROWS.toLocaleString("en-IN")} records match this summary; narrow its filter`,
+        );
+    } while (cursor);
+    const show = (n: number, k: number) =>
+      sum ? String(displayValue(sum.type, n)) : `${k} record${k === 1 ? "" : "s"}`;
+    const top = [...groups.entries()].sort((x, y) =>
+      sum ? y[1].total - x[1].total : y[1].count - x[1].count,
+    );
+    const byWords = top
+      .slice(0, 6)
+      .map(([k, g]) => `${k} ${show(g.total, g.count)}`)
+      .join(", ");
+    return {
+      total,
+      count,
+      shown: show(total, count),
+      by: top.length > 6 ? `${byWords} and ${top.length - 6} more` : byWords,
+    };
   }
 
   // --- Processes: waiting on people (home-first.md §2 point 9) --------------------------
@@ -5092,11 +5493,20 @@ export class SpaceObject extends DurableObject<Env> {
     );
   }
 
-  /** "{Amount} on {Category}" with the record's values (unknown names stay as written). */
-  private fillTemplate(text: string, r: RecordRow): string {
-    const fields = this.fieldRows(r.collection_id);
-    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+  /**
+   * "{Amount} on {Category}" with the record's values, "{Week.total}" with a summary made
+   * earlier in the run (unknown names stay as written).
+   */
+  private fillTemplate(text: string, r: RecordRow | null, vars?: Map<string, Summary>): string {
+    const fields = r ? this.fieldRows(r.collection_id) : [];
+    const values = r ? (JSON.parse(r.values_json) as Record<string, StoredValue>) : {};
     return text.replace(/\{([^{}]{1,80})\}/g, (all, name: string) => {
+      const m = /^(.+)\.(total|count|by)$/i.exec(name.trim());
+      const got = m ? vars?.get(nameKey(m[1]!)) : undefined;
+      if (m && got) {
+        const part = m[2]!.toLowerCase();
+        return part === "total" ? got.shown : part === "count" ? String(got.count) : got.by || "nothing";
+      }
       const f = fields.find((x) => x.name_key === nameKey(name));
       if (!f) return all;
       const shown = displayValue(f.type, values[f.id] ?? null);

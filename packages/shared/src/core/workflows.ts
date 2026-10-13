@@ -11,14 +11,19 @@
 import { z } from "zod";
 import { FilterInput, SpaceRef, type FilterOp } from "./spaces.ts";
 
-export const WORKFLOW_EVENTS = ["added", "changed", "date"] as const;
+export const WORKFLOW_EVENTS = ["added", "changed", "date", "schedule"] as const;
 export type WorkflowEvent = (typeof WORKFLOW_EVENTS)[number];
+
+/** Schedules (decision 2026-10-13 "Flows on a schedule, over many records, with branches"). */
+export const SCHEDULE_EVERY = ["day", "week", "month"] as const;
+export const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
 
 export const WorkflowWhenInput = z.object({
   event: z
     .enum(WORKFLOW_EVENTS)
     .describe(
-      '"added": a record is added; "changed": a record (or one field) changes; "date": a date field is near',
+      '"added": a record is added; "changed": a record (or one field) changes; "date": a date field is near; "schedule": every day, week or month at a time',
     ),
   collection: z.string().trim().min(1).max(80).describe("Collection name or id"),
   field: z
@@ -35,55 +40,151 @@ export const WorkflowWhenInput = z.object({
     .max(525_600)
     .default(0)
     .describe('"date": minutes before (negative) or after (positive) the date, e.g. -1440 for a day before'),
+  every: z.enum(SCHEDULE_EVERY).optional().describe('"schedule": how often'),
+  days: z
+    .array(z.enum(WEEKDAYS))
+    .min(1)
+    .max(7)
+    .optional()
+    .describe('"schedule" every week: which days, e.g. ["fri"]'),
+  day_of_month: z
+    .number()
+    .int()
+    .min(1)
+    .max(31)
+    .optional()
+    .describe('"schedule" every month: the day (31 means the last day of each month)'),
+  at: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "a time like 18:00")
+    .optional()
+    .describe('"schedule": the time, India time, e.g. "18:00" (default 09:00)'),
 });
 
+const NotifyAction = z.object({
+  do: z.literal("notify"),
+  text: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .describe('What to say; {Field} puts in a value, e.g. "Big expense: {Amount} on {Category}"'),
+  to: z
+    .array(z.string().trim().min(1).max(80))
+    .min(1)
+    .max(10)
+    .default(["me"])
+    .describe(
+      '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Lineup.Player})',
+    ),
+});
+const SetAction = z.object({
+  do: z.literal("set"),
+  field: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .describe("A field of the record that triggered it (or, with via, of the linked records)"),
+  value: z.unknown().describe("The value to set"),
+  via: z
+    .string()
+    .trim()
+    .min(1)
+    .max(160)
+    .optional()
+    .describe('Set it on linked records instead: a link field, or a list that links here (e.g. "Events")'),
+  where: z
+    .array(FilterInput)
+    .max(5)
+    .optional()
+    .describe("With via: only the linked records matching all of these"),
+});
+const AddAction = z.object({
+  do: z.literal("add"),
+  collection: z.string().trim().min(1).max(80),
+  values: z
+    .record(z.string(), z.unknown())
+    .describe("Values for the new record; text may use {Field} from the triggering record"),
+});
+/** Count or total a list's records (those matching `where`), maybe broken down by a field. */
+const SummaryAction = z.object({
+  do: z.literal("summary"),
+  collection: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("The list to look at (default: the workflow's list)"),
+  where: z
+    .array(FilterInput)
+    .max(5)
+    .default([])
+    .describe("Only records matching these, e.g. Date period this_week"),
+  sum: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("A number or money field to add up (left out: count the records)"),
+  by: z.string().trim().min(1).max(80).optional().describe("A field to break it down by, e.g. Category"),
+  name: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z][A-Za-z0-9]{0,23}$/, "one word, e.g. Week")
+    .default("Summary")
+    .describe("Later messages use {Name.total}, {Name.count} and {Name.by}, e.g. {Summary.total}"),
+});
+/** The same steps for every matching record (at most 200 at a time). */
+const ForEachAction = z.object({
+  do: z.literal("for_each"),
+  collection: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("The list to go through (default: the workflow's list)"),
+  where: z.array(FilterInput).min(1).max(5).describe("Which records, e.g. Paid is no and Date period past"),
+  then: z
+    .array(z.discriminatedUnion("do", [NotifyAction, SetAction, AddAction]))
+    .min(1)
+    .max(3)
+    .describe("What to do for each; {Field} is that record's value"),
+});
+/**
+ * "If this, else that": the record's fields (or a summary made earlier, e.g. Week.total)
+ * decide which steps run.
+ */
+const IfAction = z.object({
+  do: z.literal("if"),
+  if: z
+    .array(FilterInput)
+    .min(1)
+    .max(5)
+    .describe(
+      'All of these must hold: the record\'s fields, or a summary made in an earlier step ("Week.total", "Week.count") compared with a number',
+    ),
+  then: z
+    .array(z.discriminatedUnion("do", [NotifyAction, SetAction, AddAction]))
+    .min(1)
+    .max(3)
+    .describe("What to do when it holds"),
+  else: z
+    .array(z.discriminatedUnion("do", [NotifyAction, SetAction, AddAction]))
+    .max(3)
+    .default([])
+    .describe("What to do otherwise (may be empty)"),
+});
 export const WorkflowActionInput = z.discriminatedUnion("do", [
-  z.object({
-    do: z.literal("notify"),
-    text: z
-      .string()
-      .trim()
-      .min(1)
-      .max(200)
-      .describe('What to say; {Field} puts in a value, e.g. "Big expense: {Amount} on {Category}"'),
-    to: z
-      .array(z.string().trim().min(1).max(80))
-      .min(1)
-      .max(10)
-      .default(["me"])
-      .describe(
-        '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Lineup.Player})',
-      ),
-  }),
-  z.object({
-    do: z.literal("set"),
-    field: z
-      .string()
-      .trim()
-      .min(1)
-      .max(80)
-      .describe("A field of the record that triggered it (or, with via, of the linked records)"),
-    value: z.unknown().describe("The value to set"),
-    via: z
-      .string()
-      .trim()
-      .min(1)
-      .max(160)
-      .optional()
-      .describe('Set it on linked records instead: a link field, or a list that links here (e.g. "Events")'),
-    where: z
-      .array(FilterInput)
-      .max(5)
-      .optional()
-      .describe("With via: only the linked records matching all of these"),
-  }),
-  z.object({
-    do: z.literal("add"),
-    collection: z.string().trim().min(1).max(80),
-    values: z
-      .record(z.string(), z.unknown())
-      .describe("Values for the new record; text may use {Field} from the triggering record"),
-  }),
+  NotifyAction,
+  SetAction,
+  AddAction,
+  SummaryAction,
+  ForEachAction,
+  IfAction,
   z.object({
     do: z.literal("ask"),
     who: z
@@ -150,7 +251,7 @@ export const CreateWorkflowInput = SpaceRef.extend({
     .max(43_200)
     .default(0)
     .describe("Wait this long after it happens (at most 30 days); the check runs again then"),
-  then: z.array(WorkflowActionInput).min(1).max(5),
+  then: z.array(WorkflowActionInput).min(1).max(6),
   enabled: z
     .boolean()
     .default(false)
@@ -172,21 +273,13 @@ export interface WorkflowView {
     field_id: string | null;
     field: string | null;
     offset_minutes: number;
+    /** "schedule": how often and when (India time). */
+    schedule?: WorkflowSchedule;
   };
   check: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
   wait_minutes: number;
   then: (
-    | { do: "notify"; text: string; to: { user_id: string; name: string }[] }
-    | {
-        do: "set";
-        field_id: string;
-        field: string;
-        value: unknown;
-        /** Set on the records linked through this (a link field, or a list linking here). */
-        via?: string;
-        where?: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
-      }
-    | { do: "add"; collection_id: string; collection: string; values: Record<string, unknown> }
+    | SimpleStepView
     | {
         do: "ask";
         text: string;
@@ -199,10 +292,23 @@ export interface WorkflowView {
       }
     | {
         do: "repeat";
-        if: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
+        if: CondView[];
         from: number;
         at_most: number;
       }
+    | {
+        do: "summary";
+        collection_id: string;
+        collection: string;
+        where: CondView[];
+        sum_id: string | null;
+        sum: string | null;
+        by_id: string | null;
+        by: string | null;
+        name: string;
+      }
+    | { do: "for_each"; collection_id: string; collection: string; where: CondView[]; then: SimpleStepView[] }
+    | { do: "if"; if: CondView[]; then: SimpleStepView[]; else: SimpleStepView[] }
   )[];
   /** The same definition in plain words, one line per part. */
   words: string[];
@@ -210,6 +316,32 @@ export interface WorkflowView {
   last_run_at: string | null;
   created_at: string;
 }
+
+/** When a scheduled workflow runs (India time). */
+export interface WorkflowSchedule {
+  every: (typeof SCHEDULE_EVERY)[number];
+  /** every week: the days. */
+  days: Weekday[];
+  /** every month: the day (31: the last day). */
+  day_of_month: number | null;
+  /** "HH:MM". */
+  at: string;
+}
+/** A condition: a field, or a summary from an earlier step ("Week.total", field_id ""). */
+export type CondView = { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string };
+/** Steps that need nothing but a record (also the steps inside "for each"). */
+export type SimpleStepView =
+  | { do: "notify"; text: string; to: { user_id: string; name: string }[] }
+  | {
+      do: "set";
+      field_id: string;
+      field: string;
+      value: unknown;
+      /** Set on the records linked through this (a link field, or a list linking here). */
+      via?: string;
+      where?: { field_id: string; field: string; op: FilterOp; value: unknown; shown?: string }[];
+    }
+  | { do: "add"; collection_id: string; collection: string; values: Record<string, unknown> };
 
 export interface WorkflowRun {
   id: string;
@@ -284,7 +416,8 @@ export function workflowWords(
 ): string[] {
   const out: string[] = [];
   const c = w.when.collection;
-  if (w.when.event === "added") out.push(`When a record is added to ${c}`);
+  if (w.when.event === "schedule" && w.when.schedule) out.push(scheduleWords(w.when.schedule));
+  else if (w.when.event === "added") out.push(`When a record is added to ${c}`);
   else if (w.when.event === "changed")
     out.push(w.when.field ? `When ${w.when.field} changes in ${c}` : `When a record in ${c} changes`);
   else {
@@ -303,8 +436,32 @@ export function workflowWords(
   const cond = (f: { field: string; op: FilterOp; value: unknown; shown?: string }) =>
     `${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`;
   for (const a of w.then) {
-    if (a.do === "notify") out.push(`Tell ${a.to.map((p) => p.name).join(", ")}: “${a.text}”`);
-    else if (a.do === "ask") {
+    if (a.do === "summary") {
+      const where = a.where.map(cond).join(" and ");
+      out.push(
+        `${a.sum ? `Total ${a.sum} of` : "Count"} ${a.collection}${where ? ` where ${where}` : ""}${a.by ? `, by ${a.by}` : ""} (as {${a.name}})`,
+      );
+      continue;
+    }
+    if (a.do === "for_each") {
+      out.push(
+        `For each record in ${a.collection} where ${a.where.map(cond).join(" and ")}: ${a.then.map(simpleWords).join("; ")}`,
+      );
+      continue;
+    }
+    if (a.do === "if") {
+      out.push(
+        `If ${a.if.map(cond).join(" and ")}: ${a.then.map(simpleWords).join("; ")}${
+          a.else.length ? `. Otherwise: ${a.else.map(simpleWords).join("; ")}` : ""
+        }`,
+      );
+      continue;
+    }
+    if (a.do === "notify" || a.do === "set" || a.do === "add") {
+      out.push(simpleWords(a));
+      continue;
+    }
+    if (a.do === "ask") {
       const who = a.who.map((p) => p.name).join(", ");
       const parts = [
         `Ask ${who}: “${a.text}”${a.choices ? ` (${a.choices.join(" / ")})` : ""}`,
@@ -321,25 +478,76 @@ export function workflowWords(
       out.push(
         `Go back to step ${a.from} while ${a.if.map(cond).join(" and ")} (at most ${a.at_most} time${a.at_most === 1 ? "" : "s"})`,
       );
-    else if (a.do === "set" && a.via) {
-      const only = (a.where ?? [])
-        .map(
-          (f) =>
-            `${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`,
-        )
-        .join(" and ");
-      out.push(`Set ${a.field} to ${show(a.value)} on its ${a.via}${only ? ` where ${only}` : ""}`);
-    } else if (a.do === "set") out.push(`Set ${a.field} to ${show(a.value)}`);
-    else
-      out.push(
-        `Add a record to ${a.collection}${
-          Object.keys(a.values).length
-            ? ` (${Object.entries(a.values)
-                .map(([k, v]) => `${k}: ${show(v)}`)
-                .join(", ")})`
-            : ""
-        }`,
-      );
   }
   return out;
+}
+
+const DAY_NAMES: Record<Weekday, string> = {
+  sun: "Sunday",
+  mon: "Monday",
+  tue: "Tuesday",
+  wed: "Wednesday",
+  thu: "Thursday",
+  fri: "Friday",
+  sat: "Saturday",
+};
+/** "9 am", "6:30 pm". */
+export function clockWords(hhmm: string): string {
+  const [h = 9, m = 0] = hhmm.split(":").map(Number);
+  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "am" : "pm"}`;
+}
+const ordinal = (n: number) =>
+  `${n}${n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th"}`;
+/** "Every Friday at 6 pm", "On the 1st of every month at 9 am". */
+export function scheduleWords(s: WorkflowSchedule): string {
+  const at = `at ${clockWords(s.at)}`;
+  if (s.every === "day") return `Every day ${at}`;
+  if (s.every === "week") {
+    const days = WEEKDAYS.filter((d) => s.days.includes(d)).map((d) => DAY_NAMES[d]);
+    const list = days.length > 1 ? `${days.slice(0, -1).join(", ")} and ${days.at(-1)}` : (days[0] ?? "week");
+    return `Every ${list} ${at}`;
+  }
+  return s.day_of_month === 31 || s.day_of_month === null
+    ? `On the last day of every month ${at}`
+    : `On the ${ordinal(s.day_of_month)} of every month ${at}`;
+}
+
+/** A notify, set or add step in words (also inside "for each"). */
+function simpleWords(a: SimpleStepView): string {
+  if (a.do === "notify") return `Tell ${a.to.map((p) => p.name).join(", ")}: “${a.text}”`;
+  if (a.do === "set" && a.via) {
+    const only = (a.where ?? []).map(condWords).join(" and ");
+    return `Set ${a.field} to ${show(a.value)} on its ${a.via}${only ? ` where ${only}` : ""}`;
+  }
+  if (a.do === "set") return `Set ${a.field} to ${show(a.value)}`;
+  return `Add a record to ${a.collection}${
+    Object.keys(a.values).length
+      ? ` (${Object.entries(a.values)
+          .map(([k, v]) => `${k}: ${show(v)}`)
+          .join(", ")})`
+      : ""
+  }`;
+}
+const condWords = (f: { field: string; op: FilterOp; value: unknown; shown?: string }) =>
+  `${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`;
+
+/** The next time (ms) a schedule runs after `after` (ms), India time. */
+export function nextScheduleTime(s: WorkflowSchedule, after: number): number {
+  const IST = 330 * 60_000;
+  const [h = 9, m = 0] = s.at.split(":").map(Number);
+  // Walk day by day (at most ~2 months) from the India-time day of `after`.
+  const start = new Date(after + IST);
+  for (let i = 0; i < 62; i++) {
+    const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + i));
+    const when = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, m) - IST;
+    if (when <= after) continue;
+    if (s.every === "day") return when;
+    if (s.every === "week" && s.days.includes(WEEKDAYS[d.getUTCDay()]!)) return when;
+    if (s.every === "month") {
+      const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+      const want = Math.min(s.day_of_month ?? 31, last);
+      if (d.getUTCDate() === want) return when;
+    }
+  }
+  return after + 86_400_000;
 }
