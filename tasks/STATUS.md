@@ -17,7 +17,7 @@ _Updated: 2026-10-13_
     Steps for parts a home doesn't have are left out (no cards, a collaborator without the assistant). Each step dims the screen and lights its real target: one view whose very wide border is the dim colour leaves a rounded hole, with no masking library. Targets are measured with `measureInWindow` (refs on the home). It ends with "Tell me about your week" on an empty home. It's shown once per person per device (`tour:<user id>` in device storage) and is skippable.
 
   - **Help:** a "?" button left of search on the home's bottom bar opens `HelpSheet`: take the tour again, ideas for cards (the gallery), and "How do I…?" (opens the chat).
-  - **Screenshots:** the simulator's test sign-in turns the tour off (`tour:off`) unless launched with `-testTour 1`; the job takes one tour shot (`phone-light-1b-tour`).
+  - **Screenshots:** the simulator's test sign-in turns the tour off (`tour:off`) unless launched with `-testTour 1`; the job takes one tour shot (`phone-light-7-tour`, late in the run: the first launches of a fresh install are slow on the runner, so the first home shot also waits 24 s).
   - **Verified here:** typecheck, lint; the web build against the local server with fake data, every step at 390 px, light and dark.
   - **Next:**
     1. One-time hints and "What can I do here?" on a card.
