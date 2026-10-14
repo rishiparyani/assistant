@@ -788,11 +788,13 @@ export class GroupObject extends DurableObject<Env> {
     const g = this.group();
     if (me.role !== "owner" && !g.direct)
       throw new ObjectError("forbidden", "Only the chat's admins can pin things to it");
-    if (this.cards().length >= MAX_CARDS)
-      throw new ObjectError("conflict", `A chat holds ${MAX_CARDS} pinned things; take one off first`);
     return this.write(actor, key, ["pin", card.share_id], (ts) => {
+      // A repeat of a pin that landed is fine; the limit is for new ones (checked here, after
+      // a retried request has had its stored answer).
       const have = this.sql.exec(`select 1 from cards where share_id = ?`, card.share_id).toArray().length;
       if (have) return this.cards();
+      if (this.cards().length >= MAX_CARDS)
+        throw new ObjectError("conflict", `A chat holds ${MAX_CARDS} pinned things; take one off first`);
       this.sql.exec(
         `insert into cards (share_id, space_id, title, owner_user_id, owner, added_at) values (?, ?, ?, ?, ?, ?)`,
         card.share_id,
@@ -828,9 +830,17 @@ export class GroupObject extends DurableObject<Env> {
     return row.space_id;
   }
 
-  /** Whether this person may pin things here (an admin, or either person in a chat for two). */
-  async canPin(userId: string): Promise<boolean> {
-    return this.member(userId).role === "owner" || !!this.group().direct;
+  /**
+   * Whether this person may pin this share here: an admin (either person in a chat for two), and
+   * room for it (or it's pinned already). Checked before anything is shared for the chat.
+   */
+  async canPin(userId: string, shareId?: string): Promise<"ok" | "not_admin" | "full"> {
+    if (this.member(userId).role !== "owner" && !this.group().direct) return "not_admin";
+    const pinned = shareId
+      ? this.sql.exec(`select 1 from cards where share_id = ? and removed_at is null`, shareId).toArray()
+          .length
+      : 0;
+    return pinned || this.cards().length < MAX_CARDS ? "ok" : "full";
   }
 
   /** Takes a record off the chat: an admin, or the person whose record it is. */
@@ -843,7 +853,7 @@ export class GroupObject extends DurableObject<Env> {
     const card = this.sql
       .exec<CardRow & { space_id: string }>(
         `select share_id, space_id, title, owner_user_id as owner_id, owner, added_at from cards
-         where share_id = ? and removed_at is null`,
+         where share_id = ?`,
         shareId,
       )
       .toArray()[0];
@@ -851,6 +861,11 @@ export class GroupObject extends DurableObject<Env> {
     if (me.role !== "owner" && !this.group().direct && card.owner_id !== actor.userId)
       throw new ObjectError("forbidden", "Only the chat's admins, or its owner, can take it off");
     return this.write(actor, key, ["unpin", shareId], (ts) => {
+      // Already off (a retry, or someone else took it off): nothing more to do.
+      const live = this.sql
+        .exec(`select 1 from cards where share_id = ? and removed_at is null`, shareId)
+        .toArray().length;
+      if (!live) return { card, cards: this.cards() };
       // Its share was made for this chat only: the alarm turns it off in the owner's space.
       this.sql.exec(`update cards set removed_at = ? where share_id = ?`, ts, shareId);
       this.note("note", null, "Group", `${me.name} took “${card.title}” off this chat`, ts);

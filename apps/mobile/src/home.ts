@@ -32,7 +32,7 @@ import {
   type StoredValue,
   type WaitingItem,
 } from "@assistant/shared";
-import { request } from "./api.ts";
+import { ApiError, request } from "./api.ts";
 import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
 
@@ -506,7 +506,12 @@ export async function loadChatCards(groupId: string, pinned: ChatCard[]): Promis
     pinned.map((c) =>
       request<SharedOpened>("GET", `/api/groups/${enc(groupId)}/cards/${enc(c.share_id)}`)
         .then((o) => chatCard(c, o))
-        .catch(() => null),
+        // Gone (taken off, turned off): left out. No connection or a server error: the caller
+        // says so and keeps what it showed.
+        .catch((e: unknown) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        }),
     ),
   );
   return opened.filter((c): c is HomeCard => c !== null);

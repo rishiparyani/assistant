@@ -236,11 +236,30 @@ export async function chatAboutRecord(
     hide_fields?: string[];
   },
 ): Promise<GroupView> {
+  // Everything that can say no is asked first (the right to share, the share itself, an
+  // existing chat's admins and room), so nothing is made for a request that can't finish.
+  // The steps after (chat, share, pin) each repeat safely: a retry with the same chat id
+  // finishes what a dropped connection left.
   const { stub, actor } = await spaceOf(ctx, i.space);
   const plan = await stub.recordChatPlan(actor, i.record_id);
+  await stub.checkShare(actor, {
+    kind: "card",
+    target: i.record_id,
+    include: i.include ?? [],
+    access: i.access,
+    hide: i.hide_fields ?? [],
+    public: false,
+  });
   const known = await chatPeople(ctx);
   let chat = await groupView(ctx, i.chat_id).catch(() => null);
-  if (!chat) {
+  if (chat) {
+    const room = await groupOf(ctx, chat.id).canPin(
+      ctx.user.id,
+      (await stub.chatShareFor(actor, chat.id, i.record_id)) ?? undefined,
+    );
+    if (room === "not_admin") throw new AppError("forbidden", "Only the chat's admins can pin things to it");
+    if (room === "full") throw new AppError("conflict", "This chat has all the pinned things it can hold");
+  } else {
     const people = i.people ?? plan.people.filter((id) => known.some((p) => p.user_id === id));
     if (!people.length)
       throw new AppError("validation_failed", "Pick who to chat with: nobody you know is on this yet");
@@ -250,9 +269,6 @@ export async function chatAboutRecord(
       people,
     });
   }
-  // Checked before anything is shared (the chat checks again when it pins).
-  if (!(await groupOf(ctx, chat.id).canPin(ctx.user.id)))
-    throw new AppError("forbidden", "Only the chat's admins can pin things to it");
   const { share, space_id } = await shareWithChat(ctx, i, chat.id);
   await groupOf(ctx, chat.id).pinCard(actorOf(ctx), ctx.idempotencyKey && `${ctx.idempotencyKey}:pin`, {
     share_id: share.id,

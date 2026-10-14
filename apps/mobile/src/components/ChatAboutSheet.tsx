@@ -35,15 +35,22 @@ export function ChatAboutSheet({
     setPlan(null);
     setNote("");
     setChatId(ulid());
+    // A slow answer for a record closed since must not fill in this one's people and fields.
+    let current = true;
     request<RecordChatPlan>("GET", `/api/records/${encodeURIComponent(record.id)}/chat`)
       .then((p) => {
+        if (!current) return;
         setPlan(p);
         setPeople(new Set(p.people.filter((x) => x.suggested).map((x) => x.user_id)));
         setShown(new Set(p.fields.filter((f) => !f.hidden).map((f) => f.id)));
       })
-      .catch((e: unknown) =>
-        setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e)),
-      );
+      .catch((e: unknown) => {
+        if (current)
+          setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      current = false;
+    };
   }, [record]);
 
   const flip = (set: Set<string>, id: string) => {
@@ -55,7 +62,7 @@ export function ChatAboutSheet({
 
   // online-only: the chat and its share are made on the server.
   const start = async () => {
-    if (!record || !plan) return;
+    if (!record || !plan || plan.record.id !== record.id) return;
     setBusy(true);
     setNote("");
     try {

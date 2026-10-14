@@ -156,6 +156,32 @@ describe("chat about a record", () => {
     expect((await cardsOf(asha)).map((c) => c.share_id)).not.toContain(shareId);
   });
 
+  it("is retry-safe end to end, and leaves nothing behind when it can't start", async () => {
+    const { owner, show } = await band();
+    // A share that can't be made (a linked part that isn't there): no chat is made either.
+    const bad = ulid();
+    expect(
+      (await api(owner)(`/records/${show.id}/chat`, { body: { chat_id: bad, include: ["Test Nope"] } }))
+        .status,
+    ).toBe(400);
+    expect((await api(owner)(`/groups/${bad}`)).status).toBe(404);
+
+    // Pinning the same record to the same chat again keeps one card (one share).
+    const id = ulid();
+    const g = await json<GroupView>(await api(owner)(`/records/${show.id}/chat`, { body: { chat_id: id } }));
+    const again = await json<GroupView>(
+      await api(owner)(`/records/${show.id}/chat`, { body: { chat_id: id } }),
+    );
+    expect(again.cards.map((c) => c.share_id)).toEqual(g.cards.map((c) => c.share_id));
+
+    // A retried take-off (same key) answers the same, not "not found".
+    const key = crypto.randomUUID();
+    const off = () =>
+      api(owner)(`/groups/${id}/cards/${g.cards[0]!.share_id}`, { method: "DELETE", idempotencyKey: key });
+    expect((await off()).status).toBe(200);
+    expect((await off()).status).toBe(200);
+  });
+
   it("needs someone to chat with, and the right to share the record", async () => {
     const owner = await signUp("Test Owner");
     const lonely = await json<RecordView>(

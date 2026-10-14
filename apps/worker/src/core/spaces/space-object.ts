@@ -4888,62 +4888,10 @@ export class SpaceObject extends DurableObject<Env> {
     const { tokenHash, ...request } = input;
     this.canArrange(actor);
     return this.write(actor, key, ["create_share", request], (ts) => {
-      let targetId: string;
-      let c: CollectionRow;
-      let include: ShareInclude[] = [];
-      if (input.kind === "card") {
-        if (input.public)
-          throw new ObjectError("validation_failed", "Cards are shared with people who sign in");
-        const r = this.requireRecord(input.target);
-        c = this.requireCollection(r.collection_id);
-        include = this.resolveIncludes(c, input.include);
-        targetId = r.id;
-      } else {
-        // Every write needs a signed-in person (decision 2026-10-12): a link can show a view,
-        // never take a form.
-        if (input.public && input.kind === "form")
-          throw new ObjectError(
-            "validation_failed",
-            "A form needs people to sign in: share it with them by name, or send them its join link",
-          );
-        if (input.include.length)
-          throw new ObjectError("validation_failed", "Only cards include linked parts");
-        if (input.kind === "view") {
-          const v = this.requireView(input.target);
-          c = this.requireCollection(v.collection_id);
-          targetId = v.id;
-        } else {
-          c = this.requireCollection(input.target);
-          targetId = c.id;
-        }
-      }
-      const hidden = this.resolveHidden(c, include, input.hide);
-      if (input.hideMoney)
-        for (const id of this.includedCollections(c, include)) {
-          const titleId = this.requireCollection(id).title_field_id;
-          for (const f of this.fieldRows(id))
-            if (f.type === "money" && f.id !== titleId && !hidden.includes(f.id)) hidden.push(f.id);
-        }
-      // A form must be fillable: every required field shown. A required link works only as a
-      // pick list for signed-in people (one record, one target list), never on link-only forms.
-      if (input.kind === "form") {
-        const pickable = (f: FieldRow) => {
-          const o = toField(f).options;
-          return !input.public && !o.many && !!o.target;
-        };
-        const blocked = this.fieldRows(c.id).filter(
-          (f) => f.required && ((f.type === "link" && !pickable(f)) || hidden.includes(f.id)),
-        );
-        if (blocked.length)
-          throw new ObjectError(
-            "validation_failed",
-            `People can't fill in ${blocked.map((f) => f.name).join(", ")} on a form (required${
-              blocked.some((f) => f.type === "link") ? "; links can't be shared" : ", but hidden"
-            }). Show it, or make it optional first.`,
-          );
-      }
-      // Link-only views are to look at; editing needs a name in the history.
-      const access = input.public && input.kind === "view" ? "view" : input.access;
+      const { targetId, include, hidden, access } = this.planShare(input);
+      // One share per record per chat: pinning it again finds the one it has.
+      const made = input.groupId ? this.chatShare(input.groupId, targetId) : null;
+      if (made) return { share: this.shareView(made), token_hash: made.token_hash };
       const id = ulid();
       this.sql.exec(
         `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at, group_id)
@@ -4967,6 +4915,108 @@ export class SpaceObject extends DurableObject<Env> {
       audit(this.sql, actor, { action: "create_share", entityType: "share", entityId: id, after: request });
       return { share: this.shareView(this.requireShare(id)), token_hash: tokenHash };
     });
+  }
+
+  /** What a share would be, checked (the record, view or list, its parts and hidden fields). */
+  private planShare(input: {
+    kind: ShareKind;
+    target: string;
+    include: string[];
+    access: ShareAccess;
+    hide: string[];
+    hideMoney?: boolean;
+    public: boolean;
+  }): { targetId: string; include: ShareInclude[]; hidden: string[]; access: ShareAccess } {
+    let targetId: string;
+    let c: CollectionRow;
+    let include: ShareInclude[] = [];
+    if (input.kind === "card") {
+      if (input.public)
+        throw new ObjectError("validation_failed", "Cards are shared with people who sign in");
+      const r = this.requireRecord(input.target);
+      c = this.requireCollection(r.collection_id);
+      include = this.resolveIncludes(c, input.include);
+      targetId = r.id;
+    } else {
+      // Every write needs a signed-in person (decision 2026-10-12): a link can show a view,
+      // never take a form.
+      if (input.public && input.kind === "form")
+        throw new ObjectError(
+          "validation_failed",
+          "A form needs people to sign in: share it with them by name, or send them its join link",
+        );
+      if (input.include.length) throw new ObjectError("validation_failed", "Only cards include linked parts");
+      if (input.kind === "view") {
+        const v = this.requireView(input.target);
+        c = this.requireCollection(v.collection_id);
+        targetId = v.id;
+      } else {
+        c = this.requireCollection(input.target);
+        targetId = c.id;
+      }
+    }
+    const hidden = this.resolveHidden(c, include, input.hide);
+    if (input.hideMoney)
+      for (const id of this.includedCollections(c, include)) {
+        const titleId = this.requireCollection(id).title_field_id;
+        for (const f of this.fieldRows(id))
+          if (f.type === "money" && f.id !== titleId && !hidden.includes(f.id)) hidden.push(f.id);
+      }
+    // A form must be fillable: every required field shown. A required link works only as a
+    // pick list for signed-in people (one record, one target list), never on link-only forms.
+    if (input.kind === "form") {
+      const pickable = (f: FieldRow) => {
+        const o = toField(f).options;
+        return !input.public && !o.many && !!o.target;
+      };
+      const blocked = this.fieldRows(c.id).filter(
+        (f) => f.required && ((f.type === "link" && !pickable(f)) || hidden.includes(f.id)),
+      );
+      if (blocked.length)
+        throw new ObjectError(
+          "validation_failed",
+          `People can't fill in ${blocked.map((f) => f.name).join(", ")} on a form (required${
+            blocked.some((f) => f.type === "link") ? "; links can't be shared" : ", but hidden"
+          }). Show it, or make it optional first.`,
+        );
+    }
+    // Link-only views are to look at; editing needs a name in the history.
+    const access = input.public && input.kind === "view" ? "view" : input.access;
+    return { targetId, include, hidden, access };
+  }
+
+  private chatShare(groupId: string, recordId: string): ShareRow | null {
+    return (
+      this.sql
+        .exec<ShareRow>(
+          `select * from shares where group_id = ? and target_id = ? and kind = 'card' and revoked_at is null`,
+          groupId,
+          recordId,
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
+  /** The live share this record already has for a chat, if any. */
+  async chatShareFor(actor: Actor, groupId: string, recordId: string): Promise<string | null> {
+    this.canArrange(actor);
+    return this.chatShare(groupId, recordId)?.id ?? null;
+  }
+
+  /** Checks a share could be made, making nothing (a chat about a record checks first). */
+  async checkShare(
+    actor: Actor,
+    input: {
+      kind: ShareKind;
+      target: string;
+      include: string[];
+      access: ShareAccess;
+      hide: string[];
+      public: boolean;
+    },
+  ): Promise<void> {
+    this.canArrange(actor);
+    this.planShare(input);
   }
 
   /**
