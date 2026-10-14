@@ -3976,42 +3976,53 @@ export class SpaceObject extends DurableObject<Env> {
   ): Promise<{ undone: string; also: string[]; record: RecordView | null }> {
     const extra = [...new Set(opts.with ?? [])];
     const through = opts.force_through ?? null;
-    return this.write(actor, key, ["undo", changeId, through, [...extra].sort()], (ts) => {
-      const led = this.followupsOf(changeId);
-      for (const x of extra)
-        if (!led.changes.includes(x))
-          throw new ObjectError("validation_failed", "That isn't something this change led to");
-      const seq = (id: string) =>
-        this.sql.exec<{ id: number }>(`select id from _audit where change_id = ?`, id).toArray()[0]?.id ?? 0;
-      // Everything this undo would overwrite, across all it undoes, is said at once; the
-      // person's "undo anyway" covers only the later changes they were shown (up to
-      // `force_through`), so one made since stops it again. Changes undone together don't count.
-      const together = new Set([changeId, ...extra]);
-      const later = [...together]
-        .filter((id) => !this.isUndone(id))
-        .map((id) => this.conflictOf(actor, id, together))
-        .filter((x): x is Later => x !== null);
-      const accepted = through ? seq(through) : 0;
-      if (later.some((l) => l.seq > accepted)) {
-        const newest = later.reduce((a, b) => (b.seq > a.seq ? b : a));
-        const by = [...new Set(later.flatMap((l) => l.by))];
-        const fields = [...new Set(later.flatMap((l) => l.fields))];
-        throw new ObjectError(
-          "conflict",
-          `${capital(sentence(by))} changed ${sentence(fields)} after this. Undo anyway to put back the earlier values?`,
-          { reason: "changed_since", by, fields, through: newest.through },
-        );
+    return this.write(actor, key, ["undo", changeId, through, [...extra].sort()], (ts) =>
+      this.undoNow(actor, ts, changeId, extra, through),
+    );
+  }
+
+  /** Undo's work, inside a write (Restore runs it too). */
+  private undoNow(
+    actor: Actor,
+    ts: string,
+    changeId: string,
+    extra: string[],
+    through: string | null,
+  ): { undone: string; also: string[]; record: RecordView | null } {
+    const led = this.followupsOf(changeId);
+    for (const x of extra)
+      if (!led.changes.includes(x))
+        throw new ObjectError("validation_failed", "That isn't something this change led to");
+    const seq = (id: string) =>
+      this.sql.exec<{ id: number }>(`select id from _audit where change_id = ?`, id).toArray()[0]?.id ?? 0;
+    // Everything this undo would overwrite, across all it undoes, is said at once; the
+    // person's "undo anyway" covers only the later changes they were shown (up to
+    // `force_through`), so one made since stops it again. Changes undone together don't count.
+    const together = new Set([changeId, ...extra]);
+    const later = [...together]
+      .filter((id) => !this.isUndone(id))
+      .map((id) => this.conflictOf(actor, id, together))
+      .filter((x): x is Later => x !== null);
+    const accepted = through ? seq(through) : 0;
+    if (later.some((l) => l.seq > accepted)) {
+      const newest = later.reduce((a, b) => (b.seq > a.seq ? b : a));
+      const by = [...new Set(later.flatMap((l) => l.by))];
+      const fields = [...new Set(later.flatMap((l) => l.fields))];
+      throw new ObjectError(
+        "conflict",
+        `${capital(sentence(by))} changed ${sentence(fields)} after this. Undo anyway to put back the earlier values?`,
+        { reason: "changed_since", by, fields, through: newest.through },
+      );
+    }
+    const also: string[] = [];
+    for (const id of extra.sort((a, b) => seq(b) - seq(a)))
+      if (!this.isUndone(id)) {
+        this.undoOne(actor, ts, id);
+        also.push(id);
       }
-      const also: string[] = [];
-      for (const id of extra.sort((a, b) => seq(b) - seq(a)))
-        if (!this.isUndone(id)) {
-          this.undoOne(actor, ts, id);
-          also.push(id);
-        }
-      const record = this.undoOne(actor, ts, changeId);
-      this.tellUndone(actor, [changeId, ...also], ts);
-      return { undone: changeId, also, record };
-    });
+    const record = this.undoOne(actor, ts, changeId);
+    this.tellUndone(actor, [changeId, ...also], ts);
+    return { undone: changeId, also, record };
   }
 
   /** One entry, once `undo` has checked what it would overwrite. */
@@ -4210,15 +4221,24 @@ export class SpaceObject extends DurableObject<Env> {
     // Only people who can change the space see what was deleted from it.
     this.canWrite(actor);
     const only = collection ? this.requireCollection(collection).id : null;
-    const rows = this.sql
-      .exec<RecordRow & { deleted_at: string }>(
-        `select * from records where deleted_at is not null and purged_at is null
-         ${only ? "and collection_id = ?" : ""} order by deleted_at desc limit ?`,
-        ...(only ? [only, limit * 2] : [limit * 2]),
-      )
-      .toArray();
+    // Read a page at a time until there are enough to list: records a delete took with it
+    // are skipped, so one page may not fill the list.
+    const page = Math.max(limit * 2, 50);
+    const pages = function* (this: SpaceObject) {
+      for (let offset = 0; ; offset += page) {
+        const rows = this.sql
+          .exec<RecordRow & { deleted_at: string }>(
+            `select * from records where deleted_at is not null and purged_at is null
+             ${only ? "and collection_id = ?" : ""} order by deleted_at desc, id limit ? offset ?`,
+            ...(only ? [only, page, offset] : [page, offset]),
+          )
+          .toArray();
+        yield* rows;
+        if (rows.length < page) return;
+      }
+    }.call(this);
     const out: TrashItem[] = [];
-    for (const r of rows) {
+    for (const r of pages) {
       const del = this.deleteEntry(r.id);
       if (!del) continue;
       // A record a delete took with it comes back (or goes) with that one, so it isn't listed
@@ -4265,17 +4285,19 @@ export class SpaceObject extends DurableObject<Env> {
     key: string | null,
     recordId: string,
   ): Promise<{ undone: string; also: string[]; record: RecordView | null }> {
-    this.canWrite(actor);
-    const r = this.sql
-      .exec<{ deleted_at: string | null; purged_at: string | null }>(
-        `select deleted_at, purged_at from records where id = ?`,
-        recordId,
-      )
-      .toArray()[0];
-    if (!r || r.purged_at) throw new ObjectError("not_found", "It isn't in Recently deleted");
-    const del = this.deleteEntry(recordId);
-    if (!r.deleted_at || !del) throw new ObjectError("conflict", "It's already back");
-    return this.undo(actor, key, del.id);
+    // The checks run inside the keyed write, so a repeat returns the first answer.
+    return this.write(actor, key, ["restore_record", recordId], (ts) => {
+      const r = this.sql
+        .exec<{ deleted_at: string | null; purged_at: string | null }>(
+          `select deleted_at, purged_at from records where id = ?`,
+          recordId,
+        )
+        .toArray()[0];
+      if (!r || r.purged_at) throw new ObjectError("not_found", "It isn't in Recently deleted");
+      const del = this.deleteEntry(recordId);
+      if (!r.deleted_at || !del) throw new ObjectError("conflict", "It's already back");
+      return this.undoNow(actor, ts, del.id, [], null);
+    });
   }
 
   /** Erases a deleted record now (and what its delete took with it). Can't be undone. */
@@ -4337,6 +4359,11 @@ export class SpaceObject extends DurableObject<Env> {
     // A workflow's run history may quote it.
     this.sql.exec(
       `update workflow_runs set detail = 'About a record since erased' where record_id = ?`,
+      recordId,
+    );
+    // A delete that took it along kept its title with that link.
+    this.sql.exec(
+      `update followups set detail = '' where change_id in (select change_id from _audit where entity_id = ?)`,
       recordId,
     );
     // The history keeps who did what and when, not what the record said.

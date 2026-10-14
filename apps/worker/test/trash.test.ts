@@ -161,4 +161,56 @@ describe("recently deleted", () => {
     expect((await api(other)(`/trash/${r.id}`, { method: "DELETE" })).status).toBe(404);
     expect(await trash(other)).toEqual([]);
   });
+  it("answers a repeated restore with the first answer", async () => {
+    const me = await signUp("Test Binner");
+    const r = await expense(me, "Test cab", "300");
+    await api(me)(`/records/${r.id}`, { method: "DELETE" });
+    const key = "test-restore-key-1";
+    const first = await api(me)(`/trash/${r.id}/restore`, {
+      method: "POST",
+      headers: { "idempotency-key": key },
+    });
+    const again = await api(me)(`/trash/${r.id}/restore`, {
+      method: "POST",
+      headers: { "idempotency-key": key },
+    });
+    expect(first.status).toBe(200);
+    expect(again.status).toBe(200);
+    expect((await json<{ undone: string }>(again)).undone).toBe(
+      (await json<{ undone: string }>(first)).undone,
+    );
+  });
+
+  it("erases the titles a cascade kept, and lists older deletes past many cascaded ones", async () => {
+    const me = await signUp("Test Binner");
+    await api(me)("/collections", { body: { name: "Trips", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections", {
+      body: {
+        name: "Costs",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Trip", type: "link", options: { target: "Trips", on_delete: "cascade" } },
+        ],
+      },
+    });
+    const old = await expense(me, "Test older bill", "100");
+    await api(me)(`/records/${old.id}`, { method: "DELETE" });
+    const trip = await json<RecordView>(
+      await api(me)("/collections/Trips/records", { body: { values: { Title: "Test Goa" } } }),
+    );
+    for (let i = 0; i < 6; i++)
+      await api(me)("/collections/Costs/records", {
+        body: { values: { Title: `Test secret cost ${i}`, Trip: trip.id } },
+      });
+    await api(me)(`/records/${trip.id}`, { method: "DELETE" });
+    // Two to show, though six cascaded records are newer than the older bill.
+    expect((await trash(me, "?limit=2")).map((t) => t.title)).toEqual(["Test Goa", "Test older bill"]);
+    await api(me)(`/trash/${trip.id}`, { method: "DELETE" });
+    const kept = await inSpace(
+      me,
+      (sql) =>
+        sql.exec<{ n: number }>(`select count(*) as n from followups where detail like '%secret%'`).one().n,
+    );
+    expect(kept).toBe(0);
+  });
 });
