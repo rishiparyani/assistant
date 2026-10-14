@@ -52,27 +52,31 @@ export function Changes({
 
   // Undo asks first when it would overwrite a later change, or when a workflow did things
   // because of the change (they can be undone with it, or kept).
-  const [asking, setAsking] = useState<{ id: string; force: boolean; message: string } | null>(null);
+  // `through`: the newest later change the person is shown (Undo anyway covers up to it).
+  const [asking, setAsking] = useState<{ id: string; through: string | null; message: string } | null>(null);
   const [keep, setKeep] = useState<Set<string>>(new Set());
 
   const tap = (item: HistoryItem) => {
     const later = item.changed_since;
     const led = item.followups.some((f) => f.undoable) || item.told.some((x) => x !== "you");
-    if (!later && !led) return void undo(item, false);
+    if (!later && !led) return void undo(item, null);
     setKeep(new Set());
     setAsking({
       id: item.id,
-      force: !!later,
+      through: later?.through ?? null,
       message: later ? `${capital(sentence(later.by))} changed ${sentence(later.fields)} after this.` : "",
     });
   };
 
-  const undo = async (item: HistoryItem, force: boolean) => {
+  const undo = async (item: HistoryItem, through: string | null) => {
     if (busy) return;
     setBusy(item.id);
     const also = item.followups.filter((f) => f.undoable && !keep.has(f.id)).map((f) => f.id);
     try {
-      await request("POST", `/api/history/${encodeURIComponent(item.id)}/undo`, { force, with: also });
+      await request("POST", `/api/history/${encodeURIComponent(item.id)}/undo`, {
+        force_through: through ?? undefined,
+        with: also,
+      });
       setAsking(null);
       setNote("");
       if (!given) {
@@ -89,8 +93,14 @@ export function Changes({
       onChange?.(next);
     } catch (e) {
       // Someone changed it in the meantime: say who, and let the person decide.
-      if (e instanceof ApiError && (e.details as { reason?: string } | undefined)?.reason === "changed_since")
-        setAsking({ id: item.id, force: true, message: e.message.replace(/ Undo anyway.*$/, "") });
+      const d =
+        e instanceof ApiError ? (e.details as { reason?: string; through?: string } | undefined) : undefined;
+      if (d?.reason === "changed_since" && d.through)
+        setAsking({
+          id: item.id,
+          through: d.through,
+          message: (e as Error).message.replace(/ Undo anyway.*$/, ""),
+        });
       else setNote(isOffline(e) ? "Undo needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
@@ -191,11 +201,11 @@ export function Changes({
             <Pressable
               accessibilityRole="button"
               disabled={busy !== null}
-              onPress={() => void undo(item, asking.force)}
+              onPress={() => void undo(item, asking.through)}
               style={[s.undo, s.grow, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
             >
               <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 14 }}>
-                {asking.force ? "Undo anyway" : "Undo"}
+                {asking.through ? "Undo anyway" : "Undo"}
               </Text>
             </Pressable>
             <Pressable

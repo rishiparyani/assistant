@@ -747,6 +747,8 @@ function shownValue(f: FieldRow | null, v: unknown, raw = false): string {
   }
 }
 const capital = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+/** Later changes Undo would overwrite: who, which fields, and the newest of them. */
+type Later = { by: string[]; fields: string[]; through: string; seq: number };
 /** "Asha", "Asha and Kabir", "Asha, Kabir and Meera". */
 function sentence(xs: string[]): string {
   return xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
@@ -3747,28 +3749,54 @@ export class SpaceObject extends DurableObject<Env> {
     seq: number,
     recordId: string,
     fieldIds: string[] | null,
-  ): { by: string[]; fields: string[] } | null {
+    skip: Set<string> = new Set(),
+  ): Later | null {
     const rows = this.sql
-      .exec<{ change_id: string; actor_user_id: string | null; source: string; before_json: string | null }>(
-        `select change_id, actor_user_id, source, before_json from _audit
-         where entity_id = ? and id > ? and action = 'update_record' and change_id is not null`,
+      .exec<{
+        id: number;
+        change_id: string;
+        actor_user_id: string | null;
+        source: string;
+        before_json: string | null;
+      }>(
+        `select id, change_id, actor_user_id, source, before_json from _audit
+         where entity_id = ? and id > ? and action = 'update_record' and change_id is not null order by id`,
         recordId,
         seq,
       )
       .toArray()
-      .filter((r) => !this.isUndone(r.change_id));
+      .filter((r) => !skip.has(r.change_id) && !this.isUndone(r.change_id));
     const by = new Set<string>();
     const touched = new Set<string>();
+    let last: { id: number; change_id: string } | null = null;
     for (const r of rows) {
       const keys = Object.keys((JSON.parse(r.before_json ?? "{}") ?? {}) as object);
       const hit = fieldIds ? keys.filter((k) => fieldIds.includes(k)) : keys;
       if (!hit.length) continue;
       by.add(this.whoDid(actor, r.actor_user_id, r.source));
       hit.forEach((k) => touched.add(k));
+      last = r;
     }
-    if (!by.size) return null;
+    if (!last) return null;
     const names = [...touched].map((k) => this.liveField(k)?.name ?? k);
-    return { by: [...by], fields: names };
+    return { by: [...by], fields: names, through: last.change_id, seq: last.id };
+  }
+
+  /** What undoing this entry would overwrite (an add or a change; a delete overwrites nothing). */
+  private conflictOf(actor: Actor, changeId: string, skip: Set<string>): Later | null {
+    const row = this.sql
+      .exec<{ seq: number; action: string; entity_id: string; before_json: string | null }>(
+        `select id as seq, action, entity_id, before_json from _audit where change_id = ?`,
+        changeId,
+      )
+      .toArray()[0];
+    if (!row || (row.action !== "update_record" && row.action !== "add_record")) return null;
+    const r = this.liveRecord(row.entity_id);
+    if (!r) return null;
+    if (row.action === "add_record") return this.laterChanges(actor, row.seq, r.id, null, skip);
+    const before = (JSON.parse(row.before_json ?? "{}") ?? {}) as Record<string, unknown>;
+    const fields = Object.keys(this.revertible(this.fieldRows(r.collection_id), before));
+    return fields.length ? this.laterChanges(actor, row.seq, r.id, fields, skip) : null;
   }
 
   private whoDid(actor: Actor, userId: string | null, source: string): string {
@@ -3863,15 +3891,7 @@ export class SpaceObject extends DurableObject<Env> {
           ? !!rec.deleted_at && !c?.deleted_at
           : !rec.deleted_at &&
             (action === "add_record" || Object.keys(this.revertible(fields, before)).length > 0));
-      const later =
-        canUndo && action !== "delete_record"
-          ? this.laterChanges(
-              actor,
-              r.seq,
-              r.entity_id,
-              action === "update_record" ? Object.keys(this.revertible(fields, before)) : null,
-            )
-          : null;
+      const later = canUndo ? this.conflictOf(actor, r.id, new Set([r.id])) : null;
       const led = this.followupsOf(r.id);
       const followups = led.changes.flatMap((id) => {
         const e = this.sql
@@ -3904,7 +3924,7 @@ export class SpaceObject extends DurableObject<Env> {
         source: r.source,
         undoable: canUndo,
         undone_by: undone?.undo_id ?? null,
-        changed_since: later,
+        changed_since: later ? { by: later.by, fields: later.fields, through: later.through } : null,
         followups,
         told,
         also_restores: action === "delete_record" ? led.cascades.length : 0,
@@ -3924,30 +3944,50 @@ export class SpaceObject extends DurableObject<Env> {
     actor: Actor,
     key: string | null,
     changeId: string,
-    opts: { force?: boolean; with?: string[] } = {},
+    opts: { force_through?: string | null; with?: string[] } = {},
   ): Promise<{ undone: string; also: string[]; record: RecordView | null }> {
-    const force = opts.force ?? false;
     const extra = [...new Set(opts.with ?? [])];
-    return this.write(actor, key, ["undo", changeId, force, [...extra].sort()], (ts) => {
+    const through = opts.force_through ?? null;
+    return this.write(actor, key, ["undo", changeId, through, [...extra].sort()], (ts) => {
       const led = this.followupsOf(changeId);
       for (const x of extra)
         if (!led.changes.includes(x))
           throw new ObjectError("validation_failed", "That isn't something this change led to");
       const seq = (id: string) =>
         this.sql.exec<{ id: number }>(`select id from _audit where change_id = ?`, id).toArray()[0]?.id ?? 0;
+      // Everything this undo would overwrite, across all it undoes, is said at once; the
+      // person's "undo anyway" covers only the later changes they were shown (up to
+      // `force_through`), so one made since stops it again. Changes undone together don't count.
+      const together = new Set([changeId, ...extra]);
+      const later = [...together]
+        .filter((id) => !this.isUndone(id))
+        .map((id) => this.conflictOf(actor, id, together))
+        .filter((x): x is Later => x !== null);
+      const accepted = through ? seq(through) : 0;
+      if (later.some((l) => l.seq > accepted)) {
+        const newest = later.reduce((a, b) => (b.seq > a.seq ? b : a));
+        const by = [...new Set(later.flatMap((l) => l.by))];
+        const fields = [...new Set(later.flatMap((l) => l.fields))];
+        throw new ObjectError(
+          "conflict",
+          `${capital(sentence(by))} changed ${sentence(fields)} after this. Undo anyway to put back the earlier values?`,
+          { reason: "changed_since", by, fields, through: newest.through },
+        );
+      }
       const also: string[] = [];
       for (const id of extra.sort((a, b) => seq(b) - seq(a)))
         if (!this.isUndone(id)) {
-          this.undoOne(actor, ts, id, force);
+          this.undoOne(actor, ts, id);
           also.push(id);
         }
-      const record = this.undoOne(actor, ts, changeId, force);
+      const record = this.undoOne(actor, ts, changeId);
       this.tellUndone(actor, [changeId, ...also], ts);
       return { undone: changeId, also, record };
     });
   }
 
-  private undoOne(actor: Actor, ts: string, changeId: string, force: boolean): RecordView | null {
+  /** One entry, once `undo` has checked what it would overwrite. */
+  private undoOne(actor: Actor, ts: string, changeId: string): RecordView | null {
     const row = this.sql
       .exec<{
         id: string;
@@ -3969,13 +4009,6 @@ export class SpaceObject extends DurableObject<Env> {
       throw new ObjectError("not_found", "No such change");
     if (this.isUndone(row.id)) throw new ObjectError("conflict", "That change was already undone");
     const before = (JSON.parse(row.before_json ?? "{}") ?? {}) as Record<string, unknown>;
-    const stop = (later: { by: string[]; fields: string[] }, what: string) => {
-      throw new ObjectError(
-        "conflict",
-        `${capital(sentence(later.by))} changed ${sentence(later.fields)} after this. ${what}`,
-        { reason: "changed_since", ...later },
-      );
-    };
     let record: RecordView | null = null;
     if (row.action === "update_record") {
       const r = this.liveRecord(row.entity_id);
@@ -3983,20 +4016,16 @@ export class SpaceObject extends DurableObject<Env> {
       const values = this.revertible(this.fieldRows(r.collection_id), before);
       if (!Object.keys(values).length)
         throw new ObjectError("conflict", "Nothing in that change can be put back");
-      const later = force ? null : this.laterChanges(actor, row.seq, r.id, Object.keys(values));
-      if (later) stop(later, "Undo anyway to put back the earlier value?");
       record = this.changeRecord(actor, ts, r, { values });
     } else if (row.action === "add_record") {
       const r = this.liveRecord(row.entity_id);
       if (!r) throw new ObjectError("conflict", "It's already gone");
-      const later = force ? null : this.laterChanges(actor, row.seq, r.id, null);
-      if (later) stop(later, "Undo anyway to remove it?");
       this.removeRecord(r, ts, actor, [], 0);
     } else {
       record = this.restoreRecord(actor, ts, row.entity_id, before);
       // What the delete took with it comes back with it.
       for (const child of this.followupsOf(row.id).cascades)
-        if (!this.isUndone(child)) this.undoOne(actor, ts, child, true);
+        if (!this.isUndone(child)) this.undoOne(actor, ts, child);
     }
     const undoId = audit(this.sql, actor, {
       action: "undo",
@@ -4056,6 +4085,13 @@ export class SpaceObject extends DurableObject<Env> {
     for (const l of (before.links_out ?? []) as Out[]) relink(l.field_id, recordId, l.to_id, l.position);
     for (const l of (before.links_in ?? []) as In[]) relink(l.field_id, l.from_id, recordId, l.position);
     this.recomputeAround(recordId, near);
+    // The list's rules hold for it as for a new record (another may have taken its place
+    // meanwhile), and for the records it links with again.
+    this.enforceRules(c, recordId, null, this.currentValues(recordId));
+    for (const id of new Set(near)) {
+      const other = this.liveRecord(id);
+      if (other) this.enforceLinkRules(other);
+    }
     this.logChange("record", recordId, "upsert", ts);
     // Date workflows schedule it again; nothing "added" or "changed" fires for a restore.
     const values = this.currentValues(recordId);

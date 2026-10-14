@@ -117,17 +117,28 @@ describe("undo", () => {
     await api(me)(`/records/${r.id}`, { method: "PATCH", body: { values: { What: "Test taxi" } } });
     const h = await history(me);
     const first = h.find((x) => x.lines[0] === "Amount: ₹500 → ₹600")!;
-    expect(first.changed_since).toEqual({ by: ["you"], fields: ["Amount"] });
+    expect(first.changed_since).toMatchObject({ by: ["you"], fields: ["Amount"] });
     const stopped = await api(me)(`/history/${first.id}/undo`, { method: "POST" });
     expect(stopped.status).toBe(409);
-    const err = (await json<{ error: { message: string; details: { reason: string } } }>(stopped)).error;
+    const err = (
+      await json<{ error: { message: string; details: { reason: string; through: string } } }>(stopped)
+    ).error;
     expect(err.details.reason).toBe("changed_since");
+    expect(err.details.through).toBe(first.changed_since!.through);
     expect(err.message).toMatch(/^You changed Amount after this/);
     // Still ₹700: nothing was put back.
     expect((await json<RecordView>(await api(me)(`/records/${r.id}`))).named.Amount).toBe("₹700");
-    // Asked and agreed: put back.
+    // Agreed, but someone changed it again since: that one wasn't shown, so it stops again.
+    await api(me)(`/records/${r.id}`, { method: "PATCH", body: { values: { Amount: "800" } } });
+    const again = await api(me)(`/history/${first.id}/undo`, {
+      method: "POST",
+      body: { force_through: err.details.through },
+    });
+    expect(again.status).toBe(409);
+    const newest = (await json<{ error: { details: { through: string } } }>(again)).error.details.through;
+    // Agreed to what's there now: put back.
     const forced = await json<{ record: RecordView }>(
-      await api(me)(`/history/${first.id}/undo`, { method: "POST", body: { force: true } }),
+      await api(me)(`/history/${first.id}/undo`, { method: "POST", body: { force_through: newest } }),
     );
     expect(forced.record.named).toMatchObject({ Amount: "₹500", What: "Test taxi" });
     // The newest change has nothing after it.
@@ -144,10 +155,13 @@ describe("undo", () => {
     );
     await api(me)(`/records/${r.id}`, { method: "PATCH", body: { values: { Amount: "50" } } });
     const add = (await history(me)).find((x) => x.action === "add_record")!;
-    expect(add.changed_since).toEqual({ by: ["you"], fields: ["Amount"] });
+    expect(add.changed_since).toMatchObject({ by: ["you"], fields: ["Amount"] });
     expect((await api(me)(`/history/${add.id}/undo`, { method: "POST" })).status).toBe(409);
     expect((await api(me)(`/records/${r.id}`)).status).toBe(200);
-    await api(me)(`/history/${add.id}/undo`, { method: "POST", body: { force: true } });
+    await api(me)(`/history/${add.id}/undo`, {
+      method: "POST",
+      body: { force_through: add.changed_since!.through },
+    });
     expect((await api(me)(`/records/${r.id}`)).status).toBe(404);
   });
 
@@ -231,5 +245,73 @@ describe("undo", () => {
       await api(me)("/collections/Notes/find", { body: { search: "Test echo" } }),
     );
     expect(notes.items.map((n) => n.title)).toEqual(["Test echo Test pick"]);
+  });
+  it("says every later change it would overwrite, including in what a workflow did", async () => {
+    const me = await signUp("Test Undoer");
+    await api(me)("/workflows", {
+      body: {
+        name: "Echo",
+        when: { event: "added", collection: "Expenses" },
+        then: [{ do: "add", collection: "Notes", values: { Title: "Test echo {What}" } }],
+        enabled: true,
+      },
+    });
+    await api(me)("/collections/Expenses/records", {
+      body: { values: { What: "Test lamp", Amount: "100" } },
+    });
+    let item!: HistoryItem;
+    expect(
+      await until(async () => {
+        item = (await history(me)).find((h) => h.action === "add_record" && h.title === "Test lamp")!;
+        return item.followups.length === 1;
+      }),
+    ).toBe(true);
+    // The note the workflow made gets edited by hand afterwards.
+    const note = (await history(me)).find((h) => h.id === item.followups[0]!.id)!;
+    await api(me)(`/records/${note.record_id}`, {
+      method: "PATCH",
+      body: { values: { Title: "Test echo, edited" } },
+    });
+    // The change itself has nothing after it, but undoing the note too would lose the edit.
+    expect(item.changed_since).toBeNull();
+    const stopped = await api(me)(`/history/${item.id}/undo`, {
+      method: "POST",
+      body: { with: [note.id] },
+    });
+    expect(stopped.status).toBe(409);
+    const err = (
+      await json<{ error: { message: string; details: { fields: string[]; through: string } } }>(stopped)
+    ).error;
+    expect(err.details.fields).toEqual(["Title"]);
+    expect((await api(me)(`/records/${note.record_id}`)).status).toBe(200);
+    await api(me)(`/history/${item.id}/undo`, {
+      method: "POST",
+      body: { with: [note.id], force_through: err.details.through },
+    });
+    expect((await api(me)(`/records/${note.record_id}`)).status).toBe(404);
+  });
+
+  it("keeps a list's rules when a deleted record comes back", async () => {
+    const me = await signUp("Test Undoer");
+    await api(me)("/collections/Expenses/rules", { body: { kind: "unique", fields: ["What"] } });
+    const seat = await json<RecordView>(
+      await api(me)("/collections/Expenses/records", {
+        body: { values: { What: "Test seat", Amount: "100" } },
+      }),
+    );
+    await api(me)(`/records/${seat.id}`, { method: "DELETE" });
+    // Another record takes its place meanwhile.
+    expect(
+      (
+        await api(me)("/collections/Expenses/records", {
+          body: { values: { What: "Test seat", Amount: "200" } },
+        })
+      ).status,
+    ).toBe(201);
+    const del = (await history(me)).find((h) => h.action === "delete_record")!;
+    const res = await api(me)(`/history/${del.id}/undo`, { method: "POST" });
+    expect(res.status).toBe(409);
+    expect((await json<{ error: { details: { reason: string } } }>(res)).error.details.reason).toBe("unique");
+    expect((await api(me)(`/records/${seat.id}`)).status).toBe(404);
   });
 });

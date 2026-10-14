@@ -433,8 +433,11 @@ export interface HistoryItem {
   undoable: boolean;
   /** Already undone (by the entry with this id). */
   undone_by: string | null;
-  /** Later changes Undo would overwrite: who made them and which fields (Undo asks first). */
-  changed_since: { by: string[]; fields: string[] } | null;
+  /**
+   * Later changes Undo would overwrite: who made them, which fields, and the newest one's id
+   * (send it as `force_through` once the person agrees; a change made after it stops Undo again).
+   */
+  changed_since: { by: string[]; fields: string[]; through: string } | null;
   /** What workflows did because of this change; Undo can undo these too (`with`). */
   followups: { id: string; line: string; undoable: boolean }[];
   /** People a workflow told because of it; Undo lets them know. */
@@ -448,10 +451,15 @@ export const HistoryInput = SpaceRef.extend({
 });
 export const UndoInput = SpaceRef.extend({
   change_id: z.string().trim().min(1).max(40).describe("The entry's id from the history"),
-  force: z
-    .boolean()
-    .default(false)
-    .describe("Undo even though someone changed the same fields later (only after the person agreed)"),
+  force_through: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe(
+      "After the person agreed to undo over later changes: the newest one they were shown (`through` from changed_since or the error); a change made after it stops the undo again",
+    ),
   with: z
     .array(z.string().trim().min(1).max(40))
     .max(50)

@@ -489,7 +489,10 @@ describe("what changed and undo", () => {
     // delete is listed, and it can be undone too.
     const add = history.find((h) => h.action === "add_record")!;
     expect((await api(me)(`/history/${add.id}/undo`, { method: "POST" })).status).toBe(409);
-    await api(me)(`/history/${add.id}/undo`, { method: "POST", body: { force: true } });
+    await api(me)(`/history/${add.id}/undo`, {
+      method: "POST",
+      body: { force_through: add.changed_since!.through },
+    });
     expect((await api(me)(`/records/${r.id}`)).status).toBe(404);
     history = await json<HistoryItem[]>(await api(me)("/history?limit=10"));
     expect(history[0]).toMatchObject({ action: "delete_record", undoable: true, title: "Chai" });
