@@ -827,3 +827,13 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Made by chat:** the private assistant in a chat sees the chat home's lists next to the person's own, and is told to use the chat's for things for the chat (`space` on its tools). It asks when it isn't clear which.
 - **Phone:** a Chat | Home switch in every chat; Home shows the space's pinned cards (ticks through the outbox, live reload). The "···" button opens People: who's an admin, and Make admin / Make member for admins.
 - **Next steps:** questions that lead to actions (workflows with Auto / Ask-you approvals), then schedules. Not yet: See all and the Recently deleted screen for a chat's lists, and keeping a chat's home on the phone for offline.
+
+## 2026-10-14: We don't read people's data (owner: "I think not reading the user's data is the best thing to do")
+
+- **The rule:** the app team never reads what people keep or write. No admin screen, tool, log, report, monitoring or support process shows or keeps anyone's lists, records, chats, assistant conversations or memories. We see counts and structure only. This is written into AGENTS.md "Don't" and docs/security.md, and checked by `admin.test.ts`.
+- **Why a rule and not a lock:** data is encrypted at rest by Cloudflare, but not end to end, because search, the assistant and workflows run on the server and must read it. Whoever controls the Cloudflare account or the code could read it, so the promise rests on rules, review and tests.
+- **No conversation sharing, not even opt-in with a reward:** a prompt carries the records it read, including other people's entries in shared lists and chat homes. Nobody can consent for them, and higher limits in exchange for sharing wouldn't be freely given consent. Monitoring will be counts and structure (which tools, fields, errors, timing, cost), never words.
+- **Testing** uses the owner's and test accounts, and the scorecard with made-up data. A real failure becomes a scorecard case written with fake data.
+- **AI Gateway logging is off** on every call (`collectLog: false`), so Cloudflare's dashboard doesn't keep prompts.
+- **The owner's name isn't in the app**: it says "the app team".
+- **Privacy page rewritten** for the assistant app: who can see what, the AI model, not end to end, Recently deleted and recovery copies (Cloudflare up to 30 days, the newest 60 nightly backups).

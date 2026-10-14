@@ -108,4 +108,25 @@ describe("admin panel", () => {
     const log = await json<{ action: string }[]>(await call("/api/admin/log", { cookie: boss }));
     expect(log[0]!.action).toBe("tool:gigs.rebuild");
   });
+
+  it("never shows what people keep or write (decision 2026-10-14)", async () => {
+    const someone = await signUp("Test Keeper");
+    const secret = "Test-secret-zebra-7731";
+    await call("/api/collections/Notes/records", {
+      cookie: someone.cookie,
+      body: { values: { Title: secret } },
+    });
+    const cookie = await owner();
+    for (const path of [
+      "/api/admin/overview",
+      "/api/admin/admins",
+      "/api/admin/log",
+      "/api/admin/backup",
+      "/api/admin/alerts",
+      "/api/admin/operations",
+    ]) {
+      const res = await call(path, { cookie });
+      expect(await res.text(), path).not.toContain(secret);
+    }
+  });
 });

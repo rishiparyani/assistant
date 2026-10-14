@@ -64,7 +64,9 @@ export async function callModel(
         ...(model.effort ? { reasoning_effort: model.effort } : {}),
       } as never,
       {
-        gateway: { id: gateway, skipCache: true },
+        // Never logged at the gateway: prompts carry people's own data (decision 2026-10-14
+        // "We don't read people's data"); our own call log keeps counts only.
+        gateway: { id: gateway, skipCache: true, collectLog: false },
         ...(affinity ? { extraHeaders: { "x-session-affinity": affinity } } : {}),
       },
     )) as WorkersAiResult;

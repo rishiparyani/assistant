@@ -15,7 +15,8 @@ export async function embed(e: Embedder, texts: string[]): Promise<number[][] | 
   if (e.fake || !e.ai) return texts.map(fakeEmbedding);
   try {
     const out = (await e.ai.run(MODEL as never, { text: texts.map((t) => t.slice(0, 2000)) } as never, {
-      gateway: { id: "default" },
+      // Never logged at the gateway: the text is people's own (decision 2026-10-14).
+      gateway: { id: "default", collectLog: false },
     })) as { data?: number[][] };
     return out.data && out.data.length === texts.length ? out.data : null;
   } catch (e) {
