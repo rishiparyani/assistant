@@ -1,13 +1,15 @@
 // A chat's home (decision 2026-10-14 "A home for each chat", from the approved mock-up): the
 // cards pinned in the chat's own space, which everyone in the chat sees and uses (ticks go
 // through the outbox, like on my own home). Admins start it and arrange it, by asking their
-// assistant (Gs); there's nothing to build on this screen (chat makes, screens use).
+// assistant (Gs); there's nothing to build on this screen (chat makes, screens use). Records
+// pinned to the chat ("Chat about this") come first: each is its owner's record, seen through a
+// share that follows the chat.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import type { GroupView, RecordView, StoredValue } from "@assistant/shared";
 import { Card, Text, type HomeCard } from "@assistant/cards/native";
 import { isOffline, request } from "../api.ts";
-import { loadSpaceCards, setValue, stillShown, tick } from "../home.ts";
+import { loadChatCards, loadSpaceCards, setValue, stillShown, tick } from "../home.ts";
 import { useLive } from "../live-socket.ts";
 import { outboxState } from "../outbox.ts";
 import { radius, useTheme } from "../theme.ts";
@@ -29,24 +31,33 @@ export function ChatHome({
   // A chat for two has no admins: either person starts and arranges its home.
   const admin = chat.direct || chat.members.some((m) => m.user_id === myId && m.role === "owner");
   const [cards, setCards] = useState<HomeCard[] | null>(null);
+  const [pinned, setPinned] = useState<HomeCard[] | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const space = chat.space_id;
+  const pins = chat.cards;
+  const pinKey = pins.map((c) => c.share_id).join(",");
 
   // online-only: the chat's home is read from its space each time (not kept on the device yet).
   const load = useCallback(async () => {
-    if (!space) return;
     try {
-      setCards(await loadSpaceCards(space));
+      const [p, c] = await Promise.all([
+        pins.length ? loadChatCards(chat.id, pins) : Promise.resolve([]),
+        space ? loadSpaceCards(space) : Promise.resolve(null),
+      ]);
+      setPinned(p);
+      if (c) setCards(c);
       setNote("");
     } catch (e) {
       setCards((c) => c ?? []);
+      setPinned((c) => c ?? []);
       setNote(
         isOffline(e) ? "The chat's home needs a connection." : e instanceof Error ? e.message : String(e),
       );
     }
-  }, [space]);
+    // pinKey stands for the pinned list (a new array each time the chat is read).
+  }, [space, chat.id, pinKey]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -70,6 +81,23 @@ export function ChatHome({
       setNote(
         isOffline(e) ? "Starting a home needs a connection." : e instanceof Error ? e.message : String(e),
       );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // online-only: taking a record off the chat turns its share off on the server.
+  const unpin = async (shareId: string) => {
+    setBusy(true);
+    try {
+      await request(
+        "DELETE",
+        `/api/groups/${encodeURIComponent(chat.id)}/cards/${encodeURIComponent(shareId)}`,
+      );
+      setPinned((p) => (p ?? []).filter((c) => c.shared?.share_id !== shareId));
+      onStarted();
+    } catch (e) {
+      setNote(isOffline(e) ? "That needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
@@ -102,29 +130,33 @@ export function ChatHome({
       record.id,
     );
 
-  if (!space)
+  const startIntro = (
+    <View style={[s.intro, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
+      <Text style={[s.introTitle, { color: t.fg }]}>A home for this chat</Text>
+      <Text style={[s.line, { color: t.fg2 }]}>
+        Lists and cards everyone here can use: plans, a packing list, shared costs, who’s coming. Admins set
+        it up by asking their assistant; everyone ticks and adds.
+      </Text>
+      {admin ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => void start()}
+          style={[s.primary, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+        >
+          <Text style={[s.primaryText, { color: t.onAccent }]}>Start this chat’s home</Text>
+        </Pressable>
+      ) : (
+        <Text style={[s.line, { color: t.fg3 }]}>An admin of this chat can start it.</Text>
+      )}
+    </View>
+  );
+
+  if (!space && !pins.length)
     return (
       <View style={s.empty}>
-        <View style={[s.intro, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
-          <Text style={[s.introTitle, { color: t.fg }]}>A home for this chat</Text>
-          <Text style={[s.line, { color: t.fg2 }]}>
-            Lists and cards everyone here can use: plans, a packing list, shared costs, who’s coming. Admins
-            set it up by asking their assistant; everyone ticks and adds.
-          </Text>
-          {admin ? (
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => void start()}
-              style={[s.primary, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-            >
-              <Text style={[s.primaryText, { color: t.onAccent }]}>Start this chat’s home</Text>
-            </Pressable>
-          ) : (
-            <Text style={[s.line, { color: t.fg3 }]}>An admin of this chat can start it.</Text>
-          )}
-          {note ? <Text style={[s.line, { color: t.danger }]}>{note}</Text> : null}
-        </View>
+        {startIntro}
+        {note ? <Text style={[s.line, { color: t.danger }]}>{note}</Text> : null}
       </View>
     );
 
@@ -143,11 +175,39 @@ export function ChatHome({
         />
       }
     >
-      {cards === null ? <ActivityIndicator color={t.fg3} style={{ marginTop: 40 }} /> : null}
+      {(space && cards === null) || (pins.length && pinned === null) ? (
+        <ActivityIndicator color={t.fg3} style={{ marginTop: 40 }} />
+      ) : null}
+      {pinned?.map((card) => {
+        const pin = pins.find((p) => p.share_id === card.shared?.share_id);
+        const mine = pin?.owner_id === myId;
+        return (
+          <View key={card.id} style={s.pinned}>
+            <Card card={card} />
+            <View style={s.pinRow}>
+              <Text style={[s.pinBy, { color: t.fg3 }]} numberOfLines={1}>
+                {mine ? "Your record" : `${pin?.owner ?? "Someone"}’s record`} · pinned for everyone here
+              </Text>
+              {pin && (admin || mine) ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Take ${card.spec.title} off this chat`}
+                  disabled={busy}
+                  onPress={() => void unpin(pin.share_id)}
+                  style={s.pinBtn}
+                >
+                  <Text style={[s.pinBtnText, { color: t.accent }]}>Take off</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+      {!space ? startIntro : null}
       {cards?.map((card) => (
         <Card key={card.id} card={card} onTick={onTick(card)} onSet={onSet(card)} />
       ))}
-      {cards && !cards.length ? (
+      {space && cards && !cards.length ? (
         <View style={[s.intro, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
           <Text style={[s.introTitle, { color: t.fg }]}>Nothing here yet</Text>
           <Text style={[s.line, { color: t.fg2 }]}>
@@ -195,4 +255,9 @@ const s = StyleSheet.create({
   },
   primaryText: { fontSize: 15, fontWeight: "800" },
   foot: { fontSize: 12, textAlign: "center", marginTop: 4 },
+  pinned: { gap: 2 },
+  pinRow: { flexDirection: "row", alignItems: "center", paddingLeft: 8, gap: 8 },
+  pinBy: { flex: 1, fontSize: 12, fontWeight: "600" },
+  pinBtn: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
+  pinBtnText: { fontSize: 13, fontWeight: "800" },
 });

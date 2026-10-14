@@ -8,6 +8,7 @@ import {
   type GroupMessage,
   type GroupSummary,
   type PollView,
+  type ChatCard,
 } from "@assistant/shared";
 import {
   BASE_TABLES,
@@ -113,10 +114,26 @@ const MIGRATIONS: Migrations = [
   // A home for the chat (decision 2026-10-14 "A home for each chat"): its own shared space,
   // whose members follow the chat's (admins own it, everyone else edits).
   `alter table grp add column space_id text;`,
+  // Records pinned to the chat (decision 2026-10-14 "Chat about this"): each is a share in its
+  // owner's space, whose people follow the chat's (sent_seq: the member list it last took).
+  `create table cards (
+     share_id text primary key,
+     space_id text not null,
+     title text not null,
+     owner_user_id text not null,
+     owner text not null,
+     added_at text not null,
+     sent_seq integer not null default 0,
+     tries integer not null default 0,
+     removed_at text,
+     closed integer not null default 0
+   );`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
 const MAX_MEMBERS = 100;
+/** Records pinned to one chat, at most. */
+const MAX_CARDS = 20;
 const PAGE = 200;
 const LIVE_DELAY_MS = 300;
 /** A piece of conversation for search: up to this many messages, none further apart than the gap. */
@@ -125,6 +142,13 @@ const CHUNK_GAP_MS = 30 * 60_000;
 /** Tries for a search push before giving up on it (a rebuild fills that index again). */
 const SEARCH_ATTEMPTS = 5;
 
+type CardRow = {
+  share_id: string;
+  title: string;
+  owner_id: string;
+  owner: string;
+  added_at: string;
+};
 type MemberRow = {
   user_id: string;
   name: string;
@@ -310,6 +334,7 @@ export class GroupObject extends DurableObject<Env> {
     saved: Record<string, string>;
     shared_answers: string[];
     polls: Record<string, PollView>;
+    cards: ChatCard[];
   }> {
     this.member(userId);
     const g = this.group();
@@ -373,7 +398,17 @@ export class GroupObject extends DurableObject<Env> {
       polls: Object.fromEntries(
         messages.filter((m) => m.kind === "poll").map((m) => [m.id, this.poll(m.id, m.text, userId)]),
       ),
+      cards: this.cards(),
     };
+  }
+
+  private cards(): ChatCard[] {
+    return this.sql
+      .exec<CardRow>(
+        `select share_id, title, owner_user_id as owner_id, owner, added_at from cards
+         where removed_at is null order by added_at, share_id`,
+      )
+      .toArray();
   }
 
   async summary(userId: string): Promise<GroupSummary> {
@@ -741,6 +776,166 @@ export class GroupObject extends DurableObject<Env> {
   }
 
   /**
+   * Pins a record to the chat (decision 2026-10-14 "Chat about this"): the share its owner made
+   * for the chat. An admin does it (either person in a chat for two). Pinning it again is a no-op.
+   */
+  async pinCard(
+    actor: Actor & { userId: string },
+    key: string | null,
+    card: { share_id: string; space_id: string; title: string },
+  ): Promise<ChatCard[]> {
+    const me = this.member(actor.userId);
+    const g = this.group();
+    if (me.role !== "owner" && !g.direct)
+      throw new ObjectError("forbidden", "Only the chat's admins can pin things to it");
+    if (this.cards().length >= MAX_CARDS)
+      throw new ObjectError("conflict", `A chat holds ${MAX_CARDS} pinned things; take one off first`);
+    return this.write(actor, key, ["pin", card.share_id], (ts) => {
+      const have = this.sql.exec(`select 1 from cards where share_id = ?`, card.share_id).toArray().length;
+      if (have) return this.cards();
+      this.sql.exec(
+        `insert into cards (share_id, space_id, title, owner_user_id, owner, added_at) values (?, ?, ?, ?, ?, ?)`,
+        card.share_id,
+        card.space_id,
+        card.title.slice(0, 200),
+        actor.userId,
+        me.name,
+        ts,
+      );
+      this.note("note", null, "Group", `${me.name} pinned “${card.title}” to this chat`, ts);
+      // The share hears who's in the chat (by the alarm).
+      this.membersChanged();
+      audit(this.sql, actor, {
+        action: "pin_card",
+        entityType: "card",
+        entityId: card.share_id,
+        after: { space_id: card.space_id },
+      });
+      return this.cards();
+    });
+  }
+
+  /** Where a pinned record lives, for a member opening it (404 for anyone else). */
+  async cardSpace(userId: string, shareId: string): Promise<string> {
+    this.member(userId);
+    const row = this.sql
+      .exec<{ space_id: string }>(
+        `select space_id from cards where share_id = ? and removed_at is null`,
+        shareId,
+      )
+      .toArray()[0];
+    if (!row) throw new ObjectError("not_found", "That isn't pinned here");
+    return row.space_id;
+  }
+
+  /** Whether this person may pin things here (an admin, or either person in a chat for two). */
+  async canPin(userId: string): Promise<boolean> {
+    return this.member(userId).role === "owner" || !!this.group().direct;
+  }
+
+  /** Takes a record off the chat: an admin, or the person whose record it is. */
+  async unpinCard(
+    actor: Actor & { userId: string },
+    key: string | null,
+    shareId: string,
+  ): Promise<{ card: ChatCard & { space_id: string }; cards: ChatCard[] }> {
+    const me = this.member(actor.userId);
+    const card = this.sql
+      .exec<CardRow & { space_id: string }>(
+        `select share_id, space_id, title, owner_user_id as owner_id, owner, added_at from cards
+         where share_id = ? and removed_at is null`,
+        shareId,
+      )
+      .toArray()[0];
+    if (!card) throw new ObjectError("not_found", "That isn't pinned here");
+    if (me.role !== "owner" && !this.group().direct && card.owner_id !== actor.userId)
+      throw new ObjectError("forbidden", "Only the chat's admins, or its owner, can take it off");
+    return this.write(actor, key, ["unpin", shareId], (ts) => {
+      // Its share was made for this chat only: the alarm turns it off in the owner's space.
+      this.sql.exec(`update cards set removed_at = ? where share_id = ?`, ts, shareId);
+      this.note("note", null, "Group", `${me.name} took “${card.title}” off this chat`, ts);
+      audit(this.sql, actor, { action: "unpin_card", entityType: "card", entityId: shareId });
+      return { card, cards: this.cards() };
+    });
+  }
+
+  /**
+   * Tells each pinned record's share who's in the chat (the whole list, numbered, like the
+   * home). A share its owner turned off drops off the chat. Returns a delay to try again after.
+   */
+  private async syncCards(): Promise<number | null> {
+    const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
+    const seq = Number(getMeta(this.sql, "members_seq") ?? "0");
+    if (!g) return null;
+    let retry: number | null = null;
+    const later = (tries: number) => {
+      const d = retryDelayMs(tries);
+      retry = retry === null ? d : Math.min(retry, d);
+    };
+    // Taken off the chat: its share is turned off (once; a share already gone is fine).
+    for (const c of this.sql
+      .exec<{ share_id: string; space_id: string; tries: number }>(
+        `select share_id, space_id, tries from cards where removed_at is not null and closed = 0`,
+      )
+      .toArray()) {
+      try {
+        await this.env.SPACES.getByName(`space:${c.space_id}`).closeChatShare(g.id, c.share_id);
+        this.sql.exec(`update cards set closed = 1, tries = 0 where share_id = ?`, c.share_id);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) {
+          this.sql.exec(`update cards set closed = 1 where share_id = ?`, c.share_id);
+          continue;
+        }
+        this.sql.exec(`update cards set tries = tries + 1 where share_id = ?`, c.share_id);
+        console.warn("chat card close failed", msg);
+        later(c.tries + 1);
+      }
+    }
+    const due = this.sql
+      .exec<{ share_id: string; space_id: string; tries: number }>(
+        `select share_id, space_id, tries from cards where removed_at is null and sent_seq < ?`,
+        seq,
+      )
+      .toArray();
+    if (!due.length) return retry;
+    const people = this.members().map((m) => ({ user_id: m.user_id, name: m.name }));
+    for (const c of due) {
+      try {
+        const { title } = await this.env.SPACES.getByName(`space:${c.space_id}`).syncShareToChat(
+          g.id,
+          c.share_id,
+          seq,
+          people,
+        );
+        this.sql.exec(
+          `update cards set sent_seq = ?, tries = 0, title = case when ? != '' then ? else title end where share_id = ?`,
+          seq,
+          title,
+          title,
+          c.share_id,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) {
+          // Turned off (or its record deleted for good) by its owner: off the chat.
+          this.sql.exec(
+            `update cards set removed_at = ?, closed = 1 where share_id = ?`,
+            nowIso(),
+            c.share_id,
+          );
+          this.changed();
+          continue;
+        }
+        this.sql.exec(`update cards set tries = tries + 1 where share_id = ?`, c.share_id);
+        console.warn("chat card sync failed", msg);
+        later(c.tries + 1);
+      }
+    }
+    return retry;
+  }
+
+  /**
    * Tells the chat's home who's in the chat (the whole list, numbered, so a repeat or a late
    * one changes nothing). Returns a delay to try again after, or null when done.
    */
@@ -919,9 +1114,10 @@ export class GroupObject extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     // The chat's home and search first (each with its own retry), then the live pings.
-    const home = await this.syncHome();
-    const search = await this.syncSearch();
-    const retry = home === null ? search : search === null ? home : Math.min(home, search);
+    const waits = [await this.syncHome(), await this.syncCards(), await this.syncSearch()].filter(
+      (x): x is number => x !== null,
+    );
+    const retry = waits.length ? Math.min(...waits) : null;
     if (retry !== null) await this.ctx.storage.setAlarm(Date.now() + retry);
     const note = outboxNote(this.sql);
     if (!note) return;

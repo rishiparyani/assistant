@@ -1319,6 +1319,43 @@ export const ShareWithInput = ShareTarget.extend({
     .describe("Fields they don't see; left out, money fields stay hidden ([] shows everything)"),
 }).refine(oneTarget.check, { message: oneTarget.message });
 
+// --- Chat about this (decision 2026-10-14) --------------------------------------------------
+
+/** A chat with people about one record: its card pinned on the chat, through a share. */
+export const ChatAboutRecordInput = SpaceRef.extend({
+  record_id: z.string().trim().min(1).max(40).describe("The record to chat about"),
+  chat_id: z
+    .string()
+    .trim()
+    .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Not a chat id")
+    .describe(
+      "A new chat's id, made on the device (ULID) so a retry makes one chat; or a chat of mine to pin it to",
+    ),
+  people: peopleRefs
+    .optional()
+    .describe(
+      "Who's in it (names or ids); left out, the record's people (its person fields and who it's shared with)",
+    ),
+  include: z
+    .array(z.string().trim().min(1).max(160))
+    .max(20)
+    .optional()
+    .describe('Linked parts the chat also sees ("Set list")'),
+  access: z.enum(SHARE_ACCESS).default("view"),
+  hide_fields: fieldRefs
+    .optional()
+    .describe("Fields the chat doesn't see; left out, money fields stay hidden ([] shows everything)"),
+});
+
+/** Who a chat about a record would start with, and what it could show. */
+export interface RecordChatPlan {
+  record: { id: string; title: string; collection: string };
+  /** People I can chat with; suggested = on the record or already sharing it. */
+  people: { user_id: string; name: string; suggested: boolean }[];
+  /** The record's fields; money is hidden unless I say otherwise. */
+  fields: { id: string; name: string; type: FieldType; hidden: boolean }[];
+}
+
 // --- Questions (chat-first step 4) -----------------------------------------------------------
 
 /** A question I sent and the answers so far (live). */

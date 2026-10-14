@@ -189,6 +189,38 @@ export async function shareWith(ctx: OpUserCtx, i: z.output<typeof ShareWithInpu
   return addPeople(ctx, space.id, made.share.id, people);
 }
 
+/**
+ * A card made for a chat (decision 2026-10-14 "Chat about this"): no link, nobody in it yet;
+ * the chat tells the share who's in it, and keeps telling it as people come and go.
+ */
+export async function shareWithChat(
+  ctx: OpUserCtx,
+  i: {
+    space?: string;
+    record_id: string;
+    include?: string[];
+    access: "view" | "edit";
+    hide_fields?: string[];
+  },
+  groupId: string,
+): Promise<{ share: ShareView; space_id: string }> {
+  const { space, stub, actor } = await spaceOf(ctx, i.space);
+  const token = await shareToken(ctx, space.id, `chat:${groupId}:${i.record_id}`);
+  const made = await stub.createShare(actor, ctx.idempotencyKey && `${ctx.idempotencyKey}:chat-share`, {
+    kind: "card",
+    target: i.record_id,
+    public: false,
+    include: i.include ?? [],
+    access: i.access,
+    hide: i.hide_fields ?? [],
+    hideMoney: i.hide_fields === undefined,
+    groupId,
+    expiresInDays: null,
+    tokenHash: await hashToken(token),
+  });
+  return { share: made.share, space_id: space.id };
+}
+
 // --- Questions (chat-first step 4) -----------------------------------------------------------
 
 /** Asks people I know a question; it shows under their "Shared with you" and pings their app. */

@@ -11,11 +11,14 @@ import {
   type GroupView,
   type ChatView,
   type SaveProposal,
+  type RecordChatPlan,
+  type SharedOpened,
 } from "@assistant/shared";
 import { ulid } from "@assistant/shared";
 import { AppError } from "../errors.ts";
 import type { AnyOperation, OpUserCtx } from "../operations.ts";
-import { knownPeople, resolvePeople } from "../spaces/shares.ts";
+import { knownPeople, resolvePeople, shareWithChat } from "../spaces/shares.ts";
+import { spaceOf } from "../spaces/service.ts";
 import { assistantAllowed } from "../assistant/access.ts";
 import { chatView, newChat, sendMessage } from "../assistant/service.ts";
 
@@ -192,6 +195,86 @@ export async function startChatHome(ctx: OpUserCtx, id: string): Promise<GroupVi
     group_id: id,
   });
   return groupView(ctx, id);
+}
+
+// --- Chat about this (decision 2026-10-14) ----------------------------------------------------
+
+/** Who a chat about one of my records would start with, and which of its fields it could see. */
+export async function recordChatPlan(
+  ctx: OpUserCtx,
+  spaceRef: string | undefined,
+  recordId: string,
+): Promise<RecordChatPlan> {
+  const { stub, actor } = await spaceOf(ctx, spaceRef);
+  const plan = await stub.recordChatPlan(actor, recordId);
+  const on = new Set(plan.people);
+  return {
+    record: plan.record,
+    fields: plan.fields,
+    // Only people I can chat with; those on the record first.
+    people: (await chatPeople(ctx))
+      .map((p) => ({ ...p, suggested: on.has(p.user_id) }))
+      .sort((a, b) => Number(b.suggested) - Number(a.suggested) || a.name.localeCompare(b.name)),
+  };
+}
+
+/**
+ * A chat about one of my records (decision 2026-10-14 "Chat about this"): a new group chat
+ * with the record's people (or the people I pick), named after it, or a chat of mine I'm an
+ * admin of; the record is pinned to it through a share of its own (money hidden unless I say),
+ * never a copy. The share's people follow the chat's.
+ */
+export async function chatAboutRecord(
+  ctx: OpUserCtx,
+  i: {
+    space?: string;
+    record_id: string;
+    chat_id: string;
+    people?: string[];
+    include?: string[];
+    access: "view" | "edit";
+    hide_fields?: string[];
+  },
+): Promise<GroupView> {
+  const { stub, actor } = await spaceOf(ctx, i.space);
+  const plan = await stub.recordChatPlan(actor, i.record_id);
+  const known = await chatPeople(ctx);
+  let chat = await groupView(ctx, i.chat_id).catch(() => null);
+  if (!chat) {
+    const people = i.people ?? plan.people.filter((id) => known.some((p) => p.user_id === id));
+    if (!people.length)
+      throw new AppError("validation_failed", "Pick who to chat with: nobody you know is on this yet");
+    chat = await createGroup(ctx, {
+      id: i.chat_id,
+      name: (plan.record.title || plan.record.collection).slice(0, 60),
+      people,
+    });
+  }
+  // Checked before anything is shared (the chat checks again when it pins).
+  if (!(await groupOf(ctx, chat.id).canPin(ctx.user.id)))
+    throw new AppError("forbidden", "Only the chat's admins can pin things to it");
+  const { share, space_id } = await shareWithChat(ctx, i, chat.id);
+  await groupOf(ctx, chat.id).pinCard(actorOf(ctx), ctx.idempotencyKey && `${ctx.idempotencyKey}:pin`, {
+    share_id: share.id,
+    space_id,
+    title: plan.record.title,
+  });
+  return groupView(ctx, chat.id);
+}
+
+/**
+ * A record pinned to a chat, opened by someone in the chat: the chat says where it lives, and
+ * the record's own space checks the share (its people, or the space's).
+ */
+export async function openChatCard(ctx: OpUserCtx, groupId: string, shareId: string): Promise<SharedOpened> {
+  const spaceId = await groupOf(ctx, groupId).cardSpace(ctx.user.id, shareId);
+  return ctx.objects.SPACES.getByName(`space:${spaceId}`).openShare(actorOf(ctx), shareId);
+}
+
+/** Takes a record off a chat (an admin, or its owner); its share made for the chat goes off. */
+export async function unpinChatCard(ctx: OpUserCtx, groupId: string, shareId: string): Promise<GroupView> {
+  await groupOf(ctx, groupId).unpinCard(actorOf(ctx), ctx.idempotencyKey, shareId);
+  return groupView(ctx, groupId);
 }
 
 export async function leaveGroup(ctx: OpUserCtx, id: string): Promise<{ left: string }> {

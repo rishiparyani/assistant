@@ -845,3 +845,11 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **No undo count:** writes don't record whether the assistant made them, so a count of all undos says little, and counting each one would write to one shared object on every undo (architecture rule 1).
 - **Kept 90 days**, like the call log; the admin panel's "Assistant quality (7 days)" adds them up: answered share, median and slowest-10% time, cards confirmed, 👍 / 👎, most refused tools, per model (calls, failures, time, tokens) and per prompt version.
 - **`PROMPT_VERSION`** in `assistant/service.ts` is bumped with every real prompt change, so a change shows as better or worse in the panel.
+
+## 2026-10-14: Chat about this (owner: "I like your suggestions… chat about this gig… Do it")
+
+- **Any record can get its own chat**, not just gigs: hold a row in a list → "Chat with people about this". A sheet shows the people I can chat with, those on the record ticked (its person fields, and people it's already shared with), and its fields with money switched off. "Start chat" makes a group chat named after the record and opens it on its Home.
+- **The record is pinned to the chat through a share, never a copy** (one source of truth). The share remembers its chat (`shares.group_id`); the chat keeps its pinned records (`cards`) and tells each share its numbered member list from its alarm, like the chat's home (`syncShareToChat`, two checkpoints: the share and D1's `shared_with`). People who join the chat see it; people who leave lose it.
+- **Who:** an admin pins (either person in a chat for two); an admin or the record's owner takes it off, which turns its share off (`closeChatShare`, from the alarm). A share the owner turns off drops off the chat. At most 20 pinned per chat.
+- **Opening:** everyone in the chat opens a pinned record through the chat (`GET /groups/:id/cards/:share_id`): the chat checks membership, the record's own space checks the share. A pinned record is drawn large (up to eight rows), dates in words.
+- **In the app only** (session operations), like the rest of chats. Next: questions in the chat that act on the record ("questions that lead to actions").

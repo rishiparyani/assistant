@@ -40,7 +40,18 @@ export default function Talk() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   // `message`: opened from a search hit, around that message (highlighted).
-  const { id, message, q } = useLocalSearchParams<{ id: string; message?: string; q?: string }>();
+  const {
+    id,
+    message,
+    q,
+    tab: firstTab,
+  } = useLocalSearchParams<{
+    id: string;
+    message?: string;
+    q?: string;
+    /** "home": open on the chat's home (a chat just started about a record). */
+    tab?: string;
+  }>();
   const { me } = useSession();
   const myId = me?.user.id ?? null;
   const { chat, pending, error, reload } = useChat(id ?? "", message || undefined);
@@ -52,7 +63,7 @@ export default function Talk() {
   // The "Ask everyone" sheet is open.
   const [polling, setPolling] = useState(false);
   // The chat or its home (decision 2026-10-14 "A home for each chat"), and the people sheet.
-  const [tab, setTab] = useState<"chat" | "home">("chat");
+  const [tab, setTab] = useState<"chat" | "home">(firstTab === "home" ? "home" : "chat");
   const [people, setPeople] = useState(false);
   const list = useRef<FlatList<Item>>(null);
 

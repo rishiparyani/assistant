@@ -5,7 +5,7 @@
 // "Open list", search, or the All lists page; back is a swipe. Read online, the last copy kept
 // on the device for offline; ticks go through the outbox like everywhere else.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CollectionView, FieldView, FindResult, RecordView, SavedView } from "@assistant/shared";
@@ -16,6 +16,7 @@ import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
 import { outboxState } from "@/outbox";
 import { colourFor, radius, useTheme } from "@/theme";
+import { ChatAboutSheet } from "@/components/ChatAboutSheet";
 
 const enc = encodeURIComponent;
 const PAGE = 50;
@@ -60,6 +61,9 @@ export default function ListPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  // A held row: what to do with it; then the chat-about sheet for it.
+  const [held, setHeld] = useState<RecordView | null>(null);
+  const [chatAbout, setChatAbout] = useState<RecordView | null>(null);
 
   // The list and its saved views (the chips).
   const loadList = useCallback(async () => {
@@ -303,6 +307,7 @@ export default function ListPage() {
                 colour={listColour}
                 onTick={onTick}
                 onOpen={() => askAbout(`About “${item.r.title}” in ${c.name}: `)}
+                onHold={() => setHeld(item.r)}
               />
             ) : null
           }
@@ -323,6 +328,45 @@ export default function ListPage() {
           </Pressable>
         </View>
       </View>
+      <Modal visible={!!held} transparent animationType="fade" onRequestClose={() => setHeld(null)}>
+        <Pressable
+          style={[s.scrim, { backgroundColor: t.shadow }]}
+          onPress={() => setHeld(null)}
+          accessibilityLabel="Close"
+        />
+        <View style={[s.menu, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 }]}>
+          <Text style={[s.menuTitle, { color: t.fg }]} numberOfLines={1}>
+            {held?.title}
+          </Text>
+          {[
+            {
+              label: "Ask about this",
+              run: () => held && c && askAbout(`About “${held.title}” in ${c.name}: `),
+            },
+            { label: "Chat with people about this", run: () => setChatAbout(held) },
+          ].map((x) => (
+            <Pressable
+              key={x.label}
+              accessibilityRole="button"
+              onPress={() => {
+                setHeld(null);
+                x.run();
+              }}
+              style={[s.menuRow, { backgroundColor: t.cell }]}
+            >
+              <Text style={[s.menuText, { color: t.fg }]}>{x.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </Modal>
+      <ChatAboutSheet
+        record={chatAbout}
+        onClose={() => setChatAbout(null)}
+        onStarted={(id) => {
+          setChatAbout(null);
+          router.push({ pathname: "/talk", params: { id, tab: "home" } });
+        }}
+      />
     </View>
   );
 }
@@ -337,6 +381,7 @@ function Row({
   colour,
   onTick,
   onOpen,
+  onHold,
 }: {
   r: RecordView;
   c: CollectionView;
@@ -346,6 +391,8 @@ function Row({
   colour: string;
   onTick: (r: RecordView, value: boolean) => void;
   onOpen: () => void;
+  /** Held: more things to do with it (chat about it with people). */
+  onHold: () => void;
 }) {
   const { t, dark } = useTheme();
   const byId = (id: string) => c.fields.find((f) => f.id === id);
@@ -379,6 +426,10 @@ function Row({
       accessibilityRole="button"
       accessibilityLabel={r.title}
       onPress={onOpen}
+      onLongPress={onHold}
+      accessibilityHint="Hold for more, like chatting about it with people"
+      accessibilityActions={[{ name: "longpress", label: "More" }]}
+      onAccessibilityAction={(e) => e.nativeEvent.actionName === "longpress" && onHold()}
       style={({ pressed }) => [
         s.card,
         { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.92 : 1 },
@@ -470,6 +521,11 @@ function Row({
 }
 
 const s = StyleSheet.create({
+  scrim: { flex: 1, opacity: 0.5 },
+  menu: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, gap: 8 },
+  menuTitle: { fontSize: 15, fontWeight: "800", paddingHorizontal: 4, paddingBottom: 4 },
+  menuRow: { minHeight: 52, borderRadius: 16, justifyContent: "center", paddingHorizontal: 16 },
+  menuText: { fontSize: 16, fontWeight: "700" },
   root: { flex: 1 },
   column: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" },
   top: {
