@@ -837,3 +837,10 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **AI Gateway logging is off** on every call (`collectLog: false`), so Cloudflare's dashboard doesn't keep prompts.
 - **The owner's name isn't in the app**: it says "the app team".
 - **Privacy page rewritten** for the assistant app: who can see what, the AI model, not end to end, Recently deleted and recovery copies (Cloudflare up to 30 days, the newest 60 nightly backups).
+
+## 2026-10-14: How we see the assistant is doing (owner: "should we have any metrics for the model usage and stuff?")
+
+- **Counts and structure only**, under "We don't read people's data". Each request to the assistant leaves one row in the budget object's `turns`: level, model calls it took, tool names and how often, refusals as `tool:code` (`add_record:validation_failed`), how it ended (answered, card, no_answer, handover_blocked, stopped), time taken and the prompt version. No words from the person, the model or the records.
+- **Signals** (`signals`): a card confirmed or cancelled (with its tool name), an undo (any undo; writes don't record whether the assistant made them), and 👍 / 👎 under the newest answer. Only the rating is sent.
+- **Kept 90 days**, like the call log; the admin panel's "Assistant quality (7 days)" adds them up: answered share, median and slowest-10% time, cards confirmed, undos, 👍 / 👎, most refused tools, per model (calls, failures, time, tokens) and per prompt version.
+- **`PROMPT_VERSION`** in `assistant/service.ts` is bumped with every real prompt change, so a change shows as better or worse in the panel.

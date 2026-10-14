@@ -4,6 +4,14 @@ _Updated: 2026-10-14_
 
 ## Last done
 
+- **HF37: assistant quality numbers** (decision 2026-10-14 "How we see the assistant is doing").
+  - **Budget object** (migration: `turns`, `signals`, 90 days): `logTurn`, `signal`, `quality(days)`.
+  - **Assistant service:** each request logs steps, tool counts, refusals as `tool:code`, outcome, time and `PROMPT_VERSION`; Confirm / Not now on a card and every undo leave a signal; `POST /api/chat/feedback` (`{rating: good|bad}`).
+  - **Admin panel:** new section "Assistant quality (7 days)".
+  - **Phone:** 👍 / 👎 under the newest answer in `chat.tsx` (online only; only the rating is sent).
+  - **Verified here:** `quality.test.ts` (4, including that no words reach the rows); `admin.test.ts` sections.
+  - **Next:** phone push code (switched off until the Apple key), Cerebras wiring (off until its key), search over assistant chats, comments, shared things and memories.
+
 - **HF36: we don't read people's data** (decision 2026-10-14). AGENTS.md "Don't" rule and docs/security.md section; AI Gateway `collectLog: false` on chat and embedding calls; `admin.test.ts` checks no admin endpoint returns a record's text; privacy page (`apps/web/public/privacy.html`) rewritten for the assistant app (the AI model, not end-to-end, the app team doesn't look, Recently deleted and recovery copies).
   - **Owner to check:** the admin panel's Backups shows "Encrypted" (BACKUP_KEY set); then the privacy page can also say backups are sealed.
   - **Next:** usage and quality monitoring (counts and structure only), then the Cerebras test once the key is in.

@@ -176,6 +176,7 @@ A **quick add** (only when the person asks the chat for one): `add_fields: ["Wha
 | POST   | `/api/chat`                                      | Send `{ text, think_harder? }`; answers with the updated chat                                 |
 | POST   | `/api/chat/actions/:action_id/confirm`           | Run what a card shows (once)                                                                  |
 | POST   | `/api/chat/actions/:action_id/cancel`            | Drop a card                                                                                   |
+| POST   | `/api/chat/feedback`                             | 👍 / 👎 on an answer (`{rating: good\|bad}`); only the rating is kept                         |
 | DELETE | `/api/chat`                                      | Clear the main chat (saved records stay)                                                      |
 | GET    | `/api/chats`                                     | My chats: `[{ id, title, updated_at }]`, `main` first                                         |
 | POST   | `/api/chats`                                     | New chat `{ id? }` (a ULID made on the device); 201 + the chat                                |

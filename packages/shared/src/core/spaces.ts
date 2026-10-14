@@ -1124,6 +1124,8 @@ export const ShowInChatInput = z.object({
 export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });
 export const ChatSendTo = ChatRef.extend(ChatSendInput.shape);
 export const ChatActionIn = ChatRef.extend(ChatActionRef.shape);
+/** 👍 / 👎 on an answer: only the rating is kept, never the answer (decision 2026-10-14). */
+export const ChatFeedbackInput = z.object({ rating: z.enum(["good", "bad"]) });
 
 // --- Sharing (design §11) -------------------------------------------------------------------
 
