@@ -262,3 +262,25 @@ export async function shareAnswer(ctx: OpUserCtx, groupId: string, itemId: strin
   await groupOf(ctx, groupId).shareAnswer(actorOf(ctx), itemId, item.text);
   return groupView(ctx, groupId);
 }
+
+/** Asks everyone in the chat a question with a few answers (decision 2026-10-14 "Ask everyone"). */
+export async function createPoll(
+  ctx: OpUserCtx,
+  groupId: string,
+  question: string,
+  options: string[],
+): Promise<GroupView> {
+  await groupOf(ctx, groupId).createPoll(actorOf(ctx), ctx.idempotencyKey, question, options);
+  return groupView(ctx, groupId);
+}
+
+/** My answer to a question in the chat. */
+export async function votePoll(
+  ctx: OpUserCtx,
+  groupId: string,
+  messageId: string,
+  option: string | null,
+): Promise<GroupView> {
+  await groupOf(ctx, groupId).vote(actorOf(ctx), ctx.idempotencyKey, messageId, option);
+  return groupView(ctx, groupId);
+}

@@ -254,4 +254,41 @@ describe("group chats", () => {
     expect(await until(async () => (await search(dev, "Test Taj")).length === 0)).toBe(true);
     expect((await search(owner, "Test Taj")).length).toBe(1);
   });
+
+  it("asks everyone a question: one answer each, changeable, seen by all", async () => {
+    const { owner, dev, outsider } = await setUp();
+    const g = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Band", people: ["Test Dev"] } }),
+    );
+    const made = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/polls`, { body: { question: "Free on Sat 12 Dec for Test Taj?" } }),
+    );
+    const poll = made.messages.find((m) => m.kind === "poll")!;
+    expect(made.polls[poll.id]).toMatchObject({ options: ["Yes", "No", "Maybe"], mine: null });
+    const vote = (u: User, option: string | null) =>
+      api(u)(`/groups/${g.id}/polls/${poll.id}/vote`, { body: { option } });
+    expect((await vote(owner, "Yes")).status).toBe(200);
+    expect((await vote(dev, "Maybe")).status).toBe(200);
+    expect((await vote(dev, "Yes")).status).toBe(200); // changes Dev's answer
+    const seen = (await json<GroupView>(await api(dev)(`/groups/${g.id}`))).polls[poll.id]!;
+    expect(seen.votes).toEqual([
+      { option: "Yes", people: ["Test Owner", "Test Dev"] },
+      { option: "No", people: [] },
+      { option: "Maybe", people: [] },
+    ]);
+    expect(seen.mine).toBe("Yes");
+    // Taking it back, a made-up answer, and someone outside.
+    expect((await vote(owner, null)).status).toBe(200);
+    expect((await json<GroupView>(await api(owner)(`/groups/${g.id}`))).polls[poll.id]!.mine).toBeNull();
+    expect((await vote(dev, "Perhaps")).status).toBe(400);
+    expect((await vote(outsider, "Yes")).status).toBe(404);
+    // Its own answers too (they must differ).
+    expect(
+      (
+        await api(owner)(`/groups/${g.id}/polls`, {
+          body: { question: "Test which set?", options: ["A", "a"] },
+        })
+      ).status,
+    ).toBe(400);
+  });
 });

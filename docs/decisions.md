@@ -791,3 +791,9 @@ The colours are tokens in `packages/cards/src/native/theme.ts`: `ink`, `hero`, `
 - In a chat, the **Gs** button opens **my own assistant** about that chat, in a panel only I see (the same assistant chat Save uses, id = the chat's id). It never reads the chat's messages; it answers from my lists, my allowance and my access, as many messages as I like.
 - **Share to chat** posts one of its answers into the chat as "Assistant (shared by me)", once per answer (the server takes only a real answer from my own chat, never text the app sends). Cards and live cards stay in my panel for now; sharing live cards comes with the shared-cards strip.
 - Writing **@assistant** in a chat no longer does anything special (the 2026-10-10 public answers are retired); the old website's group page no longer suggests it.
+
+## 2026-10-14: Ask everyone (chats step 4, first part)
+
+- The **+** next to a chat's message box asks everyone a question, with Yes / No / Maybe to start with or up to 6 answers of one's own (they must differ). It shows in the chat as a card with a button per answer, how many picked each and who; each person has one answer, can change it, or tap it again to take it back. Asking and answering work offline (the outbox), and my answer shows at once.
+- Kept in the chat's own object (`polls`, `poll_votes`), audited and keyed like other writes; `GroupView.polls` carries them.
+- **Next part (not yet):** an answer that fills a record (the mock-up's "answers fill in the gig's lineup"): a question tied to a record and a field, so "Yes" from Dev adds Dev to the lineup. It needs the record link and the person's access checked by the space, so it comes as its own step.

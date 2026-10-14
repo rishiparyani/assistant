@@ -20,6 +20,7 @@ const LIST = "gigspree:chats";
 const ONE = (id: string) => `gigspree:chat:${id}`;
 const enc = encodeURIComponent;
 const messagesPath = (id: string) => `/api/groups/${enc(id)}/messages`;
+const pollsPath = (id: string) => `/api/groups/${enc(id)}/polls`;
 
 /** My chats, newest first: the kept copy at once, then fresh from the server (and on changes). */
 export function useChats() {
@@ -49,16 +50,20 @@ export interface Pending {
   text: string;
   at: number;
   failed?: string;
+  /** A question for everyone, still on its way. */
+  poll?: boolean;
 }
 
 function pendingFor(id: string, waiting: Change[], failed: FailedChange[]): Pending[] {
-  const path = messagesPath(id);
-  const text = (c: Change) => String((c.body as { text?: string } | null)?.text ?? "");
+  const paths = [messagesPath(id), pollsPath(id)];
+  const mine = (c: Change) => paths.includes(c.path);
+  const one = (c: Change) => {
+    const b = c.body as { text?: string; question?: string } | null;
+    return { id: c.id, text: String(b?.text ?? b?.question ?? ""), at: c.at, poll: c.path === pollsPath(id) };
+  };
   return [
-    ...waiting.filter((c) => c.path === path).map((c) => ({ id: c.id, text: text(c), at: c.at })),
-    ...failed
-      .filter((c) => c.path === path)
-      .map((c) => ({ id: c.id, text: text(c), at: c.at, failed: c.reason })),
+    ...waiting.filter(mine).map(one),
+    ...failed.filter(mine).map((c) => ({ ...one(c), failed: c.reason })),
   ];
 }
 
@@ -98,10 +103,35 @@ export function useChat(id: string, around?: string) {
         ]
       : [],
   );
-  const shown =
+  // My answers to questions, still on their way, show as mine at once.
+  const votePrefix = `/api/groups/${enc(id)}/polls/`;
+  const votingNow = box.waiting.flatMap((c) =>
+    c.path.startsWith(votePrefix) && c.path.endsWith("/vote")
+      ? [
+          [
+            decodeURIComponent(c.path.slice(votePrefix.length, -"/vote".length)),
+            (c.body as { option?: string | null }).option ?? null,
+          ] as const,
+        ]
+      : [],
+  );
+  const withSaves =
     chat && savingNow.length ? { ...chat, saved: { ...chat.saved, ...Object.fromEntries(savingNow) } } : chat;
+  const shown =
+    withSaves && votingNow.length
+      ? {
+          ...withSaves,
+          polls: Object.fromEntries(
+            Object.entries(withSaves.polls ?? {}).map(([mid, p]) => {
+              const v = votingNow.filter(([m]) => m === mid).at(-1);
+              // `was`: my answer as the server has it, so the card can move my name over too.
+              return [mid, v ? { ...p, mine: v[1], was: p.mine } : p];
+            }),
+          ),
+        }
+      : withSaves;
   // Once a sent message (or a mark) has left the outbox, fetch so it shows as done.
-  const waitingHere = pending.filter((p) => !p.failed).length + savingNow.length;
+  const waitingHere = pending.filter((p) => !p.failed).length + savingNow.length + votingNow.length;
   useEffect(() => {
     if (!waitingHere) void load();
   }, [waitingHere, load]);
@@ -178,3 +208,25 @@ export function saveToInbox(text: string) {
 
 /** Where a proposal saves to, for the label: "Add to Gigs" → "Gigs". */
 export const savedLabel = (title: string) => title.replace(/^Add to\s+/i, "").trim() || "your lists";
+
+/** Asks everyone in the chat (decision 2026-10-14 "Ask everyone"); works offline. */
+export function askEveryone(groupId: string, question: string, options: string[]) {
+  send({
+    kind: "poll",
+    method: "POST",
+    path: pollsPath(groupId),
+    body: { question, options },
+    label: question.length > 40 ? question.slice(0, 40) + "…" : question,
+  });
+}
+
+/** My answer to a question in a chat (null takes it back); works offline. */
+export function votePoll(groupId: string, messageId: string, option: string | null) {
+  send({
+    kind: "vote",
+    method: "POST",
+    path: `/api/groups/${enc(groupId)}/polls/${enc(messageId)}/vote`,
+    body: { option },
+    label: option ? `Answer: ${option}` : "Answer taken back",
+  });
+}

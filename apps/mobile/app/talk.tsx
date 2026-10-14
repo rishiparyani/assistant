@@ -20,6 +20,7 @@ import { sendChatMessage, useChat, type GroupMessage, type Pending } from "@/cha
 import { dropFailed } from "@/outbox";
 import { SaveSheet } from "@/components/SaveSheet";
 import { AskSheet } from "@/components/AskSheet";
+import { AskEveryoneSheet, PollCard } from "@/components/Poll";
 import { useSession } from "@/session";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
@@ -46,6 +47,8 @@ export default function Talk() {
   const [saving, setSaving] = useState<GroupMessage | null>(null);
   // The private assistant panel is open.
   const [asking, setAsking] = useState(false);
+  // The "Ask everyone" sheet is open.
+  const [polling, setPolling] = useState(false);
   const list = useRef<FlatList<Item>>(null);
 
   // Newest at the bottom: the list is drawn upside down, so it opens at the latest message.
@@ -163,7 +166,9 @@ export default function Talk() {
                     onPress={() => dropFailed(item.p.id)}
                     style={[s.bubble, s.mine, { backgroundColor: mineBg, opacity: item.p.failed ? 1 : 0.7 }]}
                   >
-                    <Text style={[s.text, { color: mineFg }]}>{item.p.text}</Text>
+                    <Text style={[s.text, { color: mineFg }]}>
+                      {item.p.poll ? `Asking everyone: ${item.p.text}` : item.p.text}
+                    </Text>
                     <Text style={[s.meta, { color: item.p.failed ? t.danger : mineFg }]}>
                       {item.p.failed ? `Not sent: ${item.p.failed} · tap to remove` : "Sending…"}
                     </Text>
@@ -172,6 +177,21 @@ export default function Talk() {
               const m = item.m;
               if (m.kind === "note")
                 return <Text style={[s.notice, { color: t.fg2, backgroundColor: t.fill }]}>{m.text}</Text>;
+              const poll = m.kind === "poll" ? chat?.polls?.[m.id] : undefined;
+              if (poll)
+                return (
+                  <PollCard
+                    groupId={id ?? ""}
+                    messageId={m.id}
+                    poll={poll}
+                    asker={m.author}
+                    mine={m.author_id === myId}
+                    me={me?.user.name ?? ""}
+                    highlight={m.id === marked}
+                    onLongPress={() => setSaving(m)}
+                    saved={chat?.saved?.[m.id]}
+                  />
+                );
               const mine = m.kind === "person" && m.author_id === myId;
               const saved = chat?.saved?.[m.id];
               const savedNote = saved ? (
@@ -246,6 +266,15 @@ export default function Talk() {
             </Pressable>
           ) : null}
           <View style={[s.composer, { paddingBottom: insets.bottom + 10 }]}>
+            {/* + : ask everyone a question (Yes / No / Maybe, or your own answers). */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Ask everyone a question"
+              onPress={() => setPolling(true)}
+              style={[s.plus, { backgroundColor: t.cell }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 24, fontWeight: "700", lineHeight: 26 }}>+</Text>
+            </Pressable>
             <View style={[s.box, { backgroundColor: t.cell }]}>
               <TextInput
                 value={text}
@@ -283,6 +312,7 @@ export default function Talk() {
           </View>
         </View>
       </KeyboardAvoidingView>
+      <AskEveryoneSheet groupId={id ?? ""} open={polling} onClose={() => setPolling(false)} />
       <AskSheet
         groupId={id ?? ""}
         chatName={chat?.name ?? ""}
@@ -369,8 +399,10 @@ const s = StyleSheet.create({
     marginTop: 6,
   },
   latestText: { fontSize: 13, fontWeight: "800" },
-  composer: { paddingHorizontal: 12, paddingTop: 6 },
+  composer: { paddingHorizontal: 12, paddingTop: 6, flexDirection: "row", alignItems: "flex-end", gap: 8 },
+  plus: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   box: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "flex-end",
     gap: 8,
