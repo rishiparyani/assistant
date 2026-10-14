@@ -16,6 +16,8 @@ import {
   SaveViewInput,
   UpdateViewInput,
   HistoryInput,
+  TRASH_DAYS,
+  TrashInput,
   UndoInput,
   ViewRef,
   RecordRef,
@@ -395,6 +397,45 @@ export const spaceOperations = [
         force_through: i.force_through,
         with: i.with,
       });
+    },
+  }),
+  defineOperation({
+    id: "core.trash",
+    tool: "recently_deleted",
+    description: `Recently deleted records (kept ${TRASH_DAYS} days, then erased), newest first; optionally one list's.`,
+    kind: "read",
+    http: { method: "GET", path: "/trash" },
+    input: TrashInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.trash(actor, i.collection, i.limit);
+    },
+  }),
+  defineOperation({
+    id: "core.restore_record",
+    tool: "restore_record",
+    description:
+      "Bring a record back from Recently deleted, with its links and what its delete took with it.",
+    kind: "write",
+    http: { method: "POST", path: "/trash/:record_id/restore" },
+    input: RecordRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.restore(actor, ctx.idempotencyKey, i.record_id);
+    },
+  }),
+  defineOperation({
+    id: "core.erase_record",
+    tool: "delete_forever",
+    description:
+      "Erase a record in Recently deleted now, for good (its values, comments and history details). Can't be undone. Needs confirmation.",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/trash/:record_id" },
+    input: RecordRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.eraseForever(actor, ctx.idempotencyKey, i.record_id);
     },
   }),
   defineOperation({

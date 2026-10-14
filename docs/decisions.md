@@ -809,3 +809,12 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **A workflow's own changes say "a workflow"**, not the person who made it.
 - **Old gig code:** removing a show or a person, or releasing a date option, keeps the lineup (shares) and answers it removes in the audit entry (they were dropped with no copy).
 - **Not yet:** a link change's earlier links aren't kept in the history (links can't be undone one by one); money moved by a workflow will go through reversing entries like payments when chat workflows can move money.
+
+## 2026-10-14: Recently deleted (owner: "30 days is fine, go ahead")
+
+- **A deleted record waits in Recently deleted for 30 days** (`TRASH_DAYS`), then it's **erased for good**: its values and title, its personal answers, its comments, the run history that mentions it, and the history's copies of what it said are wiped (`records.purged_at`). The history keeps who did what and when. Erasing is done by the space's own alarm (it wakes at the oldest deleted record's 30th day), so no cron or shared table is touched.
+- **Restore** is the same as undoing its delete (links, what the delete took with it, the list's rules checked). **Delete forever** erases it at once, and needs confirmation from assistants and MCP (`delete_forever`, a confirm operation).
+- **Only people who can change the space** (owner, editors) see its Recently deleted; people a list is only shared with don't.
+- A record a delete took with it shows with that record ("with 1 linked record") and comes back, or goes, with it.
+- **Why 30 days, not for ever:** people expect "delete" to end in gone, and India's data protection law gives a right to erasure; 30 days is what iPhone Photos and Gmail do. The nightly backups on the owner's Google Drive still hold an earlier copy for as long as those files are kept.
+- **Not yet:** removed fields, lists, views and workflows have no Recently deleted (they're soft-deleted and kept); the old website has no trash screen.

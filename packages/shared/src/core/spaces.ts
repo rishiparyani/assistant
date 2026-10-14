@@ -467,6 +467,31 @@ export const UndoInput = SpaceRef.extend({
     .describe("Ids from the entry's followups to undo too"),
 });
 
+/** Days a deleted record stays in Recently deleted before it's erased for good. */
+export const TRASH_DAYS = 30;
+
+/** A deleted record in Recently deleted (decision 2026-10-14 "Recently deleted"). */
+export interface TrashItem {
+  record_id: string;
+  title: string;
+  collection: string;
+  collection_id: string;
+  deleted_at: string;
+  /** "you", a name, or "a workflow". */
+  deleted_by: string;
+  /** When it will be erased for good (deleted_at + TRASH_DAYS). */
+  erase_at: string;
+  /** What it held, a few fields in plain words. */
+  lines: string[];
+  /** Records the delete took with it; they come back (or go) with it. */
+  also_restores: number;
+}
+
+export const TrashInput = SpaceRef.extend({
+  collection: z.string().trim().min(1).max(80).optional().describe("Only this list's deleted records"),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
 export const ChangesInput = SpaceRef.extend({
   since: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(1000).default(500),

@@ -222,6 +222,14 @@ export default function ListPage() {
           >
             <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
           </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Recently deleted from ${c?.name ?? "this list"}`}
+            onPress={() => router.push({ pathname: "/trash", params: c ? { collection: c.name } : {} })}
+            style={[s.deleted, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+          >
+            <Text style={{ color: t.fg2, fontSize: 14, fontWeight: "700" }}>Recently deleted</Text>
+          </Pressable>
         </View>
         <View style={s.head}>
           <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
@@ -464,7 +472,22 @@ function Row({
 const s = StyleSheet.create({
   root: { flex: 1 },
   column: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" },
-  top: { paddingHorizontal: 16, paddingBottom: 4 },
+  top: {
+    paddingHorizontal: 16,
+    paddingBottom: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  deleted: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 22,
+    justifyContent: "center",
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+  },
   back: {
     width: 44,
     height: 44,
