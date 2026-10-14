@@ -28,6 +28,12 @@ export default function Chat() {
   const router = useRouter();
   const { card, ask } = useLocalSearchParams<{ card?: string; ask?: string }>();
   const [view, setView] = useState<ChatView | null>(null);
+  // The newest answer gets 👍 / 👎 (not one waiting behind a newer message of mine).
+  const lastReply = (() => {
+    const items = view?.items ?? [];
+    const at = items.findLastIndex((i) => i.role === "assistant" && !!i.text);
+    return at >= 0 && !items.slice(at + 1).some((i) => i.role === "user") ? items[at]!.id : null;
+  })();
   const [text, setText] = useState(ask ?? "");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -151,6 +157,7 @@ export default function Chat() {
         </View>
         <FlatList
           ref={list}
+          extraData={lastReply}
           data={view?.items ?? []}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, gap: 4 }}
@@ -158,6 +165,7 @@ export default function Chat() {
           renderItem={({ item }) => (
             <Bubble
               item={item}
+              rate={item.id === lastReply}
               onAnswer={answer}
               busy={busy}
               collections={getCollections}
@@ -225,14 +233,56 @@ export default function Chat() {
   );
 }
 
+// 👍 / 👎 given in this session, by message (only the rating goes to the server).
+const rated = new Map<string, "good" | "bad">();
+
+/** 👍 / 👎 under the newest answer: a count for the app team, nothing about the answer. */
+function Rate({ id }: { id: string }) {
+  const { t } = useTheme();
+  const [mine, setMine] = useState(rated.get(id) ?? null);
+  // online-only: a rating is only a count; with no connection it's simply not sent.
+  const vote = (rating: "good" | "bad") => {
+    if (mine) return;
+    rated.set(id, rating);
+    setMine(rating);
+    request("POST", "/api/chat/feedback", { rating }).catch(() => {
+      rated.delete(id);
+      setMine(null);
+    });
+  };
+  return (
+    <View style={s.rate}>
+      {(["good", "bad"] as const).map((r) => (
+        <Pressable
+          key={r}
+          accessibilityRole="button"
+          accessibilityLabel={r === "good" ? "Good answer" : "Bad answer"}
+          accessibilityState={{ selected: mine === r, disabled: !!mine }}
+          disabled={!!mine}
+          onPress={() => vote(r)}
+          style={[s.rateBtn, mine === r && { backgroundColor: t.accentSoft }]}
+        >
+          <Text style={{ fontSize: 16, opacity: mine && mine !== r ? 0.3 : 0.8 }}>
+            {r === "good" ? "👍" : "👎"}
+          </Text>
+        </Pressable>
+      ))}
+      {mine ? <Text style={[s.rateNote, { color: t.fg3 }]}>Thanks</Text> : null}
+    </View>
+  );
+}
+
 function Bubble({
   item,
+  rate,
   onAnswer,
   busy,
   collections,
   onAsk,
 }: {
   item: ChatItem;
+  /** The newest answer: show 👍 / 👎 under it. */
+  rate?: boolean;
   onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
   busy: boolean;
   collections: () => Promise<CollectionView[]>;
@@ -298,9 +348,12 @@ function Bubble({
   }
   if (item.role === "note") return <Text style={[s.sys, { color: t.fg2 }]}>{item.text}</Text>;
   return (
-    <View style={[s.bub, s.them, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}>
-      <Text style={[s.bubText, { color: t.fg }]}>{item.text}</Text>
-    </View>
+    <>
+      <View style={[s.bub, s.them, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}>
+        <Text style={[s.bubText, { color: t.fg }]}>{item.text}</Text>
+      </View>
+      {rate ? <Rate id={item.id} /> : null}
+    </>
   );
 }
 
@@ -340,6 +393,9 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   sys: { fontSize: 12, fontWeight: "600", textAlign: "center", padding: 6 },
+  rate: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: -2 },
+  rateBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  rateNote: { fontSize: 12, fontWeight: "600", marginLeft: 4 },
   // A horizontal list grows to fill the column by default; the chips sit above the box.
   chips: { flexGrow: 0 },
   chip: {

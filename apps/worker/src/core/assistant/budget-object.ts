@@ -47,6 +47,34 @@ const MIGRATIONS: Migrations = [
   `create index calls_user_at_idx on calls (user_id, at);`,
   // Input tokens the model reused from its prompt cache (part of input_tokens).
   `alter table calls add column cached_tokens integer not null default 0;`,
+  // How the assistant is doing (decision 2026-10-14 "We don't read people's data"): one row
+  // per request and per signal, counts and names of tools only, never words.
+  `
+  create table turns (
+    id integer primary key autoincrement,
+    at text not null,
+    user_id text not null,
+    level integer not null,
+    steps integer not null,
+    tools_json text not null,
+    errors_json text not null,
+    outcome text not null,
+    ms integer not null,
+    prompt_version text not null
+  );
+  create index turns_at_idx on turns (at);
+  create table signals (
+    id integer primary key autoincrement,
+    at text not null,
+    user_id text not null,
+    kind text not null,
+    tool text
+  );
+  create index signals_at_idx on signals (at);
+  `,
+  // A retried request leaves one signal (its key), not two.
+  `alter table signals add column key text;
+   create unique index signals_key_idx on signals (key) where key is not null;`,
 ];
 
 /** Months and days in India time (the cap resets on the 1st, IST). */
@@ -69,6 +97,47 @@ export interface CallLog {
   neurons: number;
   ms: number;
   outcome: string;
+}
+
+/** One request to the assistant, as numbers and tool names (never the words). */
+export interface TurnLog {
+  userId: string;
+  level: number;
+  /** Model calls it took. */
+  steps: number;
+  /** Tool name → how many times it ran. */
+  tools: Record<string, number>;
+  /** "tool:code" → how many times the app refused it (validation_failed, not_found, …). */
+  errors: Record<string, number>;
+  /** answered · card · no_answer · handover_blocked · stopped */
+  outcome: string;
+  ms: number;
+  promptVersion: string;
+}
+
+/** What people did with an answer: confirm or cancel a card, 👍 / 👎. */
+export type SignalKind = "card_confirmed" | "card_cancelled" | "good" | "bad";
+
+export interface QualityView {
+  days: number;
+  requests: number;
+  median_ms: number | null;
+  p90_ms: number | null;
+  outcomes: Record<string, number>;
+  signals: Record<string, number>;
+  /** Most frequent refusals ("add_record:validation_failed"), most first. */
+  top_errors: { key: string; n: number }[];
+  /** Cards cancelled, by tool, most first. */
+  top_cancelled: { key: string; n: number }[];
+  models: {
+    model: string;
+    calls: number;
+    failed: number;
+    median_ms: number | null;
+    tokens_in: number;
+    tokens_out: number;
+  }[];
+  prompt_versions: { version: string; requests: number; ok: number }[];
 }
 
 export interface BudgetView {
@@ -191,6 +260,105 @@ export class BudgetObject extends DurableObject<Env> {
     );
     // Keep 90 days of call logs.
     this.sql.exec(`delete from calls where at < ?`, new Date(Date.now() - 90 * 86400_000).toISOString());
+  }
+
+  async logTurn(t: TurnLog): Promise<void> {
+    this.sql.exec(
+      `insert into turns (at, user_id, level, steps, tools_json, errors_json, outcome, ms, prompt_version)
+       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      nowIso(),
+      t.userId,
+      t.level,
+      t.steps,
+      JSON.stringify(t.tools),
+      JSON.stringify(t.errors),
+      t.outcome,
+      t.ms,
+      t.promptVersion,
+    );
+    this.sql.exec(`delete from turns where at < ?`, new Date(Date.now() - 90 * 86400_000).toISOString());
+  }
+
+  /** key: the request's, so a retry leaves one signal (none: always counted). */
+  async signal(
+    userId: string,
+    kind: SignalKind,
+    tool: string | null = null,
+    key: string | null = null,
+  ): Promise<void> {
+    this.sql.exec(
+      `insert or ignore into signals (at, user_id, kind, tool, key) values (?, ?, ?, ?, ?)`,
+      nowIso(),
+      userId,
+      kind,
+      tool,
+      key,
+    );
+    this.sql.exec(`delete from signals where at < ?`, new Date(Date.now() - 90 * 86400_000).toISOString());
+  }
+
+  /** The last `days` days, added up (for the admin panel). */
+  async quality(days: number): Promise<QualityView> {
+    const since = new Date(Date.now() - days * 86400_000).toISOString();
+    const turns = this.sql
+      .exec<{ ms: number; outcome: string; errors_json: string; prompt_version: string }>(
+        `select ms, outcome, errors_json, prompt_version from turns where at >= ?`,
+        since,
+      )
+      .toArray();
+    const ms = turns.map((t) => t.ms).sort((a, b) => a - b);
+    const at = (q: number) => (ms.length ? ms[Math.min(ms.length - 1, Math.floor(q * ms.length))]! : null);
+    const count = <T extends string>(xs: T[]) =>
+      xs.reduce<Record<string, number>>((m, x) => ((m[x] = (m[x] ?? 0) + 1), m), {});
+    const errors: Record<string, number> = {};
+    for (const t of turns)
+      for (const [k, n] of Object.entries(JSON.parse(t.errors_json) as Record<string, number>))
+        errors[k] = (errors[k] ?? 0) + n;
+    const top = (m: Record<string, number>) =>
+      Object.entries(m)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([key, n]) => ({ key, n }));
+    const signals = this.sql
+      .exec<{ kind: string; tool: string | null }>(`select kind, tool from signals where at >= ?`, since)
+      .toArray();
+    const calls = this.sql
+      .exec<{ model: string; ms: number; outcome: string; input_tokens: number; output_tokens: number }>(
+        `select model, ms, outcome, input_tokens, output_tokens from calls where at >= ?`,
+        since,
+      )
+      .toArray();
+    const byModel = new Map<string, typeof calls>();
+    for (const c of calls) byModel.set(c.model, [...(byModel.get(c.model) ?? []), c]);
+    const versions = new Map<string, { requests: number; ok: number }>();
+    for (const t of turns) {
+      const v = versions.get(t.prompt_version) ?? { requests: 0, ok: 0 };
+      v.requests++;
+      if (t.outcome === "answered" || t.outcome === "card") v.ok++;
+      versions.set(t.prompt_version, v);
+    }
+    return {
+      days,
+      requests: turns.length,
+      median_ms: at(0.5),
+      p90_ms: at(0.9),
+      outcomes: count(turns.map((t) => t.outcome)),
+      signals: count(signals.map((x) => x.kind)),
+      top_errors: top(errors),
+      top_cancelled: top(count(signals.filter((x) => x.kind === "card_cancelled").map((x) => x.tool ?? "?"))),
+      models: [...byModel.entries()].map(([model, cs]) => {
+        const m = cs.map((c) => c.ms).sort((a, b) => a - b);
+        return {
+          model,
+          calls: cs.length,
+          failed: cs.filter((c) => c.outcome !== "ok").length,
+          median_ms: m.length ? m[Math.floor(m.length / 2)]! : null,
+          tokens_in: cs.reduce((n, c) => n + c.input_tokens, 0),
+          tokens_out: cs.reduce((n, c) => n + c.output_tokens, 0),
+        };
+      }),
+      prompt_versions: [...versions.entries()].map(([version, v]) => ({ version, ...v })),
+    };
   }
 
   /** One person's model calls since a time, oldest first (the scorecard reads its test users'). */

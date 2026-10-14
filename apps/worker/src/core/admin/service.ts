@@ -85,11 +85,62 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
   };
 }
 
+const secs = (ms: number | null) => (ms === null ? "—" : `${(ms / 1000).toFixed(1)} s`);
+const pctOf = (n: number, of: number) => (of ? `${Math.round((n / of) * 100)}%` : "—");
+
+/** How the assistant is doing, last 7 days: counts, times and tool names only (decision
+ *  2026-10-14 "We don't read people's data"); nothing anyone wrote or kept. */
+async function qualitySection(ctx: AdminCtx): Promise<AdminSection> {
+  const budget = ctx.objects.BUDGET.get(ctx.objects.BUDGET.idFromName("budget:global"));
+  const q = await budget.quality(7);
+  const o = (k: string) => q.outcomes[k] ?? 0;
+  const sig = (k: string) => q.signals[k] ?? 0;
+  const ok = o("answered") + o("card");
+  const cards = sig("card_confirmed") + sig("card_cancelled");
+  const votes = sig("good") + sig("bad");
+  const list = (xs: { key: string; n: number }[]) => xs.map((x) => `${x.key} ×${x.n}`).join(", ") || "none";
+  return {
+    title: "Assistant quality (7 days)",
+    stats: [
+      { label: "Requests", value: q.requests },
+      {
+        label: "Answered",
+        value: pctOf(ok, q.requests),
+        hint: `${o("no_answer")} no model · ${o("stopped")} stopped · ${o("handover_blocked")} needed the smart model`,
+        tone: q.requests && ok / q.requests < 0.9 ? "warn" : "ok",
+      },
+      { label: "Time to answer", value: secs(q.median_ms), hint: `slowest 10% over ${secs(q.p90_ms)}` },
+      {
+        label: "Cards confirmed",
+        value: pctOf(sig("card_confirmed"), cards),
+        hint: `${sig("card_confirmed")} of ${cards} · most cancelled: ${list(q.top_cancelled)}`,
+      },
+      {
+        label: "👍 / 👎",
+        value: `${sig("good")} / ${sig("bad")}`,
+        tone: votes && sig("bad") / votes > 0.3 ? "warn" : "ok",
+      },
+      { label: "Most refused tools", value: q.top_errors.length, hint: list(q.top_errors) },
+      ...q.models.map((m) => ({
+        label: m.model.split("/").pop() ?? m.model,
+        value: `${m.calls} calls`,
+        hint: `${m.failed} failed · median ${secs(m.median_ms)} · ${m.tokens_in.toLocaleString("en-IN")} in / ${m.tokens_out.toLocaleString("en-IN")} out tokens`,
+        tone: m.calls && m.failed / m.calls > 0.1 ? ("warn" as const) : ("ok" as const),
+      })),
+      ...q.prompt_versions.map((v) => ({
+        label: `Prompt ${v.version}`,
+        value: pctOf(v.ok, v.requests),
+        hint: `answered, of ${v.requests} requests`,
+      })),
+    ],
+  };
+}
+
 export async function overview(ctx: AdminCtx, modules: readonly ModuleDefinition[], settings?: AiSettings) {
   const sections = [await peopleSection(ctx.d1)];
   if (settings) {
     try {
-      sections.push(await aiSection(ctx, settings));
+      sections.push(await aiSection(ctx, settings), await qualitySection(ctx));
     } catch (err) {
       console.error("admin: AI section failed", err);
     }

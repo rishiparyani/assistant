@@ -42,6 +42,7 @@ describe("admin panel", () => {
     expect(o.sections.map((s) => s.title)).toEqual([
       "People",
       "Assistant (AI)",
+      "Assistant quality (7 days)",
       "Gigs",
       "Delivery (outbox → queue)",
     ]);

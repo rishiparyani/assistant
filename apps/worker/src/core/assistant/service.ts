@@ -102,6 +102,8 @@ const SETUP = [
 ];
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
+/** Which system prompt answered (the admin panel compares versions): bump on every real change. */
+export const PROMPT_VERSION = "2026-10-14";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -612,6 +614,21 @@ async function useChat(ctx: OpUserCtx, chatId: string) {
 }
 const budgetOf = (ctx: OpUserCtx) => ctx.objects.BUDGET.get(ctx.objects.BUDGET.idFromName("budget:global"));
 
+/** The numbers never fail what the person asked for. */
+async function quietly(p: Promise<unknown>) {
+  try {
+    await p;
+  } catch (e) {
+    console.warn("quality signal failed", e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** The kind of refusal (validation_failed, not_found, …), never its words: for the numbers. */
+function errorCode(e: unknown): string {
+  const appErr = e instanceof AppError ? e : toAppError(e);
+  return appErr ? appErr.code : "internal";
+}
+
 function errorText(e: unknown): string {
   const appErr = e instanceof AppError ? e : toAppError(e);
   if (appErr) {
@@ -700,6 +717,12 @@ async function answerMessage(
   let memories = await chatOf(ctx).memories(uid);
   const connected = await connectedKinds(ctx);
   let failures = 0;
+  // The numbers kept about this request (decision 2026-10-14 "We don't read people's data"):
+  // how many steps, which tools, which kinds of refusal, how it ended. Never the words.
+  const started = Date.now();
+  const stats = { steps: 0, tools: {} as Record<string, number>, errors: {} as Record<string, number> };
+  let outcome = "answered";
+  const bump = (m: Record<string, number>, k: string) => (m[k] = (m[k] ?? 0) + 1);
 
   const reply = (text: string, at = level) =>
     rows.push({ role: "assistant", content: text, shown: "assistant", level: at });
@@ -714,7 +737,9 @@ async function answerMessage(
       ...turn,
     ];
     const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`);
+    stats.steps++;
     if (!answer) {
+      outcome = "no_answer";
       reply(
         level === 1
           ? "I can't answer right now (the free daily allowance may be used up). Everything still works by tapping."
@@ -747,6 +772,7 @@ async function answerMessage(
         turn.pop();
         rows.pop();
         if (!modelsFor(2, s).length) {
+          outcome = "handover_blocked";
           reply(
             "Setting this up needs the smart model, which switches on once AI credit is added. Until then, your existing lists work by tapping: Your lists in the menu, or + by the message box.",
           );
@@ -763,7 +789,12 @@ async function answerMessage(
         continue steps;
       }
       if (result.kind === "hand_back") await chat.setupInProgress(uid, false);
+      // A name the model made up could carry any text: it counts as "unknown".
+      const counted = result.kind === "error" && result.code === "no_tool" ? "unknown" : call.function.name;
+      bump(stats.tools, counted);
+      if (result.kind === "error") bump(stats.errors, `${counted}:${result.code}`);
       if (result.kind === "card") {
+        outcome = "card";
         const id = await chat.addAction(uid, result.card);
         rows.push({
           role: "assistant",
@@ -800,16 +831,29 @@ async function answerMessage(
       failures = 0;
       rows.push({ role: "assistant", content: "Trying a stronger model…", shown: "note", level });
     }
-    if (step === MAX_STEPS - 1) reply("I stopped here to keep things safe. Check what's done above.");
+    if (step === MAX_STEPS - 1) {
+      outcome = "stopped";
+      reply("I stopped here to keep things safe. Check what's done above.");
+    }
   }
   for (const live of [...lives.values()].slice(-MAX_LIVE))
     rows.push({ role: "assistant", content: "", shown: "live", live, level });
   await chat.append(uid, rows, requestKey);
+  await budgetOf(ctx)
+    .logTurn({
+      userId: uid,
+      level,
+      ...stats,
+      outcome,
+      ms: Date.now() - started,
+      promptVersion: PROMPT_VERSION,
+    })
+    .catch((e: unknown) => console.warn("turn log failed", e instanceof Error ? e.message : String(e)));
 }
 
 type ToolResult =
   | { kind: "ran"; text: string; live?: LiveRef | null }
-  | { kind: "error"; text: string }
+  | { kind: "error"; text: string; code: string }
   | {
       kind: "card";
       text: string;
@@ -831,13 +875,18 @@ async function runTool(
   if (name === "hand_over" && level === 1) return { kind: "hand_over", text: "{}" };
   if (name === "hand_back" && level > 1) return { kind: "hand_back", text: JSON.stringify({ ok: true }) };
   const op = ops.find((o) => o.tool === name && allowed.has(o.tool) && !o.sessionOnly);
-  if (!op) return { kind: "error", text: JSON.stringify({ error: `No tool called ${name} here` }) };
+  if (!op)
+    return { kind: "error", code: "no_tool", text: JSON.stringify({ error: `No tool called ${name} here` }) };
   let args: Record<string, unknown>;
   try {
     const raw = JSON.parse(call.function.arguments || "{}") as unknown;
     args = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   } catch {
-    return { kind: "error", text: JSON.stringify({ error: "The arguments weren't valid JSON" }) };
+    return {
+      kind: "error",
+      code: "bad_json",
+      text: JSON.stringify({ error: "The arguments weren't valid JSON" }),
+    };
   }
   try {
     // Nothing an assistant makes runs before the person turns it on from its card.
@@ -852,7 +901,7 @@ async function runTool(
       // Name the record a change or delete is about, so the card says exactly what it does.
       const target = typeof args.record_id === "string" ? await recordLabel(ctx, args.record_id) : null;
       if (typeof args.record_id === "string" && !target)
-        return { kind: "error", text: JSON.stringify({ error: "Record not found" }) };
+        return { kind: "error", code: "not_found", text: JSON.stringify({ error: "Record not found" }) };
       // Sharing names people: check them now, so a wrong or shared name comes back to the
       // model (candidates) instead of failing after the tap.
       // The card keeps the resolved ids (names can repeat) and shows the names.
@@ -880,7 +929,7 @@ async function runTool(
       live: liveFrom(name, args, result, cols, op),
     };
   } catch (e) {
-    return { kind: "error", text: errorText(e) };
+    return { kind: "error", code: errorCode(e), text: errorText(e) };
   }
 }
 
@@ -975,6 +1024,7 @@ export async function confirmAction(
     const named = (result as { title?: string; name?: string } | null) ?? null;
     live = liveFrom(a.tool, {}, result, [], op);
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
+    await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool, `card:${a.id}`));
     note = `Done: ${a.title}.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     // A whole setup is the end of setting up: everyday chat (and the everyday model) again.
@@ -991,10 +1041,23 @@ export async function confirmAction(
   return chatView(ctx, chatId);
 }
 
+/** 👍 / 👎 on an answer: a count for the admin panel, nothing about the answer itself. */
+export async function rateAnswer(ctx: OpUserCtx, rating: "good" | "bad"): Promise<{ ok: true }> {
+  await requireAssistant(ctx);
+  await budgetOf(ctx).signal(
+    ctx.user.id,
+    rating,
+    null,
+    ctx.idempotencyKey && `rate:${ctx.user.id}:${ctx.idempotencyKey}`,
+  );
+  return { ok: true };
+}
+
 export async function cancelAction(ctx: OpUserCtx, actionId: string, chatId = MAIN): Promise<ChatView> {
   const chat = await useChat(ctx, chatId);
   const a = await chat.takeAction(ctx.user.id, actionId);
   await chat.finishAction(ctx.user.id, a.id, "cancelled", null);
+  await quietly(budgetOf(ctx).signal(ctx.user.id, "card_cancelled", a.tool, `card:${a.id}`));
   if (a.tool === "make_setup") await chat.setupInProgress(ctx.user.id, false);
   await chat.append(ctx.user.id, [{ role: "assistant", content: `Cancelled: ${a.title}.`, shown: "note" }]);
   return chatView(ctx, chatId);
