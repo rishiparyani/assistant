@@ -4,6 +4,10 @@ _Updated: 2026-10-14_
 
 ## Last done
 
+- **HF36: we don't read people's data** (decision 2026-10-14). AGENTS.md "Don't" rule and docs/security.md section; AI Gateway `collectLog: false` on chat and embedding calls; `admin.test.ts` checks no admin endpoint returns a record's text; privacy page (`apps/web/public/privacy.html`) rewritten for the assistant app (the AI model, not end-to-end, the app team doesn't look, Recently deleted and recovery copies).
+  - **Owner to check:** the admin panel's Backups shows "Encrypted" (BACKUP_KEY set); then the privacy page can also say backups are sealed.
+  - **Next:** usage and quality monitoring (counts and structure only), then the Cerebras test once the key is in.
+
 - **HF35: a home for each chat, step 1** (decision 2026-10-14 "A home for each chat").
   - **Group object** (migration: `grp.space_id`): `setRole` (admins = role owner, several; one always kept; notes "X made Y an admin"), `claimSpace` (first claim wins; either person in a chat for two), `syncHome` from the alarm (numbered member list → the space, retried), admins may leave if another admin stays.
   - **Space object** (migration: `space.group_id`): `syncChatMembers` (owners/editors, removes leavers, rewrites D1 `space_members`), `canArrange` on lists, fields, views, rules, workflows, shares and start_list.

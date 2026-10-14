@@ -20,6 +20,16 @@
 
 See `docs/design/home-first.md` §6 (AI boundary, phone app storage, per-person search indexes, process links, export/import, dependency pinning, the no-E2E trade). Every PR touching auth, sharing, search or the AI ticks that list.
 
+## People's data stays theirs
+
+Decision 2026-10-14 "We don't read people's data". Data is encrypted at rest by Cloudflare (D1 and Durable Objects, AES-256) and travels over HTTPS, but it is not end-to-end encrypted: the app's servers read it to search, run the assistant and workflows. So the promise is kept by rules and checks, not by a lock:
+
+- No admin screen, tool, log, report, monitoring or support process shows or keeps anyone's content (lists, records, chats, assistant conversations, memories). Counts and structure only. `admin.test.ts` fails if an admin endpoint returns a record's text.
+- AI Gateway request logging is off for every call (`collectLog: false` in `assistant/client.ts` and `search/embed.ts`); the app's own call log keeps counts, tokens, cost and timing.
+- Debugging uses test accounts and made-up data (the scorecard); a real problem is rewritten with fake data before it becomes a case.
+- Backups contain everything: keep `BACKUP_KEY` set so the files in Drive are sealed.
+- Erasing: Recently deleted erases records after 30 days (or at once); other removed things (collections, fields, views, rules, workflows, comments, memories) stay soft-deleted until erased on request; Cloudflare's point-in-time recovery keeps recoverable copies for up to 30 days, and the newest 60 nightly backups are kept. The privacy page says so.
+
 ## Public repository
 
 The repo is public: anyone can read the code, commit history, issues, PRs, Actions logs and workflow artifacts. Git history is permanent, so a leaked secret must be **rotated**, not just deleted.

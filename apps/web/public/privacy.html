@@ -84,10 +84,11 @@
       <a class="home" href="/">← Gigspree</a>
       <article>
         <h1>Privacy policy</h1>
-        <p class="updated">Last updated: 9 October 2026</p>
+        <p class="updated">Last updated: 14 October 2026</p>
         <p>
-          Gigspree is a small, free app for musicians to keep their gigs, bandmates, money, guest lists and
-          setlists in one place. This page explains what it stores, who can see it and how to have it deleted.
+          Gigspree is a small, free assistant for your plans, money, reminders, notes and lists, and for chats
+          with the people you plan with. This page explains what it stores, who can see it and how to have it
+          deleted.
         </p>
 
         <h2>What we collect</h2>
@@ -97,15 +98,20 @@
             and profile photo. With a passkey we keep only its public key. We never see or store a password.
           </li>
           <li>
-            <strong>What you enter:</strong> gigs and events, the people on them (names, and phone numbers or
-            emails if you add them), clients and venues, payments, payouts and expenses, guest lists, lists,
-            notes and songs.
+            <strong>What you enter:</strong> your lists and what's in them (notes, reminders, events,
+            expenses, and any list you make), the people in them (names, and phone numbers or emails if you
+            add them), your chats with other people, your conversations with the assistant and what you ask it
+            to remember.
           </li>
           <li>
             <strong>To run the app:</strong> a sign-in cookie (with each signed-in session we also keep the
-            device's IP address and browser type, to keep sessions secure), a history of changes on each gig
-            (who changed what and when), and, if you turn them on, the details your browser needs to send you
+            device's IP address and browser type, to keep sessions secure), a history of changes (who changed
+            what and when, so it can be undone), and, if you turn them on, the details needed to send you
             notifications.
+          </li>
+          <li>
+            <strong>Usage counts:</strong> how often the assistant is used, how fast it answers, what it costs
+            and how often something fails. These are numbers only, never what you wrote.
           </li>
         </ul>
         <p>We don't use advertising, tracking cookies or third-party analytics.</p>
@@ -113,24 +119,34 @@
         <h2>Who can see it</h2>
         <ul>
           <li>
-            The people on a gig see that gig, as far as their role and the gig's settings allow (for example,
-            managers choose whether players see the fee). People not on a gig can't see it at all.
+            <strong>You, and the people you share with.</strong> A list you share, or a chat's home, is seen
+            by the people in it, as far as their role allows. Everyone else can't see it at all.
           </li>
           <li>
-            If a manager shares a guest list link with a venue, the venue sees the gig's name, date and place
-            and the guests' names. No money or phone numbers.
+            <strong>Not us.</strong> The app team doesn't look at what you keep or write. No screen or tool of
+            ours shows your lists, records, chats or assistant conversations; we see only the usage counts
+            above. To fix problems we use our own test accounts with made-up data.
+          </li>
+          <li>
+            <strong>The assistant's AI model.</strong> When you ask the assistant something, your message and
+            the parts of your lists it needs are sent to an AI model run by Cloudflare (Workers AI) to work
+            out the answer. They aren't used to train it.
+          </li>
+          <li>
+            If a list owner shares a link (for example a guest list with a venue), whoever has the link sees
+            only what that link shows.
           </li>
           <li>
             If you connect an AI assistant (such as Claude or ChatGPT) or a Siri Shortcut, it can read and
-            change your gigs as you, until you disconnect it in Settings.
+            change your lists as you, until you disconnect it in Settings.
           </li>
         </ul>
         <p>We never sell your data or share it with anyone else.</p>
 
         <h2>Google user data</h2>
         <p>
-          Gigspree uses your Google account only to sign you in (name, email and photo). The app's owner can
-          also connect their own Google Drive for nightly backups; this uses the
+          Gigspree uses your Google account only to sign you in (name, email and photo). The app team also
+          connects its own Google Drive for nightly backups; this uses the
           <code>drive.file</code> permission, which only reaches files the app itself creates. Gigspree's use
           and transfer of information received from Google APIs adheres to the
           <a href="https://developers.google.com/terms/api-services-user-data-policy"
@@ -140,20 +156,23 @@
 
         <h2>Where it's kept</h2>
         <p>
-          Data is stored with Cloudflare, which encrypts it on disk, and always travels over HTTPS. Some
-          secrets, such as the Google Drive connection, are encrypted again by the app. The links and tokens
-          the app gives out (Siri Shortcuts, calendar feeds, guest list links) are stored only as one-way
-          hashes. Sign-in connections (Google, AI assistants) are kept by the sign-in system on the same
-          encrypted storage. The app saves upcoming gigs on your device so it works offline; signing out
-          removes them.
+          Data is stored with Cloudflare, which encrypts it on disk, and always travels over HTTPS. It isn't
+          end-to-end encrypted: the app's servers read it to search, run the assistant and carry out your
+          workflows, which is why our own promise above matters. Some secrets, such as the Google Drive
+          connection, are encrypted again by the app. The links and tokens the app gives out (Siri Shortcuts,
+          calendar feeds, share links) are stored only as one-way hashes. The app keeps a copy of your home on
+          your device so it works offline; signing out removes it.
         </p>
 
         <h2>Keeping and deleting</h2>
         <p>
-          Your data stays until you or a gig's manager delete it. Deleted items are hidden at once, but stay
-          in the gig's records and history until we erase them on request. The newest 60 nightly backups are
-          kept in the owner's private Google Drive. To have your account and data deleted, or to ask what we
-          hold about you, write to
+          Your data stays until you delete it. An item you delete from a list goes to Recently deleted, where
+          you can bring it back for 30 days; then it's erased for good (or straight away if you choose Delete
+          forever), and the history keeps only who did what and when. Other things you remove (a list, a
+          field, a saved card, a rule, a workflow, a comment, a memory) are hidden at once and erased on
+          request. After erasing, copies can remain for a while only in recovery copies: Cloudflare's, for up
+          to 30 days, and the app's nightly backups, of which the newest 60 are kept. To have your account and
+          data deleted, or anything erased, or to ask what we hold about you, write to
           <a href="mailto:privacy@gigspree.in">privacy@gigspree.in</a>.
         </p>
 
