@@ -53,7 +53,7 @@ export function SearchSheet({
 }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
-  const { ref: screen, room } = useKeyboardRoom();
+  const room = useKeyboardRoom();
   const [text, setText] = useState("");
   // The server's index, a moment after typing stops; silent when offline.
   const [remote, setRemote] = useState<SearchResult[]>([]);
@@ -94,7 +94,7 @@ export function SearchSheet({
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
       {/* The sheet sits on the keyboard: the box stays in sight while typing. */}
-      <View ref={screen} style={[s.screen, { paddingBottom: room }]}>
+      <View style={[s.screen, { paddingBottom: room }]}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close"

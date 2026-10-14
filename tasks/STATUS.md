@@ -4,6 +4,12 @@ _Updated: 2026-10-14_
 
 ## Last done
 
+- **HF39: phone fixes from the owner's screenshots.**
+  - **Keyboard:** the chat opened from Help still had its message box half under the keyboard. Inside an iPhone sheet a view's measured position is relative to the sheet, and a box that focuses itself raises the keyboard before listeners attach. `useKeyboardRoom` (`src/keyboard.ts`) now uses the keyboard's own height (both screens reach the screen's bottom), reads a keyboard already up (`Keyboard.metrics()`), and re-reads on did-show and frame changes.
+  - **Chat header:** a long card name ran into Changes. It's now one line, cut short, with "about this card" under it.
+  - **Dates:** the card second lines (next, bar cards) and live record cards in the chat show "Thu 15 Oct · 6 pm", not stored values (`shown` from `@assistant/cards/native`).
+  - **To check on the phone:** Help → "How do I" and Search with the keyboard up (the web build has no keyboard).
+
 - **HF38: chat about this** (decision 2026-10-14 "Chat about this").
   - **Space object** (migration: `shares.group_id`, `group_seq`, `group_d1`): `createShare` takes `groupId`; `syncShareToChat`, `closeChatShare`, `recordChatPlan`.
   - **Group object** (migration: `cards`): `pinCard`, `unpinCard`, `cardSpace`, `canPin`; the alarm's `syncCards` sends member lists to pinned shares and turns off unpinned ones. `GroupView.cards`.
