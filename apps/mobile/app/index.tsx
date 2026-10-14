@@ -357,6 +357,25 @@ export default function Home() {
               <Text style={[s.listMeta, { color: t.fg2 }]}>See all ›</Text>
             </Pressable>
           ))}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Recently deleted"
+            onPress={() => router.push("/trash")}
+            style={({ pressed }) => [
+              s.listTile,
+              {
+                backgroundColor: t.fill,
+                shadowColor: "transparent",
+                width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
+              },
+              pressed && { transform: [{ scale: 0.97 }] },
+            ]}
+          >
+            <Text style={[s.listName, { color: t.fg2 }]} numberOfLines={2}>
+              Recently deleted
+            </Text>
+            <Text style={[s.listMeta, { color: t.fg3 }]}>Kept 30 days ›</Text>
+          </Pressable>
         </View>
       ) : item.cards.length ? (
         <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>

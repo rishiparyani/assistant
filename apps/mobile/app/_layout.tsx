@@ -78,6 +78,7 @@ export default function Layout() {
           <Stack.Screen name="connections" options={{ presentation: "modal" }} />
           {/* A whole list: slides in from the right, back is a swipe. */}
           <Stack.Screen name="list" />
+          <Stack.Screen name="trash" />
           {/* Chats with people, and one chat: pushed like the list. */}
           <Stack.Screen name="chats" />
           <Stack.Screen name="talk" />

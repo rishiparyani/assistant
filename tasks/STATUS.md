@@ -4,6 +4,13 @@ _Updated: 2026-10-14_
 
 ## Last done
 
+- **HF34: Recently deleted** (decision 2026-10-14 "Recently deleted").
+  - **Space object** (migration: `records.purged_at`, `records_trash_idx`): `trash` (editors only; one entry per delete, cascaded records under their delete), `restore` (= undo of the latest delete), `eraseForever` and `eraseDue` (from the alarm; `nextWorkflowTime` includes the oldest deleted record's 30th day): values, title, answers, comments, workflow run details and audit before/after wiped; history skips erased records.
+  - **API:** `GET /api/trash?collection=`, `POST /api/trash/:record_id/restore`, `DELETE /api/trash/:record_id` (tools `recently_deleted`, `restore_record`, `delete_forever` with confirmation).
+  - **Phone:** `app/trash.tsx` (Restore, Delete forever with an inline confirm, days left), opened from a list's "Recently deleted" button and the All lists page.
+  - **Verified here:** `trash.test.ts` (5: list and restore, erase wipes values/comments/history, 30-day sweep, cascade listed once, strangers get nothing); web build at 390/820/1280 light and dark.
+  - **Next:** keep a link change's earlier links in the history; chat homes and workflows.
+
 - **HF33: Undo that can't damage data** (decision 2026-10-14 "Undo that can't damage data").
   - **Space object** (migration: `undone`, `followups`, `workflow_jobs.cause_id`, `workflow_waits.cause_id`, `_audit_entity_idx`): a delete's audit keeps its links; `undo` restores deleted records (links, index, rollups, date jobs) and what their delete cascaded to; refuses to overwrite later changes (409 `changed_since` with who, fields and `through`, across everything undone together) unless `force_through` covers them (a newer change stops it again); a restored record must pass the list's rules; `with` undoes follow-ons from workflows; people a workflow told get an "undid a change" notification. `recordAudit` tags queued jobs with the change id and keeps a run's changes and tells under its cause. `history` gains `changed_since`, `followups`, `told`, `also_restores`, delete lines, and "a workflow" for workflow writes.
   - **API:** `POST /api/history/:change_id/undo` takes `{force_through?, with?}`; `undo_change` tool describes both.

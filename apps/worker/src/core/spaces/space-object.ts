@@ -6,6 +6,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   SETUP_LIMITS,
   SPACE_LIMITS,
+  TRASH_DAYS,
   ValueError,
   decodeCursor,
   displayValue,
@@ -16,6 +17,7 @@ import {
   periodRange,
   ulid,
   type ChangesView,
+  type TrashItem,
   type CommentView,
   type CollectionView,
   type FieldOptions,
@@ -462,6 +464,12 @@ const MIGRATIONS: Migrations = [
   alter table workflow_jobs add column cause_id text;
   alter table workflow_waits add column cause_id text;
   create index _audit_entity_idx on _audit (entity_id);
+  `,
+  // Recently deleted (decision 2026-10-14): a deleted record is erased for good after
+  // TRASH_DAYS, or when someone deletes it forever.
+  `
+  alter table records add column purged_at text;
+  create index records_trash_idx on records (deleted_at) where deleted_at is not null and purged_at is null;
   `,
 ];
 
@@ -924,7 +932,19 @@ export class SpaceObject extends DurableObject<Env> {
          union all select min(next_nudge_at) as at from workflow_waits where next_nudge_at != 'resumed')`,
       )
       .toArray()[0];
-    return row?.at ? Date.parse(row.at) : null;
+    const erase = this.nextEraseTime();
+    const at = row?.at ? Date.parse(row.at) : null;
+    return at === null ? erase : erase === null ? at : Math.min(at, erase);
+  }
+
+  /** When the oldest record in Recently deleted is due to be erased (ms), or null. */
+  private nextEraseTime(): number | null {
+    const row = this.sql
+      .exec<{ at: string | null }>(
+        `select min(deleted_at) as at from records where deleted_at is not null and purged_at is null`,
+      )
+      .toArray()[0];
+    return row?.at ? Date.parse(row.at) + TRASH_DAYS * 86_400_000 : null;
   }
 
   // --- Space and members ---------------------------------------------------------------
@@ -1019,6 +1039,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
+    this.eraseDue();
     await this.runDueJobs();
     const searchIn = await this.syncSearch();
     const liveIn = await this.pingLive();
@@ -3836,12 +3857,19 @@ export class SpaceObject extends DurableObject<Env> {
     const out: HistoryItem[] = [];
     for (const r of rows) {
       const rec = this.sql
-        .exec<{ title: string; collection_id: string; deleted_at: string | null; values_json: string }>(
-          `select title, collection_id, deleted_at, values_json from records where id = ?`,
+        .exec<{
+          title: string;
+          collection_id: string;
+          deleted_at: string | null;
+          values_json: string;
+          purged_at: string | null;
+        }>(
+          `select title, collection_id, deleted_at, values_json, purged_at from records where id = ?`,
           r.entity_id,
         )
         .toArray()[0];
-      if (!rec) continue;
+      // An erased record has nothing left to show.
+      if (!rec || rec.purged_at) continue;
       const c = this.sql
         .exec<{ name: string; deleted_at: string | null }>(
           `select name, deleted_at from collections where id = ?`,
@@ -4045,9 +4073,13 @@ export class SpaceObject extends DurableObject<Env> {
     before: Record<string, unknown>,
   ): RecordView {
     const rec = this.sql
-      .exec<RecordRow & { deleted_at: string | null }>(`select * from records where id = ?`, recordId)
+      .exec<RecordRow & { deleted_at: string | null; purged_at: string | null }>(
+        `select * from records where id = ?`,
+        recordId,
+      )
       .toArray()[0];
     if (!rec) throw new ObjectError("not_found", "Record not found");
+    if (rec.purged_at) throw new ObjectError("conflict", "It was erased for good");
     if (!rec.deleted_at) throw new ObjectError("conflict", "It's already back");
     const c = this.sql
       .exec<CollectionRow>(`select * from collections where id = ? and deleted_at is null`, rec.collection_id)
@@ -4151,6 +4183,177 @@ export class SpaceObject extends DurableObject<Env> {
         values[k] = f.type === "money" && typeof v === "number" ? v / 100 : v;
     }
     return values;
+  }
+
+  // --- Recently deleted (decision 2026-10-14 "Recently deleted") ---------------------------
+  // A deleted record stays (soft delete) for TRASH_DAYS: it can be restored (the same as
+  // undoing its delete) or deleted forever. Then it's erased: its values, title, comments,
+  // personal answers and the history's copies of them are wiped; the history keeps who did
+  // what and when.
+
+  /** The latest delete of a record that isn't undone (what Restore undoes). */
+  private deleteEntry(
+    recordId: string,
+  ): { id: string; seq: number; actor_user_id: string | null; source: string } | undefined {
+    return this.sql
+      .exec<{ id: string; seq: number; actor_user_id: string | null; source: string }>(
+        `select change_id as id, id as seq, actor_user_id, source from _audit
+         where entity_id = ? and action = 'delete_record' and change_id is not null
+           and change_id not in (select change_id from undone)
+         order by id desc limit 1`,
+        recordId,
+      )
+      .toArray()[0];
+  }
+
+  async trash(actor: Actor, collection: string | undefined, limit: number): Promise<TrashItem[]> {
+    // Only people who can change the space see what was deleted from it.
+    this.canWrite(actor);
+    const only = collection ? this.requireCollection(collection).id : null;
+    const rows = this.sql
+      .exec<RecordRow & { deleted_at: string }>(
+        `select * from records where deleted_at is not null and purged_at is null
+         ${only ? "and collection_id = ?" : ""} order by deleted_at desc limit ?`,
+        ...(only ? [only, limit * 2] : [limit * 2]),
+      )
+      .toArray();
+    const out: TrashItem[] = [];
+    for (const r of rows) {
+      const del = this.deleteEntry(r.id);
+      if (!del) continue;
+      // A record a delete took with it comes back (or goes) with that one, so it isn't listed
+      // on its own while that one is here too.
+      const parent = this.sql
+        .exec<{ cause_id: string }>(
+          `select cause_id from followups where kind = 'cascade' and change_id = ?`,
+          del.id,
+        )
+        .toArray()[0];
+      if (parent && !this.isUndone(parent.cause_id)) continue;
+      const c = this.sql
+        .exec<{ name: string; deleted_at: string | null }>(
+          `select name, deleted_at from collections where id = ?`,
+          r.collection_id,
+        )
+        .toArray()[0];
+      if (!c || c.deleted_at) continue;
+      const values = JSON.parse(r.values_json) as Record<string, unknown>;
+      const lines = this.fieldRows(r.collection_id)
+        .filter((f) => f.id !== this.requireCollection(r.collection_id).title_field_id)
+        .filter((f) => values[f.id] !== undefined && values[f.id] !== null && values[f.id] !== "")
+        .slice(0, 3)
+        .map((f) => `${f.name}: ${shownValue(f, values[f.id])}`);
+      out.push({
+        record_id: r.id,
+        title: r.title,
+        collection: c.name,
+        collection_id: r.collection_id,
+        deleted_at: r.deleted_at,
+        deleted_by: this.whoDid(actor, del.actor_user_id, del.source),
+        erase_at: new Date(Date.parse(r.deleted_at) + TRASH_DAYS * 86_400_000).toISOString(),
+        lines,
+        also_restores: this.followupsOf(del.id).cascades.length,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  /** Brings a deleted record back: the same as undoing its delete. */
+  async restore(
+    actor: Actor,
+    key: string | null,
+    recordId: string,
+  ): Promise<{ undone: string; also: string[]; record: RecordView | null }> {
+    this.canWrite(actor);
+    const r = this.sql
+      .exec<{ deleted_at: string | null; purged_at: string | null }>(
+        `select deleted_at, purged_at from records where id = ?`,
+        recordId,
+      )
+      .toArray()[0];
+    if (!r || r.purged_at) throw new ObjectError("not_found", "It isn't in Recently deleted");
+    const del = this.deleteEntry(recordId);
+    if (!r.deleted_at || !del) throw new ObjectError("conflict", "It's already back");
+    return this.undo(actor, key, del.id);
+  }
+
+  /** Erases a deleted record now (and what its delete took with it). Can't be undone. */
+  async eraseForever(actor: Actor, key: string | null, recordId: string): Promise<{ erased: string[] }> {
+    return this.write(actor, key, ["erase_record", recordId], (ts) => {
+      const r = this.sql
+        .exec<{ deleted_at: string | null; purged_at: string | null }>(
+          `select deleted_at, purged_at from records where id = ?`,
+          recordId,
+        )
+        .toArray()[0];
+      if (!r || r.purged_at) throw new ObjectError("not_found", "It isn't in Recently deleted");
+      if (!r.deleted_at) throw new ObjectError("conflict", "Only a deleted record can be deleted forever");
+      const erased: string[] = [];
+      this.erase(actor, recordId, ts, erased);
+      return { erased };
+    });
+  }
+
+  /** Records deleted more than TRASH_DAYS ago are erased (from the alarm, a page at a time). */
+  private eraseDue() {
+    const before = new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString();
+    const due = this.sql
+      .exec<{ id: string }>(
+        `select id from records where deleted_at is not null and purged_at is null and deleted_at <= ?
+         order by deleted_at limit 100`,
+        before,
+      )
+      .toArray();
+    if (!due.length) return;
+    this.ctx.storage.transactionSync(() => {
+      const ts = nowIso();
+      const erased: string[] = [];
+      for (const r of due) this.erase({ userId: null, source: "system" }, r.id, ts, erased);
+    });
+  }
+
+  private erase(actor: Actor, recordId: string, ts: string, erased: string[]) {
+    if (erased.includes(recordId)) return;
+    const r = this.sql
+      .exec<{ deleted_at: string | null; purged_at: string | null }>(
+        `select deleted_at, purged_at from records where id = ?`,
+        recordId,
+      )
+      .toArray()[0];
+    if (!r?.deleted_at || r.purged_at) return;
+    const del = this.deleteEntry(recordId);
+    this.sql.exec(
+      `update records set values_json = '{}', title = '', title_key = '', purged_at = ? where id = ?`,
+      ts,
+      recordId,
+    );
+    this.sql.exec(`delete from answers where record_id = ?`, recordId);
+    this.sql.exec(
+      `update comments set body = '', deleted_at = coalesce(deleted_at, ?) where record_id = ?`,
+      ts,
+      recordId,
+    );
+    // A workflow's run history may quote it.
+    this.sql.exec(
+      `update workflow_runs set detail = 'About a record since erased' where record_id = ?`,
+      recordId,
+    );
+    // The history keeps who did what and when, not what the record said.
+    this.sql.exec(
+      `update _audit set before_json = null, after_json = null where entity_id = ? and entity_type = 'record'`,
+      recordId,
+    );
+    erased.push(recordId);
+    audit(this.sql, actor, { action: "erase_record", entityType: "record", entityId: recordId });
+    // What its delete took with it goes too.
+    if (del)
+      for (const child of this.followupsOf(del.id).cascades) {
+        const e = this.sql
+          .exec<{ entity_id: string }>(`select entity_id from _audit where change_id = ?`, child)
+          .toArray()[0];
+        if (e && !this.isUndone(child)) this.erase(actor, e.entity_id, ts, erased);
+      }
   }
 
   // --- Saved views ---------------------------------------------------------------------------
