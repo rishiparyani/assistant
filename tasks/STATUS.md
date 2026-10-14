@@ -6,7 +6,7 @@ _Updated: 2026-10-14_
 
 - **HF37: assistant quality numbers** (decision 2026-10-14 "How we see the assistant is doing").
   - **Budget object** (migration: `turns`, `signals`, 90 days): `logTurn`, `signal`, `quality(days)`.
-  - **Assistant service:** each request logs steps, tool counts, refusals as `tool:code`, outcome, time and `PROMPT_VERSION`; Confirm / Not now on a card and every undo leave a signal; `POST /api/chat/feedback` (`{rating: good|bad}`).
+  - **Assistant service:** each request logs steps, tool counts, refusals as `tool:code`, outcome, time and `PROMPT_VERSION`; Confirm / Not now on a card leaves a signal (one per card; ratings one per request key; made-up tool names count as "unknown"); `POST /api/chat/feedback` (`{rating: good|bad}`).
   - **Admin panel:** new section "Assistant quality (7 days)".
   - **Phone:** 👍 / 👎 under the newest answer in `chat.tsx` (online only; only the rating is sent).
   - **Verified here:** `quality.test.ts` (4, including that no words reach the rows); `admin.test.ts` sections.

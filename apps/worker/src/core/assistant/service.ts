@@ -789,8 +789,10 @@ async function answerMessage(
         continue steps;
       }
       if (result.kind === "hand_back") await chat.setupInProgress(uid, false);
-      bump(stats.tools, call.function.name);
-      if (result.kind === "error") bump(stats.errors, `${call.function.name}:${result.code}`);
+      // A name the model made up could carry any text: it counts as "unknown".
+      const counted = result.kind === "error" && result.code === "no_tool" ? "unknown" : call.function.name;
+      bump(stats.tools, counted);
+      if (result.kind === "error") bump(stats.errors, `${counted}:${result.code}`);
       if (result.kind === "card") {
         outcome = "card";
         const id = await chat.addAction(uid, result.card);
@@ -1022,7 +1024,7 @@ export async function confirmAction(
     const named = (result as { title?: string; name?: string } | null) ?? null;
     live = liveFrom(a.tool, {}, result, [], op);
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
-    await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool));
+    await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool, `card:${a.id}`));
     note = `Done: ${a.title}.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     // A whole setup is the end of setting up: everyday chat (and the everyday model) again.
@@ -1042,7 +1044,12 @@ export async function confirmAction(
 /** 👍 / 👎 on an answer: a count for the admin panel, nothing about the answer itself. */
 export async function rateAnswer(ctx: OpUserCtx, rating: "good" | "bad"): Promise<{ ok: true }> {
   await requireAssistant(ctx);
-  await budgetOf(ctx).signal(ctx.user.id, rating);
+  await budgetOf(ctx).signal(
+    ctx.user.id,
+    rating,
+    null,
+    ctx.idempotencyKey && `rate:${ctx.user.id}:${ctx.idempotencyKey}`,
+  );
   return { ok: true };
 }
 
@@ -1050,7 +1057,7 @@ export async function cancelAction(ctx: OpUserCtx, actionId: string, chatId = MA
   const chat = await useChat(ctx, chatId);
   const a = await chat.takeAction(ctx.user.id, actionId);
   await chat.finishAction(ctx.user.id, a.id, "cancelled", null);
-  await quietly(budgetOf(ctx).signal(ctx.user.id, "card_cancelled", a.tool));
+  await quietly(budgetOf(ctx).signal(ctx.user.id, "card_cancelled", a.tool, `card:${a.id}`));
   if (a.tool === "make_setup") await chat.setupInProgress(ctx.user.id, false);
   await chat.append(ctx.user.id, [{ role: "assistant", content: `Cancelled: ${a.title}.`, shown: "note" }]);
   return chatView(ctx, chatId);

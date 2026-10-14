@@ -115,7 +115,6 @@ async function qualitySection(ctx: AdminCtx): Promise<AdminSection> {
         value: pctOf(sig("card_confirmed"), cards),
         hint: `${sig("card_confirmed")} of ${cards} · most cancelled: ${list(q.top_cancelled)}`,
       },
-      { label: "Undos", value: sig("undone"), hint: "all undos, by any means" },
       {
         label: "👍 / 👎",
         value: `${sig("good")} / ${sig("bad")}`,

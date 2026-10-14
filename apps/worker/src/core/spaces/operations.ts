@@ -393,15 +393,10 @@ export const spaceOperations = [
     input: UndoInput,
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
-      const done = await stub.undo(actor, ctx.idempotencyKey, i.change_id, {
+      return stub.undo(actor, ctx.idempotencyKey, i.change_id, {
         force_through: i.force_through,
         with: i.with,
       });
-      // How often people undo (a count for the admin panel; nothing about what).
-      await ctx.objects.BUDGET.get(ctx.objects.BUDGET.idFromName("budget:global"))
-        .signal(ctx.user.id, "undone")
-        .catch(() => undefined);
-      return done;
     },
   }),
   defineOperation({

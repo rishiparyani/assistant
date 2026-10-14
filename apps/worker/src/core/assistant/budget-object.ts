@@ -72,6 +72,9 @@ const MIGRATIONS: Migrations = [
   );
   create index signals_at_idx on signals (at);
   `,
+  // A retried request leaves one signal (its key), not two.
+  `alter table signals add column key text;
+   create unique index signals_key_idx on signals (key) where key is not null;`,
 ];
 
 /** Months and days in India time (the cap resets on the 1st, IST). */
@@ -112,8 +115,8 @@ export interface TurnLog {
   promptVersion: string;
 }
 
-/** What people did with an answer: confirm or cancel a card, undo, 👍 / 👎. */
-export type SignalKind = "card_confirmed" | "card_cancelled" | "undone" | "good" | "bad";
+/** What people did with an answer: confirm or cancel a card, 👍 / 👎. */
+export type SignalKind = "card_confirmed" | "card_cancelled" | "good" | "bad";
 
 export interface QualityView {
   days: number;
@@ -276,13 +279,20 @@ export class BudgetObject extends DurableObject<Env> {
     this.sql.exec(`delete from turns where at < ?`, new Date(Date.now() - 90 * 86400_000).toISOString());
   }
 
-  async signal(userId: string, kind: SignalKind, tool: string | null = null): Promise<void> {
+  /** key: the request's, so a retry leaves one signal (none: always counted). */
+  async signal(
+    userId: string,
+    kind: SignalKind,
+    tool: string | null = null,
+    key: string | null = null,
+  ): Promise<void> {
     this.sql.exec(
-      `insert into signals (at, user_id, kind, tool) values (?, ?, ?, ?)`,
+      `insert or ignore into signals (at, user_id, kind, tool, key) values (?, ?, ?, ?, ?)`,
       nowIso(),
       userId,
       kind,
       tool,
+      key,
     );
     this.sql.exec(`delete from signals where at < ?`, new Date(Date.now() - 90 * 86400_000).toISOString());
   }

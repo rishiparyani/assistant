@@ -1,10 +1,10 @@
 // How the assistant is doing (decision 2026-10-14 "We don't read people's data"): each
-// request leaves numbers and tool names, cards and undos leave signals, 👍 / 👎 is a count,
+// request leaves numbers and tool names, cards leave signals, 👍 / 👎 is a count,
 // and none of it keeps a word anyone wrote. Fake data only.
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import { runInDurableObject } from "cloudflare:test";
-import type { ChatView, HistoryItem } from "@assistant/shared";
+import type { ChatView } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -56,24 +56,22 @@ describe("assistant quality numbers", () => {
     for (const k of Object.keys(errors)) expect(k).toMatch(/^[a-z_]+:[a-z_]+$/);
   });
 
-  it("counts confirmed cards and undos, and adds them up for the admin panel", async () => {
+  it("counts confirmed cards and ratings once each, and adds them up for the admin panel", async () => {
     const me = await signUp("Test Owner");
     const before = await budget().quality(7);
     await say(me, "Test: note the PA needs two DI boxes");
     const view = await say(me, "Test: spent 450 on groceries");
     const card = view.items.find((i) => i.role === "card")!;
     await call(`/api/chat/actions/${card.card!.action_id}/confirm`, { cookie: me.cookie, body: {} });
-    const history = await json<HistoryItem[]>(await call("/api/history", { cookie: me.cookie }));
-    const added = history.find((h) => h.undoable)!;
-    expect(
-      (await call(`/api/history/${added.id}/undo`, { cookie: me.cookie, body: {} })).status,
-    ).toBeLessThan(300);
-    await call("/api/chat/feedback", { cookie: me.cookie, body: { rating: "bad" } });
+    // A retried rating (same key) counts once.
+    const key = crypto.randomUUID();
+    for (let n = 0; n < 2; n++)
+      await call("/api/chat/feedback", { cookie: me.cookie, body: { rating: "bad" }, idempotencyKey: key });
 
     const q = await budget().quality(7);
     const d = (k: string) => (q.signals[k] ?? 0) - (before.signals[k] ?? 0);
     expect(q.requests - before.requests).toBe(2);
-    expect([d("card_confirmed"), d("undone"), d("bad")]).toEqual([1, 1, 1]);
+    expect([d("card_confirmed"), d("bad")]).toEqual([1, 1]);
     expect(q.median_ms).not.toBeNull();
     expect(q.prompt_versions.length).toBeGreaterThan(0);
     expect(q.models.length).toBeGreaterThan(0);
