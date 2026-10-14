@@ -26,7 +26,8 @@ export function ChatHome({
   onAsk: (() => void) | null;
 }) {
   const { t } = useTheme();
-  const admin = chat.members.some((m) => m.user_id === myId && m.role === "owner");
+  // A chat for two has no admins: either person starts and arranges its home.
+  const admin = chat.direct || chat.members.some((m) => m.user_id === myId && m.role === "owner");
   const [cards, setCards] = useState<HomeCard[] | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);

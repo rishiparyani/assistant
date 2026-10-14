@@ -141,4 +141,20 @@ describe("a chat's home", () => {
       ),
     ).toBe(true);
   });
+
+  it("makes one home when two admins start it at once", async () => {
+    const { owner, asha, g, asId } = await family();
+    await api(owner)(`/groups/${g.id}/members/${asId}/role`, { body: { role: "admin" } });
+    const [a, b] = await Promise.all([
+      api(owner)(`/groups/${g.id}/home`, { method: "POST" }),
+      api(asha)(`/groups/${g.id}/home`, { method: "POST" }),
+    ]);
+    const ids = [(await json<GroupView>(a)).space_id, (await json<GroupView>(b)).space_id];
+    expect(ids[0]).toBeTruthy();
+    expect(ids[1]).toBe(ids[0]);
+    const spaces = (await json<SpaceView[]>(await api(owner)("/spaces"))).filter(
+      (x) => x.name === "Test Family",
+    );
+    expect(spaces).toHaveLength(1);
+  });
 });

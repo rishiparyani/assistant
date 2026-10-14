@@ -724,6 +724,9 @@ export class GroupObject extends DurableObject<Env> {
     if (me.role !== "owner" && !g.direct)
       throw new ObjectError("forbidden", "Only the chat's admins can start its home");
     return this.write(actor, null, ["home", spaceId], (ts) => {
+      // Another admin's claim may have landed while this one waited: theirs stands.
+      const now = this.group();
+      if (now.space_id) return { space_id: now.space_id, name: now.name, created: false };
       this.sql.exec(`update grp set space_id = ?, updated_at = ?`, spaceId, ts);
       this.note("note", null, "Group", `${me.name} started a home for this chat`, ts);
       this.membersChanged();

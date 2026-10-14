@@ -125,12 +125,19 @@ const HAND_BACK: ToolSpec = {
   },
 };
 
-function toolSpec(op: AnyOperation): ToolSpec {
+function toolSpec(op: AnyOperation, chatHome: ChatHomeRef | null = null): ToolSpec {
   const schema = z.toJSONSchema(op.input, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
   delete schema.$schema;
-  // The space defaults to Personal; leaving it out keeps the tools small.
+  // The space defaults to Personal; leaving it out keeps the tools small. Asked about a chat
+  // with a home, the tools that take a space say how to reach the chat's lists.
   const props = { ...((schema.properties as Record<string, unknown>) ?? {}) };
-  delete props.space;
+  if (chatHome && props.space)
+    props.space = {
+      type: "string",
+      enum: [chatHome.id],
+      description: `"${chatHome.id}" for the lists of the chat "${chatHome.name}"; leave out for the person's own lists`,
+    };
+  else delete props.space;
   return {
     type: "function",
     function: {
@@ -145,13 +152,14 @@ function toolsFor(
   level: Level,
   ops: readonly AnyOperation[],
   connected: ReadonlySet<string> = new Set(),
+  chatHome: ChatHomeRef | null = null,
 ): { specs: ToolSpec[]; allowed: Set<string> } {
   const names = level === 1 ? EVERYDAY : [...EVERYDAY, ...SETUP];
   // Apps' actions, offered by the apps themselves (core never names them); a connector's
   // only when the person has connected it.
   const fromApps = ops.filter((o) => offered(o, level, connected)).map((o) => o.tool);
   const allowed = new Set([...names, ...fromApps]);
-  const specs = ops.filter((o) => allowed.has(o.tool) && !o.sessionOnly).map(toolSpec);
+  const specs = ops.filter((o) => allowed.has(o.tool) && !o.sessionOnly).map((o) => toolSpec(o, chatHome));
   specs.push(level === 1 ? HAND_OVER : HAND_BACK);
   return { specs, allowed };
 }
@@ -207,7 +215,8 @@ const offered = (o: AnyOperation, level: Level, connected: ReadonlySet<string>) 
   !!o.assistant && o.assistant.level <= level && (!o.assistant.needs || connected.has(o.assistant.needs));
 
 /** A people chat's home, when the assistant is asked about that chat. */
-type ChatHome = { id: string; name: string; cols: CollectionView[] };
+type ChatHomeRef = { id: string; name: string };
+type ChatHome = ChatHomeRef & { cols: CollectionView[] };
 
 function systemPrompt(
   ctx: OpUserCtx,
@@ -698,7 +707,7 @@ async function answerMessage(
   const lives = new Map<string, LiveRef>();
 
   steps: for (let step = 0; step < MAX_STEPS; step++) {
-    const { specs, allowed } = toolsFor(level, ops, connected);
+    const { specs, allowed } = toolsFor(level, ops, connected, chatHome);
     const messages: ChatMessage[] = [
       { role: "system", content: systemPrompt(ctx, level, cols, memories, ops, connected, chatHome) },
       ...history,

@@ -1012,35 +1012,38 @@ export class SpaceObject extends DurableObject<Env> {
       .exec<{ id: string; group_id: string | null }>(`select id, group_id from space`)
       .toArray()[0];
     if (!space || space.group_id !== groupId) throw new ObjectError("not_found", "Space not found");
-    if (seq <= Number(getMeta(this.sql, "chat_members_seq") ?? "0")) return;
+    // Two checkpoints: the space's own members, and the space list in D1 (that one can fail
+    // after this one is done; the chat sends the same list again until both have it).
+    if (seq <= Number(getMeta(this.sql, "chat_members_d1") ?? "0")) return;
     const ts = nowIso();
-    this.ctx.storage.transactionSync(() => {
-      const keep = new Set(people.map((p) => p.user_id));
-      for (const m of this.sql.exec<{ user_id: string }>(`select user_id from members`).toArray())
-        if (!keep.has(m.user_id)) this.sql.exec(`delete from members where user_id = ?`, m.user_id);
-      for (const p of people)
-        this.sql.exec(
-          `insert into members (user_id, name, role, added_at) values (?, ?, ?, ?)
+    if (seq > Number(getMeta(this.sql, "chat_members_seq") ?? "0"))
+      this.ctx.storage.transactionSync(() => {
+        const keep = new Set(people.map((p) => p.user_id));
+        for (const m of this.sql.exec<{ user_id: string }>(`select user_id from members`).toArray())
+          if (!keep.has(m.user_id)) this.sql.exec(`delete from members where user_id = ?`, m.user_id);
+        for (const p of people)
+          this.sql.exec(
+            `insert into members (user_id, name, role, added_at) values (?, ?, ?, ?)
            on conflict (user_id) do update set name = excluded.name, role = excluded.role`,
-          p.user_id,
-          p.name,
-          p.role === "owner" ? "owner" : "editor",
-          ts,
+            p.user_id,
+            p.name,
+            p.role === "owner" ? "owner" : "editor",
+            ts,
+          );
+        setMeta(this.sql, "chat_members_seq", String(seq));
+        audit(
+          this.sql,
+          { userId: null, source: "system" },
+          {
+            action: "sync_chat_members",
+            entityType: "space",
+            entityId: space.id,
+            after: { seq, members: people.map((p) => [p.user_id, p.role]) },
+          },
         );
-      setMeta(this.sql, "chat_members_seq", String(seq));
-      audit(
-        this.sql,
-        { userId: null, source: "system" },
-        {
-          action: "sync_chat_members",
-          entityType: "space",
-          entityId: space.id,
-          after: { seq, members: people.map((p) => [p.user_id, p.role]) },
-        },
-      );
-      this.logChange("space", space.id, "upsert", ts);
-      this.changed();
-    });
+        this.logChange("space", space.id, "upsert", ts);
+        this.changed();
+      });
     // The space list people's apps read (a replace, so a repeat is harmless).
     await this.env.DB.batch([
       this.env.DB.prepare(`delete from space_members where space_id = ?`).bind(space.id),
@@ -1052,6 +1055,7 @@ export class SpaceObject extends DurableObject<Env> {
         ),
       ),
     ]);
+    setMeta(this.sql, "chat_members_d1", String(seq));
   }
 
   private role(actor: Actor): Role {
