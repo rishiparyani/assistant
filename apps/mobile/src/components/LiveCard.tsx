@@ -12,7 +12,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
-import { Text, faceOf } from "@assistant/cards/native";
+import { Text, faceOf, shown } from "@assistant/cards/native";
 import type { CollectionView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
 import { pinAnswer, setValue, stillShown, tick, type HomeCard } from "../home.ts";
@@ -95,7 +95,14 @@ function RecordCard({
   const title = collection.fields.find((f) => f.id === collection.title_field_id)?.name;
   const rows = collection.fields
     .filter((f) => f.name !== title)
-    .map((f) => [f.name, record.named[f.name]] as const)
+    // As people read them: "Mon 12 Oct · 6:00 pm", "₹450", not the stored value.
+    .map(
+      (f) =>
+        [
+          f.name,
+          f.type === "boolean" ? (record.values[f.id] ? "Yes" : "No") : shown(f, record, null),
+        ] as const,
+    )
     .filter(([, v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && !v.length))
     .slice(0, 4);
   return (

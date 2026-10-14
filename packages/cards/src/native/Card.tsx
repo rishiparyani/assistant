@@ -10,7 +10,7 @@ import type { HomeCard } from "./model.ts";
 import { Tick } from "./tick.tsx";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
-import { RichRows, richRows, tint } from "./rows.tsx";
+import { RichRows, richRows, shown, tint } from "./rows.tsx";
 import { AnswerBars, AnswerTable, answerTag } from "./answer.tsx";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
@@ -589,14 +589,14 @@ function secondLine(card: HomeCard, r: RecordView): string {
   // The first readable value that isn't the title: "₹450", "Sat 14 Dec".
   if (!card.collection) return "";
   // A card ordered by date shows the date.
+  // Values as people read them (dates in words, money in rupees), not as stored.
   const dated = card.collection.fields.find((f) => f.id === card.spec.sources[0]?.date_field);
-  const when = dated ? r.named[dated.name] : null;
-  if (typeof when === "string" && when) return when;
-  const title = card.collection.fields.find((f) => f.id === card.collection!.title_field_id)?.name;
+  const when = dated ? shown(dated, r, null) : "";
+  if (when) return when;
   for (const f of card.collection.fields) {
-    if (f.name === title) continue;
-    const v = r.named[f.name];
-    if (typeof v === "string" && v) return v;
+    if (f.id === card.collection.title_field_id || f.type === "boolean") continue;
+    const v = shown(f, r, null);
+    if (v) return v;
   }
   return "";
 }

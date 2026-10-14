@@ -44,7 +44,7 @@ export default function Chat() {
   const list = useRef<FlatList<ChatItem>>(null);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
-  const { ref: root, room } = useKeyboardRoom();
+  const room = useKeyboardRoom();
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
   // The person's collections, once for every live card in the chat.
@@ -128,13 +128,20 @@ export default function Chat() {
   };
 
   return (
-    <View ref={root} style={[s.root, { backgroundColor: t.page }]}>
+    <View style={[s.root, { backgroundColor: t.page }]}>
       <View style={[s.root, { paddingBottom: room }]}>
         <View style={s.head}>
-          <Text style={[s.title, { color: t.fg }]}>{card ? card : "Gigspree"}</Text>
-          {card ? (
-            <Text style={[s.ctx, { color: t.fg2, backgroundColor: t.fill }]}>about this card</Text>
-          ) : null}
+          {/* Between Changes and Done: a long card name is cut short, "about this card" under it. */}
+          <View style={s.titleBox}>
+            <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+              {card ? card : "Gigspree"}
+            </Text>
+            {card ? (
+              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
+                about this card
+              </Text>
+            ) : null}
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="What changed"
@@ -199,7 +206,7 @@ export default function Chat() {
             </Pressable>
           )}
         />
-        <View style={[s.compose, { paddingBottom: insets.bottom + 8 }]}>
+        <View style={[s.compose, { paddingBottom: room ? 8 : insets.bottom + 8 }]}>
           <TextInput
             autoFocus={!!ask}
             accessibilityLabel="Message Gigspree"
@@ -352,16 +359,11 @@ function Bubble({
 
 const s = StyleSheet.create({
   root: { flex: 1 },
-  head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
+  head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
+  // Clear of Changes (left) and Done (right).
+  titleBox: { flex: 1, alignItems: "center", paddingHorizontal: 100 },
   title: { fontSize: 16, fontWeight: "700" },
-  ctx: {
-    fontSize: 12,
-    fontWeight: "600",
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 10,
-    overflow: "hidden",
-  },
+  ctx: { fontSize: 12, fontWeight: "600", marginTop: 1 },
   done: { position: "absolute", right: 16, height: 56, justifyContent: "center" },
   changes: { position: "absolute", left: 16, height: 56, justifyContent: "center" },
   bub: { maxWidth: "82%", paddingVertical: 9, paddingHorizontal: 13, borderRadius: 19 },
