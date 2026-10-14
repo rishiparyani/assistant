@@ -160,21 +160,28 @@ export function Card({
         break;
       case "memory": {
         const kept = card.memory ?? [];
-        const shown = kept.slice(0, size === "s" ? 2 : 3);
+        // A small card has room under its title for one thing kept and one short line; more
+        // would run up over the title.
+        const small = size === "s";
+        const shown = kept.slice(0, small ? 1 : 3);
         body = (
           <View style={s.grow}>
             {shown.map((m) => (
               <View key={m.id} style={[s.row, { borderBottomColor: t.sep }]}>
                 <View style={[s.dot, { backgroundColor: c, opacity: 0.6 }]} />
-                <Text style={[s.rowText, { color: t.fg }]} numberOfLines={2}>
+                <Text style={[s.rowText, { color: t.fg }]} numberOfLines={small ? 1 : 2}>
                   {m.text}
                 </Text>
               </View>
             ))}
-            <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
+            <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={small ? 1 : 2}>
               {kept.length
-                ? `${kept.length} thing${kept.length === 1 ? "" : "s"} kept · tap to see them all, or forget one`
-                : "Nothing kept yet. Say “remember …” in the chat and it's used in every chat."}
+                ? small
+                  ? `${kept.length} kept · tap to see all`
+                  : `${kept.length} thing${kept.length === 1 ? "" : "s"} kept · tap to see them all, or forget one`
+                : small
+                  ? "Nothing kept yet"
+                  : "Nothing kept yet. Say “remember …” in the chat and it's used in every chat."}
             </Text>
           </View>
         );

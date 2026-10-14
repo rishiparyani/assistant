@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { request } from "../api.ts";
 import type { HomeCard } from "../home.ts";
 import { radius, useTheme } from "../theme.ts";
+import { useKeyboardRoom } from "../keyboard.ts";
 
 export type SearchResult = RecordHit | MessageHit;
 
@@ -52,6 +53,7 @@ export function SearchSheet({
 }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
+  const { ref: screen, room } = useKeyboardRoom();
   const [text, setText] = useState("");
   // The server's index, a moment after typing stops; silent when offline.
   const [remote, setRemote] = useState<SearchResult[]>([]);
@@ -91,101 +93,112 @@ export function SearchSheet({
   }, [cards, text]);
   return (
     <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={s.backdrop} />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 }]}>
-        <TextInput
-          autoFocus
-          accessibilityLabel="Search your cards"
-          placeholder="Search your cards"
-          placeholderTextColor={t.fg2}
-          value={text}
-          onChangeText={setText}
-          style={[s.input, { backgroundColor: t.cell, color: t.fg, borderColor: t.sep }]}
+      {/* The sheet sits on the keyboard: the box stays in sight while typing. */}
+      <View ref={screen} style={[s.screen, { paddingBottom: room }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+          onPress={onClose}
+          style={s.backdrop}
         />
-        <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
-          {onOpenList && text.trim().length >= 2
-            ? lists
-                .filter((l) => l.name.toLowerCase().includes(text.trim().toLowerCase()))
-                .slice(0, 3)
-                .map((l) => (
-                  <Pressable
-                    key={`list:${l.id}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open the list ${l.name}`}
-                    onPress={() => onOpenList(l.id)}
-                    style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
-                  >
-                    <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                      {l.name} <Text style={{ color: t.fg2, fontWeight: "600" }}>· list ›</Text>
-                    </Text>
-                  </Pressable>
-                ))
-            : null}
-          {hits.map(({ card, rows }) => (
-            <Pressable
-              key={card.id}
-              accessibilityRole="button"
-              onPress={() => onOpen(card)}
-              style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
-            >
-              <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                {card.spec.title}
-              </Text>
-              {rows.slice(0, 3).map((r) => (
-                <Text key={r} style={[s.row, { color: t.fg2 }]} numberOfLines={1}>
-                  {r}
-                </Text>
-              ))}
-            </Pressable>
-          ))}
-          {remote.length ? <Text style={[s.kicker, { color: t.fg2 }]}>Everything you can see</Text> : null}
-          {remote.map((h) =>
-            h.kind === "message" ? (
-              // A piece of a chat: who said what, opening the chat.
+        <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: room ? 12 : insets.bottom + 12 }]}>
+          <TextInput
+            autoFocus
+            accessibilityLabel="Search your cards"
+            placeholder="Search your cards"
+            placeholderTextColor={t.fg2}
+            value={text}
+            onChangeText={setText}
+            style={[s.input, { backgroundColor: t.cell, color: t.fg, borderColor: t.sep }]}
+          />
+          <ScrollView style={s.results} keyboardShouldPersistTaps="handled">
+            {onOpenList && text.trim().length >= 2
+              ? lists
+                  .filter((l) => l.name.toLowerCase().includes(text.trim().toLowerCase()))
+                  .slice(0, 3)
+                  .map((l) => (
+                    <Pressable
+                      key={`list:${l.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Open the list ${l.name}`}
+                      onPress={() => onOpenList(l.id)}
+                      style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+                    >
+                      <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                        {l.name} <Text style={{ color: t.fg2, fontWeight: "600" }}>· list ›</Text>
+                      </Text>
+                    </Pressable>
+                  ))
+              : null}
+            {hits.map(({ card, rows }) => (
               <Pressable
-                key={`${h.group_id}:${h.message_id}`}
+                key={card.id}
                 accessibilityRole="button"
-                onPress={() => onOpenResult?.(h, text.trim())}
+                onPress={() => onOpen(card)}
                 style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
               >
                 <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                  {h.chat} · chat
+                  {card.spec.title}
                 </Text>
-                <Text style={[s.row, { color: t.fg2 }]} numberOfLines={3}>
-                  {h.snippet.replace(/[[\]]/g, "")}
-                </Text>
+                {rows.slice(0, 3).map((r) => (
+                  <Text key={r} style={[s.row, { color: t.fg2 }]} numberOfLines={1}>
+                    {r}
+                  </Text>
+                ))}
               </Pressable>
-            ) : (
-              <Pressable
-                key={`${h.space_id}:${h.record_id}`}
-                accessibilityRole="button"
-                onPress={() => onOpenResult?.(h, text.trim())}
-                style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
-              >
-                <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                  {h.title}
-                </Text>
-                <Text style={[s.row, { color: t.fg2 }]} numberOfLines={2}>
-                  {h.collection}
-                  {h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : ""}
-                </Text>
-              </Pressable>
-            ),
-          )}
-          {!hits.length && !remote.length ? (
-            <Text style={[s.row, { color: t.fg2, padding: 12 }]}>Nothing matches.</Text>
-          ) : null}
-        </ScrollView>
+            ))}
+            {remote.length ? <Text style={[s.kicker, { color: t.fg2 }]}>Everything you can see</Text> : null}
+            {remote.map((h) =>
+              h.kind === "message" ? (
+                // A piece of a chat: who said what, opening the chat.
+                <Pressable
+                  key={`${h.group_id}:${h.message_id}`}
+                  accessibilityRole="button"
+                  onPress={() => onOpenResult?.(h, text.trim())}
+                  style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+                >
+                  <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                    {h.chat} · chat
+                  </Text>
+                  <Text style={[s.row, { color: t.fg2 }]} numberOfLines={3}>
+                    {h.snippet.replace(/[[\]]/g, "")}
+                  </Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  key={`${h.space_id}:${h.record_id}`}
+                  accessibilityRole="button"
+                  onPress={() => onOpenResult?.(h, text.trim())}
+                  style={[s.hit, { backgroundColor: t.cell, borderColor: t.hair }]}
+                >
+                  <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                    {h.title}
+                  </Text>
+                  <Text style={[s.row, { color: t.fg2 }]} numberOfLines={2}>
+                    {h.collection}
+                    {h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : ""}
+                  </Text>
+                </Pressable>
+              ),
+            )}
+            {!hits.length && !remote.length ? (
+              <Text style={[s.row, { color: t.fg2, padding: 12 }]}>Nothing matches.</Text>
+            ) : null}
+          </ScrollView>
+        </View>
       </View>
     </Modal>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
+  screen: { flex: 1 },
+  backdrop: { flex: 1, minHeight: 60, backgroundColor: "rgba(0,0,0,0.35)" },
+  results: { maxHeight: 420, flexShrink: 1 },
   sheet: {
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
+    flexShrink: 1,
     padding: 16,
     gap: 10,
   },

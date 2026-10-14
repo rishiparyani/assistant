@@ -11,6 +11,7 @@ _Updated: 2026-10-14_
   - **Phone:** hold a row in a list → menu → `ChatAboutSheet` (people, fields); chat opens on Home (`talk?tab=home`); `ChatHome` shows pinned records first (`loadChatCards` in `home.ts`) with Take off.
   - **Verified here:** `chat-about.test.ts` (5: suggestions and money hidden, the share follows joins and leaves, retry-safe and admin-only, take off turns it off, needs people and rights); web build at 390/820/1280 light and dark, as owner and member.
   - **Next:** questions in a chat that act on its pinned record; then the phone push code (off until the Apple key).
+  - **Owner's phone fixes (same PR):** the memory card at size S showed more than fits and ran over its title (now one thing kept and a short line); the search sheet and the chat sheet opened from Help were under the keyboard (new `src/keyboard.ts` `useKeyboardRoom`: room measured when the keyboard comes up, not at first layout).
 
 - **HF37: assistant quality numbers** (decision 2026-10-14 "How we see the assistant is doing").
   - **Budget object** (migration: `turns`, `signals`, 90 days): `logTurn`, `signal`, `quality(days)`.
