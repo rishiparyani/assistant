@@ -28,7 +28,7 @@ Decision 2026-10-14 "We don't read people's data". Data is encrypted at rest by 
 - AI Gateway request logging is off for every call (`collectLog: false` in `assistant/client.ts` and `search/embed.ts`); the app's own call log keeps counts, tokens, cost and timing.
 - Debugging uses test accounts and made-up data (the scorecard); a real problem is rewritten with fake data before it becomes a case.
 - Backups contain everything: keep `BACKUP_KEY` set so the files in Drive are sealed.
-- Erasing: Recently deleted erases after 30 days (or at once); Cloudflare's point-in-time recovery keeps recoverable copies for up to 30 days, and the newest 60 nightly backups are kept. The privacy page says so.
+- Erasing: Recently deleted erases records after 30 days (or at once); other removed things (collections, fields, views, rules, workflows, comments, memories) stay soft-deleted until erased on request; Cloudflare's point-in-time recovery keeps recoverable copies for up to 30 days, and the newest 60 nightly backups are kept. The privacy page says so.
 
 ## Public repository
 
