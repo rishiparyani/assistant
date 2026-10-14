@@ -110,6 +110,9 @@ const MIGRATIONS: Migrations = [
      at text not null,
      primary key (message_id, user_id)
    );`,
+  // A home for the chat (decision 2026-10-14 "A home for each chat"): its own shared space,
+  // whose members follow the chat's (admins own it, everyone else edits).
+  `alter table grp add column space_id text;`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -129,7 +132,14 @@ type MemberRow = {
   left_at: string | null;
   read_at: string | null;
 };
-type GroupRow = { id: string; name: string; owner_user_id: string; updated_at: string; direct: number };
+type GroupRow = {
+  id: string;
+  name: string;
+  owner_user_id: string;
+  updated_at: string;
+  direct: number;
+  space_id: string | null;
+};
 
 export class GroupObject extends DurableObject<Env> {
   private sql: SqlStorage;
@@ -294,6 +304,7 @@ export class GroupObject extends DurableObject<Env> {
     name: string;
     direct: boolean;
     owner_id: string;
+    space_id: string | null;
     members: GroupMember[];
     messages: GroupMessage[];
     saved: Record<string, string>;
@@ -343,6 +354,7 @@ export class GroupObject extends DurableObject<Env> {
       name: this.nameFor(g, userId),
       direct: !!g.direct,
       owner_id: g.owner_user_id,
+      space_id: g.space_id,
       members: this.members(),
       messages,
       saved: Object.fromEntries(
@@ -606,7 +618,7 @@ export class GroupObject extends DurableObject<Env> {
     const me = this.member(actor.userId);
     if (this.group().direct)
       throw new ObjectError("conflict", "This is a chat for two; make a group to talk with more people");
-    if (me.role !== "owner") throw new ObjectError("forbidden", "Only the group's owner can add people");
+    if (me.role !== "owner") throw new ObjectError("forbidden", "Only the chat's admins can add people");
     return this.write(actor, key, ["add", people.map((p) => p.user_id)], (ts) => {
       const count = this.members().length;
       const fresh = people.filter(
@@ -633,6 +645,7 @@ export class GroupObject extends DurableObject<Env> {
         this.sql.exec(`insert or ignore into index_fill (user_id) values (?)`, p.user_id);
         this.sql.exec(`delete from index_gone where user_id = ?`, p.user_id);
       }
+      if (fresh.length) this.membersChanged();
       audit(this.sql, actor, {
         action: "add_group_people",
         entityType: "group",
@@ -643,13 +656,118 @@ export class GroupObject extends DurableObject<Env> {
     });
   }
 
-  /** Leaving (the owner can't leave their own group; they'd delete it later). */
+  private admins(): number {
+    return this.sql
+      .exec<{ n: number }>(`select count(*) as n from members where role = 'owner' and left_at is null`)
+      .one().n;
+  }
+
+  /** The chat's home has to hear who's in the chat now (the alarm tells it). */
+  private membersChanged() {
+    setMeta(this.sql, "members_seq", String(Number(getMeta(this.sql, "members_seq") ?? "0") + 1));
+  }
+
+  /**
+   * An admin makes someone an admin, or a member again (decision 2026-10-14 "A home for each
+   * chat"). A chat always keeps one admin.
+   */
+  async setRole(
+    actor: Actor & { userId: string },
+    key: string | null,
+    userId: string,
+    role: "owner" | "member",
+  ): Promise<GroupMember[]> {
+    const me = this.member(actor.userId);
+    if (this.group().direct) throw new ObjectError("conflict", "A chat for two has no admins");
+    if (me.role !== "owner") throw new ObjectError("forbidden", "Only the chat's admins can do that");
+    const them = this.member(userId);
+    return this.write(actor, key, ["role", userId, role], (ts) => {
+      if (them.role === role) return this.members();
+      if (role === "member" && this.admins() <= 1)
+        throw new ObjectError("conflict", "A chat needs at least one admin");
+      this.sql.exec(`update members set role = ? where user_id = ?`, role, userId);
+      this.note(
+        "note",
+        null,
+        "Group",
+        role === "owner"
+          ? `${me.name} made ${them.name} an admin`
+          : userId === actor.userId
+            ? `${me.name} is no longer an admin`
+            : `${me.name} made ${them.name} a member`,
+        ts,
+      );
+      this.membersChanged();
+      audit(this.sql, actor, {
+        action: "set_group_role",
+        entityType: "member",
+        entityId: userId,
+        before: { role: them.role },
+        after: { role },
+      });
+      return this.members();
+    });
+  }
+
+  /**
+   * The chat's home: an admin claims a space id for it (the first claim wins, so two admins at
+   * once get the same home). Returns the space id and whether this claim made it.
+   */
+  async claimSpace(
+    actor: Actor & { userId: string },
+    spaceId: string,
+  ): Promise<{ space_id: string; name: string; created: boolean }> {
+    const me = this.member(actor.userId);
+    const g = this.group();
+    if (g.space_id) return { space_id: g.space_id, name: g.name, created: false };
+    // A chat for two has no admins: either person can start (and arrange) its home.
+    if (me.role !== "owner" && !g.direct)
+      throw new ObjectError("forbidden", "Only the chat's admins can start its home");
+    return this.write(actor, null, ["home", spaceId], (ts) => {
+      this.sql.exec(`update grp set space_id = ?, updated_at = ?`, spaceId, ts);
+      this.note("note", null, "Group", `${me.name} started a home for this chat`, ts);
+      this.membersChanged();
+      audit(this.sql, actor, {
+        action: "start_chat_home",
+        entityType: "group",
+        entityId: g.id,
+        after: { space_id: spaceId },
+      });
+      return { space_id: spaceId, name: g.direct ? "Chat" : g.name, created: true };
+    });
+  }
+
+  /**
+   * Tells the chat's home who's in the chat (the whole list, numbered, so a repeat or a late
+   * one changes nothing). Returns a delay to try again after, or null when done.
+   */
+  private async syncHome(): Promise<number | null> {
+    const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
+    const seq = Number(getMeta(this.sql, "members_seq") ?? "0");
+    if (!g?.space_id || seq <= Number(getMeta(this.sql, "members_sent") ?? "0")) return null;
+    try {
+      const people = this.members().map((m) => (g.direct ? { ...m, role: "owner" as const } : m));
+      await this.env.SPACES.getByName(`space:${g.space_id}`).syncChatMembers(g.id, seq, people);
+      setMeta(this.sql, "members_sent", String(seq));
+      setMeta(this.sql, "members_tries", "0");
+      return null;
+    } catch (e) {
+      const tries = Number(getMeta(this.sql, "members_tries") ?? "0") + 1;
+      setMeta(this.sql, "members_tries", String(tries));
+      console.warn("chat home member sync failed", e instanceof Error ? e.message : String(e));
+      return retryDelayMs(tries);
+    }
+  }
+
+  /** Leaving (a chat always keeps one admin; a chat for two can't be left). */
   async leave(actor: Actor & { userId: string }, key: string | null): Promise<{ left: string }> {
     const me = this.member(actor.userId);
     if (this.group().direct) throw new ObjectError("conflict", "A chat for two can't be left");
-    if (me.role === "owner") throw new ObjectError("conflict", "You made this group, so you can't leave it");
+    if (me.role === "owner" && this.admins() <= 1)
+      throw new ObjectError("conflict", "Make someone else an admin first, then you can leave");
     return this.write(actor, key, ["leave"], (ts) => {
-      this.sql.exec(`update members set left_at = ? where user_id = ?`, ts, actor.userId);
+      this.sql.exec(`update members set left_at = ?, role = 'member' where user_id = ?`, ts, actor.userId);
+      this.membersChanged();
       this.sql.exec(`insert or ignore into live_extra (user_id) values (?)`, actor.userId);
       this.note("note", null, "Group", `${me.name} left`, ts);
       // Their search index forgets this chat (by the alarm, like every other change elsewhere).
@@ -797,8 +915,10 @@ export class GroupObject extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
-    // Search first (its own retry), then the live pings.
-    const retry = await this.syncSearch();
+    // The chat's home and search first (each with its own retry), then the live pings.
+    const home = await this.syncHome();
+    const search = await this.syncSearch();
+    const retry = home === null ? search : search === null ? home : Math.min(home, search);
     if (retry !== null) await this.ctx.storage.setAlarm(Date.now() + retry);
     const note = outboxNote(this.sql);
     if (!note) return;

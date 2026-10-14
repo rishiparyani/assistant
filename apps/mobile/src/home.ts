@@ -187,7 +187,7 @@ function totalOf(spec: CardSpec, records: RecordView[]): number | null {
 async function upcomingOf(
   c: CollectionView,
   spec: CardSpec,
-  query: { filters: unknown[]; search?: string },
+  query: { filters: unknown[]; search?: string; space?: string },
 ): Promise<RecordView[] | undefined> {
   const src = spec.sources[0];
   const date =
@@ -195,6 +195,7 @@ async function upcomingOf(
   if (!date) return undefined;
   const done = src?.answer_field;
   return request<FindResult>("POST", `/api/collections/${enc(c.id)}/find`, {
+    ...(query.space ? { space: query.space } : {}),
     filters: [
       ...query.filters,
       { field: date, op: "period", value: "future" },
@@ -206,6 +207,70 @@ async function upcomingOf(
   })
     .then((r) => r.items)
     .catch(() => undefined);
+}
+
+/**
+ * A space's pinned views as cards. Without `space`, the person's own; with it, another space
+ * they're in (a chat's home), whose requests say which space.
+ */
+async function cardsFor(
+  views: SavedView[],
+  collections: CollectionView[],
+  space?: string,
+): Promise<HomeCard[]> {
+  // Changes to views still waiting in the outbox (made offline) win over what the server
+  // says until they are sent; otherwise a load would undo them on the screen.
+  const known = withWaitingViewChanges(views);
+  const pinned = known.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
+  const cards: HomeCard[] = [];
+  for (const v of pinned) {
+    const c = collections.find((x) => x.id === v.collection_id);
+    if (!c) continue;
+    const spec = specFor(v, c);
+    // An answer card: the space works the question out (never the device).
+    if (v.card?.question) {
+      const answer = await request<QueryResult>("POST", "/api/query", {
+        ...(space ? { space } : {}),
+        from: c.id,
+        where: v.filters,
+        ...v.card.question,
+        title: v.name,
+      }).catch(() => undefined);
+      cards.push({ ...answerCard(c, answer, v), spec, ...(space ? { space } : {}) });
+      continue;
+    }
+    const src = spec.sources[0]!;
+    const query = {
+      ...(space ? { space } : {}),
+      filters: src.filters ?? [],
+      sort: src.sort ?? undefined,
+      search: v.search ?? undefined,
+    };
+    // A number card adds up every matching record; a list shows the first rows.
+    const records = await findAll(c.id, query, spec.arrangement === "number" ? null : LIST_ROWS);
+    cards.push({
+      ...(space ? { space } : {}),
+      id: v.id,
+      view: v,
+      spec,
+      collection: c,
+      colour: colourFor(c.name),
+      records: spec.arrangement === "number" ? records.slice(0, LIST_ROWS) : records,
+      total: totalOf(spec, records),
+      upcoming: await upcomingOf(c, spec, query),
+    });
+  }
+  return cards;
+}
+
+/** A chat's home (decision 2026-10-14 "A home for each chat"): its pinned cards, read online. */
+export async function loadSpaceCards(space: string): Promise<HomeCard[]> {
+  const q = `?space=${enc(space)}`;
+  const [views, collections] = await Promise.all([
+    request<SavedView[]>("GET", `/api/views${q}`),
+    request<CollectionView[]>("GET", `/api/collections${q}`),
+  ]);
+  return cardsFor(views, collections, space);
 }
 
 /** Loads the home from the server; falls back to the copy on the device. */
@@ -221,45 +286,7 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       // What the assistant remembers (null: no assistant for this person, or offline).
       request<Memory[]>("GET", "/api/memories").catch(() => null),
     ]);
-    // Changes to views still waiting in the outbox (made offline) win over what the server
-    // says until they are sent; otherwise a load would undo them on the screen.
-    const known = withWaitingViewChanges(views);
-    const pinned = known.filter((v) => v.pinned).sort((a, b) => a.position - b.position);
-    const cards: HomeCard[] = [];
-    for (const v of pinned) {
-      const c = collections.find((x) => x.id === v.collection_id);
-      if (!c) continue;
-      const spec = specFor(v, c);
-      // An answer card: the space works the question out (never the device).
-      if (v.card?.question) {
-        const answer = await request<QueryResult>("POST", "/api/query", {
-          from: c.id,
-          where: v.filters,
-          ...v.card.question,
-          title: v.name,
-        }).catch(() => undefined);
-        cards.push({ ...answerCard(c, answer, v), spec });
-        continue;
-      }
-      const src = spec.sources[0]!;
-      const query = {
-        filters: src.filters ?? [],
-        sort: src.sort ?? undefined,
-        search: v.search ?? undefined,
-      };
-      // A number card adds up every matching record; a list shows the first rows.
-      const records = await findAll(c.id, query, spec.arrangement === "number" ? null : LIST_ROWS);
-      cards.push({
-        id: v.id,
-        view: v,
-        spec,
-        collection: c,
-        colour: colourFor(c.name),
-        records: spec.arrangement === "number" ? records.slice(0, LIST_ROWS) : records,
-        total: totalOf(spec, records),
-        upcoming: await upcomingOf(c, spec, query),
-      });
-    }
+    const cards = await cardsFor(views, collections);
     // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in
     // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My day")
     // is the person's: every pinned card, in the order they keep.
@@ -570,7 +597,7 @@ export function setValue(card: HomeCard, record: RecordView, field: string, valu
           kind: "spaces.update_record",
           method: "PATCH",
           path: `/api/records/${enc(record.id)}`,
-          body: { values },
+          body: { values, ...(card.space ? { space: card.space } : {}) },
           label: `${record.title} · ${card.collection.name}`,
         },
   );

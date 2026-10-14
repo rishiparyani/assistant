@@ -12,6 +12,7 @@ import {
   type ChatView,
   type SaveProposal,
 } from "@assistant/shared";
+import { ulid } from "@assistant/shared";
 import { AppError } from "../errors.ts";
 import type { AnyOperation, OpUserCtx } from "../operations.ts";
 import { knownPeople, resolvePeople } from "../spaces/shares.ts";
@@ -151,6 +152,48 @@ export async function addGroupPeople(ctx: OpUserCtx, id: string, refs: string[])
   return groupView(ctx, id);
 }
 
+/** An admin makes someone an admin, or a member again. */
+export async function setGroupRole(
+  ctx: OpUserCtx,
+  id: string,
+  userId: string,
+  role: "admin" | "member",
+): Promise<GroupView> {
+  await groupOf(ctx, id).setRole(
+    actorOf(ctx),
+    ctx.idempotencyKey,
+    userId,
+    role === "admin" ? "owner" : "member",
+  );
+  return groupView(ctx, id);
+}
+
+/**
+ * Starts the chat's home (decision 2026-10-14 "A home for each chat"): a shared space that
+ * belongs to the chat. The chat claims the id first, so two admins at once make one home; the
+ * space and its row in the space list are made (or found) after; the chat then tells it who's in.
+ */
+export async function startChatHome(ctx: OpUserCtx, id: string): Promise<GroupView> {
+  const claim = await groupOf(ctx, id).claimSpace(actorOf(ctx), ulid());
+  await ctx.d1
+    .prepare(`insert or ignore into spaces (id, name, kind, owner_user_id) values (?, ?, 'shared', ?)`)
+    .bind(claim.space_id, claim.name, ctx.user.id)
+    .run();
+  await ctx.d1
+    .prepare(`insert or ignore into space_members (space_id, user_id, role) values (?, ?, 'owner')`)
+    .bind(claim.space_id, ctx.user.id)
+    .run();
+  await ctx.objects.SPACES.getByName(`space:${claim.space_id}`).init({
+    id: claim.space_id,
+    name: claim.name,
+    kind: "shared",
+    owner: { user_id: ctx.user.id, name: ctx.user.name },
+    starter: false,
+    group_id: id,
+  });
+  return groupView(ctx, id);
+}
+
 export async function leaveGroup(ctx: OpUserCtx, id: string): Promise<{ left: string }> {
   const out = await groupOf(ctx, id).leave(actorOf(ctx), ctx.idempotencyKey);
   await ctx.d1
@@ -247,7 +290,10 @@ export async function askInGroup(
   input: { text: string; think_harder?: boolean },
 ): Promise<ChatView> {
   await myGroupChat(ctx, groupId);
-  return sendMessage(ctx, ops, input, groupId);
+  const v = await groupOf(ctx, groupId).view(ctx.user.id);
+  return sendMessage(ctx, ops, input, groupId, {
+    chatHome: v.space_id ? { id: v.space_id, name: v.name } : null,
+  });
 }
 
 /**

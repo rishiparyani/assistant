@@ -471,6 +471,9 @@ const MIGRATIONS: Migrations = [
   alter table records add column purged_at text;
   create index records_trash_idx on records (deleted_at) where deleted_at is not null and purged_at is null;
   `,
+  // A chat's home (decision 2026-10-14 "A home for each chat"): the chat it belongs to; its
+  // members follow the chat's, by the chat's numbered member lists.
+  `alter table space add column group_id text;`,
 ];
 
 type ViewQuery = {
@@ -856,6 +859,8 @@ export interface SpaceInit {
   owner: { user_id: string; name: string };
   /** Personal spaces start with the starter setup (design §10). */
   starter: boolean;
+  /** A chat's home: the chat it belongs to. */
+  group_id?: string;
 }
 
 interface RuleInput {
@@ -969,12 +974,13 @@ export class SpaceObject extends DurableObject<Env> {
     const ts = nowIso();
     this.ctx.storage.transactionSync(() => {
       this.sql.exec(
-        `insert into space (id, name, kind, owner_user_id, created_at) values (?, ?, ?, ?, ?)`,
+        `insert into space (id, name, kind, owner_user_id, created_at, group_id) values (?, ?, ?, ?, ?, ?)`,
         init.id,
         init.name,
         init.kind,
         init.owner.user_id,
         ts,
+        init.group_id ?? null,
       );
       this.sql.exec(
         `insert into members (user_id, name, role, added_at) values (?, ?, 'owner', ?)`,
@@ -992,6 +998,62 @@ export class SpaceObject extends DurableObject<Env> {
     await this.wakeForJobs();
   }
 
+  /**
+   * A chat's home follows the chat's members: the chat sends its whole list, numbered; an
+   * older or repeated list changes nothing. Admins own the space, everyone else edits it,
+   * and people who left lose it. The space list in D1 follows.
+   */
+  async syncChatMembers(
+    groupId: string,
+    seq: number,
+    people: { user_id: string; name: string; role: "owner" | "member" }[],
+  ): Promise<void> {
+    const space = this.sql
+      .exec<{ id: string; group_id: string | null }>(`select id, group_id from space`)
+      .toArray()[0];
+    if (!space || space.group_id !== groupId) throw new ObjectError("not_found", "Space not found");
+    if (seq <= Number(getMeta(this.sql, "chat_members_seq") ?? "0")) return;
+    const ts = nowIso();
+    this.ctx.storage.transactionSync(() => {
+      const keep = new Set(people.map((p) => p.user_id));
+      for (const m of this.sql.exec<{ user_id: string }>(`select user_id from members`).toArray())
+        if (!keep.has(m.user_id)) this.sql.exec(`delete from members where user_id = ?`, m.user_id);
+      for (const p of people)
+        this.sql.exec(
+          `insert into members (user_id, name, role, added_at) values (?, ?, ?, ?)
+           on conflict (user_id) do update set name = excluded.name, role = excluded.role`,
+          p.user_id,
+          p.name,
+          p.role === "owner" ? "owner" : "editor",
+          ts,
+        );
+      setMeta(this.sql, "chat_members_seq", String(seq));
+      audit(
+        this.sql,
+        { userId: null, source: "system" },
+        {
+          action: "sync_chat_members",
+          entityType: "space",
+          entityId: space.id,
+          after: { seq, members: people.map((p) => [p.user_id, p.role]) },
+        },
+      );
+      this.logChange("space", space.id, "upsert", ts);
+      this.changed();
+    });
+    // The space list people's apps read (a replace, so a repeat is harmless).
+    await this.env.DB.batch([
+      this.env.DB.prepare(`delete from space_members where space_id = ?`).bind(space.id),
+      ...people.map((p) =>
+        this.env.DB.prepare(`insert into space_members (space_id, user_id, role) values (?, ?, ?)`).bind(
+          space.id,
+          p.user_id,
+          p.role === "owner" ? "owner" : "editor",
+        ),
+      ),
+    ]);
+  }
+
   private role(actor: Actor): Role {
     const row = actor.userId
       ? this.sql.exec<{ role: Role }>(`select role from members where user_id = ?`, actor.userId).toArray()[0]
@@ -1001,6 +1063,19 @@ export class SpaceObject extends DurableObject<Env> {
   }
   private canWrite(actor: Actor) {
     if (this.role(actor) === "viewer") throw new ObjectError("forbidden", "You can only view this space");
+  }
+  /**
+   * Changing how the space is set up (lists, fields, cards on its home, rules, workflows,
+   * shares): anyone who can write, except in a chat's home, where only the chat's admins
+   * (the space's owners) may (decision 2026-10-14 "A home for each chat").
+   */
+  private canArrange(actor: Actor) {
+    const chat = this.sql
+      .exec<{ group_id: string | null }>(`select group_id from space`)
+      .toArray()[0]?.group_id;
+    if (chat && this.role(actor) !== "owner")
+      throw new ObjectError("forbidden", "Only the chat's admins can change how its home is set up");
+    this.canWrite(actor);
   }
 
   // --- Writes: one helper for idempotency, audit and the change log -----------------------
@@ -1425,6 +1500,7 @@ export class SpaceObject extends DurableObject<Env> {
     key: string | null,
     input: { id?: string | null; name: string; description?: string | null; fields: FieldSpec[] },
   ): Promise<CollectionView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["create_collection", input], (ts) => {
       const id = this.insertCollection(actor, input, ts);
       return this.collectionView(this.requireCollection(id));
@@ -1445,6 +1521,7 @@ export class SpaceObject extends DurableObject<Env> {
       views: (ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean })[];
     },
   ): Promise<SetupResult> {
+    this.canArrange(actor);
     return this.write(actor, key, ["make_setup", input], (ts) => {
       const isLink = (f: FieldSpec) => f.type === "link";
       const isRollup = (f: FieldSpec) => !isLink(f) && !!f.options?.rollup;
@@ -2129,6 +2206,7 @@ export class SpaceObject extends DurableObject<Env> {
     collection: string,
     input: { name?: string; description?: string | null },
   ): Promise<CollectionView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["update_collection", collection, input], (ts) => {
       const c = this.requireCollection(collection);
       if (input.name !== undefined && nameKey(input.name) !== nameKey(c.name)) {
@@ -2165,6 +2243,7 @@ export class SpaceObject extends DurableObject<Env> {
     collection: string,
     field: FieldSpec,
   ): Promise<CollectionView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["add_field", collection, field], (ts) => {
       const c = this.requireCollection(collection);
       const n = this.sql
@@ -2198,6 +2277,7 @@ export class SpaceObject extends DurableObject<Env> {
       aliases?: string[];
     },
   ): Promise<CollectionView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["update_field", collection, field, input], (ts) => {
       const c = this.requireCollection(collection);
       const f = this.requireField(c.id, field);
@@ -2301,6 +2381,7 @@ export class SpaceObject extends DurableObject<Env> {
     collection: string,
     field: string,
   ): Promise<CollectionView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["remove_field", collection, field], (ts) => {
       const c = this.requireCollection(collection);
       const f = this.requireField(c.id, field);
@@ -4398,6 +4479,7 @@ export class SpaceObject extends DurableObject<Env> {
     key: string | null,
     input: ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean },
   ) {
+    this.canArrange(actor);
     return this.write(actor, key, ["save_view", input], (ts) => this.insertView(actor, input, ts));
   }
 
@@ -4445,6 +4527,7 @@ export class SpaceObject extends DurableObject<Env> {
     ref: string,
     input: ViewInput & { name?: string; pinned?: boolean; position?: number },
   ): Promise<SavedView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["update_view", ref, input], (ts) => {
       const v = this.requireView(ref);
       const c = this.requireCollection(v.collection_id);
@@ -4484,6 +4567,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   async deleteView(actor: Actor, key: string | null, ref: string): Promise<{ deleted: string }> {
+    this.canArrange(actor);
     return this.write(actor, key, ["delete_view", ref], (ts) => {
       const v = this.requireView(ref);
       this.sql.exec(`update views set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, v.id);
@@ -4788,6 +4872,7 @@ export class SpaceObject extends DurableObject<Env> {
     },
   ): Promise<{ share: ShareView; token_hash: string }> {
     const { tokenHash, ...request } = input;
+    this.canArrange(actor);
     return this.write(actor, key, ["create_share", request], (ts) => {
       let targetId: string;
       let c: CollectionRow;
@@ -4986,6 +5071,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   async addRule(actor: Actor, key: string | null, collection: string, input: RuleInput): Promise<RuleView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["add_rule", collection, input], (ts) =>
       this.insertRule(actor, collection, input, ts),
     );
@@ -5098,6 +5184,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   async deleteRule(actor: Actor, key: string | null, id: string): Promise<{ deleted: string }> {
+    this.canArrange(actor);
     return this.write(actor, key, ["delete_rule", id], (ts) => {
       const r = this.sql
         .exec<RuleRow>(`select * from rules where id = ? and deleted_at is null`, id)
@@ -5313,6 +5400,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   async createWorkflow(actor: Actor, key: string | null, spec: WorkflowSpec): Promise<WorkflowView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["create_workflow", spec], (ts) => {
       const { collectionId, def } = this.resolveWorkflow(spec);
       const count = this.sql
@@ -5351,6 +5439,7 @@ export class SpaceObject extends DurableObject<Env> {
     id: string,
     enabled: boolean,
   ): Promise<WorkflowView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["set_workflow_enabled", id, enabled], (ts) => {
       const w = this.requireWorkflow(id);
       // Already so: change nothing (jobs waiting to run stay).
@@ -5374,6 +5463,7 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   async deleteWorkflow(actor: Actor, key: string | null, id: string): Promise<{ deleted: string }> {
+    this.canArrange(actor);
     return this.write(actor, key, ["delete_workflow", id], (ts) => {
       const w = this.requireWorkflow(id);
       this.sql.exec(`update workflows set deleted_at = ?, enabled = 0 where id = ?`, ts, w.id);
@@ -6710,6 +6800,7 @@ export class SpaceObject extends DurableObject<Env> {
    * is already there, it's used as it is; a new Reminders list comes with its alarm.
    */
   async startList(actor: Actor, key: string | null, kind: StarterKind): Promise<CollectionView> {
+    this.canArrange(actor);
     return this.write(actor, key, ["start_list", kind], (ts) => {
       const spec = STARTER_COLLECTIONS.find((c) => c.kind === kind)!;
       const have = this.sql
