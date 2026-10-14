@@ -429,10 +429,18 @@ export interface HistoryItem {
   /** Who did it: "you", a name, or the assistant's source. */
   by: string;
   source: string;
-  /** An add or a change can be undone (a delete can't: its values are gone). */
+  /** It can be undone: an add, a change, or a delete (the record comes back with its links). */
   undoable: boolean;
   /** Already undone (by the entry with this id). */
   undone_by: string | null;
+  /** Later changes Undo would overwrite: who made them and which fields (Undo asks first). */
+  changed_since: { by: string[]; fields: string[] } | null;
+  /** What workflows did because of this change; Undo can undo these too (`with`). */
+  followups: { id: string; line: string; undoable: boolean }[];
+  /** People a workflow told because of it; Undo lets them know. */
+  told: string[];
+  /** A delete: how many records it took with it (they come back with it). */
+  also_restores: number;
 }
 
 export const HistoryInput = SpaceRef.extend({
@@ -440,6 +448,15 @@ export const HistoryInput = SpaceRef.extend({
 });
 export const UndoInput = SpaceRef.extend({
   change_id: z.string().trim().min(1).max(40).describe("The entry's id from the history"),
+  force: z
+    .boolean()
+    .default(false)
+    .describe("Undo even though someone changed the same fields later (only after the person agreed)"),
+  with: z
+    .array(z.string().trim().min(1).max(40))
+    .max(50)
+    .default([])
+    .describe("Ids from the entry's followups to undo too"),
 });
 
 export const ChangesInput = SpaceRef.extend({

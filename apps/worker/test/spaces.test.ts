@@ -485,11 +485,13 @@ describe("what changed and undo", () => {
     expect(history[0]).toMatchObject({ action: "update_record", lines: ["Amount: ₹500 → ₹450"] });
     expect(history.find((h) => h.lines[0] === "Amount: ₹450 → ₹500")).toMatchObject({ undoable: false });
 
-    // Undo the add: the record is gone; a delete is listed but can't be undone.
+    // Undo the add (it was changed since, so only once agreed): the record is gone; the
+    // delete is listed, and it can be undone too.
     const add = history.find((h) => h.action === "add_record")!;
-    await api(me)(`/history/${add.id}/undo`, { method: "POST" });
+    expect((await api(me)(`/history/${add.id}/undo`, { method: "POST" })).status).toBe(409);
+    await api(me)(`/history/${add.id}/undo`, { method: "POST", body: { force: true } });
     expect((await api(me)(`/records/${r.id}`)).status).toBe(404);
     history = await json<HistoryItem[]>(await api(me)("/history?limit=10"));
-    expect(history[0]).toMatchObject({ action: "delete_record", undoable: false, title: "Chai" });
+    expect(history[0]).toMatchObject({ action: "delete_record", undoable: true, title: "Chai" });
   });
 });
