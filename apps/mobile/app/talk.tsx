@@ -24,6 +24,8 @@ import { AskEveryoneSheet, PollCard } from "@/components/Poll";
 import { useSession } from "@/session";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
+import { ChatHome } from "@/components/ChatHome";
+import { PeopleSheet } from "@/components/PeopleSheet";
 
 type Item =
   | { kind: "day"; id: string; label: string }
@@ -49,6 +51,9 @@ export default function Talk() {
   const [asking, setAsking] = useState(false);
   // The "Ask everyone" sheet is open.
   const [polling, setPolling] = useState(false);
+  // The chat or its home (decision 2026-10-14 "A home for each chat"), and the people sheet.
+  const [tab, setTab] = useState<"chat" | "home">("chat");
+  const [people, setPeople] = useState(false);
   const list = useRef<FlatList<Item>>(null);
 
   // Newest at the bottom: the list is drawn upside down, so it opens at the latest message.
@@ -129,189 +134,246 @@ export default function Talk() {
                 {subtitle}
               </Text>
             </View>
-          </View>
-          {error ? <Text style={[s.note, { color: t.fg2 }]}>{error}</Text> : null}
-          {!chat && !error ? <ActivityIndicator color={t.fg3} style={{ marginTop: 40 }} /> : null}
-          <FlatList
-            ref={list}
-            inverted
-            data={items}
-            onScrollToIndexFailed={(info) =>
-              setTimeout(
-                () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: false }),
-                150,
-              )
-            }
-            keyExtractor={(x) => x.id}
-            style={s.list}
-            contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}
-            keyboardShouldPersistTaps="handled"
-            ListFooterComponent={
-              chat && !chat.messages.some((m) => m.kind === "person") ? (
-                <Text style={[s.hello, { color: t.fg2 }]}>
-                  {chat.direct
-                    ? `This is your chat with ${chat.name}. Only the two of you see it. Hold any message to save it to your lists.`
-                    : `Only the people in ${chat.name} see what's written here. Hold any message to save it to your lists.`}
-                </Text>
-              ) : null
-            }
-            renderItem={({ item }) => {
-              if (item.kind === "day") return <Text style={[s.day, { color: t.fg3 }]}>{item.label}</Text>;
-              if (item.kind === "pending")
-                return (
-                  <Pressable
-                    accessibilityRole={item.p.failed ? "button" : undefined}
-                    accessibilityLabel={item.p.failed ? "Not sent. Tap to remove." : undefined}
-                    disabled={!item.p.failed}
-                    onPress={() => dropFailed(item.p.id)}
-                    style={[s.bubble, s.mine, { backgroundColor: mineBg, opacity: item.p.failed ? 1 : 0.7 }]}
-                  >
-                    <Text style={[s.text, { color: mineFg }]}>
-                      {item.p.poll ? `Asking everyone: ${item.p.text}` : item.p.text}
-                    </Text>
-                    <Text style={[s.meta, { color: item.p.failed ? t.danger : mineFg }]}>
-                      {item.p.failed ? `Not sent: ${item.p.failed} · tap to remove` : "Sending…"}
-                    </Text>
-                  </Pressable>
-                );
-              const m = item.m;
-              if (m.kind === "note")
-                return <Text style={[s.notice, { color: t.fg2, backgroundColor: t.fill }]}>{m.text}</Text>;
-              const poll = m.kind === "poll" ? chat?.polls?.[m.id] : undefined;
-              if (poll)
-                return (
-                  <PollCard
-                    groupId={id ?? ""}
-                    messageId={m.id}
-                    poll={poll}
-                    asker={m.author}
-                    mine={m.author_id === myId}
-                    me={me?.user.name ?? ""}
-                    highlight={m.id === marked}
-                    onLongPress={() => setSaving(m)}
-                    saved={chat?.saved?.[m.id]}
-                  />
-                );
-              const mine = m.kind === "person" && m.author_id === myId;
-              const saved = chat?.saved?.[m.id];
-              const savedNote = saved ? (
-                <Text style={[s.saved, { color: t.good }, mine && s.savedMine]}>Saved to {saved} ✓</Text>
-              ) : null;
-              // Hold any message to save it to your lists (only you see the proposal).
-              const hold = {
-                onLongPress: () => setSaving(m),
-                delayLongPress: 350,
-                accessibilityHint: "Hold to save it to your lists",
-                accessibilityActions: [{ name: "longpress" as const, label: "Save" }],
-                onAccessibilityAction: () => setSaving(m),
-              };
-              if (mine)
-                return (
-                  <Animated.View entering={FadeInDown.duration(180)} style={s.mineWrap}>
-                    <Pressable
-                      {...hold}
-                      style={[s.bubble, s.mine, { backgroundColor: mineBg }, m.id === marked && ring]}
-                    >
-                      <Text style={[s.text, { color: mineFg }]}>{m.text}</Text>
-                      <Text style={[s.meta, { color: mineFg }]}>{when(m.created_at)}</Text>
-                    </Pressable>
-                    {savedNote}
-                  </Animated.View>
-                );
-              const c = colour(colourFor(m.author));
-              return (
-                <Animated.View
-                  entering={FadeInDown.duration(180)}
-                  style={[s.themCol, item.first && { marginTop: 6 }]}
-                >
-                  <View style={s.theirs}>
-                    {!chat?.direct || m.kind === "assistant" ? (
-                      item.first ? (
-                        m.kind === "assistant" ? (
-                          <View style={[s.gsAvatar, { backgroundColor: t.hero }]}>
-                            <Text style={[s.gsAvatarText, { color: t.onHero }]}>Gs</Text>
-                          </View>
-                        ) : (
-                          <Avatar name={m.author} size={28} />
-                        )
-                      ) : (
-                        <View style={{ width: 28 }} />
-                      )
-                    ) : null}
-                    <Pressable
-                      {...hold}
-                      style={[s.bubble, s.them, { backgroundColor: t.cell }, m.id === marked && ring]}
-                    >
-                      {(!chat?.direct || m.kind === "assistant") && item.first ? (
-                        <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
-                          {m.author}
-                        </Text>
-                      ) : null}
-                      <Text style={[s.text, { color: t.fg }]}>{m.text}</Text>
-                      <Text style={[s.meta, { color: t.fg3 }]}>{when(m.created_at)}</Text>
-                    </Pressable>
-                  </View>
-                  {saved ? <View style={!chat?.direct && s.savedIndent}>{savedNote}</View> : null}
-                </Animated.View>
-              );
-            }}
-          />
-          {message ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.replace({ pathname: "/talk", params: { id: id ?? "" } })}
-              style={[s.latest, { backgroundColor: t.fg }]}
-            >
-              <Text style={[s.latestText, { color: t.page }]}>Latest messages ↓</Text>
-            </Pressable>
-          ) : null}
-          <View style={[s.composer, { paddingBottom: insets.bottom + 10 }]}>
-            {/* + : ask everyone a question (Yes / No / Maybe, or your own answers). */}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Ask everyone a question"
-              onPress={() => setPolling(true)}
-              style={[s.plus, { backgroundColor: t.cell }]}
-            >
-              <Text style={{ color: t.fg, fontSize: 24, fontWeight: "700", lineHeight: 26 }}>+</Text>
-            </Pressable>
-            <View style={[s.box, { backgroundColor: t.cell }]}>
-              <TextInput
-                value={text}
-                onChangeText={setText}
-                placeholder="Message"
-                placeholderTextColor={t.fg3}
-                multiline
-                maxLength={2000}
-                accessibilityLabel="Message"
-                style={[s.input, { color: t.fg }]}
-              />
-              {chat?.can_ask ? (
-                // Ask my own assistant (only I see it), as in the mock-up.
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Ask your assistant privately"
-                  onPress={() => setAsking(true)}
-                  hitSlop={6}
-                  style={[s.gs, { backgroundColor: t.accentSoft }]}
-                >
-                  <Text style={[s.gsText, { color: t.accent }]}>Gs</Text>
-                </Pressable>
-              ) : null}
+            {chat ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Send"
-                disabled={!text.trim()}
-                onPress={go}
-                hitSlop={6}
-                style={[s.send, { backgroundColor: t.accent, opacity: text.trim() ? 1 : 0.4 }]}
+                accessibilityLabel="People and admins"
+                onPress={() => setPeople(true)}
+                style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
               >
-                <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
+                <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>···</Text>
               </Pressable>
-            </View>
+            ) : null}
           </View>
+          {chat ? (
+            <View style={[s.tabs, { backgroundColor: t.fill }]} accessibilityRole="tablist">
+              {(["chat", "home"] as const).map((x) => (
+                <Pressable
+                  key={x}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: tab === x }}
+                  onPress={() => setTab(x)}
+                  style={[s.tab, tab === x && { backgroundColor: t.accentSoft }]}
+                >
+                  <Text style={[s.tabText, { color: tab === x ? t.accent : t.fg2 }]}>
+                    {x === "chat" ? "Chat" : "Home"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+          {error ? <Text style={[s.note, { color: t.fg2 }]}>{error}</Text> : null}
+          {!chat && !error ? <ActivityIndicator color={t.fg3} style={{ marginTop: 40 }} /> : null}
+          {chat && tab === "home" ? (
+            <ChatHome
+              chat={chat}
+              myId={myId}
+              onStarted={() => void reload()}
+              onAsk={chat.can_ask ? () => setAsking(true) : null}
+            />
+          ) : null}
+          {tab === "chat" ? (
+            <>
+              <FlatList
+                ref={list}
+                inverted
+                data={items}
+                onScrollToIndexFailed={(info) =>
+                  setTimeout(
+                    () =>
+                      list.current?.scrollToIndex({ index: info.index, viewPosition: 0.5, animated: false }),
+                    150,
+                  )
+                }
+                keyExtractor={(x) => x.id}
+                style={s.list}
+                contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 10, gap: 4 }}
+                keyboardShouldPersistTaps="handled"
+                ListFooterComponent={
+                  chat && !chat.messages.some((m) => m.kind === "person") ? (
+                    <Text style={[s.hello, { color: t.fg2 }]}>
+                      {chat.direct
+                        ? `This is your chat with ${chat.name}. Only the two of you see it. Hold any message to save it to your lists.`
+                        : `Only the people in ${chat.name} see what's written here. Hold any message to save it to your lists.`}
+                    </Text>
+                  ) : null
+                }
+                renderItem={({ item }) => {
+                  if (item.kind === "day") return <Text style={[s.day, { color: t.fg3 }]}>{item.label}</Text>;
+                  if (item.kind === "pending")
+                    return (
+                      <Pressable
+                        accessibilityRole={item.p.failed ? "button" : undefined}
+                        accessibilityLabel={item.p.failed ? "Not sent. Tap to remove." : undefined}
+                        disabled={!item.p.failed}
+                        onPress={() => dropFailed(item.p.id)}
+                        style={[
+                          s.bubble,
+                          s.mine,
+                          { backgroundColor: mineBg, opacity: item.p.failed ? 1 : 0.7 },
+                        ]}
+                      >
+                        <Text style={[s.text, { color: mineFg }]}>
+                          {item.p.poll ? `Asking everyone: ${item.p.text}` : item.p.text}
+                        </Text>
+                        <Text style={[s.meta, { color: item.p.failed ? t.danger : mineFg }]}>
+                          {item.p.failed ? `Not sent: ${item.p.failed} · tap to remove` : "Sending…"}
+                        </Text>
+                      </Pressable>
+                    );
+                  const m = item.m;
+                  if (m.kind === "note")
+                    return (
+                      <Text style={[s.notice, { color: t.fg2, backgroundColor: t.fill }]}>{m.text}</Text>
+                    );
+                  const poll = m.kind === "poll" ? chat?.polls?.[m.id] : undefined;
+                  if (poll)
+                    return (
+                      <PollCard
+                        groupId={id ?? ""}
+                        messageId={m.id}
+                        poll={poll}
+                        asker={m.author}
+                        mine={m.author_id === myId}
+                        me={me?.user.name ?? ""}
+                        highlight={m.id === marked}
+                        onLongPress={() => setSaving(m)}
+                        saved={chat?.saved?.[m.id]}
+                      />
+                    );
+                  const mine = m.kind === "person" && m.author_id === myId;
+                  const saved = chat?.saved?.[m.id];
+                  const savedNote = saved ? (
+                    <Text style={[s.saved, { color: t.good }, mine && s.savedMine]}>Saved to {saved} ✓</Text>
+                  ) : null;
+                  // Hold any message to save it to your lists (only you see the proposal).
+                  const hold = {
+                    onLongPress: () => setSaving(m),
+                    delayLongPress: 350,
+                    accessibilityHint: "Hold to save it to your lists",
+                    accessibilityActions: [{ name: "longpress" as const, label: "Save" }],
+                    onAccessibilityAction: () => setSaving(m),
+                  };
+                  if (mine)
+                    return (
+                      <Animated.View entering={FadeInDown.duration(180)} style={s.mineWrap}>
+                        <Pressable
+                          {...hold}
+                          style={[s.bubble, s.mine, { backgroundColor: mineBg }, m.id === marked && ring]}
+                        >
+                          <Text style={[s.text, { color: mineFg }]}>{m.text}</Text>
+                          <Text style={[s.meta, { color: mineFg }]}>{when(m.created_at)}</Text>
+                        </Pressable>
+                        {savedNote}
+                      </Animated.View>
+                    );
+                  const c = colour(colourFor(m.author));
+                  return (
+                    <Animated.View
+                      entering={FadeInDown.duration(180)}
+                      style={[s.themCol, item.first && { marginTop: 6 }]}
+                    >
+                      <View style={s.theirs}>
+                        {!chat?.direct || m.kind === "assistant" ? (
+                          item.first ? (
+                            m.kind === "assistant" ? (
+                              <View style={[s.gsAvatar, { backgroundColor: t.hero }]}>
+                                <Text style={[s.gsAvatarText, { color: t.onHero }]}>Gs</Text>
+                              </View>
+                            ) : (
+                              <Avatar name={m.author} size={28} />
+                            )
+                          ) : (
+                            <View style={{ width: 28 }} />
+                          )
+                        ) : null}
+                        <Pressable
+                          {...hold}
+                          style={[s.bubble, s.them, { backgroundColor: t.cell }, m.id === marked && ring]}
+                        >
+                          {(!chat?.direct || m.kind === "assistant") && item.first ? (
+                            <Text style={[s.author, { color: m.kind === "assistant" ? t.accent : c }]}>
+                              {m.author}
+                            </Text>
+                          ) : null}
+                          <Text style={[s.text, { color: t.fg }]}>{m.text}</Text>
+                          <Text style={[s.meta, { color: t.fg3 }]}>{when(m.created_at)}</Text>
+                        </Pressable>
+                      </View>
+                      {saved ? <View style={!chat?.direct && s.savedIndent}>{savedNote}</View> : null}
+                    </Animated.View>
+                  );
+                }}
+              />
+              {message ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => router.replace({ pathname: "/talk", params: { id: id ?? "" } })}
+                  style={[s.latest, { backgroundColor: t.fg }]}
+                >
+                  <Text style={[s.latestText, { color: t.page }]}>Latest messages ↓</Text>
+                </Pressable>
+              ) : null}
+              <View style={[s.composer, { paddingBottom: insets.bottom + 10 }]}>
+                {/* + : ask everyone a question (Yes / No / Maybe, or your own answers). */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Ask everyone a question"
+                  onPress={() => setPolling(true)}
+                  style={[s.plus, { backgroundColor: t.cell }]}
+                >
+                  <Text style={{ color: t.fg, fontSize: 24, fontWeight: "700", lineHeight: 26 }}>+</Text>
+                </Pressable>
+                <View style={[s.box, { backgroundColor: t.cell }]}>
+                  <TextInput
+                    value={text}
+                    onChangeText={setText}
+                    placeholder="Message"
+                    placeholderTextColor={t.fg3}
+                    multiline
+                    maxLength={2000}
+                    accessibilityLabel="Message"
+                    style={[s.input, { color: t.fg }]}
+                  />
+                  {chat?.can_ask ? (
+                    // Ask my own assistant (only I see it), as in the mock-up.
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Ask your assistant privately"
+                      onPress={() => setAsking(true)}
+                      hitSlop={6}
+                      style={[s.gs, { backgroundColor: t.accentSoft }]}
+                    >
+                      <Text style={[s.gsText, { color: t.accent }]}>Gs</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Send"
+                    disabled={!text.trim()}
+                    onPress={go}
+                    hitSlop={6}
+                    style={[s.send, { backgroundColor: t.accent, opacity: text.trim() ? 1 : 0.4 }]}
+                  >
+                    <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>
+                      ↑
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
+      {chat ? (
+        <PeopleSheet
+          chat={chat}
+          myId={myId}
+          open={people}
+          onClose={() => setPeople(false)}
+          onChanged={() => void reload()}
+        />
+      ) : null}
       <AskEveryoneSheet groupId={id ?? ""} open={polling} onClose={() => setPolling(false)} />
       <AskSheet
         groupId={id ?? ""}
@@ -363,6 +425,16 @@ const s = StyleSheet.create({
     elevation: 2,
   },
   title: { fontSize: 17, fontWeight: "800" },
+  tabs: { flexDirection: "row", gap: 4, padding: 4, borderRadius: 22, marginHorizontal: 12, marginBottom: 6 },
+  tab: {
+    flex: 1,
+    minHeight: 40,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOpacity: 0,
+  },
+  tabText: { fontSize: 14, fontWeight: "800" },
   sub: { fontSize: 12 },
   note: { fontSize: 13, paddingHorizontal: 20 },
   list: { flex: 1 },

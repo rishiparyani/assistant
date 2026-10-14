@@ -71,6 +71,11 @@ export const VoteInput = GroupRef.extend({
 });
 
 /** Sharing one of my assistant's answers into the chat. */
+/** An admin makes someone an admin, or a member again (decision 2026-10-14 "A home for each chat"). */
+export const SetGroupRoleInput = GroupRef.extend({
+  user_id: z.string().trim().min(1).max(64),
+  role: z.enum(["admin", "member"]),
+});
 export const ShareAnswerInput = GroupRef.extend({ item_id: z.string().trim().min(1).max(60) });
 export const GroupMessageRef = GroupRef.extend({ message_id: z.string().trim().min(1).max(40) });
 /** "Saved to Gigs ✓" under a message, for the person who saved it only. */
@@ -110,6 +115,9 @@ export interface GroupView {
   name: string;
   direct: boolean;
   owner_id: string;
+  /** The chat's home (a shared space), once an admin has started it. */
+  space_id: string | null;
+  /** role "owner" is an admin (a chat can have several). */
   members: GroupMember[];
   /** Newest last. */
   messages: GroupMessage[];

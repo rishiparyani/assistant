@@ -33,6 +33,8 @@ export interface HomeCard {
   answer?: QueryResult;
   /** The memory card (home-first.md §2 point 16): what the assistant remembers for me. */
   memory?: Memory[];
+  /** The space it comes from when it isn't the person's own (a chat's home). */
+  space?: string;
   /** Something shared with me (collaborator homes, home-first.md §2 point 8). */
   shared?: {
     share_id: string;

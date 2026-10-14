@@ -818,3 +818,12 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - A record a delete took with it shows with that record ("with 1 linked record") and comes back, or goes, with it.
 - **Why 30 days, not for ever:** people expect "delete" to end in gone, and India's data protection law gives a right to erasure; 30 days is what iPhone Photos and Gmail do. The nightly backups on the owner's Google Drive still hold an earlier copy for as long as those files are kept.
 - **Not yet:** removed fields, lists, views and workflows have no Recently deleted (they're soft-deleted and kept); the old website has no trash screen.
+
+## 2026-10-14: A home for each chat (owner: "go ahead, do your thing", on the approved mock-up)
+
+- **Admins.** A chat's role `owner` is an admin; a chat can have several. Admins add people, make others admins (or members again), start the chat's home and arrange it. A chat always keeps one admin (the last one can't step down or leave). A chat for two has no admins: either person can do it all.
+- **The chat's home is a shared space that belongs to the chat** (`space.group_id`, `grp.space_id`). An admin starts it once ("Start this chat's home"). The chat claims the space id first, so two admins at once make one home. Its members follow the chat's: the chat sends its whole member list, numbered, from its alarm (retried; a repeat or a late list changes nothing). Admins are the space's owners, everyone else an editor, and people who leave lose it. The space list in D1 (`space_members`) follows. Nothing is written to the space in the chat's request.
+- **Only admins change how it's set up**: lists, fields, cards on its home, rules, workflows and shares (`canArrange`). Everyone ticks, adds and changes records. Personal spaces are unchanged.
+- **Made by chat:** the private assistant in a chat sees the chat home's lists next to the person's own, and is told to use the chat's for things for the chat (`space` on its tools). It asks when it isn't clear which.
+- **Phone:** a Chat | Home switch in every chat; Home shows the space's pinned cards (ticks through the outbox, live reload). The "···" button opens People: who's an admin, and Make admin / Make member for admins.
+- **Next steps:** questions that lead to actions (workflows with Auto / Ask-you approvals), then schedules. Not yet: See all and the Recently deleted screen for a chat's lists, and keeping a chat's home on the phone for offline.

@@ -4,6 +4,14 @@ _Updated: 2026-10-14_
 
 ## Last done
 
+- **HF35: a home for each chat, step 1** (decision 2026-10-14 "A home for each chat").
+  - **Group object** (migration: `grp.space_id`): `setRole` (admins = role owner, several; one always kept; notes "X made Y an admin"), `claimSpace` (first claim wins; either person in a chat for two), `syncHome` from the alarm (numbered member list → the space, retried), admins may leave if another admin stays.
+  - **Space object** (migration: `space.group_id`): `syncChatMembers` (owners/editors, removes leavers, rewrites D1 `space_members`), `canArrange` on lists, fields, views, rules, workflows, shares and start_list.
+  - **API:** `POST /api/groups/:group_id/home`, `POST /api/groups/:group_id/members/:user_id/role` (`{role: admin|member}`); `GroupView.space_id`. The private assistant in a chat gets the chat home's lists and space id in its instructions.
+  - **Phone:** `talk.tsx` Chat | Home tabs and "···" People sheet (`PeopleSheet.tsx`); `ChatHome.tsx` (start, cards, empty states); `home.ts` `loadSpaceCards` (cards for another space; `HomeCard.space` sends ticks to it).
+  - **Verified here:** `chat-home.test.ts` (4: admins, home shared and admin-only setup, leaving loses it, chat for two); `backup.test.ts` group version 10; web build at 390/820/1280 light and dark.
+  - **Next:** questions that lead to actions (workflow from a chat question, Auto / Ask-you per step), then admin schedules; See all for chat cards.
+
 - **HF34: Recently deleted** (decision 2026-10-14 "Recently deleted").
   - **Space object** (migration: `records.purged_at`, `records_trash_idx`): `trash` (editors only; one entry per delete, cascaded records under their delete), `restore` (= undo of the latest delete), `eraseForever` and `eraseDue` (from the alarm; `nextWorkflowTime` includes the oldest deleted record's 30th day): values, title, answers, comments, workflow run details and audit before/after wiped; history skips erased records.
   - **API:** `GET /api/trash?collection=`, `POST /api/trash/:record_id/restore`, `DELETE /api/trash/:record_id` (tools `recently_deleted`, `restore_record`, `delete_forever` with confirmation).
