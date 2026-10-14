@@ -474,6 +474,11 @@ const MIGRATIONS: Migrations = [
   // A chat's home (decision 2026-10-14 "A home for each chat"): the chat it belongs to; its
   // members follow the chat's, by the chat's numbered member lists.
   `alter table space add column group_id text;`,
+  // Chat about this (decision 2026-10-14): a card shared with a chat, whose people follow the
+  // chat's by its numbered member lists (two checkpoints: the share, and D1's shared_with).
+  `alter table shares add column group_id text;
+   alter table shares add column group_seq integer not null default 0;
+   alter table shares add column group_d1 integer not null default 0;`,
 ];
 
 type ViewQuery = {
@@ -574,6 +579,9 @@ type ShareRow = {
   created_by: string | null;
   created_at: string;
   revoked_at: string | null;
+  group_id: string | null;
+  group_seq: number;
+  group_d1: number;
 };
 
 /** Records reached from the triggering one through a link (either way). */
@@ -4870,6 +4878,8 @@ export class SpaceObject extends DurableObject<Env> {
       hide: string[];
       /** Also hide every money field in what's shared (sharing from the chat). */
       hideMoney?: boolean;
+      /** A chat this card is pinned to: its people follow the chat's (syncShareToChat). */
+      groupId?: string | null;
       public: boolean;
       expiresInDays: number | null;
       tokenHash: string;
@@ -4878,66 +4888,14 @@ export class SpaceObject extends DurableObject<Env> {
     const { tokenHash, ...request } = input;
     this.canArrange(actor);
     return this.write(actor, key, ["create_share", request], (ts) => {
-      let targetId: string;
-      let c: CollectionRow;
-      let include: ShareInclude[] = [];
-      if (input.kind === "card") {
-        if (input.public)
-          throw new ObjectError("validation_failed", "Cards are shared with people who sign in");
-        const r = this.requireRecord(input.target);
-        c = this.requireCollection(r.collection_id);
-        include = this.resolveIncludes(c, input.include);
-        targetId = r.id;
-      } else {
-        // Every write needs a signed-in person (decision 2026-10-12): a link can show a view,
-        // never take a form.
-        if (input.public && input.kind === "form")
-          throw new ObjectError(
-            "validation_failed",
-            "A form needs people to sign in: share it with them by name, or send them its join link",
-          );
-        if (input.include.length)
-          throw new ObjectError("validation_failed", "Only cards include linked parts");
-        if (input.kind === "view") {
-          const v = this.requireView(input.target);
-          c = this.requireCollection(v.collection_id);
-          targetId = v.id;
-        } else {
-          c = this.requireCollection(input.target);
-          targetId = c.id;
-        }
-      }
-      const hidden = this.resolveHidden(c, include, input.hide);
-      if (input.hideMoney)
-        for (const id of this.includedCollections(c, include)) {
-          const titleId = this.requireCollection(id).title_field_id;
-          for (const f of this.fieldRows(id))
-            if (f.type === "money" && f.id !== titleId && !hidden.includes(f.id)) hidden.push(f.id);
-        }
-      // A form must be fillable: every required field shown. A required link works only as a
-      // pick list for signed-in people (one record, one target list), never on link-only forms.
-      if (input.kind === "form") {
-        const pickable = (f: FieldRow) => {
-          const o = toField(f).options;
-          return !input.public && !o.many && !!o.target;
-        };
-        const blocked = this.fieldRows(c.id).filter(
-          (f) => f.required && ((f.type === "link" && !pickable(f)) || hidden.includes(f.id)),
-        );
-        if (blocked.length)
-          throw new ObjectError(
-            "validation_failed",
-            `People can't fill in ${blocked.map((f) => f.name).join(", ")} on a form (required${
-              blocked.some((f) => f.type === "link") ? "; links can't be shared" : ", but hidden"
-            }). Show it, or make it optional first.`,
-          );
-      }
-      // Link-only views are to look at; editing needs a name in the history.
-      const access = input.public && input.kind === "view" ? "view" : input.access;
+      const { targetId, include, hidden, access } = this.planShare(input);
+      // One share per record per chat: pinning it again finds the one it has.
+      const made = input.groupId ? this.chatShare(input.groupId, targetId) : null;
+      if (made) return { share: this.shareView(made), token_hash: made.token_hash };
       const id = ulid();
       this.sql.exec(
-        `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at, group_id)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         targetId,
         input.kind,
@@ -4952,10 +4910,248 @@ export class SpaceObject extends DurableObject<Env> {
           : null,
         actor.userId,
         ts,
+        input.kind === "card" ? (input.groupId ?? null) : null,
       );
       audit(this.sql, actor, { action: "create_share", entityType: "share", entityId: id, after: request });
       return { share: this.shareView(this.requireShare(id)), token_hash: tokenHash };
     });
+  }
+
+  /** What a share would be, checked (the record, view or list, its parts and hidden fields). */
+  private planShare(input: {
+    kind: ShareKind;
+    target: string;
+    include: string[];
+    access: ShareAccess;
+    hide: string[];
+    hideMoney?: boolean;
+    public: boolean;
+  }): { targetId: string; include: ShareInclude[]; hidden: string[]; access: ShareAccess } {
+    let targetId: string;
+    let c: CollectionRow;
+    let include: ShareInclude[] = [];
+    if (input.kind === "card") {
+      if (input.public)
+        throw new ObjectError("validation_failed", "Cards are shared with people who sign in");
+      const r = this.requireRecord(input.target);
+      c = this.requireCollection(r.collection_id);
+      include = this.resolveIncludes(c, input.include);
+      targetId = r.id;
+    } else {
+      // Every write needs a signed-in person (decision 2026-10-12): a link can show a view,
+      // never take a form.
+      if (input.public && input.kind === "form")
+        throw new ObjectError(
+          "validation_failed",
+          "A form needs people to sign in: share it with them by name, or send them its join link",
+        );
+      if (input.include.length) throw new ObjectError("validation_failed", "Only cards include linked parts");
+      if (input.kind === "view") {
+        const v = this.requireView(input.target);
+        c = this.requireCollection(v.collection_id);
+        targetId = v.id;
+      } else {
+        c = this.requireCollection(input.target);
+        targetId = c.id;
+      }
+    }
+    const hidden = this.resolveHidden(c, include, input.hide);
+    if (input.hideMoney)
+      for (const id of this.includedCollections(c, include)) {
+        const titleId = this.requireCollection(id).title_field_id;
+        for (const f of this.fieldRows(id))
+          if (f.type === "money" && f.id !== titleId && !hidden.includes(f.id)) hidden.push(f.id);
+      }
+    // A form must be fillable: every required field shown. A required link works only as a
+    // pick list for signed-in people (one record, one target list), never on link-only forms.
+    if (input.kind === "form") {
+      const pickable = (f: FieldRow) => {
+        const o = toField(f).options;
+        return !input.public && !o.many && !!o.target;
+      };
+      const blocked = this.fieldRows(c.id).filter(
+        (f) => f.required && ((f.type === "link" && !pickable(f)) || hidden.includes(f.id)),
+      );
+      if (blocked.length)
+        throw new ObjectError(
+          "validation_failed",
+          `People can't fill in ${blocked.map((f) => f.name).join(", ")} on a form (required${
+            blocked.some((f) => f.type === "link") ? "; links can't be shared" : ", but hidden"
+          }). Show it, or make it optional first.`,
+        );
+    }
+    // Link-only views are to look at; editing needs a name in the history.
+    const access = input.public && input.kind === "view" ? "view" : input.access;
+    return { targetId, include, hidden, access };
+  }
+
+  private chatShare(groupId: string, recordId: string): ShareRow | null {
+    return (
+      this.sql
+        .exec<ShareRow>(
+          `select * from shares where group_id = ? and target_id = ? and kind = 'card' and revoked_at is null`,
+          groupId,
+          recordId,
+        )
+        .toArray()[0] ?? null
+    );
+  }
+
+  /** The live share this record already has for a chat, if any. */
+  async chatShareFor(actor: Actor, groupId: string, recordId: string): Promise<string | null> {
+    this.canArrange(actor);
+    return this.chatShare(groupId, recordId)?.id ?? null;
+  }
+
+  /** Checks a share could be made, making nothing (a chat about a record checks first). */
+  async checkShare(
+    actor: Actor,
+    input: {
+      kind: ShareKind;
+      target: string;
+      include: string[];
+      access: ShareAccess;
+      hide: string[];
+      public: boolean;
+    },
+  ): Promise<void> {
+    this.canArrange(actor);
+    this.planShare(input);
+  }
+
+  /**
+   * A card pinned to a chat follows the chat's members (decision 2026-10-14 "Chat about this"):
+   * the chat sends its whole list, numbered; an older or repeated list changes nothing. People
+   * of this space see it anyway and aren't listed. A share that was turned off answers 404, and
+   * the chat drops the card.
+   */
+  async syncShareToChat(
+    groupId: string,
+    shareId: string,
+    seq: number,
+    people: { user_id: string; name: string }[],
+  ): Promise<{ title: string }> {
+    const s = this.sql
+      .exec<ShareRow>(`select * from shares where id = ? and revoked_at is null`, shareId)
+      .toArray()[0];
+    if (!s || s.group_id !== groupId || !this.alive(s)) throw new ObjectError("not_found", "Share not found");
+    const title = this.liveRecord(s.target_id)?.title ?? "";
+    if (seq <= s.group_d1) return { title };
+    const inSpace = new Set(
+      this.sql
+        .exec<{ user_id: string }>(`select user_id from members`)
+        .toArray()
+        .map((m) => m.user_id),
+    );
+    const who = people.filter((p) => !inSpace.has(p.user_id));
+    if (seq > s.group_seq)
+      this.ctx.storage.transactionSync(() => {
+        const ts = nowIso();
+        const keep = new Set(who.map((p) => p.user_id));
+        for (const p of this.sql
+          .exec<{ user_id: string }>(`select user_id from share_people where share_id = ?`, s.id)
+          .toArray())
+          if (!keep.has(p.user_id))
+            this.sql.exec(`delete from share_people where share_id = ? and user_id = ?`, s.id, p.user_id);
+        for (const p of who)
+          this.sql.exec(
+            `insert into share_people (share_id, user_id, name, joined_at) values (?, ?, ?, ?)
+             on conflict (share_id, user_id) do update set name = excluded.name`,
+            s.id,
+            p.user_id,
+            p.name,
+            ts,
+          );
+        this.sql.exec(`update shares set group_seq = ? where id = ?`, seq, s.id);
+        audit(
+          this.sql,
+          { userId: null, source: "system" },
+          {
+            action: "sync_share_chat",
+            entityType: "share",
+            entityId: s.id,
+            after: { seq, people: who.map((p) => p.user_id) },
+          },
+        );
+        this.changed();
+      });
+    // Where each person's app finds what's shared with them (a replace, so a repeat is harmless).
+    const space = this.sql.exec<{ id: string }>(`select id from space`).one().id;
+    await this.env.DB.batch([
+      this.env.DB.prepare(`delete from shared_with where share_id = ? and space_id = ?`).bind(s.id, space),
+      ...who.map((p) =>
+        this.env.DB.prepare(
+          `insert or ignore into shared_with (user_id, share_id, space_id) values (?, ?, ?)`,
+        ).bind(p.user_id, s.id, space),
+      ),
+    ]);
+    this.sql.exec(`update shares set group_d1 = ? where id = ?`, seq, s.id);
+    return { title };
+  }
+
+  /** The chat took this card off: the share made for it is turned off (a repeat is harmless). */
+  async closeChatShare(groupId: string, shareId: string): Promise<void> {
+    const s = this.sql.exec<ShareRow>(`select * from shares where id = ?`, shareId).toArray()[0];
+    if (!s || s.group_id !== groupId) throw new ObjectError("not_found", "Share not found");
+    if (!s.revoked_at)
+      this.ctx.storage.transactionSync(() => {
+        this.sql.exec(`update shares set revoked_at = ? where id = ?`, nowIso(), s.id);
+        for (const p of this.sql
+          .exec<{ user_id: string }>(`select user_id from share_people where share_id = ?`, s.id)
+          .toArray())
+          this.alsoTell(p.user_id);
+        audit(
+          this.sql,
+          { userId: null, source: "system" },
+          { action: "close_chat_share", entityType: "share", entityId: s.id, after: { group_id: groupId } },
+        );
+        this.changed();
+      });
+    const space = this.sql.exec<{ id: string }>(`select id from space`).one().id;
+    await this.env.DB.prepare(`delete from shared_with where share_id = ? and space_id = ?`)
+      .bind(s.id, space)
+      .run();
+  }
+
+  /**
+   * Who a chat about this record would start with: people on it (its person fields) and people
+   * it's already shared with; and its fields, money hidden. Needs the right to share.
+   */
+  async recordChatPlan(
+    actor: Actor,
+    recordId: string,
+  ): Promise<{
+    record: { id: string; title: string; collection: string };
+    people: string[];
+    fields: { id: string; name: string; type: FieldType; hidden: boolean }[];
+  }> {
+    this.canArrange(actor);
+    const r = this.requireRecord(recordId);
+    const c = this.requireCollection(r.collection_id);
+    const values = JSON.parse(r.values_json) as Record<string, unknown>;
+    const fields = this.fieldRows(c.id);
+    const people = new Set<string>();
+    for (const f of fields)
+      if (f.type === "person") {
+        const v = values[f.id] as { user_id?: string | null } | null | undefined;
+        if (v?.user_id) people.add(v.user_id);
+      }
+    for (const p of this.sql
+      .exec<{ user_id: string }>(
+        `select p.user_id from share_people p join shares s on s.id = p.share_id
+         where s.target_id = ? and s.kind = 'card' and s.revoked_at is null`,
+        r.id,
+      )
+      .toArray())
+      people.add(p.user_id);
+    if (actor.userId) people.delete(actor.userId);
+    return {
+      record: { id: r.id, title: r.title, collection: c.name },
+      people: [...people],
+      fields: fields
+        .filter((f) => f.id !== c.title_field_id)
+        .map((f) => ({ id: f.id, name: f.name, type: f.type as FieldType, hidden: f.type === "money" })),
+    };
   }
 
   async listShares(actor: Actor, targetId?: string): Promise<ShareView[]> {

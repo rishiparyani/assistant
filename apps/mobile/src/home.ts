@@ -17,6 +17,9 @@ import { colourFor, type HomeCard } from "@assistant/cards/native";
 import {
   findInRecords,
   ulid,
+  type ChatCard,
+  formatDateIST,
+  formatDateTimeIST,
   type CollectionView,
   type LiveRef,
   type QueryResult,
@@ -29,7 +32,7 @@ import {
   type StoredValue,
   type WaitingItem,
 } from "@assistant/shared";
-import { request } from "./api.ts";
+import { ApiError, request } from "./api.ts";
 import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
 
@@ -491,6 +494,64 @@ function sharedCard(share: SharedWithMe, o: SharedOpened, waiting: WaitingItem[]
     };
   }
   return null;
+}
+
+/**
+ * Records pinned to a chat (decision 2026-10-14 "Chat about this"), as cards: each opened
+ * through the chat, so everyone in it (the record's owner too) sees what the share shows. One
+ * that no longer opens (taken off, or turned off by its owner) is left out.
+ */
+export async function loadChatCards(groupId: string, pinned: ChatCard[]): Promise<HomeCard[]> {
+  const opened = await Promise.all(
+    pinned.map((c) =>
+      request<SharedOpened>("GET", `/api/groups/${enc(groupId)}/cards/${enc(c.share_id)}`)
+        .then((o) => chatCard(c, o))
+        // Gone (taken off, turned off): left out. No connection or a server error: the caller
+        // says so and keeps what it showed.
+        .catch((e: unknown) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        }),
+    ),
+  );
+  return opened.filter((c): c is HomeCard => c !== null);
+}
+
+/** A pinned record: its shown fields, then what's linked to it (a set list's songs). */
+function chatCard(c: ChatCard, o: SharedOpened): HomeCard | null {
+  if (o.share.kind !== "card" || !("record" in o)) return null;
+  const text = (d: string | string[] | null) => (Array.isArray(d) ? d.join(", ") : (d ?? ""));
+  // Dates in words ("Sat, 12 Dec 2026"), like everywhere else in the app.
+  const shown = (f: (typeof o.record.fields)[number]) =>
+    (f.type === "date" || f.type === "datetime") && typeof f.value === "string"
+      ? f.type === "date"
+        ? formatDateIST(f.value)
+        : formatDateTimeIST(f.value)
+      : text(f.display);
+  const fields = [
+    ...o.record.fields
+      .filter((f) => !f.title && text(f.display) !== "")
+      .map((f) => ({ name: f.name, display: shown(f) })),
+    ...o.sections.map((x) => ({
+      name: x.title,
+      display:
+        x.records
+          .slice(0, 6)
+          .map((r) => r.title)
+          .join(", ") || "None yet",
+    })),
+  ].slice(0, 10);
+  return {
+    id: `chat-card:${c.share_id}`,
+    view: null,
+    // Large: a pinned record is what the chat is about, so it shows up to eight rows.
+    spec: { version: CARD_VERSION, title: o.record.title, arrangement: "list-plain", size: "l", sources: [] },
+    collection: null,
+    colour: colourFor(o.record.title),
+    records: [],
+    total: null,
+    shared: { share_id: c.share_id, kind: "card", access: o.share.access, owner: c.owner, fields },
+  };
 }
 
 /** A process step waiting on people, drawn as a card: the question, who, and a way to answer. */

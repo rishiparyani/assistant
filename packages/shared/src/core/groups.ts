@@ -129,7 +129,23 @@ export interface GroupView {
   shared_answers: string[];
   /** Questions asked of everyone (by message id): the answers, who picked what, and mine. */
   polls: Record<string, PollView>;
+  /** Records pinned to this chat (decision 2026-10-14 "Chat about this"): each is the owner's
+   *  record seen through a share whose people follow the chat's; oldest first. */
+  cards: ChatCard[];
 }
+
+/** One record pinned to a chat: its owner's share (open it at /api/cards/:share_id). */
+export interface ChatCard {
+  share_id: string;
+  /** The record's title when it was pinned (the share has the live one). */
+  title: string;
+  owner_id: string;
+  owner: string;
+  added_at: string;
+}
+
+/** Taking a record off a chat (an admin, or the person whose record it is). */
+export const ChatCardRef = GroupRef.extend({ share_id: z.string().trim().min(1).max(40) });
 
 /** What the assistant proposes for a message someone wants to save (nothing is saved yet). */
 export interface SaveProposal {

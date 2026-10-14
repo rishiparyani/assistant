@@ -2,7 +2,7 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
+import { FlatList, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,6 +12,7 @@ import { LiveCard } from "@/components/LiveCard";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
+import { useKeyboardRoom } from "@/keyboard";
 
 const MAIN = "main";
 const enc = encodeURIComponent;
@@ -41,13 +42,9 @@ export default function Chat() {
   const [changed, setChanged] = useState<HistoryItem[]>([]);
   const [showChanges, setShowChanges] = useState(false);
   const list = useRef<FlatList<ChatItem>>(null);
-  // Where this sheet starts on the screen: the keyboard avoider measures from its own top,
-  // so inside a sheet it needs the sheet's offset to clear the keyboard fully.
-  const root = useRef<View>(null);
-  const [windowTop, setWindowTop] = useState(0);
-  const measure = useCallback(() => {
-    root.current?.measureInWindow((_x, y) => setWindowTop(Math.max(0, Math.round(y))));
-  }, []);
+  // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
+  // it first lays out, opened from Help or a card).
+  const { ref: root, room } = useKeyboardRoom();
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
   // The person's collections, once for every live card in the chat.
@@ -131,12 +128,8 @@ export default function Chat() {
   };
 
   return (
-    <View ref={root} onLayout={measure} style={[s.root, { backgroundColor: t.page }]}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={windowTop}
-        style={s.root}
-      >
+    <View ref={root} style={[s.root, { backgroundColor: t.page }]}>
+      <View style={[s.root, { paddingBottom: room }]}>
         <View style={s.head}>
           <Text style={[s.title, { color: t.fg }]}>{card ? card : "Gigspree"}</Text>
           {card ? (
@@ -228,7 +221,7 @@ export default function Chat() {
             <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 18, lineHeight: 20 }}>↑</Text>
           </Pressable>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </View>
   );
 }

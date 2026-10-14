@@ -177,6 +177,10 @@ A **quick add** (only when the person asks the chat for one): `add_fields: ["Wha
 | POST   | `/api/chat/actions/:action_id/confirm`           | Run what a card shows (once)                                                                  |
 | POST   | `/api/chat/actions/:action_id/cancel`            | Drop a card                                                                                   |
 | POST   | `/api/chat/feedback`                             | 👍 / 👎 on an answer (`{rating: good\|bad}`); only the rating is kept                         |
+| GET    | `/api/records/:record_id/chat`                   | Who a chat about a record would start with, and its fields (money hidden)                     |
+| POST   | `/api/records/:record_id/chat`                   | Start a chat about a record (`{chat_id, people?, hide_fields?, include?}`), or pin it to mine |
+| GET    | `/api/groups/:group_id/cards/:share_id`          | Open a record pinned to a chat I'm in                                                         |
+| DELETE | `/api/groups/:group_id/cards/:share_id`          | Take a record off a chat (admins, or its owner); its share goes off                           |
 | DELETE | `/api/chat`                                      | Clear the main chat (saved records stay)                                                      |
 | GET    | `/api/chats`                                     | My chats: `[{ id, title, updated_at }]`, `main` first                                         |
 | POST   | `/api/chats`                                     | New chat `{ id? }` (a ULID made on the device); 201 + the chat                                |
