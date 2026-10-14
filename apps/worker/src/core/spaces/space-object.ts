@@ -94,6 +94,7 @@ import {
   migrate,
   nowIso,
   type Actor,
+  type AuditEntry,
   type Migrations,
   bumpAndNote,
   clearOutbox,
@@ -435,6 +436,33 @@ const MIGRATIONS: Migrations = [
   create index workflow_jobs_due_idx on workflow_jobs (due_at);
   create index workflow_jobs_record_idx on workflow_jobs (workflow_id, record_id, kind);
   `,
+  // Safe undo (decision 2026-10-14 "Undo that can't damage data"): which changes were undone,
+  // and what a change led to (records a delete took with it; what workflows did or told
+  // people because of it), so Undo can put all of it back together.
+  `
+  create table undone (
+    change_id text primary key,
+    undo_id text not null
+  ) without rowid;
+  insert or ignore into undone (change_id, undo_id)
+    select json_extract(before_json, '$.change_id'), change_id from _audit
+    where action = 'undo' and change_id is not null and json_extract(before_json, '$.change_id') is not null;
+  create table followups (
+    id text primary key,
+    cause_id text not null,
+    kind text not null check (kind in ('cascade', 'change', 'told')),
+    change_id text,
+    workflow_id text,
+    people_json text,
+    detail text not null default '',
+    at text not null
+  );
+  create index followups_cause_idx on followups (cause_id);
+  create index followups_change_idx on followups (change_id);
+  alter table workflow_jobs add column cause_id text;
+  alter table workflow_waits add column cause_id text;
+  create index _audit_entity_idx on _audit (entity_id);
+  `,
 ];
 
 type ViewQuery = {
@@ -613,6 +641,8 @@ type WorkflowJobRow = {
   depth: number;
   /** A run going on after an "ask" step: the wait it comes from. */
   wait_id: string | null;
+  /** The change that started it (what Undo shows it led to). */
+  cause_id: string | null;
 };
 type WaitRow = {
   id: string;
@@ -629,6 +659,7 @@ type WaitRow = {
   loops_json: string | null;
   depth: number;
   until: "all" | "first";
+  cause_id: string | null;
 };
 type Loops = Record<string, number>;
 /** A proposal for the week (home-first.md §2 point 13): what to make, as a confirm card. */
@@ -699,6 +730,29 @@ const MAX_LINKED_SETS = 100;
 /** "For each" goes through at most this many records a run; a summary reads at most this many. */
 const MAX_FOR_EACH = 100;
 const MAX_SUMMARY_ROWS = 10_000;
+/**
+ * A value in "what changed" as the app shows it; `raw`: as the writer sent it ("500" for
+ * money), read the way the write read it, so both sides of "→" look the same.
+ */
+function shownValue(f: FieldRow | null, v: unknown, raw = false): string {
+  if (v === null || v === undefined || v === "") return "empty";
+  if (!f) return String(v);
+  try {
+    const value = raw ? normalizeValue(toField(f), v) : (v as StoredValue);
+    if ((f.type === "date" || f.type === "datetime") && typeof value === "string") return readableDate(value);
+    const shown = displayValue(f.type, value);
+    return Array.isArray(shown) ? shown.join(", ") : (shown ?? "empty");
+  } catch {
+    return String(v);
+  }
+}
+const capital = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+/** Later changes Undo would overwrite: who, which fields, and the newest of them. */
+type Later = { by: string[]; fields: string[]; through: string; seq: number };
+/** "Asha", "Asha and Kabir", "Asha, Kabir and Meera". */
+function sentence(xs: string[]): string {
+  return xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+}
 /** Fields a workflow's steps filter on or read (removing one would break it). */
 function flowFields(def: WorkflowDef): Set<string> {
   const ids = new Set<string>();
@@ -942,6 +996,7 @@ export class SpaceObject extends DurableObject<Env> {
     const hash = await hashOf(request);
     try {
       return idempotent(this.ctx.storage, key, hash, () => {
+        this.queued = [];
         const out = run(nowIso());
         this.changed();
         return out;
@@ -2356,7 +2411,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.logChange("record", id, "upsert", ts);
     // Workflows see the stored values, calculated ones included.
     this.queueWorkflows(c.id, id, null, this.currentValues(id));
-    audit(this.sql, actor, {
+    this.recordAudit(actor, {
       action: "add_record",
       entityType: "record",
       entityId: id,
@@ -2464,7 +2519,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.logChange("record", r.id, "upsert", ts);
     // Links and personal answers live apart from the values; they count as a change too.
     this.queueWorkflows(c.id, r.id, before, this.currentValues(r.id), links.size > 0 || answers.size > 0);
-    audit(this.sql, actor, {
+    this.recordAudit(actor, {
       action: "update_record",
       entityType: "record",
       entityId: r.id,
@@ -2487,7 +2542,14 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
-  private removeRecord(r: RecordRow, ts: string, actor: Actor, deleted: string[], depth: number) {
+  private removeRecord(
+    r: RecordRow,
+    ts: string,
+    actor: Actor,
+    deleted: string[],
+    depth: number,
+    cascadeOf: string | null = null,
+  ) {
     if (depth > 5 || deleted.includes(r.id)) return;
     // Records that point at this one, by the pointing field's rule.
     const incoming = this.sql
@@ -2510,24 +2572,40 @@ export class SpaceObject extends DurableObject<Env> {
         .toArray()
         .map((x) => x.to_id),
     ];
+    // The values stay on the record (soft delete); its links are kept with the entry, so
+    // Undo can put them back.
+    const linksOut = this.sql
+      .exec<{ field_id: string; to_id: string; position: number }>(
+        `select field_id, to_id, position from links where from_id = ?`,
+        r.id,
+      )
+      .toArray();
+    const linksIn = this.sql
+      .exec<{ field_id: string; from_id: string; position: number }>(
+        `select field_id, from_id, position from links where to_id = ?`,
+        r.id,
+      )
+      .toArray();
     this.sql.exec(`update records set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, r.id);
     this.sql.exec(`delete from record_values where record_id = ?`, r.id);
     this.sql.exec(`delete from record_words where record_id = ?`, r.id);
     deleted.push(r.id);
     this.logChange("record", r.id, "delete", ts);
-    audit(this.sql, actor, {
+    const changeId = this.recordAudit(actor, {
       action: "delete_record",
       entityType: "record",
       entityId: r.id,
-      before: { title: r.title },
+      before: { title: r.title, links_out: linksOut, links_in: linksIn },
     });
+    // A record this delete took with it comes back with it.
+    if (cascadeOf) this.addFollowup(cascadeOf, "cascade", changeId, null, null, r.title, ts);
     for (const l of incoming) {
       const rule = (JSON.parse(l.options_json) as FieldOptions).on_delete ?? "unlink";
       if (rule === "cascade") {
         const from = this.sql
           .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, l.from_id)
           .toArray()[0];
-        if (from) this.removeRecord(from, ts, actor, deleted, depth + 1);
+        if (from) this.removeRecord(from, ts, actor, deleted, depth + 1, changeId);
       } else {
         this.sql.exec(
           `delete from links where field_id = ? and from_id = ? and to_id = ?`,
@@ -3585,13 +3663,159 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   // --- What changed, and Undo (home-first.md §2 decision 14) ------------------------------
-  // Read from the audit log the writes already keep. An add or a change can be undone (the
-  // values go back); a delete can't, its values are gone with it.
+  // Read from the audit log the writes already keep (decision 2026-10-14 "Undo that can't
+  // damage data"). An add, a change and a delete can be undone. Undo never overwrites a later
+  // change without saying so, brings back what a delete took with it, can undo what workflows
+  // did because of the change, and tells the people a workflow told that it was undone.
+
+  /** Writes a record's audit entry: the jobs it queued and the run it belongs to point at it. */
+  private recordAudit(actor: Actor, entry: AuditEntry): string {
+    const id = audit(this.sql, actor, entry);
+    for (const j of this.queued.splice(0))
+      this.sql.exec(`update workflow_jobs set cause_id = ? where id = ?`, id, j);
+    if (this.runCause)
+      this.addFollowup(this.runCause.changeId, "change", id, this.runCause.workflowId, null, "", nowIso());
+    return id;
+  }
+
+  private addFollowup(
+    causeId: string,
+    kind: "cascade" | "change" | "told",
+    changeId: string | null,
+    workflowId: string | null,
+    people: string[] | null,
+    detail: string,
+    ts: string,
+  ) {
+    this.sql.exec(
+      `insert into followups (id, cause_id, kind, change_id, workflow_id, people_json, detail, at) values (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ulid(),
+      causeId,
+      kind,
+      changeId,
+      workflowId,
+      people ? JSON.stringify(people) : null,
+      detail.slice(0, 300),
+      ts,
+    );
+  }
+
+  private isUndone(changeId: string): boolean {
+    return this.sql.exec(`select 1 from undone where change_id = ?`, changeId).toArray().length > 0;
+  }
+
+  /** What a change led to, through workflows (and what those led to), at most 50 steps. */
+  private followupsOf(changeId: string): {
+    changes: string[];
+    cascades: string[];
+    told: { cause_id: string; people: string[]; detail: string }[];
+  } {
+    const changes: string[] = [];
+    const cascades: string[] = [];
+    const told: { cause_id: string; people: string[]; detail: string }[] = [];
+    const queue = [changeId];
+    const seen = new Set(queue);
+    while (queue.length && seen.size < 50) {
+      const id = queue.shift()!;
+      for (const f of this.sql
+        .exec<{ kind: string; change_id: string | null; people_json: string | null; detail: string }>(
+          `select kind, change_id, people_json, detail from followups where cause_id = ? order by at`,
+          id,
+        )
+        .toArray()) {
+        if (f.kind === "told") {
+          told.push({
+            cause_id: id,
+            people: JSON.parse(f.people_json ?? "[]") as string[],
+            detail: f.detail,
+          });
+          continue;
+        }
+        if (!f.change_id || seen.has(f.change_id)) continue;
+        seen.add(f.change_id);
+        // A delete's cascade belongs to that delete; a workflow's change can be undone or kept.
+        if (f.kind === "cascade") {
+          if (id === changeId) cascades.push(f.change_id);
+        } else changes.push(f.change_id);
+        queue.push(f.change_id);
+      }
+    }
+    return { changes, cascades, told };
+  }
+
+  /** Changes to a record after this entry that Undo would overwrite (or remove), not undone. */
+  private laterChanges(
+    actor: Actor,
+    seq: number,
+    recordId: string,
+    fieldIds: string[] | null,
+    skip: Set<string> = new Set(),
+  ): Later | null {
+    const rows = this.sql
+      .exec<{
+        id: number;
+        change_id: string;
+        actor_user_id: string | null;
+        source: string;
+        before_json: string | null;
+      }>(
+        `select id, change_id, actor_user_id, source, before_json from _audit
+         where entity_id = ? and id > ? and action = 'update_record' and change_id is not null order by id`,
+        recordId,
+        seq,
+      )
+      .toArray()
+      .filter((r) => !skip.has(r.change_id) && !this.isUndone(r.change_id));
+    const by = new Set<string>();
+    const touched = new Set<string>();
+    let last: { id: number; change_id: string } | null = null;
+    for (const r of rows) {
+      const keys = Object.keys((JSON.parse(r.before_json ?? "{}") ?? {}) as object);
+      const hit = fieldIds ? keys.filter((k) => fieldIds.includes(k)) : keys;
+      if (!hit.length) continue;
+      by.add(this.whoDid(actor, r.actor_user_id, r.source));
+      hit.forEach((k) => touched.add(k));
+      last = r;
+    }
+    if (!last) return null;
+    const names = [...touched].map((k) => this.liveField(k)?.name ?? k);
+    return { by: [...by], fields: names, through: last.change_id, seq: last.id };
+  }
+
+  /** What undoing this entry would overwrite (an add or a change; a delete overwrites nothing). */
+  private conflictOf(actor: Actor, changeId: string, skip: Set<string>): Later | null {
+    const row = this.sql
+      .exec<{ seq: number; action: string; entity_id: string; before_json: string | null }>(
+        `select id as seq, action, entity_id, before_json from _audit where change_id = ?`,
+        changeId,
+      )
+      .toArray()[0];
+    if (!row || (row.action !== "update_record" && row.action !== "add_record")) return null;
+    const r = this.liveRecord(row.entity_id);
+    if (!r) return null;
+    if (row.action === "add_record") return this.laterChanges(actor, row.seq, r.id, null, skip);
+    const before = (JSON.parse(row.before_json ?? "{}") ?? {}) as Record<string, unknown>;
+    const fields = Object.keys(this.revertible(this.fieldRows(r.collection_id), before));
+    return fields.length ? this.laterChanges(actor, row.seq, r.id, fields, skip) : null;
+  }
+
+  private whoDid(actor: Actor, userId: string | null, source: string): string {
+    // A workflow runs as the person who made it; it still says it was the workflow.
+    if (source === "system") return "a workflow";
+    return this.personCalled(actor, userId);
+  }
+
+  /** "you" for the person asking, otherwise the member's name. */
+  private personCalled(actor: Actor, userId: string | null): string {
+    if (userId && userId === actor.userId) return "you";
+    return this.memberName(userId) ?? "someone";
+  }
 
   async history(actor: Actor, limit: number): Promise<HistoryItem[]> {
     this.role(actor);
     type Row = {
       id: string;
+      seq: number;
       at: string;
       actor_user_id: string | null;
       source: string;
@@ -3602,55 +3826,31 @@ export class SpaceObject extends DurableObject<Env> {
     };
     const rows = this.sql
       .exec<Row>(
-        `select change_id as id, at, actor_user_id, source, action, entity_id, before_json, after_json from _audit
+        `select change_id as id, id as seq, at, actor_user_id, source, action, entity_id, before_json, after_json from _audit
          where change_id is not null and entity_type = 'record'
-           and action in ('add_record', 'update_record', 'delete_record', 'undo')
-         order by rowid desc limit ?`,
+           and action in ('add_record', 'update_record', 'delete_record')
+         order by id desc limit ?`,
         limit * 2,
       )
       .toArray();
-    const undone = new Map<string, string>();
-    for (const r of rows)
-      if (r.action === "undo") {
-        const b = JSON.parse(r.before_json ?? "{}") as { change_id?: string };
-        if (b.change_id) undone.set(b.change_id, r.id);
-      }
-    const names = new Map(
-      this.sql
-        .exec<{ user_id: string; name: string }>(`select user_id, name from members`)
-        .toArray()
-        .map((m) => [m.user_id, m.name]),
-    );
     const out: HistoryItem[] = [];
     for (const r of rows) {
-      if (r.action === "undo") continue;
       const rec = this.sql
-        .exec<{ title: string; collection_id: string; deleted_at: string | null }>(
-          `select title, collection_id, deleted_at from records where id = ?`,
+        .exec<{ title: string; collection_id: string; deleted_at: string | null; values_json: string }>(
+          `select title, collection_id, deleted_at, values_json from records where id = ?`,
           r.entity_id,
         )
         .toArray()[0];
       if (!rec) continue;
       const c = this.sql
-        .exec<{ name: string }>(`select name from collections where id = ?`, rec.collection_id)
+        .exec<{ name: string; deleted_at: string | null }>(
+          `select name, deleted_at from collections where id = ?`,
+          rec.collection_id,
+        )
         .toArray()[0];
       const fields = this.fieldRows(rec.collection_id);
       const before = (JSON.parse(r.before_json ?? "null") ?? {}) as Record<string, unknown>;
       const after = (JSON.parse(r.after_json ?? "null") ?? {}) as Record<string, unknown>;
-      // Stored values show as the app shows them; what the writer sent ("500" for money)
-      // is read the way the write read it, so both sides of "→" look the same.
-      const show = (f: FieldRow | null, v: unknown, raw = false) => {
-        if (v === null || v === undefined || v === "") return "empty";
-        if (!f) return String(v);
-        try {
-          const value = raw ? normalizeValue(toField(f), v) : (v as StoredValue);
-          if ((f.type === "date" || f.type === "datetime") && typeof value === "string")
-            return readableDate(value);
-          return displayValue(f.type, value);
-        } catch {
-          return String(v);
-        }
-      };
       const field = (k: string) => {
         try {
           return this.matchField(fields, k);
@@ -3665,22 +3865,53 @@ export class SpaceObject extends DurableObject<Env> {
         for (const [k, was] of Object.entries(before)) {
           const f = field(k);
           const now = afterByKey.get(f?.id ?? k);
-          lines.push(`${f?.name ?? k}: ${show(f, was)} → ${show(f, now, true)}`);
+          lines.push(`${f?.name ?? k}: ${shownValue(f, was)} → ${shownValue(f, now, true)}`);
         }
       } else if (r.action === "add_record") {
         for (const [k, v] of Object.entries(after)) {
           const f = field(k);
-          lines.push(`${f?.name ?? k}: ${show(f, v, true)}`);
+          lines.push(`${f?.name ?? k}: ${shownValue(f, v, true)}`);
         }
+      } else {
+        // A delete: what the record held (its values stay with it).
+        const values = JSON.parse(rec.values_json) as Record<string, unknown>;
+        for (const f of fields)
+          if (values[f.id] !== undefined && values[f.id] !== null && values[f.id] !== "")
+            lines.push(`${f.name}: ${shownValue(f, values[f.id])}`);
       }
       const action = r.action as HistoryItem["action"];
-      // Undo must be able to do something: the record still there, and for a change at least
-      // one field that can be put back (not a link, not calculated).
+      const undone = this.sql
+        .exec<{ undo_id: string }>(`select undo_id from undone where change_id = ?`, r.id)
+        .toArray()[0];
+      // Undo must be able to do something: an add or a change needs the record still there
+      // (and a change a field that can be put back); a delete needs it gone and its list there.
       const canUndo =
-        !rec.deleted_at &&
-        !undone.has(r.id) &&
-        (action === "add_record" ||
-          (action === "update_record" && Object.keys(this.revertible(fields, before)).length > 0));
+        !undone &&
+        (action === "delete_record"
+          ? !!rec.deleted_at && !c?.deleted_at
+          : !rec.deleted_at &&
+            (action === "add_record" || Object.keys(this.revertible(fields, before)).length > 0));
+      const later = canUndo ? this.conflictOf(actor, r.id, new Set([r.id])) : null;
+      const led = this.followupsOf(r.id);
+      const followups = led.changes.flatMap((id) => {
+        const e = this.sql
+          .exec<{ action: string; entity_id: string }>(
+            `select action, entity_id from _audit where change_id = ?`,
+            id,
+          )
+          .toArray()[0];
+        if (!e) return [];
+        const t = this.sql
+          .exec<{ title: string; deleted_at: string | null }>(
+            `select title, deleted_at from records where id = ?`,
+            e.entity_id,
+          )
+          .toArray()[0];
+        const verb =
+          e.action === "add_record" ? "Added" : e.action === "delete_record" ? "Deleted" : "Changed";
+        return [{ id, line: `${verb} “${t?.title ?? "a record"}”`, undoable: !this.isUndone(id) && !!t }];
+      });
+      const told = [...new Set(led.told.flatMap((x) => x.people))].map((u) => this.personCalled(actor, u));
       out.push({
         id: r.id,
         at: r.at,
@@ -3689,63 +3920,224 @@ export class SpaceObject extends DurableObject<Env> {
         title: rec.title,
         collection: c?.name ?? "",
         lines,
-        by: r.actor_user_id === actor.userId ? "you" : (names.get(r.actor_user_id ?? "") ?? r.source),
+        by: this.whoDid(actor, r.actor_user_id, r.source),
         source: r.source,
         undoable: canUndo,
-        undone_by: undone.get(r.id) ?? null,
+        undone_by: undone?.undo_id ?? null,
+        changed_since: later ? { by: later.by, fields: later.fields, through: later.through } : null,
+        followups,
+        told,
+        also_restores: action === "delete_record" ? led.cascades.length : 0,
       });
       if (out.length >= limit) break;
     }
     return out;
   }
 
-  /** Puts a change back (values as they were) or removes an added record. */
+  /**
+   * Undoes a change: a changed record gets its earlier values back, an added one is removed,
+   * a deleted one comes back with its links (and what the delete took with it). A later
+   * change it would overwrite stops it unless `force`. `with`: things this change led to
+   * (from `followups`) to undo too, newest first. People a workflow told hear it was undone.
+   */
   async undo(
     actor: Actor,
     key: string | null,
     changeId: string,
-  ): Promise<{ undone: string; record: RecordView | null }> {
-    return this.write(actor, key, ["undo", changeId], (ts) => {
-      const row = this.sql
-        .exec<{
-          id: string;
-          action: string;
-          entity_type: string;
-          entity_id: string;
-          before_json: string | null;
-        }>(
-          `select change_id as id, action, entity_type, entity_id, before_json from _audit where change_id = ?`,
-          changeId,
-        )
-        .toArray()[0];
-      if (!row || row.entity_type !== "record") throw new ObjectError("not_found", "No such change");
-      const already = this.sql
-        .exec<{ n: number }>(
-          `select count(*) as n from _audit where action = 'undo' and before_json like ?`,
-          `%"change_id":"${row.id}"%`,
-        )
-        .one().n;
-      if (already) throw new ObjectError("conflict", "That change was already undone");
-      let record: RecordView | null = null;
-      if (row.action === "update_record") {
-        const before = (JSON.parse(row.before_json ?? "{}") ?? {}) as Record<string, unknown>;
-        const r = this.requireRecord(row.entity_id);
-        const values = this.revertible(this.fieldRows(r.collection_id), before);
-        if (!Object.keys(values).length)
-          throw new ObjectError("conflict", "Nothing in that change can be put back");
-        record = this.changeRecord(actor, ts, r, { values });
-      } else if (row.action === "add_record") {
-        const deleted: string[] = [];
-        this.removeRecord(this.requireRecord(row.entity_id), ts, actor, deleted, 0);
-      } else throw new ObjectError("conflict", "A delete can't be undone: its values are gone");
-      audit(this.sql, actor, {
-        action: "undo",
-        entityType: "record",
-        entityId: row.entity_id,
-        before: { change_id: row.id, action: row.action },
-      });
-      return { undone: row.id, record };
+    opts: { force_through?: string | null; with?: string[] } = {},
+  ): Promise<{ undone: string; also: string[]; record: RecordView | null }> {
+    const extra = [...new Set(opts.with ?? [])];
+    const through = opts.force_through ?? null;
+    return this.write(actor, key, ["undo", changeId, through, [...extra].sort()], (ts) => {
+      const led = this.followupsOf(changeId);
+      for (const x of extra)
+        if (!led.changes.includes(x))
+          throw new ObjectError("validation_failed", "That isn't something this change led to");
+      const seq = (id: string) =>
+        this.sql.exec<{ id: number }>(`select id from _audit where change_id = ?`, id).toArray()[0]?.id ?? 0;
+      // Everything this undo would overwrite, across all it undoes, is said at once; the
+      // person's "undo anyway" covers only the later changes they were shown (up to
+      // `force_through`), so one made since stops it again. Changes undone together don't count.
+      const together = new Set([changeId, ...extra]);
+      const later = [...together]
+        .filter((id) => !this.isUndone(id))
+        .map((id) => this.conflictOf(actor, id, together))
+        .filter((x): x is Later => x !== null);
+      const accepted = through ? seq(through) : 0;
+      if (later.some((l) => l.seq > accepted)) {
+        const newest = later.reduce((a, b) => (b.seq > a.seq ? b : a));
+        const by = [...new Set(later.flatMap((l) => l.by))];
+        const fields = [...new Set(later.flatMap((l) => l.fields))];
+        throw new ObjectError(
+          "conflict",
+          `${capital(sentence(by))} changed ${sentence(fields)} after this. Undo anyway to put back the earlier values?`,
+          { reason: "changed_since", by, fields, through: newest.through },
+        );
+      }
+      const also: string[] = [];
+      for (const id of extra.sort((a, b) => seq(b) - seq(a)))
+        if (!this.isUndone(id)) {
+          this.undoOne(actor, ts, id);
+          also.push(id);
+        }
+      const record = this.undoOne(actor, ts, changeId);
+      this.tellUndone(actor, [changeId, ...also], ts);
+      return { undone: changeId, also, record };
     });
+  }
+
+  /** One entry, once `undo` has checked what it would overwrite. */
+  private undoOne(actor: Actor, ts: string, changeId: string): RecordView | null {
+    const row = this.sql
+      .exec<{
+        id: string;
+        seq: number;
+        action: string;
+        entity_type: string;
+        entity_id: string;
+        before_json: string | null;
+      }>(
+        `select change_id as id, id as seq, action, entity_type, entity_id, before_json from _audit where change_id = ?`,
+        changeId,
+      )
+      .toArray()[0];
+    if (
+      !row ||
+      row.entity_type !== "record" ||
+      !["add_record", "update_record", "delete_record"].includes(row.action)
+    )
+      throw new ObjectError("not_found", "No such change");
+    if (this.isUndone(row.id)) throw new ObjectError("conflict", "That change was already undone");
+    const before = (JSON.parse(row.before_json ?? "{}") ?? {}) as Record<string, unknown>;
+    let record: RecordView | null = null;
+    if (row.action === "update_record") {
+      const r = this.liveRecord(row.entity_id);
+      if (!r) throw new ObjectError("conflict", "That record was deleted; undo the delete first");
+      const values = this.revertible(this.fieldRows(r.collection_id), before);
+      if (!Object.keys(values).length)
+        throw new ObjectError("conflict", "Nothing in that change can be put back");
+      record = this.changeRecord(actor, ts, r, { values });
+    } else if (row.action === "add_record") {
+      const r = this.liveRecord(row.entity_id);
+      if (!r) throw new ObjectError("conflict", "It's already gone");
+      this.removeRecord(r, ts, actor, [], 0);
+    } else {
+      record = this.restoreRecord(actor, ts, row.entity_id, before);
+      // What the delete took with it comes back with it.
+      for (const child of this.followupsOf(row.id).cascades)
+        if (!this.isUndone(child)) this.undoOne(actor, ts, child);
+    }
+    const undoId = audit(this.sql, actor, {
+      action: "undo",
+      entityType: "record",
+      entityId: row.entity_id,
+      before: { change_id: row.id, action: row.action },
+    });
+    this.sql.exec(`insert into undone (change_id, undo_id) values (?, ?)`, row.id, undoId);
+    return record;
+  }
+
+  /** Brings a deleted record back: its values (kept on it), its index, and its links. */
+  private restoreRecord(
+    actor: Actor,
+    ts: string,
+    recordId: string,
+    before: Record<string, unknown>,
+  ): RecordView {
+    const rec = this.sql
+      .exec<RecordRow & { deleted_at: string | null }>(`select * from records where id = ?`, recordId)
+      .toArray()[0];
+    if (!rec) throw new ObjectError("not_found", "Record not found");
+    if (!rec.deleted_at) throw new ObjectError("conflict", "It's already back");
+    const c = this.sql
+      .exec<CollectionRow>(`select * from collections where id = ? and deleted_at is null`, rec.collection_id)
+      .toArray()[0];
+    if (!c) throw new ObjectError("conflict", "Its list was deleted");
+    this.sql.exec(`update records set deleted_at = null where id = ?`, recordId);
+    this.saveRecord(
+      recordId,
+      c,
+      this.fieldRows(c.id),
+      JSON.parse(rec.values_json) as Record<string, StoredValue>,
+      ts,
+      actor,
+      false,
+    );
+    type Out = { field_id: string; to_id: string; position: number };
+    type In = { field_id: string; from_id: string; position: number };
+    const near: string[] = [];
+    const relink = (fieldId: string, from: string, to: string, position: number) => {
+      const f = this.liveField(fieldId);
+      if (!f || f.type !== "link" || !this.liveRecord(from) || !this.liveRecord(to)) return;
+      // A one-link field that points elsewhere now keeps what it has.
+      if (!toField(f).options.many && this.linkRows(f.id, from).some((l) => l.to_id !== to)) return;
+      this.sql.exec(
+        `insert or ignore into links (field_id, from_id, to_id, position, created_at) values (?, ?, ?, ?, ?)`,
+        f.id,
+        from,
+        to,
+        position,
+        ts,
+      );
+      near.push(from === recordId ? to : from);
+      if (from !== recordId) this.logChange("record", from, "upsert", ts);
+    };
+    for (const l of (before.links_out ?? []) as Out[]) relink(l.field_id, recordId, l.to_id, l.position);
+    for (const l of (before.links_in ?? []) as In[]) relink(l.field_id, l.from_id, recordId, l.position);
+    this.recomputeAround(recordId, near);
+    // The list's rules hold for it as for a new record (another may have taken its place
+    // meanwhile), and for the records it links with again.
+    this.enforceRules(c, recordId, null, this.currentValues(recordId));
+    for (const id of new Set(near)) {
+      const other = this.liveRecord(id);
+      if (other) this.enforceLinkRules(other);
+    }
+    this.logChange("record", recordId, "upsert", ts);
+    // Date workflows schedule it again; nothing "added" or "changed" fires for a restore.
+    const values = this.currentValues(recordId);
+    this.queueWorkflows(c.id, recordId, values, values);
+    for (const j of this.queued.splice(0))
+      this.sql.exec(`update workflow_jobs set cause_id = null where id = ?`, j);
+    return this.recordView(this.requireRecord(recordId), actor);
+  }
+
+  /** People a workflow told because of these changes hear that they were undone. */
+  private tellUndone(actor: Actor, changeIds: string[], ts: string) {
+    const name = this.memberName(actor.userId) ?? "Someone";
+    const sent = new Set<string>();
+    for (const id of changeIds)
+      for (const t of this.sql
+        .exec<{ people_json: string | null; detail: string }>(
+          `select people_json, detail from followups where cause_id = ? and kind = 'told'`,
+          id,
+        )
+        .toArray())
+        for (const u of JSON.parse(t.people_json ?? "[]") as string[]) {
+          const k = `${u}:${t.detail}`;
+          if (u === actor.userId || sent.has(k)) continue;
+          sent.add(k);
+          const note: NewNotification = {
+            kind: "undo",
+            title: `${name} undid a change`,
+            body: t.detail
+              ? `You were told: “${t.detail}”. That was undone.`
+              : "Something you were told about was undone.",
+          };
+          this.sql.exec(
+            `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+            ulid(),
+            u,
+            JSON.stringify(note),
+            ts,
+          );
+        }
+  }
+
+  private memberName(userId: string | null): string | null {
+    return (
+      this.sql.exec<{ name: string }>(`select name from members where user_id = ?`, userId ?? "").toArray()[0]
+        ?.name ?? null
+    );
   }
 
   /** The stored values of a change that a write can put back (as a write takes them). */
@@ -4649,6 +5041,10 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** How deep in a chain of workflow runs the current write is (0: a person's write). */
   private wfDepth = 0;
+  /** Jobs a record write just queued: they get the write's change id as their cause. */
+  private queued: string[] = [];
+  /** The change a running workflow comes from: what it changes and tells is kept under it. */
+  private runCause: { changeId: string; workflowId: string } | null = null;
 
   async listWorkflows(actor: Actor): Promise<WorkflowView[]> {
     this.role(actor);
@@ -5265,7 +5661,7 @@ export class SpaceObject extends DurableObject<Env> {
                 [...new Set([...Object.keys(before), ...Object.keys(after)])].some(
                   (k) => !same(before[k], after[k]),
                 ));
-      if (fire) this.addJob(w.id, recordId, "event", now + def.wait_minutes * 60_000);
+      if (fire) this.queued.push(this.addJob(w.id, recordId, "event", now + def.wait_minutes * 60_000));
     }
   }
 
@@ -5288,7 +5684,7 @@ export class SpaceObject extends DurableObject<Env> {
     const at = Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(v) ? `${v}T${DAY_TIME_IST}` : v);
     if (Number.isNaN(at)) return;
     const due = at + (def.when.offset_minutes + def.wait_minutes) * 60_000;
-    if (due > now) this.addJob(workflowId, recordId, "date", due);
+    if (due > now) this.queued.push(this.addJob(workflowId, recordId, "date", due));
   }
 
   /** A date workflow just turned on: schedules every record that already has a date. */
@@ -5325,16 +5721,23 @@ export class SpaceObject extends DurableObject<Env> {
       this.addJob(workflowId, "", "schedule", nextScheduleTime(def.when.schedule, afterMs));
   }
 
-  private addJob(workflowId: string, recordId: string, kind: "event" | "date" | "schedule", dueMs: number) {
+  private addJob(
+    workflowId: string,
+    recordId: string,
+    kind: "event" | "date" | "schedule",
+    dueMs: number,
+  ): string {
+    const id = ulid();
     this.sql.exec(
       `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth) values (?, ?, ?, ?, ?, ?)`,
-      ulid(),
+      id,
       workflowId,
       recordId,
       kind,
       new Date(dueMs).toISOString(),
       this.wfDepth,
     );
+    return id;
   }
 
   /** Runs the jobs that are due (a few at a time; the alarm comes back for the rest). */
@@ -5347,9 +5750,13 @@ export class SpaceObject extends DurableObject<Env> {
       .toArray();
     for (const j of jobs) {
       try {
-        // The steps and the notifications to send are saved together.
+        // The steps and the notifications to send are saved together. What the run changes
+        // and tells is kept under the change that started it (Undo shows it).
+        this.queued = [];
+        this.runCause = j.cause_id ? { changeId: j.cause_id, workflowId: j.workflow_id } : null;
         this.ctx.storage.transactionSync(() => {
-          for (const t of this.runJob(j))
+          const tell = this.runJob(j);
+          for (const t of tell)
             this.sql.exec(
               `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
               ulid(),
@@ -5357,6 +5764,17 @@ export class SpaceObject extends DurableObject<Env> {
               JSON.stringify(t.n),
               nowIso(),
             );
+          if (this.runCause && tell.length)
+            for (const title of new Set(tell.map((t) => t.n.title)))
+              this.addFollowup(
+                this.runCause.changeId,
+                "told",
+                null,
+                j.workflow_id,
+                [...new Set(tell.filter((t) => t.n.title === title).map((t) => t.userId))],
+                title,
+                nowIso(),
+              );
         });
       } catch (e) {
         // The steps rolled back; note why, so the history says what happened.
@@ -5387,6 +5805,8 @@ export class SpaceObject extends DurableObject<Env> {
         });
       } finally {
         this.wfDepth = 0;
+        this.runCause = null;
+        this.queued = [];
       }
     }
     this.ctx.storage.transactionSync(() => {
@@ -5623,8 +6043,8 @@ export class SpaceObject extends DurableObject<Env> {
           ? new Date(Date.now() + a.nudge_minutes * 60_000).toISOString()
           : null;
         this.sql.exec(
-          `insert into workflow_waits (id, workflow_id, record_id, step, question_id, asked_at, nudge_minutes, next_nudge_at, nudges, loops, loops_json, depth, until)
-           values (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
+          `insert into workflow_waits (id, workflow_id, record_id, step, question_id, asked_at, nudge_minutes, next_nudge_at, nudges, loops, loops_json, depth, until, cause_id)
+           values (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)`,
           ulid(),
           w.id,
           r.id,
@@ -5636,6 +6056,7 @@ export class SpaceObject extends DurableObject<Env> {
           JSON.stringify(loops),
           this.wfDepth,
           a.until,
+          this.runCause?.changeId ?? null,
         );
         for (const p of people)
           tell.push({
@@ -5826,12 +6247,14 @@ export class SpaceObject extends DurableObject<Env> {
             : answered.map((p) => `${p.name}: ${p.answer}`).join(" · ");
         // As deep in the chain as the run that asked: a workflow this change starts counts on.
         this.wfDepth = wait.depth + 1;
+        this.runCause = wait.cause_id ? { changeId: wait.cause_id, workflowId: wait.workflow_id } : null;
         try {
           this.changeRecord({ userId: w.created_by, source: "system" }, nowIso(), r, {
             values: { [step.save_to]: kept },
           });
         } finally {
           this.wfDepth = 0;
+          this.runCause = null;
         }
       }
       this.noteRun(
@@ -5849,13 +6272,14 @@ export class SpaceObject extends DurableObject<Env> {
       this.sql.exec(`update questions set closed_at = ? where id = ? and closed_at is null`, nowIso(), q.id);
       this.sql.exec(`update workflow_waits set next_nudge_at = 'resumed' where id = ?`, wait.id);
       this.sql.exec(
-        `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth, wait_id) values (?, ?, ?, 'event', ?, ?, ?)`,
+        `insert into workflow_jobs (id, workflow_id, record_id, kind, due_at, depth, wait_id, cause_id) values (?, ?, ?, 'event', ?, ?, ?, ?)`,
         ulid(),
         wait.workflow_id,
         wait.record_id,
         nowIso(),
         wait.depth,
         wait.id,
+        wait.cause_id,
       );
     }
     if (waits.length) void this.wakeForJobs();

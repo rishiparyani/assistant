@@ -677,6 +677,7 @@ export class BookingObject extends DurableObject<Env> {
       const holds = this.eventRows().filter((e) => e.hold === 1);
       let picked: string[] = [];
       let released: string[] = [];
+      let releasedLineup: unknown[] = [];
       if (holds.length && action === "complete")
         throw new ObjectError("conflict", "Confirm which date the client picked first", {
           reason: "pick_date",
@@ -694,6 +695,11 @@ export class BookingObject extends DurableObject<Env> {
         for (const e of holds) {
           if (wanted.has(e.id)) this.sql.exec(`update events set hold = 0 where id = ?`, e.id);
           else {
+            // A released date's lineup goes with it; the audit keeps it.
+            releasedLineup = [
+              ...releasedLineup,
+              ...this.sql.exec(`select * from lineup where event_id = ?`, e.id).toArray(),
+            ];
             this.sql.exec(`update events set deleted_at = ? where id = ?`, ts, e.id);
             this.sql.exec(`delete from lineup where event_id = ?`, e.id);
           }
@@ -735,7 +741,7 @@ export class BookingObject extends DurableObject<Env> {
         action: `${action}_gig`,
         entityType: "gig",
         entityId: gig.id,
-        before: { status: gig.status },
+        before: { status: gig.status, ...(releasedLineup.length ? { released_lineup: releasedLineup } : {}) },
         after: {
           status: t.to,
           reason: action === "cancel" ? reason : undefined,
@@ -856,11 +862,19 @@ export class BookingObject extends DurableObject<Env> {
         throw new ObjectError("conflict", "A gig needs at least one show; delete the gig instead", {
           reason: "last_show",
         });
+      // The lineup (shares) and who said they're going go with the show; the audit keeps them.
+      const lineup = this.sql.exec(`select * from lineup where event_id = ?`, e.id).toArray();
+      const attendance = this.sql.exec(`select * from attendance where event_id = ?`, e.id).toArray();
       this.sql.exec(`update events set deleted_at = ? where id = ?`, nowIso(), e.id);
       this.sql.exec(`delete from lineup where event_id = ?`, e.id);
       this.sql.exec(`delete from attendance where event_id = ?`, e.id);
       this.touch(gig.id);
-      return { action: "remove_event", entityType: "event", entityId: e.id, before: e };
+      return {
+        action: "remove_event",
+        entityType: "event",
+        entityId: e.id,
+        before: { ...e, lineup, attendance },
+      };
     });
   }
 
@@ -938,6 +952,9 @@ export class BookingObject extends DurableObject<Env> {
               reason: "has_payouts",
             },
           );
+        // Their lineup places (shares) and answers go; the audit keeps them.
+        const lineup = this.sql.exec(`select * from lineup where person_id = ?`, p.id).toArray();
+        const attendance = this.sql.exec(`select * from attendance where person_id = ?`, p.id).toArray();
         this.sql.exec(`update people set removed_at = ? where id = ?`, nowIso(), p.id);
         this.sql.exec(`delete from lineup where person_id = ?`, p.id);
         this.sql.exec(`delete from attendance where person_id = ?`, p.id);
@@ -946,7 +963,7 @@ export class BookingObject extends DurableObject<Env> {
           action: "remove_person",
           entityType: "person",
           entityId: p.id,
-          before: { name: p.name, role: p.role },
+          before: { name: p.name, role: p.role, lineup, attendance },
         };
       },
       { returnView: !removingSelf },
