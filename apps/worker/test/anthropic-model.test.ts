@@ -2,7 +2,7 @@
 // only through the scorecard until one wins, only with the key in, on Anthropic's own credit;
 // the conversation crosses to the Messages API's shape and back without losing a tool call.
 import { describe, expect, it } from "vitest";
-import { modelsFor, type AiSettings } from "../src/core/assistant/models.ts";
+import { MODELS, costPaise, modelsFor, type AiSettings } from "../src/core/assistant/models.ts";
 import { fromAnthropic, toAnthropic, type ChatMessage } from "../src/core/assistant/client.ts";
 
 const base: AiSettings = {
@@ -84,6 +84,7 @@ describe("Claude models", () => {
 
     const answer = fromAnthropic({
       content: [
+        { type: "thinking", thinking: "", signature: "sig-1" },
         { type: "text", text: "Adding it. " },
         { type: "tool_use", id: "toolu_3", name: "add_record", input: { values: { Title: "Buy strings" } } },
       ],
@@ -104,6 +105,30 @@ describe("Claude models", () => {
       },
     ]);
     // Input is the whole prompt; cached says how much of it the model reused.
-    expect(answer.usage).toEqual({ input: 10_000, output: 50, cached: 9_000 });
+    expect(answer.usage).toEqual({ input: 10_000, output: 50, cached: 9_000, cacheWrite: 0 });
+    // Its thinking comes back opaque, and goes out again first in the same turn's assistant
+    // message (Anthropic requires it with that turn's tool results).
+    expect(answer.opaque).toEqual([{ type: "thinking", thinking: "", signature: "sig-1" }]);
+    const again = toAnthropic([
+      { role: "user", content: "Remind me" },
+      { role: "assistant", content: answer.content, tool_calls: answer.tool_calls, opaque: answer.opaque },
+      { role: "tool", content: "{}", tool_call_id: "toolu_3" },
+    ]);
+    expect(again.messages[1]!.content.map((b) => b.type)).toEqual(["thinking", "text", "tool_use"]);
+  });
+
+  it("prices cached input at the maker's cache rates", () => {
+    const haiku = MODELS.find((m) => m.id === "claude-haiku-5-5")!;
+    // 10,000 input tokens at $0.10/M is $0.001 = 9 paise at ₹90; with 9,000 of them cache reads
+    // (a tenth of the price) and 1,000 fresh: 1,000 + 900 = 1,900 token-equivalents = 1.71 paise → 2.
+    expect(costPaise(haiku, { input: 10_000, output: 0 }, 90)).toBe(9);
+    expect(costPaise(haiku, { input: 10_000, output: 0, cached: 9_000 }, 90)).toBe(2);
+    // A cache write costs 1.25×: 10,000 written = 12,500 → 11.25 paise → 12.
+    expect(costPaise(haiku, { input: 10_000, output: 0, cacheWrite: 10_000 }, 90)).toBe(12);
+    // A maker without cache prices charges every token in full.
+    const glm = MODELS.find((m) => m.id === "@cf/zai-org/glm-4.7-flash")!;
+    expect(costPaise(glm, { input: 10_000, output: 0, cached: 9_000 }, 90)).toBe(
+      costPaise(glm, { input: 10_000, output: 0 }, 90),
+    );
   });
 });

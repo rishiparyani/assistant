@@ -9,6 +9,9 @@ export interface ChatMessage {
   content: string | null;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
+  /** A maker's opaque blocks from this turn (Anthropic's signed thinking), handed back
+   *  unchanged with the tool results of the same turn, as it requires. Never stored. */
+  opaque?: unknown[];
 }
 export interface ToolCall {
   id: string;
@@ -22,8 +25,11 @@ export interface ToolSpec {
 export interface ModelAnswer {
   content: string | null;
   tool_calls: ToolCall[];
-  /** cached: of the input tokens, how many the model reused from its prompt cache. */
-  usage: { input: number; output: number; cached: number };
+  /** cached: of the input tokens, how many the model reused from its prompt cache;
+   *  cacheWrite: how many it stored for next time (priced differently by some makers). */
+  usage: { input: number; output: number; cached: number; cacheWrite?: number };
+  /** Opaque blocks to hand back with this turn's tool results (see ChatMessage.opaque). */
+  opaque?: unknown[];
 }
 
 export class ModelError extends Error {}
@@ -186,7 +192,8 @@ const ANTHROPIC_TIMEOUT_MS = 30_000;
 type AnthropicBlock =
   | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; tool_use_id: string; content: string };
+  | { type: "tool_result"; tool_use_id: string; content: string }
+  | { type: "thinking" | "redacted_thinking"; [k: string]: unknown };
 type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] };
 type AnthropicResult = {
   content?: AnthropicBlock[];
@@ -222,7 +229,8 @@ export function toAnthropic(messages: ChatMessage[]): {
     } else if (m.role === "tool") {
       push("user", [{ type: "tool_result", tool_use_id: m.tool_call_id ?? "", content: m.content ?? "" }]);
     } else if (m.role === "assistant") {
-      const blocks: AnthropicBlock[] = [];
+      // Its thinking first, exactly as it came, then what it said and asked for.
+      const blocks: AnthropicBlock[] = [...((m.opaque ?? []) as AnthropicBlock[])];
       if (m.content?.trim()) blocks.push({ type: "text", text: m.content });
       for (const t of m.tool_calls ?? []) {
         blocks.push({
@@ -267,15 +275,20 @@ export function fromAnthropic(raw: AnthropicResult): ModelAnswer {
       : [],
   );
   const cached = raw.usage?.cache_read_input_tokens ?? 0;
+  const cacheWrite = raw.usage?.cache_creation_input_tokens ?? 0;
+  const opaque = (raw.content ?? []).filter((b) => b.type === "thinking" || b.type === "redacted_thinking");
   return {
     content: text || null,
     tool_calls,
     usage: {
-      // Anthropic counts cached and freshly read tokens apart; the router wants the total.
-      input: (raw.usage?.input_tokens ?? 0) + cached + (raw.usage?.cache_creation_input_tokens ?? 0),
+      // Anthropic counts fresh, cached and stored tokens apart; the router wants the total,
+      // and the parts for the price.
+      input: (raw.usage?.input_tokens ?? 0) + cached + cacheWrite,
       output: raw.usage?.output_tokens ?? 0,
       cached,
+      cacheWrite,
     },
+    ...(opaque.length ? { opaque } : {}),
   };
 }
 

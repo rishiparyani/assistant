@@ -18,6 +18,9 @@ export interface ModelEntry {
   provider: "workers-ai" | "anthropic" | "cerebras" | "openai" | "gemini";
   /** USD per million tokens. */
   price: { input: number; output: number };
+  /** What a cached input token costs, as a share of the input price: read (reused) and write
+   *  (stored for next time). Makers without a discount leave it out (every token at full price). */
+  cache?: { read: number; write: number };
   /** Workers AI neurons per million tokens (the free allowance is 10,000 a day). */
   neurons?: { input: number; output: number };
   maxOutput: number;
@@ -106,6 +109,8 @@ export const MODELS: ModelEntry[] = [
     route: "paid",
     provider: "anthropic",
     price: { input: 0.1, output: 0.5 },
+    // Anthropic: a cache read is a tenth of the input price, a (five-minute) write 1.25 times.
+    cache: { read: 0.1, write: 1.25 },
     // Its thinking counts as output; room for it and the answer.
     maxOutput: 4_000,
     effort: "low",
@@ -118,6 +123,8 @@ export const MODELS: ModelEntry[] = [
     route: "paid",
     provider: "openai",
     price: { input: 0.2, output: 1.25 },
+    // OpenAI: cached input at a tenth, no charge to write.
+    cache: { read: 0.1, write: 1 },
     maxOutput: 4_000,
     effort: "low",
     ready: false,
@@ -129,6 +136,7 @@ export const MODELS: ModelEntry[] = [
     route: "paid",
     provider: "openai",
     price: { input: 0.75, output: 4.5 },
+    cache: { read: 0.1, write: 1 },
     maxOutput: 4_000,
     effort: "low",
     ready: false,
@@ -140,6 +148,8 @@ export const MODELS: ModelEntry[] = [
     route: "paid",
     provider: "gemini",
     price: { input: 0.25, output: 1.5 },
+    // Gemini's implicit cache: a quarter of the input price for reused tokens.
+    cache: { read: 0.25, write: 1 },
     maxOutput: 4_000,
     effort: "low",
     ready: false,
@@ -203,9 +213,22 @@ export const KEYED: readonly KeyedProvider[] = ["anthropic", "openai", "gemini"]
 export const keyed = (m: ModelEntry): KeyedProvider | null =>
   (KEYED as readonly string[]).includes(m.provider) ? (m.provider as KeyedProvider) : null;
 
-/** Paise for a call of this size (rounded up). */
-export function costPaise(m: ModelEntry, inputTokens: number, outputTokens: number, usdInr: number): number {
-  const usd = (inputTokens * m.price.input + outputTokens * m.price.output) / 1_000_000;
+/** A call's token counts: input is the whole prompt; cached and written are the parts of it the
+ *  maker priced differently (a reuse of its prompt cache, a store into it). */
+export interface Usage {
+  input: number;
+  output: number;
+  cached?: number;
+  cacheWrite?: number;
+}
+
+/** Paise for a call of this size (rounded up), at the maker's cache prices where it has them. */
+export function costPaise(m: ModelEntry, u: Usage, usdInr: number): number {
+  const cached = m.cache ? Math.min(u.cached ?? 0, u.input) : 0;
+  const written = m.cache ? Math.min(u.cacheWrite ?? 0, u.input - cached) : 0;
+  const fresh = u.input - cached - written;
+  const inputUsd = (fresh + cached * (m.cache?.read ?? 1) + written * (m.cache?.write ?? 1)) * m.price.input;
+  const usd = (inputUsd + u.output * m.price.output) / 1_000_000;
   return Math.ceil(usd * usdInr * 100);
 }
 
