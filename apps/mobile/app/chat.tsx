@@ -1,15 +1,15 @@
 // The chat, one pull away from the home. Opened from a card it knows which one (and a card's
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
 import { Tap, Text, TextInput, ThinkingDots, motion, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { ChatItem, ChatView, CollectionView, HistoryItem } from "@assistant/shared";
+import type { ChatItem, ChatView, CollectionView, HistoryItem, LiveRef } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
-import { LiveCard } from "@/components/LiveCard";
+import { LiveCard, LiveRecords } from "@/components/LiveCard";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { ApiError, isOffline, request } from "@/api";
@@ -19,6 +19,27 @@ import { radius, useTheme } from "@/theme";
 import { useKeyboardRoom } from "@/keyboard";
 
 const MAIN = "main";
+
+/** What the list draws: the chat's items, with records the assistant showed in one go as one widget. */
+type Shown = ChatItem | { id: string; role: "records"; created_at: string; refs: LiveRef[] };
+function groupRecords(items: ChatItem[]): Shown[] {
+  const out: Shown[] = [];
+  for (const i of items) {
+    const ref = i.role === "live" && i.live?.kind === "record" ? i.live : null;
+    const last = out[out.length - 1];
+    if (
+      ref &&
+      last?.role === "records" &&
+      last.refs[0]?.kind === "record" &&
+      last.refs[0].collection_id === ref.collection_id
+    ) {
+      last.refs.push(ref);
+      continue;
+    }
+    out.push(ref ? { id: `records:${i.id}`, role: "records", created_at: i.created_at, refs: [ref] } : i);
+  }
+  return out;
+}
 const enc = encodeURIComponent;
 const SUGGEST = [
   "What's due this week?",
@@ -43,6 +64,10 @@ export default function Chat() {
   // The box's height follows what's typed (one line to about five), measured the same way on
   // every platform rather than left to the platform's own idea of a text area.
   const [typedHeight, setTypedHeight] = useState(0);
+  useEffect(() => {
+    // Back to one line once the box is empty (the web doesn't always report the shrink).
+    if (!text) setTypedHeight(0);
+  }, [text]);
   const [busy, setBusy] = useState(false);
   // What the assistant is doing right now (decision 2026-10-15 "Feel: the ChatGPT bar"): the
   // server says over the live socket as it thinks and runs each tool; without the socket the
@@ -69,7 +94,7 @@ export default function Chat() {
   const [showImport, setShowImport] = useState(false);
   // A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix").
   const [editing, setEditing] = useState<ChatItem["card"] | null>(null);
-  const list = useRef<FlatList<ChatItem>>(null);
+  const list = useRef<FlatList<Shown>>(null);
   // Scroll anchoring (decision 2026-10-15 "Feel: the ChatGPT bar"): the list follows new
   // messages only while the person is at the bottom; reading older ones, it stays put. The
   // first fill lands at the bottom without a scroll.
@@ -86,6 +111,7 @@ export default function Chat() {
   };
   // Items from before this screen opened don't animate in; new ones rise into place.
   const openedAt = useRef(Date.now());
+  const shownItems = useMemo(() => groupRecords(view?.items ?? []), [view]);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
   const room = useKeyboardRoom();
@@ -210,7 +236,7 @@ export default function Chat() {
         <FlatList
           ref={list}
           extraData={[lastReply, busy]}
-          data={view?.items ?? []}
+          data={shownItems}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, gap: 4 }}
           onScroll={onScroll}
@@ -409,7 +435,7 @@ function Bubble({
   collections,
   onAsk,
 }: {
-  item: ChatItem;
+  item: Shown;
   /** The newest answer: show 👍 / 👎 under it. */
   rate?: boolean;
   onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
@@ -420,6 +446,12 @@ function Bubble({
   onAsk: (title: string) => void;
 }) {
   const { t } = useTheme();
+  if (item.role === "records")
+    return (
+      <View style={{ marginVertical: 6 }}>
+        <LiveRecords refs={item.refs} collections={collections} onAsk={onAsk} />
+      </View>
+    );
   if (item.role === "live" && item.live)
     return (
       <View style={{ marginVertical: 4 }}>

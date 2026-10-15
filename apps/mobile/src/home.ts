@@ -642,6 +642,24 @@ export function stillShown(card: HomeCard, record: RecordView, userId: string | 
   }
 }
 
+/** One field of a record of my own list, changed from a chat card: shown at once, sent through the outbox. */
+export function writeValue(
+  collection: CollectionView,
+  record: RecordView,
+  field: string,
+  value: StoredValue,
+): RecordView {
+  const values: Record<string, StoredValue> = { [field]: value };
+  send({
+    kind: "spaces.update_record",
+    method: "PATCH",
+    path: `/api/records/${enc(record.id)}`,
+    body: { values },
+    label: `${record.title} · ${collection.name}`,
+  });
+  return { ...record, values: { ...record.values, ...values } };
+}
+
 /** A control on a card changed one field of a row: shown at once, sent through the outbox. */
 export function setValue(card: HomeCard, record: RecordView, field: string, value: StoredValue): RecordView {
   if (!card.collection) return record;
