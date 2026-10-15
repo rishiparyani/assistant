@@ -1805,6 +1805,13 @@ export class SpaceObject extends DurableObject<Env> {
                 }),
                 ...(v.card.row ? { row: rowByName(v.card.row, (id) => fieldName(v.collection_id, id)) } : {}),
                 ...(v.card.question ? { question: v.card.question } : {}),
+                ...(v.card.grid
+                  ? {
+                      grid: {
+                        fields: v.card.grid.fields.flatMap((id) => fieldName(v.collection_id, id) ?? []),
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -5377,6 +5384,7 @@ export class SpaceObject extends DurableObject<Env> {
       controls?: CardControlInputValue[];
       row?: RowLayoutInput | null;
       question?: CardQuestion | null;
+      grid?: { fields: string[] } | null;
     },
     view?: { c: CollectionRow; filters: Filter[] },
   ): CardConfig | null {
@@ -5445,6 +5453,24 @@ export class SpaceObject extends DurableObject<Env> {
         "validation_failed",
         `A ${card.arrangement} card needs a question (group_by and measures, as for the query tool)`,
       );
+    // A grid: the list as a sheet, its columns named (decision 2026-10-15 "Toward Excel", 5).
+    if (card.grid || card.arrangement === "grid") {
+      if (card.arrangement && card.arrangement !== "grid")
+        throw new ObjectError(
+          "validation_failed",
+          `card.grid goes with arrangement "grid", not ${card.arrangement}`,
+        );
+      if (controls.length || row)
+        throw new ObjectError(
+          "validation_failed",
+          "A grid card has no controls or row layout; its cells are edited in place",
+        );
+      const refs = card.grid?.fields ?? [];
+      if (!refs.length)
+        throw new ObjectError("validation_failed", "A grid needs its columns (card.grid.fields)");
+      const ids = [...new Set(refs.map((ref) => this.matchField(fields, ref).id))];
+      return { arrangement: "grid", controls: [], grid: { fields: ids } };
+    }
     if (!card.arrangement && !controls.length && !row) return null;
     // Controls and row layouts live on a list's rows: such a card is a list card.
     const LISTS: Arrangement[] = ["list-plain", "list-ticks", "next"];
@@ -5572,6 +5598,7 @@ export class SpaceObject extends DurableObject<Env> {
             arrangement: q.card.arrangement,
             controls: q.card.controls.filter((c) => live.has(c.field)),
             ...(q.card.row ? { row: rowOfLive(q.card.row, live) } : {}),
+            ...(q.card.grid ? { grid: { fields: q.card.grid.fields.filter((id) => live.has(id)) } } : {}),
             ...(q.card.question ? { question: q.card.question } : {}),
           }
         : null,

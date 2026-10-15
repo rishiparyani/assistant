@@ -95,6 +95,35 @@ describe("card rows", () => {
     expect((await bad({ details: ["Nope"] })).status).toBeGreaterThanOrEqual(400);
     // Rows belong on list cards.
     expect((await bad({ pills: ["Fee"] }, "number")).status).toBe(400);
+    // A grid: the list as a sheet, its columns stored by id (decision 2026-10-15 "Toward Excel", 5).
+    const grid = await api(me)(`/views/${v.id}`, {
+      method: "PATCH",
+      body: { card: { arrangement: "grid", grid: { fields: ["Venue", "Fee", "Band", "Starts"] } } },
+    });
+    expect(grid.status).toBe(200);
+    const gv = await json<SavedView>(grid);
+    expect(gv.card?.arrangement).toBe("grid");
+    expect(gv.card?.grid?.fields).toHaveLength(4);
+    expect(gv.card?.grid?.fields[1]).not.toBe("Fee");
+    expect(
+      (await api(me)(`/views/${v.id}`, { method: "PATCH", body: { card: { arrangement: "grid" } } })).status,
+    ).toBe(400);
+    expect(
+      (
+        await api(me)(`/views/${v.id}`, {
+          method: "PATCH",
+          body: { card: { arrangement: "grid", grid: { fields: ["Nope"] } } },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await api(me)(`/views/${v.id}`, {
+          method: "PATCH",
+          body: { card: { grid: { fields: ["Fee"] }, row: { pills: ["Fee"] } } },
+        })
+      ).status,
+    ).toBe(400);
     // null resets the card.
     const reset = await api(me)(`/views/${v.id}`, { method: "PATCH", body: { card: null } });
     expect((await json<SavedView>(reset)).card).toBeNull();

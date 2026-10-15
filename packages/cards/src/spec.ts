@@ -46,6 +46,7 @@ export const ARRANGEMENT_SIZES: Record<Arrangement, readonly CardSize[]> = {
   progress: ["xs", "s", "bar", "m"],
   table: ["m", "l"],
   bars: ["m", "l"],
+  grid: ["m", "l"],
 };
 
 /** What a card reads: a collection, optionally filtered and sorted (like a saved view). */
@@ -73,6 +74,8 @@ export const CardSpec = z.object({
   sources: z.array(CardSource).min(1).max(2),
   /** Rows shown by list arrangements (the size caps it further). */
   limit: z.number().int().min(1).max(12).optional(),
+  /** grid: the columns (field ids), typed over in place. */
+  grid: z.object({ fields: z.array(z.string().min(1).max(80)).min(1).max(8) }).nullish(),
   /** Controls on each row, bound to fields by id (switches, chips, steppers, stars, buttons…). */
   controls: z
     .array(
@@ -134,6 +137,8 @@ export function cardProblems(spec: CardSpec): string[] {
     out.push("list-counter needs answer_field (the number field + adds to)");
   if ((spec.arrangement === "next" || spec.arrangement === "countdown") && !spec.sources[0]?.date_field)
     out.push(`${spec.arrangement} needs date_field`);
+  if (spec.arrangement === "grid" && !spec.grid?.fields.length)
+    out.push("grid needs card.grid.fields (the columns)");
   return out;
 }
 

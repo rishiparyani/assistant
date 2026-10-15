@@ -12,6 +12,7 @@ import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
 import { RichRows, richRows, shown, tint } from "./rows.tsx";
 import { AnswerBars, AnswerTable, answerTag } from "./answer.tsx";
+import { EditableGrid } from "./Grid.tsx";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
@@ -144,6 +145,23 @@ export function Card({
     );
   } else
     switch (card.spec.arrangement) {
+      case "grid": {
+        // A sheet of the list: the chosen columns, cells typed over in place.
+        const cols = (card.spec.grid?.fields ?? []).flatMap((id) => {
+          const f = card.collection?.fields.find((x) => x.id === id);
+          return f ? [f] : [];
+        });
+        body = (
+          <EditableGrid
+            fields={cols}
+            records={card.records}
+            colour={c}
+            rows={size === "l" ? 8 : 3}
+            onSet={onSet}
+          />
+        );
+        break;
+      }
       case "table":
         body = card.answer ? (
           <AnswerTable answer={card.answer} size={size} />

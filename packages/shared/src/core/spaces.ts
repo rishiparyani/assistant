@@ -645,6 +645,7 @@ export const ARRANGEMENTS = [
   "progress",
   "table",
   "bars",
+  "grid",
 ] as const;
 export type Arrangement = (typeof ARRANGEMENTS)[number];
 
@@ -718,6 +719,8 @@ export interface CardConfig {
   row?: RowLayout | null;
   /** table / bars: the question it answers live (names, checked when saved). */
   question?: CardQuestion | null;
+  /** grid: the columns (field ids), edited in place (decision 2026-10-15 "Toward Excel", 5). */
+  grid?: { fields: string[] } | null;
 }
 
 /** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
@@ -881,6 +884,12 @@ const cardConfig = z
     controls: z.array(cardControl).max(4).optional().describe("Controls on each row, bound to fields"),
     row: rowLayout,
     question: CardQuestion.nullish(),
+    grid: z
+      .object({ fields: z.array(fieldName).min(1).max(8).describe("The columns, in order") })
+      .nullish()
+      .describe(
+        'With arrangement "grid": a sheet of the list, a column per field, cells typed over in place (not links, people or calculated fields)',
+      ),
   })
   .nullish()
   .describe(

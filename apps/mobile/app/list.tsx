@@ -8,8 +8,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { CollectionView, FieldView, FindResult, RecordView, SavedView } from "@assistant/shared";
+import type {
+  CollectionView,
+  FieldView,
+  FindResult,
+  RecordView,
+  SavedView,
+  StoredValue,
+} from "@assistant/shared";
 import {
+  EditableGrid,
   Text,
   Tick,
   act,
@@ -20,7 +28,7 @@ import {
   tint,
 } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
-import { cardFor, tick } from "@/home";
+import { cardFor, setValue, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
 import { outboxState } from "@/outbox";
@@ -202,6 +210,31 @@ export default function ListPage() {
 
   const ticker = useMemo(() => (c ? cardFor(c, records ?? [], current.view) : null), [c, records, current]);
   const tickField = ticker?.spec.sources[0]?.answer_field ?? null;
+  // The sheet (decision 2026-10-15 "Toward Excel", 5): the view's grid columns, or the row
+  // layout's fields, or the first few; switched with the button at the top.
+  const [sheet, setSheet] = useState<boolean | null>(null);
+  const asSheet = sheet ?? current.view?.card?.arrangement === "grid";
+  const columns = useMemo(() => {
+    if (!c) return [];
+    const byId = (id: string) => c.fields.find((f) => f.id === id);
+    const chosen = current.view?.card?.grid?.fields.map(byId).filter((f): f is FieldView => !!f) ?? [];
+    if (chosen.length) return chosen;
+    const title = byId(c.title_field_id);
+    const layout = current.view?.card?.row;
+    const fromRow = layout ? [...layout.details, ...layout.pills, ...(layout.date ? [layout.date] : [])] : [];
+    const rest = fromRow.length
+      ? fromRow.map(byId).filter((f): f is FieldView => !!f)
+      : c.fields.filter((f) => f.id !== c.title_field_id).slice(0, 6);
+    return [...(title ? [title] : []), ...rest.filter((f) => f.id !== c.title_field_id)];
+  }, [c, current]);
+  const onSetCell = (r: RecordView, fieldId: string, value: StoredValue) => {
+    if (!ticker) return;
+    const next = setValue(ticker, r, fieldId, value);
+    setRecords((prev) => (prev ?? []).map((x) => (x.id === r.id ? next : x)));
+    const kept = readJson<Kept>(pageKey);
+    if (kept?.items)
+      writeJson(pageKey, { ...kept, items: kept.items.map((x) => (x.id === r.id ? next : x)) });
+  };
   const onTick = (r: RecordView, value: boolean) => {
     if (!ticker) return;
     const next = tick(ticker, r, value);
@@ -234,6 +267,17 @@ export default function ListPage() {
             style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
           >
             <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={asSheet ? "Show as a list" : "Show as a sheet"}
+            accessibilityState={{ selected: asSheet }}
+            onPress={() => setSheet(!asSheet)}
+            style={[s.deleted, { backgroundColor: asSheet ? t.fg : t.cell, shadowColor: t.shadow }]}
+          >
+            <Text style={{ color: asSheet ? t.page : t.fg2, fontSize: 14, fontWeight: "700" }}>
+              {asSheet ? "List" : "Sheet"}
+            </Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
@@ -282,45 +326,79 @@ export default function ListPage() {
           </ScrollView>
         ) : null}
         {note ? <Text style={[s.note, { color: t.fg2 }]}>{note}</Text> : null}
-        <FlatList
-          data={rows}
-          keyExtractor={(x) => x.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110, gap: 10 }}
-          onEndReached={() => cursor && void loadPage(cursor)}
-          onEndReachedThreshold={0.6}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              tintColor={t.fg2}
-              onRefresh={async () => {
-                setRefreshing(true);
-                await loadList();
-                await loadPage(null);
-                setRefreshing(false);
-              }}
-            />
-          }
-          ListEmptyComponent={
-            records ? <Text style={[s.empty, { color: t.fg2 }]}>Nothing here yet.</Text> : null
-          }
-          renderItem={({ item }) =>
-            item.kind === "head" ? (
-              <Text style={[s.month, { color: t.fg2 }]}>{item.label}</Text>
-            ) : c ? (
-              <Row
-                r={item.r}
-                c={c}
-                view={current.view}
-                dateField={dateField}
-                tickField={tickField}
-                colour={listColour}
-                onTick={onTick}
-                onOpen={() => askAbout(`About “${item.r.title}” in ${c.name}: `)}
-                onHold={() => setHeld(item.r)}
+        {asSheet ? (
+          <ScrollView
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110 }}
+            keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                tintColor={t.fg2}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await loadList();
+                  await loadPage(null);
+                  setRefreshing(false);
+                }}
               />
-            ) : null
-          }
-        />
+            }
+          >
+            <View style={[s.sheet, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
+              <EditableGrid
+                fields={columns}
+                records={records ?? []}
+                colour={listColour}
+                onSet={onSetCell}
+                onOpen={(r) => askAbout(`About "${r.title}": `)}
+              />
+            </View>
+            {cursor ? (
+              <Pressable accessibilityRole="button" onPress={() => void loadPage(cursor)} style={s.more}>
+                <Text style={{ color: t.accent, fontWeight: "700" }}>More</Text>
+              </Pressable>
+            ) : null}
+          </ScrollView>
+        ) : (
+          <FlatList
+            data={rows}
+            keyExtractor={(x) => x.id}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110, gap: 10 }}
+            onEndReached={() => cursor && void loadPage(cursor)}
+            onEndReachedThreshold={0.6}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                tintColor={t.fg2}
+                onRefresh={async () => {
+                  setRefreshing(true);
+                  await loadList();
+                  await loadPage(null);
+                  setRefreshing(false);
+                }}
+              />
+            }
+            ListEmptyComponent={
+              records ? <Text style={[s.empty, { color: t.fg2 }]}>Nothing here yet.</Text> : null
+            }
+            renderItem={({ item }) =>
+              item.kind === "head" ? (
+                <Text style={[s.month, { color: t.fg2 }]}>{item.label}</Text>
+              ) : c ? (
+                <Row
+                  r={item.r}
+                  c={c}
+                  view={current.view}
+                  dateField={dateField}
+                  tickField={tickField}
+                  colour={listColour}
+                  onTick={onTick}
+                  onOpen={() => askAbout(`About “${item.r.title}” in ${c.name}: `)}
+                  onHold={() => setHeld(item.r)}
+                />
+              ) : null
+            }
+          />
+        )}
         <View style={[s.bottom, { paddingBottom: insets.bottom + 10, backgroundColor: t.page }]}>
           <Pressable
             accessibilityRole="button"
@@ -596,6 +674,15 @@ const s = StyleSheet.create({
   chipText: { fontSize: 14, fontWeight: "700" },
   note: { fontSize: 13, paddingHorizontal: 20, paddingTop: 6 },
   empty: { fontSize: 15, textAlign: "center", paddingTop: 40 },
+  sheet: {
+    borderRadius: radius.card,
+    paddingHorizontal: 4,
+    paddingVertical: 6,
+    shadowOpacity: 1,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  more: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 8 },
   month: {
     fontSize: 13,
     fontWeight: "800",

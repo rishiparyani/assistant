@@ -106,6 +106,11 @@ export const ARRANGEMENT_INFO: Record<Arrangement, ArrangementInfo> = {
     needs: "card.question with one group_by and a total or count first",
     use: "spending by category, gigs per month",
   },
+  grid: {
+    shows: "the list as a sheet: a column per field, cells typed over in place",
+    needs: "card.grid.fields: the columns (up to 8; not links, people or calculated fields to edit)",
+    use: "fees and dates to fix in one go, a roster to fill in, anything spreadsheet-like",
+  },
 };
 
 /** The catalogue as the assistant reads it: one line per arrangement it may choose. */

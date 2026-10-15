@@ -4,6 +4,13 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF49: the editable grid (decision 2026-10-15 "Toward Excel", slice 5 of 6).**
+  - **Shared / cards:** arrangement `grid` (sizes m, l) with `card.grid.fields` (up to 8 columns, by id); the catalogue line; `EditableGrid` in `packages/cards/native/Grid.tsx`: a column per field, tap a cell to type (number, money as rupees, date the Indian way, text), flip a yes/no, or pick a choice; Next on the keyboard moves along the row; links, people and calculated fields show but aren't typed over; each change shows at once and goes through the outbox (`setValue`).
+  - **Server:** `checkCard` takes `grid` (columns to ids; no controls or row layout with it); setups carry the columns by name; hidden fields drop out.
+  - **App:** a grid card on the home (3 or 8 rows); the full-list screen has a Sheet / List button (the sheet is the default for a grid view; columns from `card.grid`, else the row layout's fields, else the first six).
+  - **Tests:** `card-rows.test.ts` (grid saved by id, refused without columns, with a bad column, or with a row layout); the catalogue test covers the new line.
+  - **Not yet:** adding a row from the sheet (the chat bar does it), column widths by hand, a web-only keyboard arrow navigation.
+
 - **HF48: highlight rules (decision 2026-10-15 "Toward Excel", slice 4 of 6).**
   - **Shared:** `RowLayout.highlights: [{when: filters, colour: red|amber|green|blue|violet|grey, label}]` (`HIGHLIGHT_COLOURS`); `matchesAll` in `space-query.ts` runs filters on a record on the device.
   - **Server:** `checkRow` checks each highlight's filters like a view's and stores field ids; `rowByName` / `rowOfLive` carry them (a highlight on a hidden field drops out).
