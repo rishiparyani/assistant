@@ -476,10 +476,11 @@ export const CASES: Case[] = [
     level: 2,
     lang: "en",
     text: "Make me a Venues list with name, city and the sound contact's phone, and link each of my Events to a venue",
+    // The link may be part of the setup or a second card that adds the field to Events.
     check: async (_u, o) => {
-      const c = o.cards.find((x) => ["make_setup", "create_collection"].includes(x.tool));
-      if (!c) return `no setup card; reply: ${o.reply.slice(0, 120)}`;
-      const d = c.details.join(" | ");
+      const cs = o.cards.filter((x) => ["make_setup", "create_collection", "add_field"].includes(x.tool));
+      if (!cs.length) return `no setup card; reply: ${o.reply.slice(0, 120)}`;
+      const d = cs.map((c) => `${c.title} ${c.details.join(" | ")}`).join(" || ");
       return has(d, "city") && has(d, "phone") && (has(d, "link") || has(d, "event"))
         ? null
         : `card details: ${d.slice(0, 200)}`;
