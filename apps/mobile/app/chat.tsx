@@ -161,6 +161,9 @@ export default function Chat() {
       const next = await request<ChatView>("POST", `/api/chats/${MAIN}`, { text: msg });
       setView(next);
       setNote("");
+      // The answer to what was just sent is what the person wants to see, wherever they were.
+      atBottom.current = true;
+      setTimeout(() => list.current?.scrollToEnd({ animated: true }), 60);
       // What this reply changed, from the audit log, with Undo.
       fetchChanges(5)
         // Only this person's changes since the message went (another person's work in the
@@ -305,24 +308,27 @@ export default function Chat() {
         ) : null}
         {note && view?.items.length ? <Text style={[s.sys, { color: t.fg2 }]}>{note}</Text> : null}
         {showChanges ? <Changes onClose={() => setShowChanges(false)} /> : null}
-        <FlatList
-          horizontal
-          data={SUGGEST}
-          keyExtractor={(x) => x}
-          showsHorizontalScrollIndicator={false}
-          style={s.chips}
-          contentContainerStyle={{ paddingHorizontal: 14, gap: 6, paddingVertical: 6 }}
-          renderItem={({ item }) => (
-            <Tap
-              accessibilityRole="button"
-              onPress={() => say(item)}
-              haptic="selection"
-              style={[s.chip, { backgroundColor: t.cell, borderColor: t.sep }]}
-            >
-              <Text style={[type.caption, { color: t.accent, fontSize: 13.5 }]}>{item}</Text>
-            </Tap>
-          )}
-        />
+        {/* Ideas to start with, only until the conversation has begun (ChatGPT's way). */}
+        {!view?.items.length ? (
+          <FlatList
+            horizontal
+            data={SUGGEST}
+            keyExtractor={(x) => x}
+            showsHorizontalScrollIndicator={false}
+            style={s.chips}
+            contentContainerStyle={{ paddingHorizontal: 14, gap: 6, paddingVertical: 6 }}
+            renderItem={({ item }) => (
+              <Tap
+                accessibilityRole="button"
+                onPress={() => say(item)}
+                haptic="selection"
+                style={[s.chip, { backgroundColor: t.cell, borderColor: t.sep }]}
+              >
+                <Text style={[type.caption, { color: t.accent, fontSize: 13.5 }]}>{item}</Text>
+              </Tap>
+            )}
+          />
+        ) : null}
         {editing ? (
           <SetupEditSheet
             tool={editing.tool}
