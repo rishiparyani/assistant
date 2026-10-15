@@ -869,6 +869,7 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Two things learned on the way:** OpenAI's chat completions refuse function tools with any `reasoning_effort` but `none` on GPT-5.4 (the OpenAI body sends `none`; the Responses API would allow thinking, not tried); Gemini's free tier needs pacing (the runner spaces Gemini cases out like Cerebras's) and can't serve real people (training).
 - **A card on the home is a setup:** every model made the spending card in the chat instead of handing over, because the prompt's list of setups didn't mention home cards. The prompt and the `hand_over` tool now say so (prompt version 2026-10-15). The case stays.
 - **Logs on a maker's refusal** carry its error code, type and the parameter named, never the message (it could echo the prompt).
+- **First two setups results** (`docs/scorecard/2026-10-15-setups.md`, seven cases × 3): Sonnet 5.5 21/21 at 5.5 s and ≈ ₹2.65 a setup; GPT-5.4 19/21 at 7.1 s and ≈ ₹2.70, its misses a two-part request it finished halfway. A scorecard check reads every setup card of an answer, not the first: a link to a list that exists may rightly come as a second card. `suite=core` and `hard` are level-1 cases only, whatever models are set.
 
 ## 2026-10-15: Questions that act, second part: the most picked answer sets a plain field
 
