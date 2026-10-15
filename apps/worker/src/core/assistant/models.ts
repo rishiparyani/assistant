@@ -27,7 +27,7 @@ export interface ModelEntry {
   /** false: answer without thinking first (much faster; the scorecard says whether it's as right). */
   thinking?: boolean;
   /** For models whose thinking can only be turned down, not off: the lowest level that works. */
-  effort?: "none" | "low" | "high" | "max";
+  effort?: "none" | "low" | "high" | "max" | "model";
   /** Wired up in code; entries still waiting stay in the table, switched off. */
   ready: boolean;
 }
@@ -197,7 +197,7 @@ export const MODELS: ModelEntry[] = [
     ready: true,
   },
   // GPT-6.1 Sol (the id on OpenAI's models page; the launch post says gpt-6-sol): Sonnet's price.
-  // No effort setting: it answered 400 (unsupported_value, reasoning_effort) to "low".
+  // Its own effort: it answered 400 (unsupported_value, reasoning_effort) to "low" and to "none".
   {
     id: "gpt-6.1-sol",
     label: "GPT-6.1 Sol",
@@ -207,6 +207,7 @@ export const MODELS: ModelEntry[] = [
     price: { input: 2, output: 10 },
     cache: { read: 0.1, write: 1 },
     maxOutput: 8_000,
+    effort: "model",
     ready: false,
   },
   {
