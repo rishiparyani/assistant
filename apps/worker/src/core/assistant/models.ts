@@ -234,10 +234,15 @@ export interface AiSettings {
   usdInr: number;
   /** Tests only: a scripted model instead of Workers AI. */
   fake: boolean;
-  /** The scorecard only: try this model (an id from MODELS) for everyday requests. */
+  /** The everyday model (an id from MODELS; AI_EVERYDAY_MODEL), the others behind it. */
   everydayModel?: string | null;
-  /** The scorecard only: try this model for setups (level 2). */
+  /** The setups model (level 2; AI_SETUP_MODEL). */
   setupModel?: string | null;
+  /**
+   * The scorecard only (AI_PIN_MODEL): the picked model alone, no fallbacks, so a candidate's
+   * failures count against the candidate and never pass as another model's answer.
+   */
+  pinned?: boolean;
   /** Faster answers (Cerebras) are set up: its key is in. */
   fast: boolean;
   /** Cerebras calls a day, all people together (its trial credit must last the month). */
@@ -287,7 +292,8 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 
 /**
  * Models a level may use now, in order: the picked one (AI_EVERYDAY_MODEL, AI_SETUP_MODEL) first,
- * ready or not, then the ready ones as fallbacks when it fails or can't be paid for.
+ * ready or not, then the ready ones as fallbacks when it fails or can't be paid for (none when
+ * pinned: the scorecard).
  * `fast`: this person has faster answers (Cerebras first among the fallbacks).
  */
 export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
@@ -313,5 +319,6 @@ export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry
       funded(m) &&
       (m.provider !== "cerebras" || (s.fast && fast)),
   ).sort((a, b) => fastFirst(a) - fastFirst(b));
+  if (first && s.pinned) return [first];
   return first ? [first, ...rest] : rest;
 }

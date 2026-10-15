@@ -7,7 +7,8 @@ _Updated: 2026-10-15_
 - **HF51: Claude on in the live app (owner: "Turn them on"; decision 2026-10-15 "Haiku for every day, Sonnet for setups").**
   - `claude-haiku-5-5` and `claude-sonnet-5-5` are `ready` in `models.ts`; `AI_EVERYDAY_MODEL` / `AI_SETUP_MODEL` set in `wrangler.jsonc` (dev and prod). `modelsFor` now returns the picked model first and the other ready, funded models of the level behind it (GLM after Haiku; nothing after Sonnet); a pick without its key is skipped, not offered.
   - Admin AI section: "Claude models" (the two picks, or needs the key) and "Other makers' keys" (scorecard only). `docs/setup.md` key row updated.
-  - **Tests:** `anthropic-model.test.ts` (order with and without the key, with the picks, with the Cloudflare credit route; scorecard candidates still first at their level only).
+  - **Scorecard (Codex's review):** `AI_PIN_MODEL=1` (`AiSettings.pinned`, set by `vitest.scorecard.config.ts`) keeps the picked model alone, so a candidate's misses are its own and never pass as GLM's answer; blank `model` / `setup_model` inputs now inherit the live picks from `wrangler.jsonc` instead of clearing them; setups run whenever `modelsFor(2)` has a funded model.
+  - **Tests:** `anthropic-model.test.ts` (order with and without the key, with the picks, with the Cloudflare credit route, pinned; scorecard candidates still first at their level only).
   - **Watch after deploy:** the first real calls in the admin panel's AI usage (model, cost a call); if Haiku errors show up (one `invalid_request_error` was seen once in a scorecard run), GLM answers meanwhile.
 
 - **HF50: the fallback: a setup card you can change before Confirm, and a plain setup screen hidden under the list's ⋯ menu (decision 2026-10-15 "Chat makes, screens can fix", slice 6 of 6).**

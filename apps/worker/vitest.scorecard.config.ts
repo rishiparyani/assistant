@@ -24,10 +24,13 @@ export default defineConfig({
           SCORECARD_ONLY: process.env.SCORECARD_ONLY ?? "",
           SCORECARD_SUITE: process.env.SCORECARD_SUITE ?? "",
           SCORECARD_REPEAT: process.env.SCORECARD_REPEAT ?? "",
-          // A candidate everyday model to try (an id from MODELS in core/assistant/models.ts).
-          AI_EVERYDAY_MODEL: process.env.AI_EVERYDAY_MODEL ?? "",
-          // A candidate setups model to try (level 2), on its maker's own credit.
-          AI_SETUP_MODEL: process.env.AI_SETUP_MODEL ?? "",
+          // A candidate everyday model to try (an id from MODELS in core/assistant/models.ts);
+          // empty: the live one from wrangler.jsonc's vars.
+          ...(process.env.AI_EVERYDAY_MODEL ? { AI_EVERYDAY_MODEL: process.env.AI_EVERYDAY_MODEL } : {}),
+          // A candidate setups model to try (level 2), on its maker's own credit; empty: the live one.
+          ...(process.env.AI_SETUP_MODEL ? { AI_SETUP_MODEL: process.env.AI_SETUP_MODEL } : {}),
+          // The picked model alone, never a fallback: a candidate's misses are its own.
+          AI_PIN_MODEL: "1",
           // Faster answers (Cerebras): its key. The app's caps are off here (the runner itself
           // spaces cases out for the trial's five a minute), so any suite × repeat can finish.
           CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY ?? "",

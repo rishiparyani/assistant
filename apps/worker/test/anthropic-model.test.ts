@@ -48,6 +48,12 @@ describe("Claude models", () => {
       "claude-haiku-5-5",
     ]);
     expect(ids(modelsFor(2, { ...base, anthropic: true }))).toEqual(["claude-sonnet-5-5"]);
+    // Pinned (the scorecard): the pick alone, so its misses are its own; no pick, the usual list.
+    expect(ids(modelsFor(1, { ...on, pinned: true }))).toEqual(["claude-haiku-5-5"]);
+    expect(ids(modelsFor(1, { ...base, anthropic: true, pinned: true }))).toEqual([
+      "@cf/zai-org/glm-4.7-flash",
+      "claude-haiku-5-5",
+    ]);
   });
 
   it("tries a scorecard candidate first, only at its level and only with its key", () => {
