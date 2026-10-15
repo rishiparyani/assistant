@@ -12,8 +12,9 @@ export interface ModelEntry {
   label: string;
   level: Level;
   route: Route;
-  /** How it's called: Workers AI through the binding, or a provider through the gateway. */
-  provider: "workers-ai" | "anthropic";
+  /** How it's called: Workers AI through the binding, Cerebras straight (its own prepaid
+   *  credit, not the Cloudflare cap), or a provider through the gateway. */
+  provider: "workers-ai" | "anthropic" | "cerebras";
   /** USD per million tokens. */
   price: { input: number; output: number };
   /** Workers AI neurons per million tokens (the free allowance is 10,000 a day). */
@@ -79,6 +80,21 @@ export const MODELS: ModelEntry[] = [
     thinking: false,
     ready: false,
   },
+  // Faster answers (decision 2026-10-15 "Faster answers from Cerebras"): the same everyday
+  // level, answered by Cerebras in a second or two. Only for people with faster answers on,
+  // only while the key is set, and within its own daily cap; GLM stays the fallback.
+  {
+    id: "gpt-oss-120b",
+    label: "GPT-OSS 120B (Cerebras)",
+    level: 1,
+    route: "free",
+    provider: "cerebras",
+    price: { input: 0.35, output: 0.75 },
+    maxOutput: 1_200,
+    // Its thinking can only be turned down, not off.
+    effort: "low",
+    ready: true,
+  },
   {
     id: "@cf/moonshotai/kimi-k2.6",
     label: "Kimi K2.6",
@@ -118,6 +134,10 @@ export interface AiSettings {
   fake: boolean;
   /** The scorecard only: try this model (an id from MODELS) for everyday requests. */
   everydayModel?: string | null;
+  /** Faster answers (Cerebras) are set up: its key is in. */
+  fast: boolean;
+  /** Cerebras calls a day, all people together (its trial credit must last the month). */
+  fastCallsPerDay: number;
 }
 
 /** Paise for a call of this size (rounded up). */
@@ -134,10 +154,18 @@ export function neuronsFor(m: ModelEntry, inputTokens: number, outputTokens: num
 /** A rough token count for budgeting (about 3.5 characters a token; errs high). */
 export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 
-/** Models a level may use now, in order. */
-export function modelsFor(level: Level, s: AiSettings): ModelEntry[] {
+/** Models a level may use now, in order. `fast`: this person has faster answers (Cerebras first). */
+export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
   const tried = level === 1 && s.everydayModel ? MODELS.find((m) => m.id === s.everydayModel) : null;
-  // With AI credit the candidate is billed to it (repeats would use up the free allowance).
-  if (tried) return [s.paidGateway ? { ...tried, route: "paid" } : tried];
-  return MODELS.filter((m) => m.level === level && m.ready && (m.route === "free" || !!s.paidGateway));
+  // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
+  // allowance); Cerebras has its own credit.
+  if (tried) return [s.paidGateway && tried.provider === "workers-ai" ? { ...tried, route: "paid" } : tried];
+  const fastFirst = (m: ModelEntry) => (m.provider === "cerebras" ? 0 : 1);
+  return MODELS.filter(
+    (m) =>
+      m.level === level &&
+      m.ready &&
+      (m.route === "free" || !!s.paidGateway) &&
+      (m.provider !== "cerebras" || (s.fast && fast)),
+  ).sort((a, b) => fastFirst(a) - fastFirst(b));
 }

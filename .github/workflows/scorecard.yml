@@ -28,7 +28,7 @@ on:
         required: false
         default: "1"
       model:
-        description: "Everyday model to try instead of the current one (an id from core/assistant/models.ts; empty: current)"
+        description: "Everyday model to try instead of the current one (an id from core/assistant/models.ts, e.g. gpt-oss-120b for Cerebras; empty: current)"
         required: false
         default: ""
 
@@ -64,6 +64,8 @@ jobs:
           SCORECARD_SUITE: ${{ inputs.suite }}
           SCORECARD_REPEAT: ${{ inputs.repeat }}
           AI_EVERYDAY_MODEL: ${{ inputs.model }}
+          # Faster answers (Cerebras); only used when the model input names gpt-oss-120b.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         # Only the table and per-case lines are printed (fake data); the token stays in env.
         run: |
           set -o pipefail

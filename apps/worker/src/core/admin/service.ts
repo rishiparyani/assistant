@@ -81,6 +81,14 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
         hint: settings.paidGateway ? "prepaid credit route" : "needs prepaid AI credit (docs/setup.md)",
         tone: settings.paidGateway ? "ok" : "warn",
       },
+      {
+        label: "Faster answers (Cerebras)",
+        value: settings.fast ? `${v.fast_calls_today} of ${settings.fastCallsPerDay} today` : "Off",
+        hint: settings.fast
+          ? "owners and admins; its own trial credit, then GLM answers"
+          : "needs CEREBRAS_API_KEY (docs/setup.md)",
+        tone: settings.fast && v.fast_calls_today >= settings.fastCallsPerDay ? "warn" : "ok",
+      },
     ],
   };
 }

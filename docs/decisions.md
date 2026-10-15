@@ -853,3 +853,11 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Who:** an admin pins (either person in a chat for two); an admin or the record's owner takes it off, which turns its share off (`closeChatShare`, from the alarm). A share the owner turns off drops off the chat. At most 20 pinned per chat.
 - **Opening:** everyone in the chat opens a pinned record through the chat (`GET /groups/:id/cards/:share_id`): the chat checks membership, the record's own space checks the share. A pinned record is drawn large (up to eight rows), dates in words.
 - **In the app only** (session operations), like the rest of chats. Next: questions in the chat that act on the record ("questions that lead to actions").
+
+## 2026-10-15: Faster answers from Cerebras (owner: "we can include this as a faster model… make a note in the app that this will cost a little more")
+
+- **What:** GPT-OSS 120B at Cerebras answers everyday requests in a second or two, as the first choice at the everyday level for people who have faster answers; GLM 4.7 Flash stays the fallback (a refusal, no credit, the cap). Never at the smart level. Called straight (`api.cerebras.ai`, the owner's key as the Worker secret `CEREBRAS_API_KEY`), OpenAI-shaped, `reasoning_effort: low`; a 30-second limit.
+- **Who, for now:** owners and admins (`fasterAnswers` in `assistant/access.ts`), while the account runs on the $5 trial (Limited Credits: Cerebras charges nothing beyond it, and there's no top-up). A per-person switch, and the "costs a little more" note in the app, come when the owner moves it to paid credit for everyone.
+- **Its own money, its own caps:** Cerebras's cost is logged to see (`calls.cost_paise`) but never reserved against the ₹2,000 Cloudflare cap, and it uses no free neurons. The app allows `AI_FAST_CALLS_PER_DAY` (60) a day for everyone together and four a minute (`BudgetObject.fastAllowed`; the trial allows five), so the credit lasts the month and a burst is never refused by Cerebras itself. The admin panel shows today's count.
+- **Scorecard:** `model: gpt-oss-120b` on the Scorecard workflow tries it (the key is passed; 500 calls a day there), spacing cases out to stay under five calls a minute.
+- **Privacy:** the privacy page says the faster model runs at Cerebras (US) and isn't trained on people's data; nothing is logged there by us.

@@ -118,6 +118,8 @@
     "AI_MONTHLY_CAP_INR": "2000",
     "AI_PERSON_CAP_INR": "2000",
     "USD_INR": "90",
+    // Faster answers (Cerebras, secret CEREBRAS_API_KEY): calls a day for everyone together.
+    "AI_FAST_CALLS_PER_DAY": "60",
   },
   "env": {
     "production": {
@@ -209,6 +211,7 @@
         "AI_PAID_GATEWAY": "",
         "AI_MONTHLY_CAP_INR": "2000",
         "AI_PERSON_CAP_INR": "2000",
+        "AI_FAST_CALLS_PER_DAY": "60",
         "USD_INR": "90",
       },
     },

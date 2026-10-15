@@ -147,6 +147,8 @@ export interface BudgetView {
   cap_paise: number;
   neurons_today: number;
   calls_today: number;
+  /** Cerebras calls today (faster answers; its trial credit has its own daily cap). */
+  fast_calls_today: number;
 }
 
 export class BudgetObject extends DurableObject<Env> {
@@ -240,6 +242,20 @@ export class BudgetObject extends DurableObject<Env> {
     return (
       this.sql.exec<{ used: number }>(`select used from neurons where day = ?`, day).toArray()[0]?.used ?? 0
     );
+  }
+
+  /**
+   * Whether one more Cerebras call fits now (decision 2026-10-15): at most `perDay` a day for
+   * everyone together, and four a minute (the trial allows five), so its credit lasts the month
+   * and a burst never gets the app refused.
+   */
+  async fastAllowed(modelId: string, perDay: number): Promise<boolean> {
+    const n = (since: string) =>
+      this.sql
+        .exec<{ n: number }>(`select count(*) as n from calls where model = ? and at >= ?`, modelId, since)
+        .one().n;
+    if (n(dayOf()) >= perDay) return false;
+    return n(new Date(Date.now() - 60_000).toISOString()) < 4;
   }
 
   async log(c: CallLog): Promise<void> {
@@ -406,6 +422,9 @@ export class BudgetObject extends DurableObject<Env> {
       cap_paise: capPaise,
       neurons_today: await this.neurons(),
       calls_today: this.sql.exec<{ n: number }>(`select count(*) as n from calls where at >= ?`, day).one().n,
+      fast_calls_today: this.sql
+        .exec<{ n: number }>(`select count(*) as n from calls where at >= ? and model not like '@cf/%'`, day)
+        .one().n,
     };
   }
 

@@ -114,6 +114,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # Encrypts the nightly backup; restore needs the same key (docs/setup.md); optional.
           BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          # Faster answers from Cerebras (docs/setup.md); optional.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
@@ -134,6 +136,9 @@ jobs:
           fi
           if [ -n "$BACKUP_KEY" ]; then
             printf '%s' "$BACKUP_KEY" | pnpm exec wrangler secret put BACKUP_KEY --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$CEREBRAS_API_KEY" ]; then
+            printf '%s' "$CEREBRAS_API_KEY" | pnpm exec wrangler secret put CEREBRAS_API_KEY --name "$WORKER_NAME" > /dev/null
           fi
           # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
           if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then

@@ -26,6 +26,9 @@ export default defineConfig({
           SCORECARD_REPEAT: process.env.SCORECARD_REPEAT ?? "",
           // A candidate everyday model to try (an id from MODELS in core/assistant/models.ts).
           AI_EVERYDAY_MODEL: process.env.AI_EVERYDAY_MODEL ?? "",
+          // Faster answers (Cerebras): its key, and room for a whole run in one day.
+          CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY ?? "",
+          AI_FAST_CALLS_PER_DAY: "500",
         },
       },
     })),
