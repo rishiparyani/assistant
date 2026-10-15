@@ -4,6 +4,11 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF52: Feel, slice 1 (decision 2026-10-15 "Feel: the ChatGPT bar").**
+  - **Cards package:** `type` and `motion` tokens in `theme.ts`; `Tap` (`press.tsx`, press feedback on the UI thread, opt-in haptic); `ThinkingDots` (`thinking.tsx`); the chips, stepper and button controls use `Tap`.
+  - **Phone/web app:** `src/components/Sheet.tsx` (spring up, scrim fade, drag the handle to close, keyboard-aware, `tone`); every sheet and menu moved onto it (Save, Ask, ChatAbout, Help, Import, People, Poll, Search, SetupEdit, Changes, CardMenu, New chat, the setup screen's field sheet and pickers, the list's two menus). The chat: scroll anchoring (follows only at the bottom), new messages rise in, thinking dots while busy, a growing box (five lines), Send dim until there's text, `Tap` on every button. The home's bar, search and help buttons on `Tap`.
+  - **Not yet:** streaming (slice 2), the rest of the bare font sizes (about 280 left; sweep screen by screen as each moves onto `type`), drag-anywhere on sheets (the handle only, so inner lists keep scrolling), measurements on a device.
+
 - **HF51: Claude on in the live app (owner: "Turn them on"; decision 2026-10-15 "Haiku for every day, Sonnet for setups").**
   - `claude-haiku-5-5` and `claude-sonnet-5-5` are `ready` in `models.ts`; `AI_EVERYDAY_MODEL` / `AI_SETUP_MODEL` set in `wrangler.jsonc` (dev and prod). `modelsFor` now returns the picked model first and the other ready, funded models of the level behind it (GLM after Haiku; nothing after Sonnet); a pick without its key is skipped, not offered.
   - Admin AI section: "Claude models" (the two picks, or needs the key) and "Other makers' keys" (scorecard only). `docs/setup.md` key row updated.

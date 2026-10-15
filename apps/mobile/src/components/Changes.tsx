@@ -3,9 +3,9 @@
 // (inline: just what that reply did) or as a sheet with the recent list.
 // online-only: the log and Undo live on the server.
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { Text } from "@assistant/cards/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { HistoryItem } from "@assistant/shared";
 import { ApiError, isOffline, request } from "../api.ts";
 import { radius, useTheme } from "../theme.ts";
@@ -31,7 +31,6 @@ export function Changes({
   onClose?: () => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<HistoryItem[]>(given ?? []);
   const [note, setNote] = useState(given ? "" : "Loading…");
   const [busy, setBusy] = useState<string | null>(null);
@@ -230,23 +229,20 @@ export function Changes({
       </View>
     );
   return (
-    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={s.backdrop} />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 }]}>
-        <View style={s.sheetHead}>
-          <Text style={[s.sheetTitle, { color: t.fg }]}>What changed</Text>
-          <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
-            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
-          </Pressable>
-        </View>
-        <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ paddingBottom: 8 }}>
-          <View style={[s.list, { backgroundColor: t.cell, borderColor: t.hair }]}>{rows}</View>
-          {note ? (
-            <Text style={[s.line, { color: t.fg2, textAlign: "center", padding: 12 }]}>{note}</Text>
-          ) : null}
-        </ScrollView>
+    <Sheet open onClose={onClose ?? (() => undefined)} gap={10} accessibilityLabel="What changed">
+      <View style={s.sheetHead}>
+        <Text style={[s.sheetTitle, { color: t.fg }]}>What changed</Text>
+        <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
+          <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
+        </Pressable>
       </View>
-    </Modal>
+      <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ paddingBottom: 8 }}>
+        <View style={[s.list, { backgroundColor: t.cell, borderColor: t.hair }]}>{rows}</View>
+        {note ? (
+          <Text style={[s.line, { color: t.fg2, textAlign: "center", padding: 12 }]}>{note}</Text>
+        ) : null}
+      </ScrollView>
+    </Sheet>
   );
 }
 

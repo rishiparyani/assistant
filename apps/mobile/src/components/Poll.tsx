@@ -1,9 +1,9 @@
 // Asking everyone in a chat (decision 2026-10-14 "Ask everyone", as in the mock-up): a question
 // card with an answer button each (with how many picked it and who), and the sheet that asks.
 import { useEffect, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import * as Haptics from "expo-haptics";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatCard, PollView, SharedOpened } from "@assistant/shared";
 import { Text, TextInput } from "@assistant/cards/native";
 import { request } from "../api.ts";
@@ -228,7 +228,6 @@ export function AskEveryoneSheet({
   onClose: () => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState(["Yes", "No", "Maybe"]);
   const [adding, setAdding] = useState("");
@@ -324,131 +323,123 @@ export function AskEveryoneSheet({
     setAdding("");
   };
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
+    <Sheet open={open} onClose={onClose} keyboard accessibilityLabel="Ask everyone">
+      <Text style={[s.title, { color: t.fg }]}>Ask everyone</Text>
+      <TextInput
+        value={question}
+        onChangeText={setQuestion}
+        placeholder="e.g. Free on Sat 12 Dec for Taj?"
+        placeholderTextColor={t.fg3}
+        maxLength={300}
+        accessibilityLabel="Question"
+        style={[s.input, { backgroundColor: t.cell, color: t.fg }]}
       />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 16 }]}>
-        <View style={[s.grab, { backgroundColor: t.fill2 }]} />
-        <Text style={[s.title, { color: t.fg }]}>Ask everyone</Text>
-        <TextInput
-          value={question}
-          onChangeText={setQuestion}
-          placeholder="e.g. Free on Sat 12 Dec for Taj?"
-          placeholderTextColor={t.fg3}
-          maxLength={300}
-          accessibilityLabel="Question"
-          style={[s.input, { backgroundColor: t.cell, color: t.fg }]}
-        />
-        {fillable.length ? (
-          <>
-            <Text style={[s.label, { color: t.fg2 }]}>Answers fill in</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
-              {[null, ...fillable].map((f) => {
-                const on =
-                  (fills?.share_id ?? null) === (f?.share_id ?? null) && fills?.field_id === f?.field_id;
-                return (
-                  <Pressable
-                    key={f ? `${f.share_id}:${f.field_id}` : "none"}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: on }}
-                    onPress={() => pickFill(f)}
-                    style={[s.chip, { backgroundColor: on ? t.accent : t.cell }]}
-                  >
-                    <Text style={[s.chipText, { color: on ? t.onAccent : t.fg }]} numberOfLines={1}>
-                      {f ? `${f.field} · ${f.record}` : "Nothing"}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </>
-        ) : null}
-        <Text style={[s.label, { color: t.fg2 }]}>Answers</Text>
-        <View style={s.chips}>
-          {options.map((o, i) => (
-            <Pressable
-              key={`${o}-${i}`}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${o}`}
-              disabled={options.length <= 2 || locked}
-              onPress={() => setOptions((xs) => xs.filter((_, j) => j !== i))}
-              style={[s.chip, { backgroundColor: t.cell }]}
-            >
-              <Text style={[s.chipText, { color: t.fg }]}>{o}</Text>
-              {options.length > 2 && !locked ? <Text style={[s.chipX, { color: t.fg3 }]}>×</Text> : null}
-            </Pressable>
-          ))}
-        </View>
-        {fills?.personal ? (
-          <Text style={[s.label, { color: t.fg3 }]}>
-            Each person’s answer becomes their own answer to {fills.field} on “{fills.record}”.
-          </Text>
-        ) : null}
-        {fills && !fills.personal ? (
-          <>
-            <Text style={[s.label, { color: t.fg3 }]}>
-              The most picked answer sets {fills.field} on “{fills.record}”
-              {fills.type === "date" || fills.type === "datetime"
-                ? ` (answers as dates, like ${fills.type === "date" ? "2026-12-12" : "2026-12-12 19:00"})`
-                : ""}
-              .
-            </Text>
-            <View style={s.chips}>
-              {(
-                [
-                  ["ask", "Ask me first"],
-                  ["auto", "Set it as the votes come"],
-                ] as const
-              ).map(([v, label]) => (
+      {fillable.length ? (
+        <>
+          <Text style={[s.label, { color: t.fg2 }]}>Answers fill in</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
+            {[null, ...fillable].map((f) => {
+              const on =
+                (fills?.share_id ?? null) === (f?.share_id ?? null) && fills?.field_id === f?.field_id;
+              return (
                 <Pressable
-                  key={v}
+                  key={f ? `${f.share_id}:${f.field_id}` : "none"}
                   accessibilityRole="button"
-                  accessibilityState={{ selected: apply === v }}
-                  onPress={() => setApply(v)}
-                  style={[s.chip, { backgroundColor: apply === v ? t.accent : t.cell }]}
+                  accessibilityState={{ selected: on }}
+                  onPress={() => pickFill(f)}
+                  style={[s.chip, { backgroundColor: on ? t.accent : t.cell }]}
                 >
-                  <Text style={[s.chipText, { color: apply === v ? t.onAccent : t.fg }]}>{label}</Text>
+                  <Text style={[s.chipText, { color: on ? t.onAccent : t.fg }]} numberOfLines={1}>
+                    {f ? `${f.field} · ${f.record}` : "Nothing"}
+                  </Text>
                 </Pressable>
-              ))}
-            </View>
-          </>
-        ) : null}
-        {options.length < 6 && !locked ? (
-          <View style={s.addRow}>
-            <TextInput
-              value={adding}
-              onChangeText={setAdding}
-              onSubmitEditing={add}
-              placeholder="Another answer"
-              placeholderTextColor={t.fg3}
-              maxLength={40}
-              accessibilityLabel="Another answer"
-              style={[s.input, s.grow, { backgroundColor: t.cell, color: t.fg }]}
-            />
-            <Pressable
-              accessibilityRole="button"
-              disabled={!adding.trim()}
-              onPress={add}
-              style={[s.addBtn, { backgroundColor: t.fill, opacity: adding.trim() ? 1 : 0.5 }]}
-            >
-              <Text style={[s.chipText, { color: t.fg }]}>Add</Text>
-            </Pressable>
-          </View>
-        ) : null}
-        {!distinct ? <Text style={[s.label, { color: t.danger }]}>Answers must differ.</Text> : null}
-        <Pressable
-          accessibilityRole="button"
-          disabled={!ready}
-          onPress={go}
-          style={[s.go, { backgroundColor: t.accent, opacity: ready ? 1 : 0.5 }]}
-        >
-          <Text style={[s.goText, { color: t.onAccent }]}>Ask everyone</Text>
-        </Pressable>
+              );
+            })}
+          </ScrollView>
+        </>
+      ) : null}
+      <Text style={[s.label, { color: t.fg2 }]}>Answers</Text>
+      <View style={s.chips}>
+        {options.map((o, i) => (
+          <Pressable
+            key={`${o}-${i}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Remove ${o}`}
+            disabled={options.length <= 2 || locked}
+            onPress={() => setOptions((xs) => xs.filter((_, j) => j !== i))}
+            style={[s.chip, { backgroundColor: t.cell }]}
+          >
+            <Text style={[s.chipText, { color: t.fg }]}>{o}</Text>
+            {options.length > 2 && !locked ? <Text style={[s.chipX, { color: t.fg3 }]}>×</Text> : null}
+          </Pressable>
+        ))}
       </View>
-    </Modal>
+      {fills?.personal ? (
+        <Text style={[s.label, { color: t.fg3 }]}>
+          Each person’s answer becomes their own answer to {fills.field} on “{fills.record}”.
+        </Text>
+      ) : null}
+      {fills && !fills.personal ? (
+        <>
+          <Text style={[s.label, { color: t.fg3 }]}>
+            The most picked answer sets {fills.field} on “{fills.record}”
+            {fills.type === "date" || fills.type === "datetime"
+              ? ` (answers as dates, like ${fills.type === "date" ? "2026-12-12" : "2026-12-12 19:00"})`
+              : ""}
+            .
+          </Text>
+          <View style={s.chips}>
+            {(
+              [
+                ["ask", "Ask me first"],
+                ["auto", "Set it as the votes come"],
+              ] as const
+            ).map(([v, label]) => (
+              <Pressable
+                key={v}
+                accessibilityRole="button"
+                accessibilityState={{ selected: apply === v }}
+                onPress={() => setApply(v)}
+                style={[s.chip, { backgroundColor: apply === v ? t.accent : t.cell }]}
+              >
+                <Text style={[s.chipText, { color: apply === v ? t.onAccent : t.fg }]}>{label}</Text>
+              </Pressable>
+            ))}
+          </View>
+        </>
+      ) : null}
+      {options.length < 6 && !locked ? (
+        <View style={s.addRow}>
+          <TextInput
+            value={adding}
+            onChangeText={setAdding}
+            onSubmitEditing={add}
+            placeholder="Another answer"
+            placeholderTextColor={t.fg3}
+            maxLength={40}
+            accessibilityLabel="Another answer"
+            style={[s.input, s.grow, { backgroundColor: t.cell, color: t.fg }]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            disabled={!adding.trim()}
+            onPress={add}
+            style={[s.addBtn, { backgroundColor: t.fill, opacity: adding.trim() ? 1 : 0.5 }]}
+          >
+            <Text style={[s.chipText, { color: t.fg }]}>Add</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {!distinct ? <Text style={[s.label, { color: t.danger }]}>Answers must differ.</Text> : null}
+      <Pressable
+        accessibilityRole="button"
+        disabled={!ready}
+        onPress={go}
+        style={[s.go, { backgroundColor: t.accent, opacity: ready ? 1 : 0.5 }]}
+      >
+        <Text style={[s.goText, { color: t.onAccent }]}>Ask everyone</Text>
+      </Pressable>
+    </Sheet>
   );
 }
 
@@ -481,9 +472,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 14,
   },
   setText: { fontSize: 15, fontWeight: "700" },
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 12 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   title: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   input: { minHeight: 48, borderRadius: 16, paddingHorizontal: 16, fontSize: 16 },
   label: { fontSize: 13, fontWeight: "700" },

@@ -3,8 +3,8 @@
 // it can propose where the rows go; the person confirms the card. On the website a file is
 // picked; anywhere, its text can be pasted.
 import { useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import type { ImportView } from "@assistant/shared";
 import { Text, TextInput } from "@assistant/cards/native";
 import { ApiError, request } from "../api.ts";
@@ -31,7 +31,6 @@ export function ImportSheet({
   onUploaded: (file: ImportView) => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [csv, setCsv] = useState("");
   const [busy, setBusy] = useState(false);
@@ -74,83 +73,68 @@ export function ImportSheet({
   };
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
+    <Sheet open={open} onClose={onClose} tone="cell" keyboard accessibilityLabel="Add a CSV">
+      <Text style={[s.label, { color: t.fg2 }]}>Add a CSV</Text>
+      <Text style={[s.small, { color: t.fg }]}>
+        A sheet saved as CSV, the first line naming the columns. The assistant reads the column names and a
+        few cells, says where the rows would go, and nothing is added until you confirm.
+      </Text>
+      {Platform.OS === "web" ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={pick}
+          disabled={busy}
+          style={[s.primary, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+        >
+          <Text style={[s.primaryText, { color: t.onAccent }]}>Choose a file</Text>
+        </Pressable>
+      ) : null}
+      <Text style={[s.small, { color: t.fg2 }]}>
+        {Platform.OS === "web" ? "Or paste it:" : "Paste it here:"}
+      </Text>
+      <TextInput
+        accessibilityLabel="File name"
+        placeholder="Name, e.g. expenses.csv"
+        placeholderTextColor={t.fg2}
+        value={name}
+        onChangeText={setName}
+        autoCapitalize="none"
+        style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
       />
-      <View style={[s.sheet, { backgroundColor: t.cell, paddingBottom: insets.bottom + 16 }]}>
-        <View style={[s.grab, { backgroundColor: t.fill2 }]} />
-        <Text style={[s.label, { color: t.fg2 }]}>Add a CSV</Text>
-        <Text style={[s.small, { color: t.fg }]}>
-          A sheet saved as CSV, the first line naming the columns. The assistant reads the column names and a
-          few cells, says where the rows would go, and nothing is added until you confirm.
-        </Text>
-        {Platform.OS === "web" ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={pick}
-            disabled={busy}
-            style={[s.primary, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-          >
-            <Text style={[s.primaryText, { color: t.onAccent }]}>Choose a file</Text>
-          </Pressable>
-        ) : null}
-        <Text style={[s.small, { color: t.fg2 }]}>
-          {Platform.OS === "web" ? "Or paste it:" : "Paste it here:"}
-        </Text>
-        <TextInput
-          accessibilityLabel="File name"
-          placeholder="Name, e.g. expenses.csv"
-          placeholderTextColor={t.fg2}
-          value={name}
-          onChangeText={setName}
-          autoCapitalize="none"
-          style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
-        />
-        <TextInput
-          accessibilityLabel="CSV text"
-          placeholder={"Date,Item,Amount\n12/10/2026,Strings,450"}
-          placeholderTextColor={t.fg2}
-          value={csv}
-          onChangeText={setCsv}
-          multiline
-          autoCapitalize="none"
-          autoCorrect={false}
-          style={[s.input, s.area, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
-        />
-        {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
-        <View style={s.row}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onClose}
-            style={[s.secondary, { borderColor: t.sep }]}
-          >
-            <Text style={[s.primaryText, { color: t.fg }]}>Cancel</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => upload(name.trim() || "pasted.csv", csv)}
-            disabled={busy || !csv.trim()}
-            style={[s.primary, s.grow, { backgroundColor: t.accent, opacity: busy || !csv.trim() ? 0.5 : 1 }]}
-          >
-            {busy ? (
-              <ActivityIndicator color={t.onAccent} />
-            ) : (
-              <Text style={[s.primaryText, { color: t.onAccent }]}>Upload</Text>
-            )}
-          </Pressable>
-        </View>
+      <TextInput
+        accessibilityLabel="CSV text"
+        placeholder={"Date,Item,Amount\n12/10/2026,Strings,450"}
+        placeholderTextColor={t.fg2}
+        value={csv}
+        onChangeText={setCsv}
+        multiline
+        autoCapitalize="none"
+        autoCorrect={false}
+        style={[s.input, s.area, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
+      />
+      {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
+      <View style={s.row}>
+        <Pressable accessibilityRole="button" onPress={onClose} style={[s.secondary, { borderColor: t.sep }]}>
+          <Text style={[s.primaryText, { color: t.fg }]}>Cancel</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => upload(name.trim() || "pasted.csv", csv)}
+          disabled={busy || !csv.trim()}
+          style={[s.primary, s.grow, { backgroundColor: t.accent, opacity: busy || !csv.trim() ? 0.5 : 1 }]}
+        >
+          {busy ? (
+            <ActivityIndicator color={t.onAccent} />
+          ) : (
+            <Text style={[s.primaryText, { color: t.onAccent }]}>Upload</Text>
+          )}
+        </Pressable>
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 
 const s = StyleSheet.create({
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 12 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   label: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
   small: { fontSize: 14, lineHeight: 20 },
   input: {

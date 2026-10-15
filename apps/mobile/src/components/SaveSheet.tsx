@@ -2,11 +2,12 @@
 // hold a message, Save, and your own assistant proposes where it goes. Only you see this, and
 // nothing is saved until you tap Add. Without the assistant, Save puts it in your Inbox as it is.
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, ScrollView, StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import * as Haptics from "expo-haptics";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatItem } from "@assistant/shared";
 import { Text } from "@assistant/cards/native";
+import { Tap } from "@assistant/cards/native";
 import { isOffline } from "../api.ts";
 import {
   answerProposal,
@@ -30,7 +31,6 @@ export function SaveSheet({
   onClose: () => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<ChatItem[] | null>(null);
   const [chatId, setChatId] = useState("");
   const [error, setError] = useState("");
@@ -107,92 +107,83 @@ export function SaveSheet({
   const words = (items ?? []).filter((i) => i.role === "assistant" && i.text).map((i) => i.text);
 
   return (
-    <Modal visible={!!message} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <View style={[s.sheet, { backgroundColor: t.cell, paddingBottom: insets.bottom + 16 }]}>
-        <View style={[s.grab, { backgroundColor: t.fill2 }]} />
-        <Text style={[s.label, { color: t.fg2 }]}>Save · only you see this</Text>
-        {message ? (
-          <View style={[s.quote, { backgroundColor: t.fill }]}>
-            <Text style={[s.quoteWho, { color: t.fg2 }]}>{message.author}</Text>
-            <Text style={[s.quoteText, { color: t.fg }]} numberOfLines={4}>
-              {message.text}
-            </Text>
-          </View>
-        ) : null}
-        {done ? (
-          <Text style={[s.done, { color: t.good }]}>Saved to {done} ✓</Text>
-        ) : !canAsk ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={toInbox}
-            style={[s.primary, { backgroundColor: t.accent }]}
-          >
-            <Text style={[s.primaryText, { color: t.onAccent }]}>Save to my Inbox</Text>
-          </Pressable>
-        ) : items === null ? (
-          <View style={s.wait}>
-            <ActivityIndicator color={t.accent} />
-            <Text style={[s.small, { color: t.fg2 }]}>Finding where it goes…</Text>
-          </View>
-        ) : (
-          <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ gap: 10 }}>
-            {cards.map((item) => (
-              <View key={item.id} style={[s.card, { borderColor: t.accent }]}>
-                <Text style={[s.cardTitle, { color: t.accent }]}>{item.card!.title}</Text>
-                {item.card!.details.map((d) => (
-                  <Text key={d} style={[s.detail, { color: t.fg }]}>
-                    {d}
-                  </Text>
-                ))}
-                <View style={s.row}>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={busy}
-                    onPress={() => void answer(item, "confirm")}
-                    style={[s.primary, s.grow, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-                  >
-                    <Text style={[s.primaryText, { color: t.onAccent }]}>{item.card!.title}</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={busy}
-                    onPress={() => void answer(item, "cancel")}
-                    style={[s.secondary, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
-                  >
-                    <Text style={[s.secondaryText, { color: t.fg }]}>Not this</Text>
-                  </Pressable>
-                </View>
+    <Sheet open={!!message} onClose={onClose} tone="cell" accessibilityLabel="Save this message">
+      <Text style={[s.label, { color: t.fg2 }]}>Save · only you see this</Text>
+      {message ? (
+        <View style={[s.quote, { backgroundColor: t.fill }]}>
+          <Text style={[s.quoteWho, { color: t.fg2 }]}>{message.author}</Text>
+          <Text style={[s.quoteText, { color: t.fg }]} numberOfLines={4}>
+            {message.text}
+          </Text>
+        </View>
+      ) : null}
+      {done ? (
+        <Text style={[s.done, { color: t.good }]}>Saved to {done} ✓</Text>
+      ) : !canAsk ? (
+        <Tap
+          accessibilityRole="button"
+          onPress={toInbox}
+          haptic="light"
+          style={[s.primary, { backgroundColor: t.accent }]}
+        >
+          <Text style={[s.primaryText, { color: t.onAccent }]}>Save to my Inbox</Text>
+        </Tap>
+      ) : items === null ? (
+        <View style={s.wait}>
+          <ActivityIndicator color={t.accent} />
+          <Text style={[s.small, { color: t.fg2 }]}>Finding where it goes…</Text>
+        </View>
+      ) : (
+        <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ gap: 10 }}>
+          {cards.map((item) => (
+            <View key={item.id} style={[s.card, { borderColor: t.accent }]}>
+              <Text style={[s.cardTitle, { color: t.accent }]}>{item.card!.title}</Text>
+              {item.card!.details.map((d) => (
+                <Text key={d} style={[s.detail, { color: t.fg }]}>
+                  {d}
+                </Text>
+              ))}
+              <View style={s.row}>
+                <Tap
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => void answer(item, "confirm")}
+                  haptic="light"
+                  style={[s.primary, s.grow, { backgroundColor: t.accent }]}
+                >
+                  <Text style={[s.primaryText, { color: t.onAccent }]}>{item.card!.title}</Text>
+                </Tap>
+                <Tap
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => void answer(item, "cancel")}
+                  style={[s.secondary, { backgroundColor: t.fill }]}
+                >
+                  <Text style={[s.secondaryText, { color: t.fg }]}>Not this</Text>
+                </Tap>
               </View>
-            ))}
-            {words.length && !cards.length ? (
-              <Text style={[s.small, { color: t.fg2 }]}>{words.join("\n\n")}</Text>
-            ) : null}
-            {!cards.length ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={toInbox}
-                style={[s.secondary, { backgroundColor: t.fill }]}
-              >
-                <Text style={[s.secondaryText, { color: t.fg }]}>Put it in my Inbox instead</Text>
-              </Pressable>
-            ) : null}
-          </ScrollView>
-        )}
-        {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
-      </View>
-    </Modal>
+            </View>
+          ))}
+          {words.length && !cards.length ? (
+            <Text style={[s.small, { color: t.fg2 }]}>{words.join("\n\n")}</Text>
+          ) : null}
+          {!cards.length ? (
+            <Tap
+              accessibilityRole="button"
+              onPress={toInbox}
+              style={[s.secondary, { backgroundColor: t.fill }]}
+            >
+              <Text style={[s.secondaryText, { color: t.fg }]}>Put it in my Inbox instead</Text>
+            </Tap>
+          ) : null}
+        </ScrollView>
+      )}
+      {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
+    </Sheet>
   );
 }
 
 const s = StyleSheet.create({
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 12 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   label: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
   quote: { borderRadius: 14, padding: 12, gap: 2 },
   quoteWho: { fontSize: 12, fontWeight: "800" },

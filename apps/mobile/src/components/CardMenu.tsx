@@ -1,8 +1,9 @@
 // The card's menu (hold a card): ask about it, change its size, hand it to the chat to share,
 // make a form or send on a schedule ("chat makes, screens use"), or take it off the home.
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { Text } from "@assistant/cards/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Tap } from "@assistant/cards/native";
 import type { CardSize } from "@assistant/cards";
 import { sizesFor, type HomeCard } from "../home.ts";
 import { radius, useTheme } from "../theme.ts";
@@ -25,7 +26,6 @@ export function CardMenu({
   actions: MenuActions;
 }) {
   const { t, colour } = useTheme();
-  const insets = useSafeAreaInsets();
   if (!card) return null;
   const c = colour(card.colour);
   const sizes = sizesFor(card.spec);
@@ -49,84 +49,60 @@ export function CardMenu({
           { label: "Take off the home", onPress: run(() => actions.unpin(card)), danger: true },
         ];
   return (
-    <Modal transparent animationType="fade" visible onRequestClose={onClose}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={s.backdrop} />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 }]}>
-        <View style={s.head}>
-          <View style={[s.dot, { backgroundColor: c }]} />
-          <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-            {card.spec.title}
-          </Text>
-        </View>
-        {sizes.length > 1 && card.view ? (
-          <View style={[s.sizes, { backgroundColor: t.fill }]}>
-            {sizes.map((size) => {
-              const on = size === card.spec.size;
-              return (
-                <Pressable
-                  key={size}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: on }}
-                  accessibilityLabel={`${SIZE_NAMES[size]} card`}
-                  onPress={run(() => actions.resize(card, size))}
-                  style={[s.size, on && [s.sizeOn, { backgroundColor: t.cell, shadowColor: t.shadow }]]}
-                >
-                  <Text style={[s.sizeText, { color: on ? t.fg : t.fg2 }]}>{SIZE_NAMES[size]}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
-        <View style={[s.list, { backgroundColor: t.cell, borderColor: t.hair }]}>
-          {rows.map((r, i) => (
-            <Pressable
-              key={r.label}
-              accessibilityRole="button"
-              onPress={r.onPress}
-              style={({ pressed }) => [
-                s.row,
-                i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
-                pressed && { backgroundColor: t.fill },
-              ]}
-            >
-              <Text style={[s.rowText, { color: r.danger ? t.danger : t.fg }]}>{r.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onClose}
-          style={({ pressed }) => [
-            s.cancel,
-            { backgroundColor: t.cell, borderColor: t.hair, opacity: pressed ? 0.8 : 1 },
-          ]}
-        >
-          <Text style={[s.rowText, { color: t.accent, fontWeight: "700" }]}>Cancel</Text>
-        </Pressable>
+    <Sheet open onClose={onClose} accessibilityLabel={`${card.spec.title} card`}>
+      <View style={s.head}>
+        <View style={[s.dot, { backgroundColor: c }]} />
+        <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+          {card.spec.title}
+        </Text>
       </View>
-    </Modal>
+      {sizes.length > 1 && card.view ? (
+        <View style={[s.sizes, { backgroundColor: t.fill }]}>
+          {sizes.map((size) => {
+            const on = size === card.spec.size;
+            return (
+              <Tap
+                key={size}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`${SIZE_NAMES[size]} card`}
+                onPress={run(() => actions.resize(card, size))}
+                haptic="selection"
+                style={[s.size, on && [s.sizeOn, { backgroundColor: t.cell, shadowColor: t.shadow }]]}
+              >
+                <Text style={[s.sizeText, { color: on ? t.fg : t.fg2 }]}>{SIZE_NAMES[size]}</Text>
+              </Tap>
+            );
+          })}
+        </View>
+      ) : null}
+      <View style={[s.list, { backgroundColor: t.cell, borderColor: t.hair }]}>
+        {rows.map((r, i) => (
+          <Tap
+            key={r.label}
+            accessibilityRole="button"
+            onPress={r.onPress}
+            scale={1}
+            dim={0.4}
+            style={[s.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep }]}
+          >
+            <Text style={[s.rowText, { color: r.danger ? t.danger : t.fg }]}>{r.label}</Text>
+          </Tap>
+        ))}
+      </View>
+      <Tap
+        accessibilityRole="button"
+        onPress={onClose}
+        scale={0.985}
+        style={[s.cancel, { backgroundColor: t.cell, borderColor: t.hair }]}
+      >
+        <Text style={[s.rowText, { color: t.accent, fontWeight: "700" }]}>Cancel</Text>
+      </Tap>
+    </Sheet>
   );
 }
 
 const s = StyleSheet.create({
-  backdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.35)",
-  },
-  sheet: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 16,
-    gap: 12,
-  },
   head: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, minHeight: 28 },
   dot: { width: 10, height: 10, borderRadius: 3 },
   title: { fontSize: 16, fontWeight: "700", flexShrink: 1 },

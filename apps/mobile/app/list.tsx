@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
   Linking,
-  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -16,6 +15,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
@@ -37,6 +37,7 @@ import {
   shown,
   tint,
 } from "@assistant/cards/native";
+import { Tap } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
@@ -429,75 +430,67 @@ export default function ListPage() {
           </Pressable>
         </View>
       </View>
-      <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
-        <Pressable style={[s.scrim, { backgroundColor: t.shadow }]} onPress={() => setMenu(false)} />
-        <View style={[s.menu, { backgroundColor: t.cell }]}>
-          {[
-            {
-              label: "Recently deleted",
-              run: () => router.push({ pathname: "/trash", params: c ? { collection: c.name } : {} }),
-            },
-            {
-              label: "Fields and cards",
-              run: () => router.push({ pathname: "/setup", params: c ? { collection: c.name } : {} }),
-            },
-            ...(Platform.OS === "web" && c
-              ? [
-                  {
-                    label: "Download as CSV",
-                    run: () =>
-                      void Linking.openURL(
-                        `${API_URL}/api/export/${enc(c.name)}.csv${current.view ? `?view=${enc(current.view.id)}` : ""}`,
-                      ),
-                  },
-                ]
-              : []),
-          ].map((x) => (
-            <Pressable
-              key={x.label}
-              accessibilityRole="button"
-              onPress={() => {
-                setMenu(false);
-                x.run();
-              }}
-              style={[s.menuRow, { backgroundColor: t.cell }]}
-            >
-              <Text style={{ color: t.fg, fontSize: 16, fontWeight: "600" }}>{x.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </Modal>
-      <Modal visible={!!held} transparent animationType="fade" onRequestClose={() => setHeld(null)}>
-        <Pressable
-          style={[s.scrim, { backgroundColor: t.shadow }]}
-          onPress={() => setHeld(null)}
-          accessibilityLabel="Close"
-        />
-        <View style={[s.menu, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 }]}>
-          <Text style={[s.menuTitle, { color: t.fg }]} numberOfLines={1}>
-            {held?.title}
-          </Text>
-          {[
-            {
-              label: "Ask about this",
-              run: () => held && c && askAbout(`About “${held.title}” in ${c.name}: `),
-            },
-            { label: "Chat with people about this", run: () => setChatAbout(held) },
-          ].map((x) => (
-            <Pressable
-              key={x.label}
-              accessibilityRole="button"
-              onPress={() => {
-                setHeld(null);
-                x.run();
-              }}
-              style={[s.menuRow, { backgroundColor: t.cell }]}
-            >
-              <Text style={[s.menuText, { color: t.fg }]}>{x.label}</Text>
-            </Pressable>
-          ))}
-        </View>
-      </Modal>
+      <Sheet open={menu} onClose={() => setMenu(false)} gap={8} accessibilityLabel="More">
+        {[
+          {
+            label: "Recently deleted",
+            run: () => router.push({ pathname: "/trash", params: c ? { collection: c.name } : {} }),
+          },
+          {
+            label: "Fields and cards",
+            run: () => router.push({ pathname: "/setup", params: c ? { collection: c.name } : {} }),
+          },
+          ...(Platform.OS === "web" && c
+            ? [
+                {
+                  label: "Download as CSV",
+                  run: () =>
+                    void Linking.openURL(
+                      `${API_URL}/api/export/${enc(c.name)}.csv${current.view ? `?view=${enc(current.view.id)}` : ""}`,
+                    ),
+                },
+              ]
+            : []),
+        ].map((x) => (
+          <Tap
+            key={x.label}
+            accessibilityRole="button"
+            onPress={() => {
+              setMenu(false);
+              x.run();
+            }}
+            scale={0.985}
+            style={[s.menuRow, { backgroundColor: t.cell }]}
+          >
+            <Text style={{ color: t.fg, fontSize: 16, fontWeight: "600" }}>{x.label}</Text>
+          </Tap>
+        ))}
+      </Sheet>
+      <Sheet open={!!held} onClose={() => setHeld(null)} gap={8} accessibilityLabel={held?.title}>
+        <Text style={[s.menuTitle, { color: t.fg }]} numberOfLines={1}>
+          {held?.title}
+        </Text>
+        {[
+          {
+            label: "Ask about this",
+            run: () => held && c && askAbout(`About “${held.title}” in ${c.name}: `),
+          },
+          { label: "Chat with people about this", run: () => setChatAbout(held) },
+        ].map((x) => (
+          <Tap
+            key={x.label}
+            accessibilityRole="button"
+            onPress={() => {
+              setHeld(null);
+              x.run();
+            }}
+            scale={0.985}
+            style={[s.menuRow, { backgroundColor: t.cell }]}
+          >
+            <Text style={[s.menuText, { color: t.fg }]}>{x.label}</Text>
+          </Tap>
+        ))}
+      </Sheet>
       <ChatAboutSheet
         record={chatAbout}
         onClose={() => setChatAbout(null)}
@@ -677,8 +670,6 @@ function Row({
 }
 
 const s = StyleSheet.create({
-  scrim: { flex: 1, opacity: 0.5 },
-  menu: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, gap: 8 },
   menuTitle: { fontSize: 15, fontWeight: "800", paddingHorizontal: 4, paddingBottom: 4 },
   menuRow: { minHeight: 52, borderRadius: 16, justifyContent: "center", paddingHorizontal: 16 },
   menuText: { fontSize: 16, fontWeight: "700" },

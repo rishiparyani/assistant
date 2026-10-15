@@ -15,6 +15,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Text } from "@assistant/cards/native";
+import { Tap } from "@assistant/cards/native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextUp, type CardSize } from "@assistant/cards";
@@ -522,41 +523,36 @@ export default function Home() {
           ))}
         </View>
         <View style={[s.barRow, wide && s.wideRow]}>
-          <Pressable
+          <Tap
             ref={tourRefs.help}
             accessibilityRole="button"
             accessibilityLabel="Help"
             onPress={() => setHelp(true)}
-            style={({ pressed }) => [
-              s.searchBtn,
-              { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
-            ]}
+            scale={0.92}
+            style={[s.searchBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
           >
             <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
-          </Pressable>
+          </Tap>
           {assistant ? (
-            <Pressable
+            <Tap
               ref={tourRefs.search}
               accessibilityRole="button"
               accessibilityLabel="Search"
               onPress={() => setSearch(true)}
-              style={({ pressed }) => [
-                s.searchBtn,
-                { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
-              ]}
+              scale={0.92}
+              style={[s.searchBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
             >
               <Text style={{ color: t.fg, fontSize: 20, fontWeight: "700", lineHeight: 22 }}>⌕</Text>
-            </Pressable>
+            </Tap>
           ) : null}
-          <Pressable
+          <Tap
             ref={assistant ? tourRefs.chat : tourRefs.search}
             accessibilityRole="button"
             accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
             onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
-            style={({ pressed }) => [
-              s.bar,
-              { backgroundColor: t.ink, shadowColor: t.shadow, opacity: pressed ? 0.9 : 1 },
-            ]}
+            scale={0.98}
+            dim={0.08}
+            style={[s.bar, { backgroundColor: t.ink, shadowColor: t.shadow }]}
           >
             <Image source={logoDark} style={{ width: 26, height: 26 }} accessibilityIgnoresInvertColors />
             <Text style={[s.barText, { color: t.onInk }]} numberOfLines={1}>
@@ -565,7 +561,7 @@ export default function Home() {
             <View style={[s.send, { backgroundColor: t.accent }]}>
               <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
             </View>
-          </Pressable>
+          </Tap>
         </View>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
