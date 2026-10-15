@@ -5,7 +5,8 @@ _Updated: 2026-10-14_
 ## Last done
 
 - **HF40: faster answers from Cerebras** (decision 2026-10-15). `models.ts`: `gpt-oss-120b` (provider `cerebras`, level 1, `effort: low`), `AiSettings.fast` / `fastCallsPerDay`, `modelsFor(level, s, fast)`; `client.ts` `callCerebras` (OpenAI-shaped, straight to Cerebras, a ModelError on refusal so GLM answers); `access.ts` `fasterAnswers` (owners and admins for now); `budget-object.ts` `takeFastSlot` (migration `fast_slots`: a slot per attempt, counted and taken in one step, per day and per minute) and `fast_calls_today`; admin panel stat; `AI_FAST_CALLS_PER_DAY` (60) and `AI_FAST_CALLS_PER_MINUTE` (4) vars, both off in the scorecard config (the runner paces); secret `CEREBRAS_API_KEY` set by the deploy workflow and passed to the Scorecard, which paces cases for Cerebras. `fast-answers.test.ts` (3).
-  - **Next:** run the scorecard with `model: gpt-oss-120b` and compare with GLM (speed and right answers); then the per-person switch and the in-app note once it's on paid credit.
+  - **Run:** `docs/scorecard/2026-10-15.md`: Cerebras 15/20 core, median 1.2 s (GLM 18/20, ~3 s); two misses are date/time arithmetic. The key is in (secret set 2026-10-15); prod re-deployed by hand, so faster answers are live for owners and admins.
+  - **Next:** try `reasoning_effort: medium` on the date cases and run the hard suite on Cerebras; then the per-person switch and the in-app note once it's on paid credit.
 
 - **HF39: phone fixes from the owner's screenshots.**
   - **Keyboard:** the chat opened from Help still had its message box half under the keyboard. Inside an iPhone sheet a view's measured position is relative to the sheet, and a box that focuses itself raises the keyboard before listeners attach. `useKeyboardRoom` (`src/keyboard.ts`) now uses the keyboard's own height (both screens reach the screen's bottom), reads a keyboard already up (`Keyboard.metrics()`), and re-reads on did-show and frame changes.
