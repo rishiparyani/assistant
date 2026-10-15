@@ -388,10 +388,10 @@ export default function Chat() {
             accessibilityLabel="Send"
             accessibilityState={{ disabled: busy || !text.trim() }}
             onPress={() => say(text)}
-            disabled={busy}
+            disabled={busy || !text.trim()}
             scale={0.88}
             haptic="light"
-            style={[s.send, { backgroundColor: t.accent, opacity: busy || !text.trim() ? 0.45 : 1 }]}
+            style={[s.send, { backgroundColor: t.accent }]}
           >
             <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 18, lineHeight: 20 }}>↑</Text>
           </Tap>

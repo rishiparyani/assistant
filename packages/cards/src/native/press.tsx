@@ -5,6 +5,7 @@
 import { forwardRef, useCallback } from "react";
 import {
   Pressable,
+  StyleSheet,
   View,
   type GestureResponderEvent,
   type PressableProps,
@@ -56,9 +57,13 @@ export const Tap = forwardRef<View, TapProps>(function Tap(
   ref,
 ) {
   const down = useSharedValue(0);
+  // The press dim multiplies what the style and the disabled state already say (an animated
+  // style wins over a static one, so the base can't be left to the style).
+  const flat = StyleSheet.flatten(style) as { opacity?: number } | undefined;
+  const base = (typeof flat?.opacity === "number" ? flat.opacity : 1) * (disabled ? 0.5 : 1);
   const anim = useAnimatedStyle(() => ({
     transform: [{ scale: 1 - (1 - scale) * down.value }],
-    opacity: 1 - dim * down.value,
+    opacity: base * (1 - dim * down.value),
   }));
   const pressIn = useCallback(
     (e: GestureResponderEvent) => {
@@ -89,7 +94,7 @@ export const Tap = forwardRef<View, TapProps>(function Tap(
       onPressIn={pressIn}
       onPressOut={pressOut}
       onPress={press}
-      style={[style, disabled ? { opacity: 0.5 } : null, anim]}
+      style={[style, anim]}
     />
   );
 });
