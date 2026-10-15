@@ -181,6 +181,19 @@ type PollAbout = {
   values: Record<string, string | number | boolean>;
 };
 type Applied = { option: string; status: "sending" | "done" | "failed" };
+
+/** The question's field, as stored; a question from before plain fields (no `personal`) is personal. */
+function pollAbout(json: string | null): PollAbout | null {
+  if (!json) return null;
+  const a = JSON.parse(json) as Partial<PollAbout> & { share_id: string };
+  return {
+    ...a,
+    personal: a.personal ?? true,
+    apply: a.apply ?? null,
+    owner_user_id: a.owner_user_id ?? "",
+    values: a.values ?? {},
+  } as PollAbout;
+}
 type CardRow = {
   share_id: string;
   title: string;
@@ -604,7 +617,7 @@ export class GroupObject extends DurableObject<Env> {
       )
       .toArray()[0];
     const options = row ? (JSON.parse(row.options_json) as string[]) : [];
-    const about = row?.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
+    const about = pollAbout(row?.about_json ?? null);
     const applied = row?.applied_json ? (JSON.parse(row.applied_json) as Applied) : null;
     const votes = this.sql
       .exec<{ user_id: string; name: string; option: string }>(
@@ -735,7 +748,7 @@ export class GroupObject extends DurableObject<Env> {
       .toArray();
     let retry: number | null = null;
     for (const a of due) {
-      const about = a.about_json ? (JSON.parse(a.about_json) as PollAbout) : null;
+      const about = pollAbout(a.about_json);
       if (!about) {
         this.sql.exec(`delete from poll_out where seq = ?`, a.seq);
         continue;
@@ -790,7 +803,7 @@ export class GroupObject extends DurableObject<Env> {
     if (!row) throw new ObjectError("not_found", "Question not found");
     if (option !== null && !(JSON.parse(row.options_json) as string[]).includes(option))
       throw new ObjectError("validation_failed", "That isn't one of the answers");
-    const about = row.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
+    const about = pollAbout(row.about_json);
     return this.write(actor, key, ["vote", messageId, option], (ts) => {
       // A question that acts: the answer goes to the record from the alarm (never from here).
       if (about?.personal)
@@ -890,7 +903,7 @@ export class GroupObject extends DurableObject<Env> {
       )
       .toArray()[0];
     if (!row) throw new ObjectError("not_found", "Question not found");
-    const about = row.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
+    const about = pollAbout(row.about_json);
     if (!about || about.personal)
       throw new ObjectError("validation_failed", "This question doesn't set a field");
     if (row.author_id !== actor.userId && m.role !== "owner")
@@ -898,6 +911,9 @@ export class GroupObject extends DurableObject<Env> {
     if (!(JSON.parse(row.options_json) as string[]).includes(option))
       throw new ObjectError("validation_failed", "That isn't one of the answers");
     return this.write(actor, key, ["apply", messageId, option], () => {
+      // The tap came from a card that may be behind: the answer must still be the one ahead.
+      if (this.leader(messageId) !== option)
+        throw new ObjectError("conflict", "The answers have changed; have another look");
       this.queueApply(actor, messageId, option);
       return { message_id: messageId, option };
     });
@@ -926,7 +942,7 @@ export class GroupObject extends DurableObject<Env> {
         messageId,
       );
     for (const a of due) {
-      const about = a.about_json ? (JSON.parse(a.about_json) as PollAbout) : null;
+      const about = pollAbout(a.about_json);
       if (!about || about.personal) {
         this.sql.exec(`delete from poll_apply where seq = ?`, a.seq);
         continue;

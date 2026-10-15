@@ -5135,6 +5135,8 @@ export class SpaceObject extends DurableObject<Env> {
         "validation_failed",
         `${f.name} is ${f.type}; the most picked answer can set a choice, text, date or date-and-time field`,
       );
+    if (o.formula || o.rollup)
+      throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be set by a vote`);
     // Every answer must mean something on the field: a choice's own choices (in its own
     // spelling), a date the field can store, any text.
     const values: Record<string, string | number | boolean> = {};
