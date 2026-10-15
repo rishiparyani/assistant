@@ -75,6 +75,10 @@ const MIGRATIONS: Migrations = [
   // A retried request leaves one signal (its key), not two.
   `alter table signals add column key text;
    create unique index signals_key_idx on signals (key) where key is not null;`,
+  // Faster answers (decision 2026-10-15): one slot per Cerebras attempt, taken before the call,
+  // so a burst of requests can't all pass the same count.
+  `create table fast_slots (at text not null, model text not null);
+   create index fast_slots_model_at_idx on fast_slots (model, at);`,
 ];
 
 /** Months and days in India time (the cap resets on the 1st, IST). */
@@ -245,17 +249,28 @@ export class BudgetObject extends DurableObject<Env> {
   }
 
   /**
-   * Whether one more Cerebras call fits now (decision 2026-10-15): at most `perDay` a day for
-   * everyone together, and four a minute (the trial allows five), so its credit lasts the month
-   * and a burst never gets the app refused.
+   * Takes a slot for one Cerebras call, if one fits now (decision 2026-10-15): at most `perDay`
+   * a day for everyone together and `perMinute` a minute (the trial allows five), so its credit
+   * lasts the month and a burst never gets the app refused. Counting and taking happen in one
+   * step inside this object, so requests at the same moment can't all pass the same count; an
+   * attempt that fails still counts (erring on the safe side).
    */
-  async fastAllowed(modelId: string, perDay: number): Promise<boolean> {
+  async takeFastSlot(modelId: string, perDay: number, perMinute: number): Promise<boolean> {
     const n = (since: string) =>
       this.sql
-        .exec<{ n: number }>(`select count(*) as n from calls where model = ? and at >= ?`, modelId, since)
+        .exec<{ n: number }>(
+          `select count(*) as n from fast_slots where model = ? and at >= ?`,
+          modelId,
+          since,
+        )
         .one().n;
-    if (n(dayOf()) >= perDay) return false;
-    return n(new Date(Date.now() - 60_000).toISOString()) < 4;
+    const now = Date.now();
+    return this.ctx.storage.transactionSync(() => {
+      if (n(dayOf()) >= perDay || n(new Date(now - 60_000).toISOString()) >= perMinute) return false;
+      this.sql.exec(`insert into fast_slots (at, model) values (?, ?)`, new Date(now).toISOString(), modelId);
+      this.sql.exec(`delete from fast_slots where at < ?`, new Date(now - 2 * 86400_000).toISOString());
+      return true;
+    });
   }
 
   async log(c: CallLog): Promise<void> {

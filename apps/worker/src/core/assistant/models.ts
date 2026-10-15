@@ -138,6 +138,8 @@ export interface AiSettings {
   fast: boolean;
   /** Cerebras calls a day, all people together (its trial credit must last the month). */
   fastCallsPerDay: number;
+  /** And a minute (the trial allows five). */
+  fastCallsPerMinute: number;
 }
 
 /** Paise for a call of this size (rounded up). */

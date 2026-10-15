@@ -951,7 +951,8 @@ async function ask(
     let reservation: string | null = null;
     if (m.provider === "cerebras") {
       // Its own prepaid credit and limits, not the Cloudflare cap or the free allowance.
-      if (!ctx.ai.cerebrasKey || !(await budget.fastAllowed(m.id, s.fastCallsPerDay))) continue;
+      if (!ctx.ai.cerebrasKey || !(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute)))
+        continue;
     } else if (m.route === "free") {
       const used = await budget.neurons();
       if (used + neuronsFor(m, size, m.maxOutput) > FREE_NEURONS_PER_DAY) continue;

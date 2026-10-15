@@ -15,6 +15,7 @@ const base: AiSettings = {
   everydayModel: null,
   fast: false,
   fastCallsPerDay: 60,
+  fastCallsPerMinute: 4,
 };
 const ids = (ms: { id: string }[]) => ms.map((m) => m.id);
 
@@ -38,34 +39,22 @@ describe("faster answers", () => {
     expect(cf.map((m) => m.route)).toEqual(["paid"]);
   });
 
-  it("stops at the day's cap and at four a minute", async () => {
+  it("hands out slots up to the day's cap and the minute's, taken before the call", async () => {
     const stub = env.BUDGET.get(env.BUDGET.idFromName(`budget:test-${crypto.randomUUID()}`));
-    const call = (at: string) =>
-      runInDurableObject(stub, async (_i, state) => {
-        state.storage.sql.exec(
-          `insert into calls (at, user_id, level, model, input_tokens, output_tokens, cost_paise, neurons, ms, outcome)
-           values (?, 'u1', 1, 'gpt-oss-120b', 100, 10, 1, 0, 500, 'ok')`,
-          at,
-        );
-      });
-    expect(await stub.fastAllowed("gpt-oss-120b", 5)).toBe(true);
-    // Four in the last minute: the fifth waits.
-    for (let n = 0; n < 4; n++) await call(new Date().toISOString());
-    expect(await stub.fastAllowed("gpt-oss-120b", 60)).toBe(false);
-    // Older calls don't count for the minute, but do for the day.
-    const stale = env.BUDGET.get(env.BUDGET.idFromName(`budget:test-${crypto.randomUUID()}`));
-    const earlier = new Date(Date.now() - 5 * 60_000).toISOString();
-    for (let n = 0; n < 5; n++)
-      await runInDurableObject(stale, async (_i, state) => {
-        state.storage.sql.exec(
-          `insert into calls (at, user_id, level, model, input_tokens, output_tokens, cost_paise, neurons, ms, outcome)
-           values (?, 'u1', 1, 'gpt-oss-120b', 100, 10, 1, 0, 500, 'ok')`,
-          earlier,
-        );
-      });
-    expect(await stale.fastAllowed("gpt-oss-120b", 6)).toBe(true);
-    expect(await stale.fastAllowed("gpt-oss-120b", 5)).toBe(false);
-    // Other models' calls don't count.
-    expect(await stale.fastAllowed("@cf/zai-org/glm-4.7-flash", 5)).toBe(true);
+    const take = (perDay: number, perMinute = 4) => stub.takeFastSlot("gpt-oss-120b", perDay, perMinute);
+    // Four in a minute, then the fifth waits; the count is taken as the slot is, so two requests
+    // at once can't both be the fourth.
+    for (let n = 0; n < 4; n++) expect(await take(60)).toBe(true);
+    expect(await take(60)).toBe(false);
+    expect(await Promise.all([take(60), take(60)])).toEqual([false, false]);
+    // Slots from earlier today don't count for the minute, but do for the day.
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(`update fast_slots set at = ?`, new Date(Date.now() - 5 * 60_000).toISOString());
+    });
+    expect(await take(5)).toBe(true);
+    expect(await take(5)).toBe(false);
+    expect(await take(60)).toBe(true);
+    // Other models' slots don't count.
+    expect(await stub.takeFastSlot("@cf/zai-org/glm-4.7-flash", 5, 4)).toBe(true);
   });
 });
