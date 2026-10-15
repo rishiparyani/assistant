@@ -128,6 +128,16 @@ const MIGRATIONS: Migrations = [
      removed_at text,
      closed integer not null default 0
    );`,
+  // Questions that act (decision 2026-10-15): a question tied to a pinned record's personal
+  // field, and the answers still to be written to it (the alarm sends them, in order).
+  `alter table polls add column about_json text;
+   create table poll_out (
+     seq integer primary key autoincrement,
+     message_id text not null,
+     user_id text not null,
+     option text,
+     tries integer not null default 0
+   );`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -142,6 +152,17 @@ const CHUNK_GAP_MS = 30 * 60_000;
 /** Tries for a search push before giving up on it (a rebuild fills that index again). */
 const SEARCH_ATTEMPTS = 5;
 
+/** What a question that acts is about: the pinned share and the field its answers fill in. */
+type PollAbout = {
+  share_id: string;
+  space_id: string;
+  record_id: string;
+  record: string;
+  field_id: string;
+  field: string;
+  type: "boolean" | "choice";
+  choices: string[];
+};
 type CardRow = {
   share_id: string;
   title: string;
@@ -553,9 +574,13 @@ export class GroupObject extends DurableObject<Env> {
 
   private poll(messageId: string, question: string, userId: string): PollView {
     const row = this.sql
-      .exec<{ options_json: string }>(`select options_json from polls where message_id = ?`, messageId)
+      .exec<{ options_json: string; about_json: string | null }>(
+        `select options_json, about_json from polls where message_id = ?`,
+        messageId,
+      )
       .toArray()[0];
     const options = row ? (JSON.parse(row.options_json) as string[]) : [];
+    const about = row?.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
     const votes = this.sql
       .exec<{ user_id: string; name: string; option: string }>(
         `select user_id, name, option from poll_votes where message_id = ? order by at`,
@@ -570,32 +595,125 @@ export class GroupObject extends DurableObject<Env> {
         people: votes.filter((v) => v.option === o).map((v) => v.name),
       })),
       mine: votes.find((v) => v.user_id === userId)?.option ?? null,
+      about: about ? { share_id: about.share_id, record: about.record, field: about.field } : null,
     };
   }
 
-  /** A question for everyone here, with the answers to pick from. */
+  /**
+   * A question for everyone here, with the answers to pick from. `about` makes it a question
+   * that acts: each answer fills in that person's own answer on the pinned record (the service
+   * has checked the field with the record's space). Only an admin, or the person who pinned the
+   * record, asks one of those.
+   */
   async createPoll(
     actor: Actor & { userId: string },
     key: string | null,
     question: string,
     options: string[],
+    about: PollAbout | null = null,
   ): Promise<{ message_id: string }> {
     const m = this.member(actor.userId);
-    return this.write(actor, key, ["poll", question, options], (ts) => {
-      const id = this.note("poll", actor.userId, m.name, question.trim(), ts);
-      this.sql.exec(
-        `insert into polls (message_id, options_json) values (?, ?)`,
-        id,
-        JSON.stringify(options),
-      );
-      audit(this.sql, actor, {
-        action: "create_poll",
-        entityType: "group_message",
-        entityId: id,
-        after: { options },
-      });
-      return { message_id: id };
-    });
+    if (about) {
+      const pin = this.sql
+        .exec<{ owner_user_id: string }>(
+          `select owner_user_id from cards where share_id = ? and removed_at is null`,
+          about.share_id,
+        )
+        .toArray()[0];
+      if (!pin) throw new ObjectError("not_found", "That isn't pinned here");
+      if (m.role !== "owner" && !this.group().direct && pin.owner_user_id !== actor.userId)
+        throw new ObjectError(
+          "forbidden",
+          "Only the chat's admins, or whoever pinned it, can ask a question that fills it in",
+        );
+    }
+    return this.write(
+      actor,
+      key,
+      ["poll", question, options, about?.share_id ?? null, about?.field_id ?? null],
+      (ts) => {
+        const id = this.note("poll", actor.userId, m.name, question.trim(), ts);
+        this.sql.exec(
+          `insert into polls (message_id, options_json, about_json) values (?, ?, ?)`,
+          id,
+          JSON.stringify(options),
+          about ? JSON.stringify(about) : null,
+        );
+        audit(this.sql, actor, {
+          action: "create_poll",
+          entityType: "group_message",
+          entityId: id,
+          after: { options, ...(about ? { share_id: about.share_id, field_id: about.field_id } : {}) },
+        });
+        return { message_id: id };
+      },
+    );
+  }
+
+  /** The answer an option stands for on the field a question fills in (null clears it). */
+  private answerValue(about: PollAbout, option: string | null): boolean | string | null {
+    if (option === null) return null;
+    if (about.type === "boolean") {
+      const o = option.trim().toLowerCase();
+      return o === "yes" ? true : o === "no" ? false : null;
+    }
+    return about.choices.includes(option) ? option : null;
+  }
+
+  /**
+   * Writes answers given in the chat to the records they fill in, in order; each through the
+   * record's own space with a key (a repeat is harmless). A share or field that's gone drops
+   * its answers. Returns a delay to try again after, or null when done.
+   */
+  private async syncAnswers(): Promise<number | null> {
+    const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
+    if (!g) return null;
+    const due = this.sql
+      .exec<{
+        seq: number;
+        message_id: string;
+        user_id: string;
+        option: string | null;
+        tries: number;
+        about_json: string | null;
+      }>(
+        `select o.seq, o.message_id, o.user_id, o.option, o.tries, p.about_json
+         from poll_out o join polls p on p.message_id = o.message_id order by o.seq limit 50`,
+      )
+      .toArray();
+    let retry: number | null = null;
+    for (const a of due) {
+      const about = a.about_json ? (JSON.parse(a.about_json) as PollAbout) : null;
+      if (!about) {
+        this.sql.exec(`delete from poll_out where seq = ?`, a.seq);
+        continue;
+      }
+      try {
+        await this.env.SPACES.getByName(`space:${about.space_id}`).answerFromChat(
+          g.id,
+          about.share_id,
+          { user_id: a.user_id },
+          about.field_id,
+          this.answerValue(about, a.option),
+          `poll:${a.message_id}:${a.seq}`,
+        );
+        this.sql.exec(`delete from poll_out where seq = ?`, a.seq);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/not found/i.test(msg)) {
+          // The card was taken off, the field removed, or this person left: nothing to fill in.
+          this.sql.exec(`delete from poll_out where seq = ?`, a.seq);
+          continue;
+        }
+        this.sql.exec(`update poll_out set tries = tries + 1 where seq = ?`, a.seq);
+        console.warn("chat answer sync failed", msg);
+        const d = retryDelayMs(a.tries + 1);
+        retry = retry === null ? d : Math.min(retry, d);
+        // Keep the order for this question: stop here, try again later.
+        break;
+      }
+    }
+    return retry;
   }
 
   /** My answer to a question here (one each; picking again changes it, null takes it back). */
@@ -607,12 +725,23 @@ export class GroupObject extends DurableObject<Env> {
   ): Promise<{ message_id: string; option: string | null }> {
     const m = this.member(actor.userId);
     const row = this.sql
-      .exec<{ options_json: string }>(`select options_json from polls where message_id = ?`, messageId)
+      .exec<{ options_json: string; about_json: string | null }>(
+        `select options_json, about_json from polls where message_id = ?`,
+        messageId,
+      )
       .toArray()[0];
     if (!row) throw new ObjectError("not_found", "Question not found");
     if (option !== null && !(JSON.parse(row.options_json) as string[]).includes(option))
       throw new ObjectError("validation_failed", "That isn't one of the answers");
     return this.write(actor, key, ["vote", messageId, option], (ts) => {
+      // A question that acts: the answer goes to the record from the alarm (never from here).
+      if (row.about_json)
+        this.sql.exec(
+          `insert into poll_out (message_id, user_id, option) values (?, ?, ?)`,
+          messageId,
+          actor.userId,
+          option,
+        );
       const before =
         this.sql
           .exec<{ option: string }>(
@@ -1129,9 +1258,12 @@ export class GroupObject extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     // The chat's home and search first (each with its own retry), then the live pings.
-    const waits = [await this.syncHome(), await this.syncCards(), await this.syncSearch()].filter(
-      (x): x is number => x !== null,
-    );
+    const waits = [
+      await this.syncHome(),
+      await this.syncCards(),
+      await this.syncAnswers(),
+      await this.syncSearch(),
+    ].filter((x): x is number => x !== null);
     const retry = waits.length ? Math.min(...waits) : null;
     if (retry !== null) await this.ctx.storage.setAlarm(Date.now() + retry);
     const note = outboxNote(this.sql);

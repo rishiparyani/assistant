@@ -210,12 +210,18 @@ export function saveToInbox(text: string) {
 export const savedLabel = (title: string) => title.replace(/^Add to\s+/i, "").trim() || "your lists";
 
 /** Asks everyone in the chat (decision 2026-10-14 "Ask everyone"); works offline. */
-export function askEveryone(groupId: string, question: string, options: string[]) {
+export function askEveryone(
+  groupId: string,
+  question: string,
+  options: string[],
+  /** A question that acts: the pinned record and personal field each answer fills in. */
+  about?: { share_id: string; field: string },
+) {
   send({
     kind: "poll",
     method: "POST",
     path: pollsPath(groupId),
-    body: { question, options },
+    body: { question, options, ...(about ? { about } : {}) },
     label: question.length > 40 ? question.slice(0, 40) + "…" : question,
   });
 }

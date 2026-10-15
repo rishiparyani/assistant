@@ -414,8 +414,31 @@ export async function createPoll(
   groupId: string,
   question: string,
   options: string[],
+  about?: { share_id: string; field: string },
 ): Promise<GroupView> {
-  await groupOf(ctx, groupId).createPoll(actorOf(ctx), ctx.idempotencyKey, question, options);
+  let acts = null;
+  if (about) {
+    // A question that acts (decision 2026-10-15): the record's space says which field, and
+    // the answers offered must mean something on it.
+    const spaceId = await groupOf(ctx, groupId).cardSpace(ctx.user.id, about.share_id);
+    const f = await ctx.objects.SPACES.getByName(`space:${spaceId}`).chatPollField(
+      actorOf(ctx),
+      groupId,
+      about.share_id,
+      about.field,
+    );
+    const known = f.type === "boolean" ? ["yes", "no", "maybe"] : f.choices.map((c) => c.toLowerCase());
+    const odd = options.filter((o) => !known.includes(o.toLowerCase()));
+    if (odd.length)
+      throw new AppError(
+        "validation_failed",
+        f.type === "boolean"
+          ? `${f.field} is yes/no: the answers can be Yes, No and Maybe`
+          : `${f.field} takes ${f.choices.join(", ")}; "${odd[0]}" isn't one of them`,
+      );
+    acts = { ...about, ...f, space_id: spaceId };
+  }
+  await groupOf(ctx, groupId).createPoll(actorOf(ctx), ctx.idempotencyKey, question, options, acts);
   return groupView(ctx, groupId);
 }
 

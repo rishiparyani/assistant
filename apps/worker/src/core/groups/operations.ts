@@ -137,12 +137,13 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
     defineOperation({
       id: "core.create_poll",
       tool: "create_poll",
-      description: "Ask everyone in a chat a question with a few answers to pick from.",
+      description:
+        "Ask everyone in a chat a question with a few answers to pick from; with `about`, each answer fills in that person's own answer on a pinned record.",
       kind: "write",
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/polls" },
       input: CreatePollInput,
-      handler: (ctx, i) => createPoll(ctx, i.group_id, i.question, i.options),
+      handler: (ctx, i) => createPoll(ctx, i.group_id, i.question, i.options, i.about),
     }),
     defineOperation({
       id: "core.vote",

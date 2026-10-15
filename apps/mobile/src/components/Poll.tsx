@@ -1,11 +1,12 @@
 // Asking everyone in a chat (decision 2026-10-14 "Ask everyone", as in the mock-up): a question
 // card with an answer button each (with how many picked it and who), and the sheet that asks.
-import { useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { PollView } from "@assistant/shared";
+import type { ChatCard, PollView, SharedOpened } from "@assistant/shared";
 import { Text, TextInput } from "@assistant/cards/native";
+import { request } from "../api.ts";
 import { askEveryone, votePoll } from "../chats.ts";
 import { radius, tint, useTheme } from "../theme.ts";
 
@@ -72,6 +73,11 @@ export function PollCard({
         {mine ? "You asked everyone" : `${asker} asked everyone`}
       </Text>
       <Text style={[s.question, { color: t.fg }]}>{poll.question}</Text>
+      {poll.about ? (
+        <Text style={[s.who, { color: t.fg2 }]} numberOfLines={1}>
+          Your answer fills in {poll.about.field} on “{poll.about.record}”
+        </Text>
+      ) : null}
       <View style={s.options}>
         {poll.votes.map((v) => {
           const on = poll.mine === v.option;
@@ -113,13 +119,32 @@ function removeOnce(people: string[], name: string): string[] {
   return i < 0 ? people : [...people.slice(0, i), ...people.slice(i + 1)];
 }
 
-/** The sheet that asks: a question and its answers (Yes / No / Maybe to start with). */
+/** A personal field of a pinned record that a question could fill in. */
+type Fillable = {
+  share_id: string;
+  record: string;
+  field_id: string;
+  field: string;
+  choices: string[] | null;
+};
+
+/**
+ * The sheet that asks: a question and its answers (Yes / No / Maybe to start with). With
+ * records pinned to the chat, it can be a question that acts (decision 2026-10-15): pick one of
+ * their personal yes/no or choice fields, and each person's answer fills in their own.
+ */
 export function AskEveryoneSheet({
   groupId,
+  cards = [],
+  canAct = false,
   open,
   onClose,
 }: {
   groupId: string;
+  /** Records pinned to the chat. */
+  cards?: ChatCard[];
+  /** Whether I may ask a question that fills one in (an admin, or I pinned it). */
+  canAct?: boolean;
   open: boolean;
   onClose: () => void;
 }) {
@@ -128,14 +153,59 @@ export function AskEveryoneSheet({
   const [question, setQuestion] = useState("");
   const [options, setOptions] = useState(["Yes", "No", "Maybe"]);
   const [adding, setAdding] = useState("");
+  const [fillable, setFillable] = useState<Fillable[]>([]);
+  const [fills, setFills] = useState<Fillable | null>(null);
+  // online-only: which pinned records have personal fields is read when the sheet opens.
+  useEffect(() => {
+    if (!open || !canAct || !cards.length) return;
+    let current = true;
+    Promise.all(
+      cards.map((c) =>
+        request<SharedOpened>(
+          "GET",
+          `/api/groups/${encodeURIComponent(groupId)}/cards/${encodeURIComponent(c.share_id)}`,
+        )
+          .then((o) =>
+            o.share.kind === "card" && "record" in o
+              ? o.record.fields
+                  .filter((f) => f.personal && (f.type === "boolean" || f.type === "choice"))
+                  .map((f): Fillable => ({
+                    share_id: c.share_id,
+                    record: o.record.title,
+                    field_id: f.id,
+                    field: f.name,
+                    choices: f.type === "choice" ? (f.options.choices ?? []) : null,
+                  }))
+              : [],
+          )
+          .catch(() => [] as Fillable[]),
+      ),
+    ).then((all) => {
+      if (current) setFillable(all.flat());
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, canAct, cards, groupId]);
+  // The answers follow the field: Yes / No / Maybe for a yes/no, its choices for a choice.
+  const pickFill = (f: Fillable | null) => {
+    setFills(f);
+    setOptions(f ? (f.choices ? f.choices.slice(0, 6) : ["Yes", "No", "Maybe"]) : ["Yes", "No", "Maybe"]);
+  };
   const clean = options.map((o) => o.trim()).filter(Boolean);
   const distinct = new Set(clean.map((o) => o.toLowerCase())).size === clean.length;
   const ready = question.trim().length > 0 && clean.length >= 2 && distinct;
   const go = () => {
     if (!ready) return;
-    askEveryone(groupId, question.trim(), clean);
+    askEveryone(
+      groupId,
+      question.trim(),
+      clean,
+      fills ? { share_id: fills.share_id, field: fills.field_id } : undefined,
+    );
     setQuestion("");
     setOptions(["Yes", "No", "Maybe"]);
+    setFills(null);
     onClose();
   };
   const add = () => {
@@ -163,6 +233,30 @@ export function AskEveryoneSheet({
           accessibilityLabel="Question"
           style={[s.input, { backgroundColor: t.cell, color: t.fg }]}
         />
+        {fillable.length ? (
+          <>
+            <Text style={[s.label, { color: t.fg2 }]}>Answers fill in</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
+              {[null, ...fillable].map((f) => {
+                const on =
+                  (fills?.share_id ?? null) === (f?.share_id ?? null) && fills?.field_id === f?.field_id;
+                return (
+                  <Pressable
+                    key={f ? `${f.share_id}:${f.field_id}` : "none"}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    onPress={() => pickFill(f)}
+                    style={[s.chip, { backgroundColor: on ? t.accent : t.cell }]}
+                  >
+                    <Text style={[s.chipText, { color: on ? t.onAccent : t.fg }]} numberOfLines={1}>
+                      {f ? `${f.field} · ${f.record}` : "Nothing"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </>
+        ) : null}
         <Text style={[s.label, { color: t.fg2 }]}>Answers</Text>
         <View style={s.chips}>
           {options.map((o, i) => (
@@ -170,16 +264,21 @@ export function AskEveryoneSheet({
               key={`${o}-${i}`}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${o}`}
-              disabled={options.length <= 2}
+              disabled={options.length <= 2 || !!fills}
               onPress={() => setOptions((xs) => xs.filter((_, j) => j !== i))}
               style={[s.chip, { backgroundColor: t.cell }]}
             >
               <Text style={[s.chipText, { color: t.fg }]}>{o}</Text>
-              {options.length > 2 ? <Text style={[s.chipX, { color: t.fg3 }]}>×</Text> : null}
+              {options.length > 2 && !fills ? <Text style={[s.chipX, { color: t.fg3 }]}>×</Text> : null}
             </Pressable>
           ))}
         </View>
-        {options.length < 6 ? (
+        {fills ? (
+          <Text style={[s.label, { color: t.fg3 }]}>
+            Each person’s answer becomes their own answer to {fills.field} on “{fills.record}”.
+          </Text>
+        ) : null}
+        {options.length < 6 && !fills ? (
           <View style={s.addRow}>
             <TextInput
               value={adding}

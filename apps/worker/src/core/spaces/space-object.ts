@@ -5089,6 +5089,74 @@ export class SpaceObject extends DurableObject<Env> {
     return { title };
   }
 
+  /**
+   * A question that acts (decision 2026-10-15): which personal field of a pinned record a chat
+   * question would fill in. The asker must be in the share (the chat's people are); the field
+   * must be a personal yes/no or choice field the share shows.
+   */
+  async chatPollField(
+    actor: Actor,
+    groupId: string,
+    shareId: string,
+    field: string,
+  ): Promise<{
+    record_id: string;
+    record: string;
+    field_id: string;
+    field: string;
+    type: "boolean" | "choice";
+    choices: string[];
+  }> {
+    const s = this.joinedShare(actor, shareId);
+    if (s.group_id !== groupId || s.kind !== "card")
+      throw new ObjectError("not_found", "That isn't pinned here");
+    const r = this.requireRecord(s.target_id);
+    const shown = this.sharedFields(s, r.collection_id);
+    const f = this.matchField(shown, field);
+    const o = toField(f).options;
+    if (!o.personal)
+      throw new ObjectError(
+        "validation_failed",
+        `${f.name} isn't a personal answer; a question can fill in a field where each person has their own answer`,
+      );
+    if (f.type !== "boolean" && f.type !== "choice")
+      throw new ObjectError(
+        "validation_failed",
+        `${f.name} is ${f.type}; a question fills in a yes/no or a choice`,
+      );
+    return {
+      record_id: r.id,
+      record: r.title,
+      field_id: f.id,
+      field: f.name,
+      type: f.type,
+      choices: o.choices ?? [],
+    };
+  }
+
+  /**
+   * An answer given in the chat, written as that person's own answer on the record (through
+   * the share, so the same checks as a tap on the card). The chat sends it from its alarm with
+   * a key, so a repeat is harmless; null clears the answer.
+   */
+  async answerFromChat(
+    groupId: string,
+    shareId: string,
+    user: { user_id: string },
+    fieldId: string,
+    value: boolean | string | null,
+    key: string,
+  ): Promise<void> {
+    const s = this.sql.exec<ShareRow>(`select * from shares where id = ?`, shareId).toArray()[0];
+    if (!s || s.group_id !== groupId || s.revoked_at || !this.alive(s))
+      throw new ObjectError("not_found", "Share not found");
+    const f = this.liveField(fieldId);
+    if (!f || !toField(f).options.personal) throw new ObjectError("not_found", "Field not found");
+    await this.updateSharedRecord({ userId: user.user_id, source: "system" }, key, shareId, s.target_id, {
+      [fieldId]: value,
+    });
+  }
+
   /** The chat took this card off: the share made for it is turned off (a repeat is harmless). */
   async closeChatShare(groupId: string, shareId: string): Promise<void> {
     const s = this.sql.exec<ShareRow>(`select * from shares where id = ?`, shareId).toArray()[0];
