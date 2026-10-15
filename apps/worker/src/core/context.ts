@@ -162,6 +162,7 @@ export function aiSettings(env: Env): AiSettings {
     usdInr: num(vars.USD_INR, 90),
     fake: vars.AI_FAKE === "1",
     everydayModel: vars.AI_EVERYDAY_MODEL?.trim() || null,
+    setupModel: vars.AI_SETUP_MODEL?.trim() || null,
     fast: !!vars.CEREBRAS_API_KEY?.trim(),
     fastCallsPerDay: num(vars.AI_FAST_CALLS_PER_DAY, 60),
     fastCallsPerMinute: num(vars.AI_FAST_CALLS_PER_MINUTE, 4),

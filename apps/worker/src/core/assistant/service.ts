@@ -105,14 +105,14 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-14";
+export const PROMPT_VERSION = "2026-10-15";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
   function: {
     name: "hand_over",
     description:
-      "Hand this request to the smart model. Use it for anything that needs a new or changed setup (a new collection, new fields, saved views) or that you can't do with your tools.",
+      "Hand this request to the smart model. Use it for anything that needs a new or changed setup (a new collection, new fields, saved views, a card on the home) or that you can't do with your tools.",
     parameters: {
       type: "object",
       properties: { reason: { type: "string", description: "One short sentence" } },
@@ -265,7 +265,7 @@ function systemPrompt(
   ];
   if (level === 1)
     lines.push(
-      "- You can't create or change collections, fields or saved views. For a new kind of list, tracking something new, or changing fields, call hand_over.",
+      "- You can't create or change collections, fields or saved views, and you can't put a card on the home or change what's on it. For a new kind of list, tracking something new, changing fields, or a card on the home, call hand_over.",
     );
   else
     lines.push(
