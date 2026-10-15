@@ -186,6 +186,12 @@ jobs:
             shot "$dev" "$label-light-3-chat-typing"
             go "$dev" "/memory"
             shot "$dev" "$label-light-4-memory"
+            # A whole list (the owner saw Expenses crash on the phone, 2026-10-15): money pills,
+            # a date, the month groups; and a plain one.
+            go "$dev" "/list?collection=Expenses"
+            shot "$dev" "$label-light-4b-list-expenses"
+            go "$dev" "/list?collection=Notes" 10
+            shot "$dev" "$label-light-4c-list-notes"
             # What "Add to Gigspree" (Siri) lands on: the capture screen against the test server.
             go "$dev" "/capture?text=Strings%20450%20at%20Furtados"
             shot "$dev" "$label-light-5-capture"
@@ -208,6 +214,13 @@ jobs:
             echo "::group::app log"
             xcrun simctl spawn "$dev" log show --last 12m --style compact \
               --predicate 'processImagePath CONTAINS "Gigspree"' 2>/dev/null | grep -v -i "cookie\|token" | tail -150 || true
+            echo "::endgroup::"
+            # A crash's reason, if the app died (an unhandled JS exception names its message here).
+            echo "::group::crashes"
+            xcrun simctl spawn "$dev" log show --last 12m --style compact \
+              --predicate 'eventMessage CONTAINS "Exception" OR eventMessage CONTAINS "Fatal" OR eventMessage CONTAINS "Gigspree" AND eventMessage CONTAINS "crash"' 2>/dev/null | grep -v -i "cookie\|token" | tail -80 || true
+            ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i gigspree | head -5 || true
+            for f in $(ls -t ~/Library/Logs/DiagnosticReports/Gigspree* 2>/dev/null | head -2); do echo "== $f"; grep -i -m 12 "exception\|reason\|Unhandled\|Error:" "$f" || true; done
             echo "::endgroup::"
             xcrun simctl shutdown "$dev"
           done
