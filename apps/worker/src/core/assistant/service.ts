@@ -6,6 +6,7 @@
 import { connectedKinds } from "../connectors/service.ts";
 import { z } from "zod";
 import {
+  type ChangeRecordsSpec,
   MakeSetupInput,
   nameKey,
   setupWords,
@@ -916,7 +917,25 @@ async function runTool(
         args = { ...args, people: people.map((p) => p.user_id) };
         shown = { ...args, people: people.map((p) => p.name) };
       }
-      const card = { tool: name, args, ...describe(name, shown, target) };
+      let card = { tool: name, args, ...describe(name, shown, target) };
+      // A bulk change: the card says how many records and shows the first few, checked now.
+      if (name === "change_records") {
+        const spec = input as ChangeRecordsSpec;
+        const { stub, actor } = await spaceOf(ctx, spec.space);
+        const p = await stub.previewChange(actor, spec);
+        if (!p.count)
+          return {
+            kind: "error",
+            code: "no_match",
+            text: JSON.stringify({ error: "No records match; nothing to change" }),
+          };
+        card = {
+          tool: name,
+          args,
+          title: `Change ${p.count} record${p.count === 1 ? "" : "s"} in ${spec.collection}`,
+          details: [...p.words, ...p.examples.map((e) => `e.g. ${e}`)],
+        };
+      }
       return {
         kind: "card",
         card,

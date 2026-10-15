@@ -44,6 +44,14 @@ import {
   type FormulaNode,
   type FormulaType,
   type FormulaValue,
+  type LinkedRecord,
+  type ChangeRecordsSpec,
+  type ChangePreview,
+  type ChangeResult,
+  MAX_CHANGE_RECORDS,
+  filterWords,
+  formulaValueOf,
+  storedFormulaValue,
   evalFormula,
   parseFormula,
   inferType,
@@ -122,6 +130,16 @@ import type { NewNotification } from "../push/inbox.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
 const LIVE_DELAY_MS = 500;
+const FORMULA_KIND_WORDS: Record<FormulaType, string> = {
+  num: "a number",
+  money: "money",
+  date: "a date",
+  text: "text",
+  bool: "yes/no",
+};
+/** A raw value in a card line. */
+const rawShown = (v: unknown): string =>
+  Array.isArray(v) ? v.map(rawShown).join(", ") : typeof v === "object" && v ? JSON.stringify(v) : String(v);
 import { ObjectError } from "../objects/errors.ts";
 import { STARTER_COLLECTIONS } from "./starter.ts";
 
@@ -1911,46 +1929,7 @@ export class SpaceObject extends DurableObject<Env> {
       } catch (e) {
         throw new ObjectError("validation_failed", (e as Error).message);
       }
-      const asFormula = (f: FieldRow) => ({ ...toField(f), options: toField(f).options });
-      const kind = (f: FieldRow, name: string): FormulaType => {
-        const t = formulaTypeOf(f.type);
-        if (!t)
-          throw new ObjectError("validation_failed", `${name} is a ${f.type} field; a formula can't read it`);
-        return t;
-      };
-      const own = fields.map(asFormula);
-      const typeOfName = (name: string): FormulaType => {
-        const f = findFormulaField(own, name);
-        if (f) {
-          if (toField(fields.find((x) => x.id === f.id)!).options.formula)
-            this.noFormulaLoop(collectionId, f.id, selfId);
-          return kind(
-            fields.find((x) => x.id === f.id)!,
-            f.name,
-          );
-        }
-        const path = splitPath(own, name);
-        if (!path) return kind(this.matchField(fields, name), name); // throws with the field list
-        const link = fields.find((x) => x.id === path.link.id)!;
-        const target = toField(link).options.target;
-        if (!target)
-          throw new ObjectError(
-            "validation_failed",
-            `${link.name} can link anywhere; {${name}} needs a link to one list`,
-          );
-        if (toField(link).options.many)
-          throw new ObjectError(
-            "validation_failed",
-            `${link.name} links to several records; use a rollup for {${name}}`,
-          );
-        const far = this.matchField(this.fieldRows(target), path.rest);
-        if (far.type === "link")
-          throw new ObjectError(
-            "validation_failed",
-            `{${name}} is a link; a formula reads one step through a link`,
-          );
-        return kind(far, name);
-      };
+      const typeOfName = this.formulaTyper(collectionId, fields, selfId);
       let out: FormulaType;
       try {
         out = inferType(tree, typeOfName);
@@ -2018,6 +1997,66 @@ export class SpaceObject extends DurableObject<Env> {
         .filters as RuleFilter[];
     }
     return { rollup: { via: via.id, dir, fn: r.fn, of, ...(where ? { where } : {}) } };
+  }
+
+  /**
+   * A formula's view of a list's fields, for typing it before any value exists: a field by
+   * name or alias, or one field of the record a single link points at ({Client.Rate}).
+   * With `selfId`, a formula field it names is checked for a loop back to that field.
+   */
+  private formulaTyper(
+    collectionId: string,
+    fields: FieldRow[],
+    selfId: string | null,
+  ): (name: string) => FormulaType {
+    const kind = (f: FieldRow, name: string): FormulaType => {
+      const t = formulaTypeOf(f.type);
+      if (!t)
+        throw new ObjectError("validation_failed", `${name} is a ${f.type} field; a formula can't read it`);
+      return t;
+    };
+    const own = fields.map((f) => toField(f));
+    return (name: string): FormulaType => {
+      const f = findFormulaField(own, name);
+      if (f) {
+        const row = fields.find((x) => x.id === f.id)!;
+        if (selfId && toField(row).options.formula) this.noFormulaLoop(collectionId, f.id, selfId);
+        return kind(row, f.name);
+      }
+      const path = splitPath(own, name);
+      if (!path) return kind(this.matchField(fields, name), name); // throws with the field list
+      const link = fields.find((x) => x.id === path.link.id)!;
+      const target = toField(link).options.target;
+      if (!target)
+        throw new ObjectError(
+          "validation_failed",
+          `${link.name} can link anywhere; {${name}} needs a link to one list`,
+        );
+      if (toField(link).options.many)
+        throw new ObjectError(
+          "validation_failed",
+          `${link.name} links to several records; use a rollup for {${name}}`,
+        );
+      const far = this.matchField(this.fieldRows(target), path.rest);
+      if (far.type === "link")
+        throw new ObjectError(
+          "validation_failed",
+          `{${name}} is a link; a formula reads one step through a link`,
+        );
+      return kind(far, name);
+    };
+  }
+
+  /** The one record a single link of this record points at, as a formula reads it. */
+  private linkedForFormula(
+    recordId: string,
+  ): (link: { id: string; options: { target?: string | null } }) => LinkedRecord | null {
+    return (link) => {
+      const id = this.linkedIds(link.id, "out", recordId)[0];
+      const target = link.options.target;
+      if (!id || !target) return null;
+      return { fields: this.fieldRows(target).map((x) => toField(x)), values: this.currentValues(id) };
+    };
   }
 
   /** Refuses a formula that, through other formulas of the list, would come back to itself. */
@@ -2219,15 +2258,7 @@ export class SpaceObject extends DurableObject<Env> {
       formulaValues(
         fields.map((f) => toField(f)),
         next,
-        {
-          // {Client.Rate}: the one record the link points at.
-          linked: (link) => {
-            const id = this.linkedIds(link.id, "out", r.id)[0];
-            const target = link.options.target;
-            if (!id || !target) return null;
-            return { fields: this.fieldRows(target).map((x) => toField(x)), values: this.currentValues(id) };
-          },
-        },
+        { linked: this.linkedForFormula(r.id) },
       ),
     );
     if (computed.every((f) => JSON.stringify(next[f.id] ?? null) === JSON.stringify(values[f.id] ?? null)))
@@ -2730,6 +2761,139 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["update_records", changes], (ts) =>
       changes.map((c) => this.changeRecord(actor, ts, this.requireRecord(c.record_id), { values: c.values })),
     );
+  }
+
+  // --- Bulk changes (decision 2026-10-15 "Toward Excel", 2) -----------------------------
+  // Every record that matches gets the same value, or a value worked out from itself by a
+  // formula. Always confirmed first: the preview says how many and shows the first few.
+
+  /** What a bulk change would do, checked all the way; nothing is written. */
+  async previewChange(actor: Actor, spec: ChangeRecordsSpec): Promise<ChangePreview> {
+    this.canWrite(actor);
+    const plan = this.planChange(actor, spec);
+    return {
+      count: plan.rows.length,
+      words: plan.words,
+      examples: plan.rows.slice(0, 3).map((r) => this.changeExample(r, plan)),
+    };
+  }
+
+  /** Changes every matching record in one write (all or nothing). */
+  async changeRecords(actor: Actor, key: string | null, spec: ChangeRecordsSpec): Promise<ChangeResult> {
+    return this.write(actor, key, ["change_records", spec], (ts) => {
+      const plan = this.planChange(actor, spec);
+      const out = plan.rows.map((r) =>
+        this.changeRecord(actor, ts, r, { values: this.changeValues(r, plan) }),
+      );
+      return { changed: out.length, records: out.slice(0, 20) };
+    });
+  }
+
+  private planChange(actor: Actor, spec: ChangeRecordsSpec) {
+    const c = this.requireCollection(spec.collection);
+    const fields = this.fieldRows(c.id);
+    const { rows } = this.findRows(actor, c, {
+      filters: spec.filters as Filter[],
+      search: spec.search,
+      limit: MAX_CHANGE_RECORDS + 1,
+    });
+    if (rows.length > MAX_CHANGE_RECORDS)
+      throw new ObjectError(
+        "validation_failed",
+        `More than ${MAX_CHANGE_RECORDS} records match; narrow it down (filters) and change them in parts`,
+      );
+    const typeOfName = this.formulaTyper(c.id, fields, null);
+    const words: string[] = [];
+    const sets = spec.set.map((item) => {
+      const f = this.matchField(fields, item.field);
+      const o = toField(f).options;
+      if (o.formula || o.rollup)
+        throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be set`);
+      if (item.formula === undefined) {
+        words.push(
+          `${f.name} → ${item.value === null || item.value === undefined ? "empty" : rawShown(item.value)}`,
+        );
+        return { f, value: item.value, tree: null };
+      }
+      if (f.type === "link" || f.type === "person" || f.type === "multi_choice")
+        throw new ObjectError("validation_failed", `${f.name} takes a value, not a formula`);
+      let tree: FormulaNode;
+      let out: FormulaType;
+      try {
+        tree = parseFormula(item.formula);
+        out = inferType(tree, typeOfName);
+      } catch (e) {
+        if (e instanceof ObjectError) throw e;
+        throw new ObjectError("validation_failed", (e as Error).message);
+      }
+      const want = formulaTypeOf(f.type);
+      if (out !== want)
+        throw new ObjectError(
+          "validation_failed",
+          `${item.formula} gives ${FORMULA_KIND_WORDS[out]}, but ${f.name} is ${f.type === "boolean" ? "yes/no" : f.type.replace("_", " ")}`,
+        );
+      words.push(`${f.name} = ${item.formula}`);
+      return { f, value: undefined, tree };
+    });
+    const where = (spec.filters as Filter[]).map((x) =>
+      filterWords({ ...x, field: this.matchField(fields, x.field).name }),
+    );
+    if (spec.search) where.push(`title has “${spec.search}”`);
+    return {
+      c,
+      fields,
+      rows,
+      sets,
+      words: [...(where.length ? [`Where ${where.join(" and ")}`] : []), ...words],
+    };
+  }
+
+  /** The values one record gets from the plan (formulas worked out from its own values). */
+  private changeValues(r: RecordRow, plan: ReturnType<SpaceObject["planChange"]>): Record<string, unknown> {
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const own = plan.fields.map((f) => toField(f));
+    const linked = this.linkedForFormula(r.id);
+    const get = (name: string): FormulaValue => {
+      const f = findFormulaField(own, name);
+      if (f) return f.type === "link" ? null : formulaValueOf(f, values[f.id]);
+      const path = splitPath(own, name);
+      const far = path ? linked(path.link) : null;
+      const g = far ? findFormulaField(far.fields, path!.rest) : undefined;
+      return g && g.type !== "link" ? formulaValueOf(g, far!.values[g.id]) : null;
+    };
+    const out: Record<string, unknown> = {};
+    for (const s of plan.sets) {
+      if (!s.tree) {
+        out[s.f.id] = s.value;
+        continue;
+      }
+      try {
+        const v = storedFormulaValue(evalFormula(s.tree, get));
+        // Money comes out in paise; a write reads a plain number as rupees.
+        out[s.f.id] = s.f.type === "money" && typeof v === "number" ? v / 100 : v;
+      } catch (e) {
+        throw new ObjectError("validation_failed", `${s.f.name} for “${r.title}”: ${(e as Error).message}`);
+      }
+    }
+    return out;
+  }
+
+  /** “Test Wedding: Fee ₹50,000 → ₹55,000”, for the confirm card. */
+  private changeExample(r: RecordRow, plan: ReturnType<SpaceObject["planChange"]>): string {
+    const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const after = this.changeValues(r, plan);
+    // Stored values show as they are; new ones are read as a write would read them.
+    const show = (f: FieldRow, v: unknown, stored: boolean) => {
+      if (v === null || v === undefined || v === "") return "empty";
+      if (f.type === "link") return rawShown(v);
+      try {
+        const d = displayValue(f.type, stored ? (v as StoredValue) : normalizeValue(toField(f), v));
+        return Array.isArray(d) ? d.join(", ") : (d ?? "empty");
+      } catch {
+        return rawShown(v);
+      }
+    };
+    return `${r.title}: ${plan.sets.map((s) => `${s.f.name} ${show(s.f, before[s.f.id], true)} → ${show(s.f, after[s.f.id], false)}`).join(", ")}`;
   }
 
   private changeRecord(

@@ -24,8 +24,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 ## TE Toward Excel (decision 2026-10-15 "Toward Excel"; owner: "Do all the features")
 
 1. ~~Formulas: comparisons, if, text and date functions, link paths, formulas of formulas, today() refreshed daily; avg rollups~~ (HF45).
-2. Bulk changes by expression: `update_records` with a formula per field over a filtered set; preview and confirm.
-   - AC: "raise every October fee by 10%" is one card showing the count and three examples before anything changes; money and deletes still confirm; undo works.
+2. ~~Bulk changes by expression: `change_records` with a value or a formula per field over a filtered set; preview and confirm~~ (HF46).
 3. Import and export: CSV in (paste or upload; the assistant maps columns to fields as a setup, preview of the first rows, counts), CSV out for any view.
    - AC: a 500-row sheet imports with dates, money and choices typed; unknown columns become new fields only on confirm; export round-trips.
 4. Highlight rules on views and cards: filter → colour token, data only; shown on the home and in lists.

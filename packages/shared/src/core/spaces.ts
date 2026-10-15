@@ -412,6 +412,52 @@ export const FilterInput = z.object({
 });
 export type Filter = z.infer<typeof FilterInput>;
 
+/** At most this many records change in one bulk change; more fails ("narrow it"). */
+export const MAX_CHANGE_RECORDS = 500;
+
+export const ChangeSetInput = z
+  .object({
+    field: nameOrId("Field"),
+    value: z.unknown().optional().describe("The new value for every matching record (null clears it)"),
+    formula: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe(
+        'Or work the value out from each record, e.g. {Fee} * 1.1, {Date} + 7, join({Title}, " (2026)"), ' +
+          'if({Amount} > 2000, "Big", "Small"); the formula language of calculated fields. Not for link, person or multiple-choice fields.',
+      ),
+  })
+  .refine((s) => (s.value !== undefined) !== (s.formula !== undefined), {
+    message: "Give a value or a formula, not both",
+  });
+
+/** A change to every record that matches (decision 2026-10-15 "Toward Excel", 2): confirmed first. */
+export const ChangeRecordsInput = CollectionRef.extend({
+  filters: z
+    .array(FilterInput)
+    .max(10)
+    .default([])
+    .describe("Which records, as for find_records; none means every record of the list"),
+  search: z.string().trim().max(100).optional().describe("Words that start words of the title"),
+  set: z.array(ChangeSetInput).min(1).max(10).describe("What to set on each of them"),
+});
+export type ChangeRecordsSpec = z.infer<typeof ChangeRecordsInput>;
+
+/** What a bulk change would do: how many records, the changes in words, and the first few shown. */
+export interface ChangePreview {
+  count: number;
+  words: string[];
+  examples: string[];
+}
+export interface ChangeResult {
+  changed: number;
+  /** The first twenty, as they are now. */
+  records: RecordView[];
+}
+
 export const FindRecordsInput = CollectionRef.extend({
   filters: z.array(FilterInput).max(10).default([]),
   search: z.string().trim().max(100).optional().describe("Words that start words of the title"),

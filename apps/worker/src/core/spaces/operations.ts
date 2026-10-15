@@ -8,6 +8,7 @@ import {
   CommentRef,
   AddRecordInput,
   ChangesInput,
+  ChangeRecordsInput,
   CollectionRef,
   CreateCollectionInput,
   FindRecordsInput,
@@ -257,6 +258,33 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return { records: await stub.updateRecords(actor, ctx.idempotencyKey, i.changes) };
+    },
+  }),
+  defineOperation({
+    id: "core.preview_change",
+    tool: "preview_change",
+    description:
+      "What change_records would do: how many records match and the first few shown before and after. Nothing changes.",
+    kind: "read",
+    http: { method: "POST", path: "/collections/:collection/change/preview" },
+    input: ChangeRecordsInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.previewChange(actor, i);
+    },
+  }),
+  defineOperation({
+    id: "core.change_records",
+    tool: "change_records",
+    description:
+      'Change every record that matches, the same value for all or one worked out per record by a formula ("raise every fee above 10,000 by 10%": filters Fee gt 10000, set Fee = "{Fee} * 1.1"). The person sees the count and examples first and confirms; all or nothing; up to 500 records.',
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/collections/:collection/change" },
+    input: ChangeRecordsInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.changeRecords(actor, ctx.idempotencyKey, i);
     },
   }),
   defineOperation({

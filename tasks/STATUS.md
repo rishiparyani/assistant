@@ -4,6 +4,12 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF46: bulk changes by expression (decision 2026-10-15 "Toward Excel", slice 2 of 6).**
+  - **Shared:** `ChangeRecordsInput` (`filters`, `search`, `set: [{field, value} | {field, formula}]`), `ChangePreview`, `ChangeResult`, `MAX_CHANGE_RECORDS` (500).
+  - **Server:** `previewChange` / `changeRecords` on the space object (`planChange` types each formula with the shared `formulaTyper`, `changeValues` works it out per record, `changeExample` for the card); operations `core.preview_change` (read) and `core.change_records` (write, always confirmed); the assistant's confirm card runs the preview and says "Change N records in …" with the words and the first three examples; no match → the model is told, no card.
+  - **Tests:** `bulk-change.test.ts` (2). Scorecard case `bulk-raise` (hard).
+  - **Not in this slice:** a bulk change offline (it's online-only through the chat: the preview needs the server).
+
 - **HF45: formulas grow up (decision 2026-10-15 "Toward Excel", slice 1 of 6).**
   - **Shared:** `formula.ts` rewritten: comparisons, and/or/not, `if`, blank/ifblank, round/floor/ceil/abs, min/max/sum/avg, text and date functions, `{Link.Field}`, formulas of formulas (lazy, loop-safe); `inferType` for static typing; `formulaUsesToday`; `formulaValueOf`/`storedFormulaValue`; `FORMULA_HELP` in the field schema's description; `ROLLUP_FNS` has `avg`.
   - **Server:** `computedOptions` allows text and boolean formula fields, types them with `inferType`, resolves one-step link paths (single links to one list only), refuses loops (`noFormulaLoop`); `recompute` passes a `linked` lookup; `avg` rollups; `refreshDaily` in the alarm with `nextDailyTime` (midnight India) for `today()` formulas.
