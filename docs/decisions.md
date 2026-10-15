@@ -862,6 +862,15 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Scorecard:** `model: gpt-oss-120b` on the Scorecard workflow tries it (the key is passed; the app's caps are off there, so any suite × repeat finishes), spacing cases out by the calls each made to stay under five a minute.
 - **Privacy:** the privacy page says the faster model runs at Cerebras (US) and isn't trained on people's data; nothing is logged there by us.
 
+## 2026-10-15: Questions that act, second part: the most picked answer sets a plain field
+
+- **What:** a question in a chat can be about a plain field of a pinned record (one value for everyone: a choice, a text, a date or a date-and-time), not only a personal one. The most picked answer sets the field. The asker chooses how: **Ask me first** (the default: the card shows "Set Dress to Black" to the asker and the chat's admins once one answer is clearly ahead; a tap sends it) or **Set it as the votes come** (`apply: auto`: whenever one answer is clearly ahead and it isn't what was last sent, it's sent). A tie sends nothing. The card shows what was last sent and how it went ("Dress set to Black ✓", "Setting…", "Couldn't set…").
+- **Who writes, and as whom:** the record's space writes the field as the person who pinned the record (the share's creator), with their role there deciding (a viewer can't), through `applyFromChat`; the chat queues each send (`poll_apply`) and its alarm sends them in order with a key. A refusal for good (card taken off, field removed, the pinner can't write there any more) is marked failed on the card and dropped; only a conflict is retried. Nothing is written to the space in the request.
+- **Answers must fit the field:** the space checks each answer when the question is made (`chatPollField` with the options): a choice's own choices, in the field's spelling; a date or date-and-time the field can store (the stored value is kept with the question); any text. A money, number, link or other field can't be set by a vote (400).
+- **Why "ask me" is the default:** the asker is accountable for the record; auto is there for the cases where the vote _is_ the decision (what to wear, which day). Both are the asker's choice on the sheet, per question, never a setting.
+- **Phone:** the Ask everyone sheet lists plain fields too ("Dress · Test Taj night"); a choice's answers are its choices, a text or date field takes typed answers (with the date shape shown); the Ask me first / Set it as the votes come chips. The card tells everyone what the question sets and when.
+- **Not yet:** schedules (ask again every week), and a question that sets several fields.
+
 ## 2026-10-15: A yes/no never set is a no (from the scorecard's `open-reminders` miss)
 
 - **What:** filtering a yes/no field with `eq false` (or `ne true`) finds records that have no value for it as well as those set to no; `eq true` finds only those set to yes. A reminder never ticked is open; the list screen already shows it unticked, so the find tool now agrees.

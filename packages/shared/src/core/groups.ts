@@ -68,11 +68,25 @@ export const CreatePollInput = GroupRef.extend({
   about: z
     .object({
       share_id: z.string().trim().min(1).max(40),
-      field: z.string().trim().min(1).max(80).describe("A personal yes/no or choice field (name or id)"),
+      field: z
+        .string()
+        .trim()
+        .min(1)
+        .max(80)
+        .describe(
+          "A personal yes/no or choice field (each answer fills in that person's own), or a plain choice, text, date or date-and-time field (the most picked answer sets it); name or id",
+        ),
+      /** A plain field only: set it as the lead changes (auto), or when the asker taps (ask; the default). */
+      apply: z.enum(["auto", "ask"]).optional(),
     })
     .optional(),
 });
 /** My answer to a question in a chat (null takes it back). */
+/** The asker (or an admin) sets a plain field to one of the answers (decision 2026-10-15 "Questions that act, second part"). */
+export const ApplyPollInput = GroupRef.extend({
+  message_id: z.string().trim().min(1).max(40),
+  option: z.string().trim().min(1).max(40),
+});
 export const VoteInput = GroupRef.extend({
   message_id: z.string().trim().min(1).max(40),
   option: z.string().trim().min(1).max(40).nullable(),
@@ -172,8 +186,19 @@ export interface ChatPerson {
 export interface PollView {
   question: string;
   options: string[];
-  /** A question that acts: which pinned record and personal field the answers fill in. */
-  about?: { share_id: string; record: string; field: string } | null;
+  /** A question that acts: which pinned record and field the answers fill in. Personal: each
+   *  answer is that person's own. Plain: the most picked answer sets the field, as the lead
+   *  changes (`apply: auto`) or when the asker sets it (`ask`); `applied` is the last answer
+   *  sent to the record and how it went; `can_apply`: I may set it (I asked, or I'm an admin). */
+  about?: {
+    share_id: string;
+    record: string;
+    field: string;
+    personal: boolean;
+    apply?: "auto" | "ask" | null;
+    applied?: { option: string; status: "sending" | "done" | "failed" } | null;
+    can_apply?: boolean;
+  } | null;
   /** Who picked each answer, in the order of `options`. */
   votes: { option: string; people: string[] }[];
   /** My answer, if any. */

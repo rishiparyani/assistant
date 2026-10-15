@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatCard, PollView, SharedOpened } from "@assistant/shared";
 import { Text, TextInput } from "@assistant/cards/native";
 import { request } from "../api.ts";
-import { askEveryone, votePoll } from "../chats.ts";
+import { applyPoll, askEveryone, votePoll } from "../chats.ts";
 import { radius, tint, useTheme } from "../theme.ts";
 
 /** A question in the chat: tap an answer (tap it again to take it back). */
@@ -73,9 +73,16 @@ export function PollCard({
         {mine ? "You asked everyone" : `${asker} asked everyone`}
       </Text>
       <Text style={[s.question, { color: t.fg }]}>{poll.question}</Text>
-      {poll.about ? (
+      {poll.about?.personal ? (
         <Text style={[s.who, { color: t.fg2 }]} numberOfLines={1}>
           Your answer fills in {poll.about.field} on “{poll.about.record}”
+        </Text>
+      ) : poll.about ? (
+        <Text style={[s.who, { color: t.fg2 }]} numberOfLines={2}>
+          The most picked answer sets {poll.about.field} on “{poll.about.record}”
+          {poll.about.apply === "auto"
+            ? ", as the votes come"
+            : `, when ${mine ? "you" : asker} set${mine ? "" : "s"} it`}
         </Text>
       ) : null}
       <View style={s.options}>
@@ -108,8 +115,75 @@ export function PollCard({
       ) : (
         <Text style={[s.who, { color: t.fg3 }]}>No answers yet</Text>
       )}
+      {poll.about && !poll.about.personal ? (
+        <SetsField
+          groupId={groupId}
+          messageId={messageId}
+          field={poll.about.field}
+          applied={poll.about.applied ?? null}
+          leader={poll.about.apply === "ask" && poll.about.can_apply ? leaderOf(poll.votes) : null}
+        />
+      ) : null}
       {saved ? <Text style={[s.who, { color: t.good, fontWeight: "700" }]}>Saved to {saved} ✓</Text> : null}
     </Pressable>
+  );
+}
+
+/** The one answer with the most picks, or null when none or a tie. */
+function leaderOf(votes: { option: string; people: string[] }[]): string | null {
+  const sorted = [...votes].sort((a, b) => b.people.length - a.people.length);
+  const top = sorted[0];
+  if (!top || !top.people.length) return null;
+  if (sorted[1] && sorted[1].people.length === top.people.length) return null;
+  return top.option;
+}
+
+/** What a plain-field question has done to the record, and the asker's button to set it. */
+function SetsField({
+  groupId,
+  messageId,
+  field,
+  applied,
+  leader,
+}: {
+  groupId: string;
+  messageId: string;
+  field: string;
+  applied: { option: string; status: "sending" | "done" | "failed" } | null;
+  /** The answer I may set the field to now (I asked, it's "ask me first", one answer is ahead). */
+  leader: string | null;
+}) {
+  const { t } = useTheme();
+  const status = applied
+    ? applied.status === "done"
+      ? `${field} set to ${applied.option} ✓`
+      : applied.status === "sending"
+        ? `Setting ${field} to ${applied.option}…`
+        : `Couldn't set ${field} to ${applied.option} (the record may have changed)`
+    : null;
+  const offer = leader && applied?.option !== leader ? leader : null;
+  return (
+    <View style={s.sets}>
+      {status ? (
+        <Text style={[s.who, { color: applied?.status === "failed" ? t.danger : t.good, fontWeight: "700" }]}>
+          {status}
+        </Text>
+      ) : null}
+      {offer ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            applyPoll(groupId, messageId, offer);
+            void Haptics.selectionAsync().catch(() => undefined);
+          }}
+          style={[s.setButton, { backgroundColor: t.accent }]}
+        >
+          <Text style={[s.setText, { color: t.onAccent }]}>
+            Set {field} to {offer}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -125,8 +199,13 @@ type Fillable = {
   record: string;
   field_id: string;
   field: string;
+  type: string;
+  /** Each person's own answer (a yes/no or choice), or a plain field the most picked answer sets. */
+  personal: boolean;
   choices: string[] | null;
 };
+/** A plain field: how the most picked answer gets applied. */
+type Apply = "auto" | "ask";
 
 /**
  * The sheet that asks: a question and its answers (Yes / No / Maybe to start with). With
@@ -155,11 +234,23 @@ export function AskEveryoneSheet({
   const [adding, setAdding] = useState("");
   const [fillable, setFillable] = useState<Fillable[]>([]);
   const [fills, setFills] = useState<Fillable | null>(null);
-  // The answers follow the field: Yes / No / Maybe for a yes/no, its choices for a choice.
+  const [apply, setApply] = useState<Apply>("ask");
+  // The answers follow the field: Yes / No / Maybe for a yes/no, its choices for a choice; a
+  // text or date field takes whatever answers are typed (the app checks them).
   const pickFill = (f: Fillable | null) => {
     setFills(f);
-    setOptions(f ? (f.choices ? f.choices.slice(0, 6) : ["Yes", "No", "Maybe"]) : ["Yes", "No", "Maybe"]);
+    setOptions(
+      f
+        ? f.choices
+          ? f.choices.slice(0, 6)
+          : f.type === "boolean"
+            ? ["Yes", "No", "Maybe"]
+            : []
+        : ["Yes", "No", "Maybe"],
+    );
   };
+  /** The answers are the field's own (not to be edited). */
+  const locked = !!fills && (fills.choices !== null || fills.type === "boolean");
   // online-only: which pinned records have personal fields is read when the sheet opens.
   const fillsRef = useRef(fills);
   fillsRef.current = fills;
@@ -179,12 +270,18 @@ export function AskEveryoneSheet({
           .then((o) =>
             o.share.kind === "card" && "record" in o
               ? o.record.fields
-                  .filter((f) => f.personal && (f.type === "boolean" || f.type === "choice"))
+                  .filter((f) =>
+                    f.personal
+                      ? f.type === "boolean" || f.type === "choice"
+                      : ["choice", "text", "date", "datetime"].includes(f.type),
+                  )
                   .map((f): Fillable => ({
                     share_id: shareId,
                     record: o.record.title,
                     field_id: f.id,
                     field: f.name,
+                    type: f.type,
+                    personal: !!f.personal,
                     choices: f.type === "choice" ? (f.options.choices ?? []) : null,
                   }))
               : [],
@@ -211,7 +308,9 @@ export function AskEveryoneSheet({
       groupId,
       question.trim(),
       clean,
-      fills ? { share_id: fills.share_id, field: fills.field_id } : undefined,
+      fills
+        ? { share_id: fills.share_id, field: fills.field_id, ...(fills.personal ? {} : { apply }) }
+        : undefined,
     );
     setQuestion("");
     setOptions(["Yes", "No", "Maybe"]);
@@ -274,21 +373,50 @@ export function AskEveryoneSheet({
               key={`${o}-${i}`}
               accessibilityRole="button"
               accessibilityLabel={`Remove ${o}`}
-              disabled={options.length <= 2 || !!fills}
+              disabled={options.length <= 2 || locked}
               onPress={() => setOptions((xs) => xs.filter((_, j) => j !== i))}
               style={[s.chip, { backgroundColor: t.cell }]}
             >
               <Text style={[s.chipText, { color: t.fg }]}>{o}</Text>
-              {options.length > 2 && !fills ? <Text style={[s.chipX, { color: t.fg3 }]}>×</Text> : null}
+              {options.length > 2 && !locked ? <Text style={[s.chipX, { color: t.fg3 }]}>×</Text> : null}
             </Pressable>
           ))}
         </View>
-        {fills ? (
+        {fills?.personal ? (
           <Text style={[s.label, { color: t.fg3 }]}>
             Each person’s answer becomes their own answer to {fills.field} on “{fills.record}”.
           </Text>
         ) : null}
-        {options.length < 6 && !fills ? (
+        {fills && !fills.personal ? (
+          <>
+            <Text style={[s.label, { color: t.fg3 }]}>
+              The most picked answer sets {fills.field} on “{fills.record}”
+              {fills.type === "date" || fills.type === "datetime"
+                ? ` (answers as dates, like ${fills.type === "date" ? "2026-12-12" : "2026-12-12 19:00"})`
+                : ""}
+              .
+            </Text>
+            <View style={s.chips}>
+              {(
+                [
+                  ["ask", "Ask me first"],
+                  ["auto", "Set it as the votes come"],
+                ] as const
+              ).map(([v, label]) => (
+                <Pressable
+                  key={v}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: apply === v }}
+                  onPress={() => setApply(v)}
+                  style={[s.chip, { backgroundColor: apply === v ? t.accent : t.cell }]}
+                >
+                  <Text style={[s.chipText, { color: apply === v ? t.onAccent : t.fg }]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
+        {options.length < 6 && !locked ? (
           <View style={s.addRow}>
             <TextInput
               value={adding}
@@ -344,6 +472,15 @@ const s = StyleSheet.create({
   optionText: { fontSize: 14, fontWeight: "800", flexShrink: 1 },
   count: { fontSize: 13, fontWeight: "800" },
   who: { fontSize: 12, lineHeight: 17 },
+  sets: { gap: 8 },
+  setButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  setText: { fontSize: 15, fontWeight: "700" },
   scrim: { flex: 1, opacity: 0.6 },
   sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 12 },
   grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
