@@ -5,7 +5,10 @@ import { ulid } from "@assistant/shared";
 import type { AdminCtx, AdminSection, ModuleDefinition } from "../module.ts";
 import { AppError } from "../errors.ts";
 import { formatINR } from "@assistant/shared";
-import { FREE_NEURONS_PER_DAY, type AiSettings } from "../assistant/models.ts";
+import { FREE_NEURONS_PER_DAY, MODELS, type AiSettings } from "../assistant/models.ts";
+
+/** A model's label from its id; undefined when none is picked or it's unknown. */
+const labelOf = (id: string | null | undefined) => (id ? MODELS.find((m) => m.id === id)?.label : undefined);
 
 export const ownerEmails = (env: Env) =>
   (env.ADMIN_EMAILS ?? "")
@@ -90,12 +93,19 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
         tone: settings.fast && v.fast_calls_today >= settings.fastCallsPerDay ? "warn" : "ok",
       },
       {
-        label: "Small frontier models",
-        value:
-          [settings.anthropic && "Anthropic", settings.openai && "OpenAI", settings.gemini && "Google"]
-            .filter(Boolean)
-            .join(", ") || "Off",
-        hint: "keys in; scorecard comparison only until one wins (docs/scorecard)",
+        label: "Claude models",
+        value: settings.anthropic
+          ? `${labelOf(settings.everydayModel) ?? "GLM"} / ${labelOf(settings.setupModel) ?? "off"}`
+          : "Off",
+        hint: settings.anthropic
+          ? "every day / setups; Anthropic's own prepaid credit, within the cap"
+          : "needs ANTHROPIC_API_KEY (docs/setup.md); GLM answers, setups wait",
+        tone: settings.anthropic ? "ok" : "warn",
+      },
+      {
+        label: "Other makers' keys",
+        value: [settings.openai && "OpenAI", settings.gemini && "Google"].filter(Boolean).join(", ") || "Off",
+        hint: "scorecard comparison only (docs/scorecard)",
         tone: "ok",
       },
     ],

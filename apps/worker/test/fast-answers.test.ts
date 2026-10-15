@@ -35,11 +35,19 @@ describe("faster answers", () => {
   });
 
   it("keeps its own credit out of the Cloudflare cap when the scorecard tries it", async () => {
+    // The tried model comes first; GLM stands behind it (decision 2026-10-15 "Haiku for every
+    // day, Sonnet for setups").
     const tried = modelsFor(1, { ...base, paidGateway: "paid", everydayModel: "gpt-oss-120b" });
-    expect(tried.map((m) => [m.id, m.route])).toEqual([["gpt-oss-120b", "free"]]);
+    expect(tried.map((m) => [m.id, m.route])).toEqual([
+      ["gpt-oss-120b", "free"],
+      ["@cf/zai-org/glm-4.7-flash", "free"],
+    ]);
     // A Workers AI candidate is billed to the credit, as before.
     const cf = modelsFor(1, { ...base, paidGateway: "paid", everydayModel: "@cf/zai-org/glm-5.3-flash" });
-    expect(cf.map((m) => m.route)).toEqual(["paid"]);
+    expect(cf.map((m) => [m.id, m.route])).toEqual([
+      ["@cf/zai-org/glm-5.3-flash", "paid"],
+      ["@cf/zai-org/glm-4.7-flash", "free"],
+    ]);
   });
 
   it("hands out slots up to the day's cap and the minute's, taken before the call", async () => {

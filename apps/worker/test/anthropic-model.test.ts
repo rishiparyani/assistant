@@ -1,6 +1,7 @@
-// Claude models from Anthropic (decision 2026-10-15 "Try the small frontier models"): offered
-// only through the scorecard until one wins, only with the key in, on Anthropic's own credit;
-// the conversation crosses to the Messages API's shape and back without losing a tool call.
+// Claude models from Anthropic (decisions 2026-10-15 "Try the small frontier models" and "Haiku
+// for every day, Sonnet for setups"): the app's picks once the key is in, on Anthropic's own
+// credit, GLM behind them; the conversation crosses to the Messages API's shape and back without
+// losing a tool call.
 import { describe, expect, it } from "vitest";
 import { MODELS, costPaise, modelsFor, type AiSettings } from "../src/core/assistant/models.ts";
 import { fromAnthropic, toAnthropic, type ChatMessage } from "../src/core/assistant/client.ts";
@@ -22,26 +23,54 @@ const base: AiSettings = {
 const ids = (ms: { id: string }[]) => ms.map((m) => m.id);
 
 describe("Claude models", () => {
-  it("is tried only by the scorecard for now, and never bills the Cloudflare credit", () => {
-    // Not in the app's everyday list, key or no key.
+  it("answers every day and builds setups once the key is in, with GLM behind it", () => {
+    // Without the key: GLM alone, the picks or not (decision 2026-10-15 "Haiku for every day,
+    // Sonnet for setups").
+    const picks = { everydayModel: "claude-haiku-5-5", setupModel: "claude-sonnet-5-5" };
     expect(ids(modelsFor(1, base))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
-    expect(ids(modelsFor(1, { ...base, anthropic: true }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
-    // The scorecard's pick: on its own, on the paid route (reserved against the app's cap),
-    // never moved to the Cloudflare credit route even when that exists.
-    const tried = modelsFor(1, { ...base, paidGateway: "paid", everydayModel: "claude-haiku-5-5" });
-    expect(tried.map((m) => [m.id, m.route, m.provider])).toEqual([
+    expect(ids(modelsFor(1, { ...base, ...picks }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
+    expect(ids(modelsFor(2, { ...base, ...picks }))).toEqual([]);
+    // With the key and the picks: Haiku first, GLM when it fails; Sonnet for setups. On the paid
+    // route (reserved against the app's cap), never moved to the Cloudflare credit route.
+    const on = { ...base, anthropic: true, ...picks };
+    expect(modelsFor(1, on).map((m) => [m.id, m.route, m.provider])).toEqual([
       ["claude-haiku-5-5", "paid", "anthropic"],
+      ["@cf/zai-org/glm-4.7-flash", "free", "workers-ai"],
     ]);
-    // A setups candidate the same way, at the setups level only.
-    expect(ids(modelsFor(2, { ...base, setupModel: "gpt-5.4" }))).toEqual(["gpt-5.4"]);
-    expect(ids(modelsFor(1, { ...base, setupModel: "gpt-5.4" }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
-    expect(ids(modelsFor(2, { ...base, openai: true }))).toEqual([]);
-    // The same for the others in the comparison.
+    expect(ids(modelsFor(1, { ...on, paidGateway: "paid" }))).toEqual([
+      "claude-haiku-5-5",
+      "@cf/zai-org/glm-4.7-flash",
+    ]);
+    expect(ids(modelsFor(2, on))).toEqual(["claude-sonnet-5-5"]);
+    // The key alone (no picks): GLM first, Haiku behind it; Sonnet still builds setups.
+    expect(ids(modelsFor(1, { ...base, anthropic: true }))).toEqual([
+      "@cf/zai-org/glm-4.7-flash",
+      "claude-haiku-5-5",
+    ]);
+    expect(ids(modelsFor(2, { ...base, anthropic: true }))).toEqual(["claude-sonnet-5-5"]);
+    // Pinned (the scorecard): the pick alone, so its misses are its own; no pick, the usual list.
+    expect(ids(modelsFor(1, { ...on, pinned: true }))).toEqual(["claude-haiku-5-5"]);
+    expect(ids(modelsFor(1, { ...base, anthropic: true, pinned: true }))).toEqual([
+      "@cf/zai-org/glm-4.7-flash",
+      "claude-haiku-5-5",
+    ]);
+  });
+
+  it("tries a scorecard candidate first, only at its level and only with its key", () => {
+    expect(ids(modelsFor(2, { ...base, openai: true, setupModel: "gpt-5.4" }))).toEqual(["gpt-5.4"]);
+    expect(ids(modelsFor(2, { ...base, setupModel: "gpt-5.4" }))).toEqual([]);
+    expect(ids(modelsFor(1, { ...base, openai: true, setupModel: "gpt-5.4" }))).toEqual([
+      "@cf/zai-org/glm-4.7-flash",
+    ]);
+    // The other makers' keys change nothing on their own.
+    expect(ids(modelsFor(2, { ...base, openai: true, gemini: true }))).toEqual([]);
     for (const id of ["gpt-5.4-nano", "gpt-5.4-mini", "gemini-3.1-flash-lite"]) {
-      expect(ids(modelsFor(1, { ...base, everydayModel: id }))).toEqual([id]);
-      expect(ids(modelsFor(1, { ...base, openai: true, gemini: true }))).toEqual([
+      const keys = { openai: true, gemini: true };
+      expect(ids(modelsFor(1, { ...base, ...keys, everydayModel: id }))).toEqual([
+        id,
         "@cf/zai-org/glm-4.7-flash",
       ]);
+      expect(ids(modelsFor(1, { ...base, ...keys }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
     }
   });
 

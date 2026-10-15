@@ -47,7 +47,7 @@ export const MODELS: ModelEntry[] = [
     ready: true,
   },
   // Candidates for the everyday level, tried through the scorecard (AI_EVERYDAY_MODEL picks one
-  // there); not used by the app until one wins and is made ready. Prices are the makers' own
+  // there); not used by the app until one wins and is made ready (Claude Haiku 5.5 did, 2026-10-15). Prices are the makers' own
   // list prices as found 2026-10-13, to confirm against Workers AI's; neurons not known yet.
   {
     id: "@cf/deepseek-ai/deepseek-v4-flash-0731",
@@ -114,7 +114,8 @@ export const MODELS: ModelEntry[] = [
     // Its thinking counts as output; room for it and the answer.
     maxOutput: 4_000,
     effort: "low",
-    ready: false,
+    // The everyday default since 2026-10-15 (AI_EVERYDAY_MODEL; GLM answers without the key).
+    ready: true,
   },
   {
     id: "gpt-5.4-nano",
@@ -166,7 +167,8 @@ export const MODELS: ModelEntry[] = [
   },
   // The setups comparison (decision 2026-10-15 "Try the small frontier models", second round):
   // candidates for the setups level, tried through the scorecard (AI_SETUP_MODEL), each on its
-  // maker's credit. Not used by the app until one wins and is made ready. Prices as found
+  // maker's credit. Not used by the app until one wins and is made ready (Claude Sonnet 5.5 did,
+  // 2026-10-15, decision "Haiku for every day, Sonnet for setups"). Prices as found
   // 2026-10-15; a setup answer can be long, so room for it (and for thinking where it counts).
   {
     id: "claude-sonnet-5-5",
@@ -178,7 +180,8 @@ export const MODELS: ModelEntry[] = [
     cache: { read: 0.1, write: 1.25 },
     maxOutput: 8_000,
     effort: "low",
-    ready: false,
+    // The setups default since 2026-10-15 (AI_SETUP_MODEL; 21 of 21 on the setups scorecard).
+    ready: true,
   },
   {
     id: "gpt-5.4",
@@ -231,10 +234,15 @@ export interface AiSettings {
   usdInr: number;
   /** Tests only: a scripted model instead of Workers AI. */
   fake: boolean;
-  /** The scorecard only: try this model (an id from MODELS) for everyday requests. */
+  /** The everyday model (an id from MODELS; AI_EVERYDAY_MODEL), the others behind it. */
   everydayModel?: string | null;
-  /** The scorecard only: try this model for setups (level 2). */
+  /** The setups model (level 2; AI_SETUP_MODEL). */
   setupModel?: string | null;
+  /**
+   * The scorecard only (AI_PIN_MODEL): the picked model alone, no fallbacks, so a candidate's
+   * failures count against the candidate and never pass as another model's answer.
+   */
+  pinned?: boolean;
   /** Faster answers (Cerebras) are set up: its key is in. */
   fast: boolean;
   /** Cerebras calls a day, all people together (its trial credit must last the month). */
@@ -282,20 +290,35 @@ export function neuronsFor(m: ModelEntry, inputTokens: number, outputTokens: num
 /** A rough token count for budgeting (about 3.5 characters a token; errs high). */
 export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 
-/** Models a level may use now, in order. `fast`: this person has faster answers (Cerebras first). */
+/**
+ * Models a level may use now, in order: the picked one (AI_EVERYDAY_MODEL, AI_SETUP_MODEL) first,
+ * ready or not, then the ready ones as fallbacks when it fails or can't be paid for (none when
+ * pinned: the scorecard).
+ * `fast`: this person has faster answers (Cerebras first among the fallbacks).
+ */
 export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
   const want = level === 1 ? s.everydayModel : level === 2 ? s.setupModel : null;
-  const tried = want ? MODELS.find((m) => m.id === want) : null;
-  // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
-  // allowance); Cerebras and Anthropic have their own credit.
-  if (tried) return [s.paidGateway && tried.provider === "workers-ai" ? { ...tried, route: "paid" } : tried];
-  const fastFirst = (m: ModelEntry) => (m.provider === "cerebras" ? 0 : 1);
   // A paid model needs its money: the Cloudflare credit route, or the provider's own key.
   const funded = (m: ModelEntry) => {
     const k = keyed(m);
     return m.route === "free" || (k ? s[k] : !!s.paidGateway);
   };
-  return MODELS.filter(
-    (m) => m.level === level && m.ready && funded(m) && (m.provider !== "cerebras" || (s.fast && fast)),
+  const picked = want ? MODELS.find((m) => m.id === want && m.level === level && funded(m)) : null;
+  // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
+  // allowance); Cerebras and Anthropic have their own credit.
+  const first =
+    picked && s.paidGateway && picked.provider === "workers-ai"
+      ? { ...picked, route: "paid" as const }
+      : picked;
+  const fastFirst = (m: ModelEntry) => (m.provider === "cerebras" ? 0 : 1);
+  const rest = MODELS.filter(
+    (m) =>
+      m.level === level &&
+      m.ready &&
+      m.id !== picked?.id &&
+      funded(m) &&
+      (m.provider !== "cerebras" || (s.fast && fast)),
   ).sort((a, b) => fastFirst(a) - fastFirst(b));
+  if (first && s.pinned) return [first];
+  return first ? [first, ...rest] : rest;
 }

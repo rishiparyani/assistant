@@ -5,6 +5,8 @@
 import { env } from "cloudflare:workers";
 import { it } from "vitest";
 import type { CallLog } from "../src/core/assistant/budget-object.ts";
+import { modelsFor } from "../src/core/assistant/models.ts";
+import { aiSettings } from "../src/core/context.ts";
 import { CASES, signUp, say, type Case } from "./cases.ts";
 
 interface Row {
@@ -45,8 +47,8 @@ const steps = async (userId: string): Promise<string> => {
     .join("\n");
 };
 const vars = env as unknown as Record<string, string | undefined>;
-/** Setups (level 2) run with the Cloudflare credit route or a setups model tried on its maker's. */
-const paid = !!vars.AI_PAID_GATEWAY?.trim() || !!vars.AI_SETUP_MODEL?.trim();
+/** Setups (level 2) run when a setups model can be paid for (the Cloudflare credit route, or the maker's key for the picked one). */
+const paid = modelsFor(2, aiSettings(env as unknown as Env)).length > 0;
 const only = vars.SCORECARD_ONLY?.trim();
 /** core, hard (everyday cases), setups (level 2 only) or all. */
 const suite = vars.SCORECARD_SUITE?.trim() || "all";
@@ -177,7 +179,7 @@ function table(rows: Row[]): string {
   if (!paid)
     lines.push(
       "",
-      "Level 2 (setups) not run: no AI credit yet (AI_PAID_GATEWAY and AI_SETUP_MODEL are empty).",
+      "Level 2 (setups) not run: no setups model can be paid for (AI_PAID_GATEWAY is empty and the key for AI_SETUP_MODEL's maker is missing).",
     );
   lines.push(
     "",
