@@ -7,4 +7,5 @@ export * from "./samples.ts";
 export * from "./hero.tsx";
 export * from "./text.tsx";
 export * from "./tick.tsx";
-export { act, ACTION_WORDS, shown, tint } from "./rows.tsx";
+export { act, ACTION_WORDS, highlightColour, highlightOf, shown, tint } from "./rows.tsx";
+export { EditableGrid, gridEditable } from "./Grid.tsx";

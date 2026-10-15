@@ -6,6 +6,8 @@
 import { connectedKinds } from "../connectors/service.ts";
 import { z } from "zod";
 import {
+  type ChangeRecordsSpec,
+  type ImportSpec,
   MakeSetupInput,
   nameKey,
   setupWords,
@@ -32,7 +34,7 @@ import { spaceOf } from "../spaces/service.ts";
 import { resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed, fasterAnswers, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
-import type { MemoryRow, StoredMessage } from "./chat-object.ts";
+import { EDITABLE_CARDS, type MemoryRow, type StoredMessage } from "./chat-object.ts";
 import {
   FREE_NEURONS_PER_DAY,
   costPaise,
@@ -58,6 +60,13 @@ const EVERYDAY = [
   "add_record",
   "update_record",
   "delete_record",
+  // Many records at once, by a value or a formula (decision 2026-10-15 "Toward Excel", 2).
+  "preview_change",
+  "change_records",
+  // CSV in and out (decision 2026-10-15 "Toward Excel", 3); the app uploads the file.
+  "preview_import",
+  "import_records",
+  "export_csv",
   "link_records",
   "unlink_records",
   "list_views",
@@ -105,7 +114,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-15";
+export const PROMPT_VERSION = "2026-10-15b";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -242,6 +251,7 @@ function systemPrompt(
     setupSummary(cols) || "(none yet)",
     ...(apps.length ? ["Apps they have:", ...apps] : []),
     "- If they ask for a note, a reminder, an event or an expense and that list isn't there yet, start it with start_list (it's made at once and shown to them), then add the record.",
+    "- To change several records the same way (raise every fee by 10%, mark all of last month paid), use change_records once with filters and a value or a formula: one card for all of them, never one card per record. A file they uploaded goes in with import_records (preview_import first when unsure where columns go).",
     "- Someone new (no collections yet) telling you about their week: start the everyday lists that fit what they said (start_list: reminders, expenses, events, notes), each comes with a card on their home, then say what's there now and ask what else they keep forgetting or paying for. Don't ask them to design anything.",
     "Rules:",
     '- Money in rupees ("450" or "₹450"). Dates as YYYY-MM-DD; date and time as YYYY-MM-DDTHH:MM in India time.',
@@ -916,7 +926,47 @@ async function runTool(
         args = { ...args, people: people.map((p) => p.user_id) };
         shown = { ...args, people: people.map((p) => p.name) };
       }
-      const card = { tool: name, args, ...describe(name, shown, target) };
+      let card = { tool: name, args, ...describe(name, shown, target) };
+      // An import: the card says what list, what goes where, the first rows, what can't be read.
+      if (name === "import_records") {
+        const spec = input as ImportSpec;
+        const { stub, actor } = await spaceOf(ctx, spec.space);
+        const p = await stub.previewImport(actor, spec);
+        card = {
+          tool: name,
+          args,
+          title: `Add ${p.rows - (spec.skip_bad ? p.bad : 0)} row${p.rows === 1 ? "" : "s"} to ${p.into}`,
+          details: [
+            ...p.words,
+            ...p.sample.map((e) => `e.g. ${e}`),
+            ...(p.bad
+              ? [
+                  spec.skip_bad
+                    ? `${p.bad} row${p.bad === 1 ? "" : "s"} left out: ${p.problems.join("; ")}`
+                    : `${p.bad} row${p.bad === 1 ? " can't" : "s can't"} be read (the import stops): ${p.problems.join("; ")}`,
+                ]
+              : []),
+          ],
+        };
+      }
+      // A bulk change: the card says how many records and shows the first few, checked now.
+      if (name === "change_records") {
+        const spec = input as ChangeRecordsSpec;
+        const { stub, actor } = await spaceOf(ctx, spec.space);
+        const p = await stub.previewChange(actor, spec);
+        if (!p.count)
+          return {
+            kind: "error",
+            code: "no_match",
+            text: JSON.stringify({ error: "No records match; nothing to change" }),
+          };
+        card = {
+          tool: name,
+          args,
+          title: `Change ${p.count} record${p.count === 1 ? "" : "s"} in ${spec.collection}`,
+          details: [...p.words, ...p.examples.map((e) => `e.g. ${e}`)],
+        };
+      }
       return {
         kind: "card",
         card,
@@ -1027,6 +1077,8 @@ export async function confirmAction(
   ops: readonly AnyOperation[],
   actionId: string,
   chatId = MAIN,
+  /** The card changed by hand before Confirm (setup cards only): these replace its arguments. */
+  edited?: Record<string, unknown>,
 ): Promise<ChatView> {
   await requireAssistant(ctx);
   const chat = await useChat(ctx, chatId);
@@ -1037,7 +1089,19 @@ export async function confirmAction(
   let live: LiveRef | null = null;
   try {
     if (!op) throw new AppError("not_found", "That action isn't available any more");
-    const input = parse(op.input, JSON.parse(a.args_json) as unknown);
+    let args = JSON.parse(a.args_json) as Record<string, unknown>;
+    if (edited) {
+      if (!EDITABLE_CARDS.has(a.tool))
+        throw new AppError(
+          "validation_failed",
+          "This card can't be changed by hand; ask in the chat instead",
+        );
+      args = { ...args, ...edited };
+      // Checked like the model's own arguments; the card shows the changed version.
+      parse(op.input, args);
+      await chat.reviseAction(uid, a.id, JSON.stringify(args), describe(a.tool, args).details);
+    }
+    const input = parse(op.input, args);
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;

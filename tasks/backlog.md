@@ -21,6 +21,15 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 11. ~~Cards package (`packages/cards`): card format + parts + drawing + the assistant's catalogue + a gallery screen~~ (HF16); the assistant choosing a card's arrangement (save_view + `catalogueText()`); the parts still marked `later`.
 12. ~~Google Calendar connector: per-person connect, read upcoming events, propose new ones as cards~~ (HF17); a calendar card on the home; Gmail next.
 
+## TE Toward Excel (decision 2026-10-15 "Toward Excel"; owner: "Do all the features")
+
+1. ~~Formulas: comparisons, if, text and date functions, link paths, formulas of formulas, today() refreshed daily; avg rollups~~ (HF45).
+2. ~~Bulk changes by expression: `change_records` with a value or a formula per field over a filtered set; preview and confirm~~ (HF46).
+3. ~~Import and export: CSV in (upload or paste; the assistant maps columns to fields, new ones too; preview with every row checked), CSV out for any list or view~~ (HF47). Later: a native file picker, export buttons on list screens.
+4. ~~Highlight rules on views and cards: filters → a colour and a word, data only; on home cards and in lists~~ (HF48).
+5. ~~An editable grid arrangement: a sheet of one list where cells are edited in place (Next moves along the row), writes through the outbox; a Sheet button on every list~~ (HF49).
+6. ~~The fallback ("Chat makes, screens can fix"): the proposed setup card editable before Confirm; a plain setup screen per list under its ⋯ menu (fields, rules, cards and views), never a tab~~ (HF50).
+
 ## C1 New look and the chat-first shell
 
 Colour tokens per kind of card (lists amber, money green, people indigo, workflows violet, forms rose), the gradient assistant mark, a top bar with a side menu (chats, pinned, what it remembers, workflows, settings, help), the chat full screen. Remove the tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports and their pages); keep shared-with-you, join/link pages, settings, help, admin.

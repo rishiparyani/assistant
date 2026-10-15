@@ -6,6 +6,8 @@ import { clientId, optionalText } from "./fields.ts";
 import type { RuleView } from "./rules.ts";
 import { isDateOnly, toUtcIso } from "./dates.ts";
 import { formatINR, parseINR } from "./money.ts";
+import { FORMULA_HELP } from "./formula.ts";
+import { MAX_IMPORT_CHARS } from "./csv.ts";
 
 export const SPACE_LIMITS = {
   collections: 200,
@@ -52,11 +54,15 @@ export interface FieldOptions {
   on_delete?: LinkOnDelete;
   /** Each person fills in their own answer ("Going?"); not for links or the title. */
   personal?: boolean;
-  /** number / money / date: calculated from other fields, e.g. "{Fee} - {Paid}" (read-only). */
+  /**
+   * number / money / date / text / boolean: calculated from other fields (read-only), e.g.
+   * "{Fee} - {Paid}", "if({Paid} >= {Fee}, "Paid", "Due")", "{Client.Rate} * {Hours}",
+   * "{Date} - today()". The language: formula.ts (FORMULA_HELP).
+   */
   formula?: string;
   /**
    * number / money / date: calculated over linked records (read-only): count them, or the
-   * sum, smallest or largest of one of their fields. `via` is a link field of this record, or
+   * sum, average, smallest or largest of one of their fields. `via` is a link field of this record, or
    * a link field elsewhere that points here.
    */
   rollup?: {
@@ -69,7 +75,7 @@ export interface FieldOptions {
   };
 }
 
-export const ROLLUP_FNS = ["count", "sum", "min", "max"] as const;
+export const ROLLUP_FNS = ["count", "sum", "avg", "min", "max"] as const;
 export type RollupFn = (typeof ROLLUP_FNS)[number];
 
 export interface FieldView {
@@ -218,10 +224,13 @@ export const FieldOptionsInput = z
       .string()
       .trim()
       .min(1)
-      .max(300)
+      .max(500)
       .optional()
       .describe(
-        'number / money / date: a calculated value, fields in braces, e.g. "{Fee} - {Paid}" or "{Date} + 7"',
+        'number / money / date / text / boolean: a calculated value, e.g. "{Fee} - {Paid}", "{Date} + 7", ' +
+          '"if({Paid} >= {Fee}, "Paid", "Due")", "{Client.Rate} * {Hours}" (one field of the linked record), ' +
+          '"{Date} - today()" (days). ' +
+          FORMULA_HELP,
       ),
     rollup: z
       .object({
@@ -231,14 +240,14 @@ export const FieldOptionsInput = z
           .min(1)
           .max(160)
           .describe('A link field of this collection, or a collection that links here (e.g. "Payments")'),
-        fn: z.enum(["count", "sum", "min", "max"]),
+        fn: z.enum(ROLLUP_FNS),
         of: z
           .string()
           .trim()
           .min(1)
           .max(80)
           .optional()
-          .describe("sum / min / max: the field of the linked records"),
+          .describe("sum / avg / min / max: the field of the linked records"),
         where: z
           .array(
             z.object({
@@ -404,6 +413,119 @@ export const FilterInput = z.object({
 });
 export type Filter = z.infer<typeof FilterInput>;
 
+// --- CSV in and out (decision 2026-10-15 "Toward Excel", 3) ------------------------------
+
+/** A CSV the app uploaded, kept in the space for a day so the assistant can import it. */
+export const UploadImportInput = SpaceRef.extend({
+  name: z.string().trim().min(1).max(120).describe("The file's name, e.g. expenses.csv"),
+  csv: z.string().min(1).max(MAX_IMPORT_CHARS),
+});
+export interface ImportView {
+  id: string;
+  name: string;
+  rows: number;
+  columns: { name: string; guess: string; sample: string[] }[];
+  /** When it's dropped if nothing's done with it. */
+  expires_at: string;
+}
+
+export const ImportColumnInput = z.object({
+  column: z.string().trim().min(1).max(200).describe("A column of the file, by name"),
+  field: nameOrId("Field").optional().describe("The field of the list it fills (name or id)"),
+  add: FieldInput.optional().describe("Or a new field to make for it (name, type, options)"),
+});
+
+/** Which columns go where; a column with neither field nor add is left out. */
+export const ImportRecordsInput = CollectionRef.extend({
+  import_id: z.string().trim().min(1).max(40).describe("The upload's id (upload_import)"),
+  columns: z.array(ImportColumnInput).min(1).max(SPACE_LIMITS.fieldsPerCollection),
+  skip_bad: z
+    .boolean()
+    .default(false)
+    .describe("Leave out rows that can't be read instead of refusing the whole file"),
+});
+export type ImportSpec = z.infer<typeof ImportRecordsInput>;
+
+export interface ImportPreview {
+  rows: number;
+  /** "Expenses (new list)" or "Expenses". */
+  into: string;
+  words: string[];
+  /** The first few records as they'd be saved. */
+  sample: string[];
+  /** The first few rows that can't be read ("row 7: Amount: expected an amount"). */
+  problems: string[];
+  /** How many rows have a problem. */
+  bad: number;
+}
+export interface ImportResult {
+  added: number;
+  skipped: number;
+  collection: CollectionView;
+}
+
+export const ExportCsvInput = CollectionRef.extend({
+  view: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("A saved view (its filters and sort), by name or id"),
+  filters: z.array(FilterInput).max(10).default([]),
+});
+export interface ExportResult {
+  name: string;
+  rows: number;
+  csv: string;
+}
+
+/** At most this many records change in one bulk change; more fails ("narrow it"). */
+export const MAX_CHANGE_RECORDS = 500;
+
+export const ChangeSetInput = z
+  .object({
+    field: nameOrId("Field"),
+    value: z.unknown().optional().describe("The new value for every matching record (null clears it)"),
+    formula: z
+      .string()
+      .trim()
+      .min(1)
+      .max(500)
+      .optional()
+      .describe(
+        'Or work the value out from each record, e.g. {Fee} * 1.1, {Date} + 7, join({Title}, " (2026)"), ' +
+          'if({Amount} > 2000, "Big", "Small"); the formula language of calculated fields. Not for link, person or multiple-choice fields.',
+      ),
+  })
+  .refine((s) => (s.value !== undefined) !== (s.formula !== undefined), {
+    message: "Give a value or a formula, not both",
+  });
+
+/** A change to every record that matches (decision 2026-10-15 "Toward Excel", 2): confirmed first. */
+export const ChangeRecordsInput = CollectionRef.extend({
+  filters: z
+    .array(FilterInput)
+    .max(10)
+    .default([])
+    .describe("Which records, as for find_records; none means every record of the list"),
+  search: z.string().trim().max(100).optional().describe("Words that start words of the title"),
+  set: z.array(ChangeSetInput).min(1).max(10).describe("What to set on each of them"),
+});
+export type ChangeRecordsSpec = z.infer<typeof ChangeRecordsInput>;
+
+/** What a bulk change would do: how many records, the changes in words, and the first few shown. */
+export interface ChangePreview {
+  count: number;
+  words: string[];
+  examples: string[];
+}
+export interface ChangeResult {
+  changed: number;
+  /** The first twenty, as they are now. */
+  records: RecordView[];
+}
+
 export const FindRecordsInput = CollectionRef.extend({
   filters: z.array(FilterInput).max(10).default([]),
   search: z.string().trim().max(100).optional().describe("Words that start words of the title"),
@@ -523,6 +645,7 @@ export const ARRANGEMENTS = [
   "progress",
   "table",
   "bars",
+  "grid",
 ] as const;
 export type Arrangement = (typeof ARRANGEMENTS)[number];
 
@@ -561,6 +684,18 @@ export interface CardControl {
  */
 export const ROW_ACTIONS = ["directions", "call", "open"] as const;
 export type RowAction = (typeof ROW_ACTIONS)[number];
+/** The colours a highlight can be (the app maps them to its theme). */
+export const HIGHLIGHT_COLOURS = ["red", "amber", "green", "blue", "violet", "grey"] as const;
+export type HighlightColour = (typeof HIGHLIGHT_COLOURS)[number];
+/**
+ * A row's colour when it matches (decision 2026-10-15 "Toward Excel", 4): the first
+ * highlight whose filters all hold tints the row and may label it ("Overdue").
+ */
+export interface Highlight {
+  when: Filter[];
+  colour: HighlightColour;
+  label: string | null;
+}
 export interface RowLayout {
   /** A date or date-time field shown as a calendar tile (OCT / 17). */
   date: string | null;
@@ -572,6 +707,8 @@ export interface RowLayout {
   callout: { field: string; label: string | null } | null;
   /** A text field the row's button acts on: an address (directions), a phone (call), a link (open). */
   action: { field: string; as: RowAction } | null;
+  /** Rows that match get a colour (and a word), first match wins; [] or missing: none. */
+  highlights?: Highlight[];
 }
 
 /** How a saved view's card looks, when the person (or the assistant) chose. */
@@ -582,6 +719,8 @@ export interface CardConfig {
   row?: RowLayout | null;
   /** table / bars: the question it answers live (names, checked when saved). */
   question?: CardQuestion | null;
+  /** grid: the columns (field ids), edited in place (decision 2026-10-15 "Toward Excel", 5). */
+  grid?: { fields: string[] } | null;
 }
 
 /** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
@@ -664,9 +803,26 @@ const rowLayout = z
       .object({ field: fieldName, as: z.enum(ROW_ACTIONS) })
       .nullish()
       .describe("A button on the right: directions (an address field), call (a phone), open (a link)"),
+    highlights: z
+      .array(
+        z.object({
+          when: z
+            .array(FilterInput)
+            .min(1)
+            .max(3)
+            .describe("Filters, as for find_records, all of which must hold"),
+          colour: z.enum(HIGHLIGHT_COLOURS),
+          label: z.string().trim().min(1).max(16).nullish().describe('A word on the row, e.g. "Overdue"'),
+        }),
+      )
+      .max(4)
+      .optional()
+      .describe(
+        'Rows that match get a colour, first match wins, e.g. [{when: [{field: "Paid", op: "eq", value: false}, {field: "Date", op: "period", value: "past"}], colour: "red", label: "Overdue"}]',
+      ),
   })
   .nullish()
-  .describe("How each row of a list card looks; only when the person asks for a richer list");
+  .describe("How each row of a list card looks (and which rows stand out); only when the person asks for it");
 // Questions about the data (data-query.ts): the parts a card can keep, so a pinned answer
 // stays live on the home.
 export const QUERY_FNS = ["count", "sum", "avg", "min", "max", "count_distinct"] as const;
@@ -728,6 +884,12 @@ const cardConfig = z
     controls: z.array(cardControl).max(4).optional().describe("Controls on each row, bound to fields"),
     row: rowLayout,
     question: CardQuestion.nullish(),
+    grid: z
+      .object({ fields: z.array(fieldName).min(1).max(8).describe("The columns, in order") })
+      .nullish()
+      .describe(
+        'With arrangement "grid": a sheet of the list, a column per field, cells typed over in place (not links, people or calculated fields)',
+      ),
   })
   .nullish()
   .describe(
@@ -1044,6 +1206,10 @@ export interface ChatItem {
     details: string[];
     status: "waiting" | "done" | "cancelled" | "failed" | "expired";
     result?: string;
+    /** A waiting setup card's arguments, so the app can offer to change them before Confirm. */
+    args?: Record<string, unknown>;
+    /** Whether the app may change the arguments before Confirm (setup cards). */
+    editable?: boolean;
   };
   /** Which level answered (1 everyday, 2 smart, 3 best). */
   level?: number;
@@ -1121,7 +1287,11 @@ export const ShowInChatInput = z.object({
     z.object({ kind: z.literal("workflow"), workflow_id: z.string().min(1).max(40) }),
   ]),
 });
-export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });
+export const ChatActionRef = z.object({
+  action_id: z.string().trim().min(1).max(60),
+  /** A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix"). */
+  args: z.record(z.string(), z.unknown()).optional(),
+});
 export const ChatSendTo = ChatRef.extend(ChatSendInput.shape);
 export const ChatActionIn = ChatRef.extend(ChatActionRef.shape);
 /** 👍 / 👎 on an answer: only the rating is kept, never the answer (decision 2026-10-14). */

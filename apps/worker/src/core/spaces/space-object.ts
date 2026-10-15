@@ -42,9 +42,35 @@ import {
   type Person,
   type QuestionView,
   type FormulaNode,
+  type FormulaType,
   type FormulaValue,
+  type LinkedRecord,
+  type ChangeRecordsSpec,
+  type ChangePreview,
+  type ChangeResult,
+  MAX_CHANGE_RECORDS,
+  type ImportView,
+  type ImportSpec,
+  type ImportPreview,
+  type ImportResult,
+  type ExportResult,
+  MAX_IMPORT_ROWS,
+  MAX_EXPORT_ROWS,
+  parseCsv,
+  toCsv,
+  guessType,
+  readCell,
+  filterWords,
+  formulaValueOf,
+  storedFormulaValue,
   evalFormula,
   parseFormula,
+  inferType,
+  formulaTypeOf,
+  formulaUsesToday,
+  findFormulaField,
+  splitPath,
+  todayIST,
   type RuleKind,
   type RuleView,
   ruleWords,
@@ -82,6 +108,7 @@ import {
   type CardQuestion,
   type CardControl,
   type RowAction,
+  type HighlightColour,
   type RowLayout,
   type Arrangement,
 } from "@assistant/shared";
@@ -115,6 +142,28 @@ import type { NewNotification } from "../push/inbox.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
 const LIVE_DELAY_MS = 500;
+/** Thrown inside a transaction to undo everything it did and carry a result out. */
+class Rollback {
+  constructor(readonly value: unknown) {}
+}
+const FORMULA_KIND_WORDS: Record<FormulaType, string> = {
+  num: "a number",
+  money: "money",
+  date: "a date",
+  text: "text",
+  bool: "yes/no",
+};
+/** A saved formula's tree; a formula that no longer parses reads nothing. */
+const parseFormulaSafe = (formula: string): FormulaNode => {
+  try {
+    return parseFormula(formula);
+  } catch {
+    return { k: "num", v: 0 };
+  }
+};
+/** A raw value in a card line. */
+const rawShown = (v: unknown): string =>
+  Array.isArray(v) ? v.map(rawShown).join(", ") : typeof v === "object" && v ? JSON.stringify(v) : String(v);
 import { ObjectError } from "../objects/errors.ts";
 import { STARTER_COLLECTIONS } from "./starter.ts";
 
@@ -479,6 +528,19 @@ const MIGRATIONS: Migrations = [
   `alter table shares add column group_id text;
    alter table shares add column group_seq integer not null default 0;
    alter table shares add column group_d1 integer not null default 0;`,
+  // CSV in (decision 2026-10-15 "Toward Excel", 3): a file the app uploaded, kept a day so
+  // the assistant can map its columns and import it without the text passing through a model.
+  `
+  create table imports (
+    id text primary key,
+    name text not null,
+    csv text not null,
+    columns_json text not null,
+    rows integer not null,
+    created_by text,
+    created_at text not null
+  );
+  `,
 ];
 
 type ViewQuery = {
@@ -514,6 +576,7 @@ type RowLayoutInput = {
   pills?: string[];
   callout?: { field: string; label?: string | null } | null;
   action?: { field: string; as: RowAction } | null;
+  highlights?: { when: Filter[]; colour: HighlightColour; label?: string | null }[];
 };
 type CardControlInputValue = Omit<CardControl, "value"> & { value?: unknown };
 type ViewRow = {
@@ -945,9 +1008,10 @@ export class SpaceObject extends DurableObject<Env> {
          union all select min(next_nudge_at) as at from workflow_waits where next_nudge_at != 'resumed')`,
       )
       .toArray()[0];
-    const erase = this.nextEraseTime();
-    const at = row?.at ? Date.parse(row.at) : null;
-    return at === null ? erase : erase === null ? at : Math.min(at, erase);
+    const times = [row?.at ? Date.parse(row.at) : null, this.nextEraseTime(), this.nextDailyTime()].filter(
+      (t): t is number => t !== null,
+    );
+    return times.length ? Math.min(...times) : null;
   }
 
   /** When the oldest record in Recently deleted is due to be erased (ms), or null. */
@@ -1127,6 +1191,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     this.eraseDue();
+    this.refreshDaily();
     await this.runDueJobs();
     const searchIn = await this.syncSearch();
     const liveIn = await this.pingLive();
@@ -1740,6 +1805,13 @@ export class SpaceObject extends DurableObject<Env> {
                 }),
                 ...(v.card.row ? { row: rowByName(v.card.row, (id) => fieldName(v.collection_id, id)) } : {}),
                 ...(v.card.question ? { question: v.card.question } : {}),
+                ...(v.card.grid
+                  ? {
+                      grid: {
+                        fields: v.card.grid.fields.flatMap((id) => fieldName(v.collection_id, id) ?? []),
+                      },
+                    }
+                  : {}),
               },
             }
           : {}),
@@ -1876,7 +1948,9 @@ export class SpaceObject extends DurableObject<Env> {
 
   /**
    * A formula or rollup, checked now: every field it names exists and has a type it can use,
-   * and its result has the field's type. Formulas can't use other formulas (no loops).
+   * and its result has the field's type. A formula may use other formulas and rollups of its
+   * list, and one field of the record a (single) link points at ({Client.Rate}); a loop is
+   * refused.
    */
   private computedOptions(
     type: FieldType,
@@ -1887,41 +1961,41 @@ export class SpaceObject extends DurableObject<Env> {
     if (!o.formula && !o.rollup) return null;
     if (o.formula && o.rollup)
       throw new ObjectError("validation_failed", "A field is a formula or a rollup, not both");
-    if (type !== "number" && type !== "money" && type !== "date")
-      throw new ObjectError("validation_failed", "Calculated fields are number, money or date fields");
     const fields = this.fieldRows(collectionId).filter((f) => f.id !== selfId);
     if (o.formula) {
+      if (!["number", "money", "date", "text", "boolean"].includes(type))
+        throw new ObjectError(
+          "validation_failed",
+          "A formula field is a number, money, date, text or yes/no field",
+        );
       let tree: FormulaNode;
       try {
         tree = parseFormula(o.formula);
       } catch (e) {
         throw new ObjectError("validation_failed", (e as Error).message);
       }
-      const sample = (name: string): FormulaValue => {
-        const f = this.matchField(fields, name);
-        if (toField(f).options.formula)
-          throw new ObjectError(
-            "validation_failed",
-            `${f.name} is a formula itself; use the fields it's made of`,
-          );
-        if (f.type === "number") return { t: "num", v: 1 };
-        if (f.type === "money") return { t: "money", v: 100 };
-        if (f.type === "date" || f.type === "datetime") return { t: "date", v: 0 };
-        throw new ObjectError("validation_failed", `${f.name} isn't a number, money or date field`);
-      };
-      let out: FormulaValue;
+      const typeOfName = this.formulaTyper(collectionId, fields, selfId);
+      let out: FormulaType;
       try {
-        out = evalFormula(tree, sample);
+        out = inferType(tree, typeOfName);
       } catch (e) {
         if (e instanceof ObjectError) throw e;
         throw new ObjectError("validation_failed", (e as Error).message);
       }
-      const want = type === "number" ? "num" : type;
-      if (out && out.t !== want)
+      const want = formulaTypeOf(type)!;
+      if (out !== want) {
+        const words: Record<FormulaType, string> = {
+          num: "a number",
+          money: "money",
+          date: "a date",
+          text: "text",
+          bool: "yes/no",
+        };
         throw new ObjectError(
           "validation_failed",
-          `That formula gives ${out.t === "num" ? "a number" : out.t}, but the field is ${type}`,
+          `That formula gives ${words[out]}, but the field is ${type === "boolean" ? "yes/no" : type}`,
         );
+      }
       return { formula: o.formula.trim() };
     }
     const r = o.rollup!;
@@ -1939,7 +2013,11 @@ export class SpaceObject extends DurableObject<Env> {
         );
       const f = this.matchField(this.fieldRows(linkedCollection), r.of);
       const t = f.type === "datetime" ? "date" : f.type;
-      if (r.fn === "sum" ? t !== "number" && t !== "money" : t !== "number" && t !== "money" && t !== "date")
+      if (
+        r.fn === "sum" || r.fn === "avg"
+          ? t !== "number" && t !== "money"
+          : t !== "number" && t !== "money" && t !== "date"
+      )
         throw new ObjectError("validation_failed", `Can't ${r.fn} ${f.name}`);
       if (t !== type)
         throw new ObjectError("validation_failed", `${f.name} is ${t}, but this field is ${type}`);
@@ -1964,6 +2042,139 @@ export class SpaceObject extends DurableObject<Env> {
         .filters as RuleFilter[];
     }
     return { rollup: { via: via.id, dir, fn: r.fn, of, ...(where ? { where } : {}) } };
+  }
+
+  /**
+   * A formula's view of a list's fields, for typing it before any value exists: a field by
+   * name or alias, or one field of the record a single link points at ({Client.Rate}).
+   * With `selfId`, a formula field it names is checked for a loop back to that field.
+   */
+  private formulaTyper(
+    collectionId: string,
+    fields: FieldRow[],
+    selfId: string | null,
+  ): (name: string) => FormulaType {
+    const kind = (f: FieldRow, name: string): FormulaType => {
+      const t = formulaTypeOf(f.type);
+      if (!t)
+        throw new ObjectError("validation_failed", `${name} is a ${f.type} field; a formula can't read it`);
+      return t;
+    };
+    const own = fields.map((f) => toField(f));
+    return (name: string): FormulaType => {
+      const f = findFormulaField(own, name);
+      if (f) {
+        const row = fields.find((x) => x.id === f.id)!;
+        if (selfId && toField(row).options.formula) this.noFormulaLoop(collectionId, f.id, selfId);
+        return kind(row, f.name);
+      }
+      const path = splitPath(own, name);
+      if (!path) return kind(this.matchField(fields, name), name); // throws with the field list
+      const link = fields.find((x) => x.id === path.link.id)!;
+      const target = toField(link).options.target;
+      if (!target)
+        throw new ObjectError(
+          "validation_failed",
+          `${link.name} can link anywhere; {${name}} needs a link to one list`,
+        );
+      if (toField(link).options.many)
+        throw new ObjectError(
+          "validation_failed",
+          `${link.name} links to several records; use a rollup for {${name}}`,
+        );
+      const far = this.matchField(this.fieldRows(target), path.rest);
+      if (far.type === "link")
+        throw new ObjectError(
+          "validation_failed",
+          `{${name}} is a link; a formula reads one step through a link`,
+        );
+      return kind(far, name);
+    };
+  }
+
+  /** The one record a single link of this record points at, as a formula reads it. */
+  private linkedForFormula(
+    recordId: string,
+  ): (link: { id: string; options: { target?: string | null } }) => LinkedRecord | null {
+    return (link) => {
+      const id = this.linkedIds(link.id, "out", recordId)[0];
+      const target = link.options.target;
+      if (!id || !target) return null;
+      return { fields: this.fieldRows(target).map((x) => toField(x)), values: this.currentValues(id) };
+    };
+  }
+
+  /** Refuses a formula that, through other formulas of the list, would come back to itself. */
+  private noFormulaLoop(collectionId: string, fromId: string, selfId: string | null) {
+    if (!selfId) return;
+    // The field being changed included: a loop goes through it.
+    const fields = this.fieldRows(collectionId);
+    const seen = new Set<string>();
+    const walk = (id: string) => {
+      if (id === selfId) throw new ObjectError("validation_failed", "That formula would loop back to itself");
+      if (seen.has(id)) return;
+      seen.add(id);
+      const f = fields.find((x) => x.id === id);
+      const formula = f ? toField(f).options.formula : null;
+      if (!f || !formula) return;
+      let names: string[];
+      try {
+        names = formulaFields(parseFormula(formula));
+      } catch {
+        return;
+      }
+      for (const name of names) {
+        const g = findFormulaField(
+          fields.map((x) => toField(x)),
+          name,
+        );
+        if (g) walk(g.id);
+      }
+    };
+    walk(fromId);
+  }
+
+  /** The lists with a formula that uses today(), whose stored values move with the day. */
+  private dailyCollections(): string[] {
+    return [
+      ...new Set(
+        this.sql
+          .exec<{ collection_id: string; options_json: string }>(
+            `select collection_id, options_json from fields where deleted_at is null and options_json like '%today%'`,
+          )
+          .toArray()
+          .filter((f) => {
+            const o = JSON.parse(f.options_json) as FieldOptions;
+            try {
+              return !!o.formula && formulaUsesToday(parseFormula(o.formula));
+            } catch {
+              return false;
+            }
+          })
+          .map((f) => f.collection_id),
+      ),
+    ];
+  }
+
+  /** When today() formulas next need working out again: the next midnight in India (ms), or null. */
+  private nextDailyTime(): number | null {
+    if (!this.dailyCollections().length) return null;
+    return todayIST(Date.now()) + 86_400_000 - 330 * 60_000 + 60_000;
+  }
+
+  /** A new day in India: works today() formulas out again for every record of their lists. */
+  private refreshDaily() {
+    const day = new Date(todayIST(Date.now())).toISOString().slice(0, 10);
+    if (getMeta(this.sql, "daily_formulas") === day) return;
+    const ids = this.dailyCollections();
+    if (ids.length) {
+      const ts = nowIso();
+      let changed = 0;
+      for (const id of ids) changed += this.backfill(id, ts);
+      // Open apps hear about it like any write (the alarm pings them next).
+      if (changed) bumpAndNote(this.sql);
+    }
+    setMeta(this.sql, "daily_formulas", day);
   }
 
   /**
@@ -2081,7 +2292,10 @@ export class SpaceObject extends DurableObject<Env> {
         .filter((v): v is string | number => typeof v === "number" || typeof v === "string");
       if (!vals.length) next[f.id] = ru.fn === "sum" ? 0 : null;
       else if (ru.fn === "sum") next[f.id] = (vals as number[]).reduce((a, b) => a + b, 0);
-      else {
+      else if (ru.fn === "avg") {
+        const mean = (vals as number[]).reduce((a, b) => a + b, 0) / vals.length;
+        next[f.id] = f.type === "money" ? Math.round(mean) : Math.round(mean * 1000) / 1000;
+      } else {
         const sorted = [...vals].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
         const v = ru.fn === "min" ? sorted[0]! : sorted[sorted.length - 1]!;
         next[f.id] = f.type === "date" && typeof v === "string" ? v.slice(0, 10) : v;
@@ -2092,6 +2306,7 @@ export class SpaceObject extends DurableObject<Env> {
       formulaValues(
         fields.map((f) => toField(f)),
         next,
+        { linked: this.linkedForFormula(r.id) },
       ),
     );
     if (computed.every((f) => JSON.stringify(next[f.id] ?? null) === JSON.stringify(values[f.id] ?? null)))
@@ -2149,7 +2364,7 @@ export class SpaceObject extends DurableObject<Env> {
    * A record whose calculated values may have moved because another record changed: save
    * them, and treat it as changed (its rules must still hold; its workflows see the change).
    */
-  private refreshNeighbor(id: string, ts: string) {
+  private refreshNeighbor(id: string, ts: string, seen = new Set<string>(), depth = 0) {
     const r = this.liveRecord(id);
     if (!r) return;
     const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
@@ -2159,10 +2374,67 @@ export class SpaceObject extends DurableObject<Env> {
     const c = this.requireCollection(r.collection_id);
     this.enforceRules(c, id, before, after);
     this.queueWorkflows(c.id, id, before, after);
+    this.refreshReaders(id, ts, seen, depth);
   }
 
-  /** A new or changed calculated field: work it out for every record already there. */
-  private backfill(collectionId: string, ts: string) {
+  /** How far a change travels through records that read others through links. */
+  private static readonly PATH_HOPS = 3;
+
+  /**
+   * A record's calculated values changed: records whose formulas read it through a link
+   * ({Client.Rate}) are worked out again, and so on, a few hops at most.
+   */
+  private refreshReaders(id: string, ts: string, seen: Set<string>, depth: number) {
+    if (depth >= SpaceObject.PATH_HOPS) return;
+    seen.add(id);
+    for (const reader of this.pathReaders(id))
+      if (!seen.has(reader)) this.refreshNeighbor(reader, ts, seen, depth + 1);
+  }
+
+  /** The records with a formula that reads this record through a link field. */
+  private pathReaders(recordId: string): string[] {
+    const r = this.liveRecord(recordId);
+    if (!r) return [];
+    const out = new Set<string>();
+    for (const link of this.linksInto(r.collection_id)) {
+      const fields = this.fieldRows(link.collection_id).map((f) => toField(f));
+      const reads = fields.some(
+        (f) =>
+          f.options.formula &&
+          formulaFields(parseFormulaSafe(f.options.formula)).some(
+            (name) => splitPath(fields, name)?.link.id === link.id,
+          ),
+      );
+      if (!reads) continue;
+      for (const row of this.sql
+        .exec<{ from_id: string }>(
+          `select from_id from links where field_id = ? and to_id = ?`,
+          link.id,
+          recordId,
+        )
+        .toArray())
+        out.add(row.from_id);
+    }
+    return [...out];
+  }
+
+  /** The live link fields anywhere that point at a collection. */
+  private linksInto(collectionId: string): FieldRow[] {
+    return this.sql
+      .exec<FieldRow>(
+        `select f.* from fields f join collections c on c.id = f.collection_id
+           where f.type = 'link' and f.deleted_at is null and c.deleted_at is null`,
+      )
+      .toArray()
+      .filter((f) => toField(f).options.target === collectionId);
+  }
+
+  /**
+   * A new or changed calculated field: work it out for every record already there, and
+   * for the records that read them through a link. How many changed.
+   */
+  private backfill(collectionId: string, ts: string): number {
+    let changed = 0;
     for (let after = ""; ;) {
       const batch = this.sql
         .exec<{ id: string }>(
@@ -2171,10 +2443,16 @@ export class SpaceObject extends DurableObject<Env> {
           after,
         )
         .toArray();
-      for (const r of batch) if (this.recompute(r.id)) this.logChange("record", r.id, "upsert", ts);
+      for (const r of batch)
+        if (this.recompute(r.id)) {
+          changed++;
+          this.logChange("record", r.id, "upsert", ts);
+          this.refreshReaders(r.id, ts, new Set(), 0);
+        }
       if (batch.length < 500) break;
       after = batch[batch.length - 1]!.id;
     }
+    return changed;
   }
 
   private recomputeAround(recordId: string, alsoIds: Iterable<string> = []) {
@@ -2594,6 +2872,429 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["update_records", changes], (ts) =>
       changes.map((c) => this.changeRecord(actor, ts, this.requireRecord(c.record_id), { values: c.values })),
     );
+  }
+
+  // --- CSV in and out (decision 2026-10-15 "Toward Excel", 3) ---------------------------
+  // The app uploads a file here (never into a chat message); the assistant reads only its
+  // columns, a few sample cells and the row count, maps columns to fields (new ones too),
+  // and the person confirms a card that says what would be made. Exports are plain CSV.
+
+  /** Keeps a CSV for a day and says what's in it. */
+  async uploadImport(
+    actor: Actor,
+    key: string | null,
+    input: { name: string; csv: string },
+  ): Promise<ImportView> {
+    return this.write(actor, key, ["upload_import", input.name, input.csv.length], (ts) => {
+      const parsed = parseCsv(input.csv);
+      if (!parsed.columns.length || !parsed.rows.length)
+        throw new ObjectError("validation_failed", "The file has no rows; the first line names the columns");
+      if (parsed.rows.length > MAX_IMPORT_ROWS)
+        throw new ObjectError("validation_failed", `More than ${MAX_IMPORT_ROWS} rows; split the file`);
+      // Yesterday's uploads nobody used go.
+      this.sql.exec(
+        `delete from imports where created_at < ?`,
+        new Date(Date.now() - 86_400_000).toISOString(),
+      );
+      const id = ulid();
+      this.sql.exec(
+        `insert into imports (id, name, csv, columns_json, rows, created_by, created_at) values (?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        input.name,
+        input.csv,
+        JSON.stringify(parsed.columns),
+        parsed.rows.length,
+        actor.userId,
+        ts,
+      );
+      return this.importView({ id, name: input.name, created_at: ts }, parsed);
+    });
+  }
+
+  private importView(
+    row: { id: string; name: string; created_at: string },
+    parsed: ReturnType<typeof parseCsv>,
+  ): ImportView {
+    return {
+      id: row.id,
+      name: row.name,
+      rows: parsed.rows.length,
+      columns: parsed.columns.map((name, i) => ({
+        name,
+        guess: guessType(parsed.rows.slice(0, 200).map((r) => r[i] ?? "")),
+        sample: [
+          ...new Set(
+            parsed.rows
+              .slice(0, 50)
+              .map((r) => (r[i] ?? "").slice(0, 60))
+              .filter(Boolean),
+          ),
+        ].slice(0, 3),
+      })),
+      expires_at: new Date(Date.parse(row.created_at) + 86_400_000).toISOString(),
+    };
+  }
+
+  /** An upload that's still here, parsed. */
+  private requireImport(id: string): {
+    row: { id: string; name: string; created_at: string };
+    parsed: ReturnType<typeof parseCsv>;
+  } {
+    const row = this.sql
+      .exec<{ id: string; name: string; csv: string; created_at: string }>(
+        `select id, name, csv, created_at from imports where id = ?`,
+        id,
+      )
+      .toArray()[0];
+    if (!row) throw new ObjectError("not_found", "That upload isn't here any more; upload the file again");
+    return { row, parsed: parseCsv(row.csv) };
+  }
+
+  /** What an import would do, every row checked; nothing is written. */
+  async previewImport(actor: Actor, spec: ImportSpec): Promise<ImportPreview> {
+    this.canWrite(actor);
+    try {
+      // The plan makes the list or fields it needs; the transaction is rolled back with them.
+      this.ctx.storage.transactionSync(() => {
+        const plan = this.planImport(actor, spec, nowIso());
+        throw new Rollback({
+          rows: plan.parsed.rows.length,
+          into: plan.into,
+          words: plan.words,
+          sample: plan.sample,
+          problems: plan.problems.slice(0, 5),
+          bad: plan.problems.length,
+        } satisfies ImportPreview);
+      });
+    } catch (e) {
+      if (e instanceof Rollback) return e.value as ImportPreview;
+      throw e;
+    }
+    throw new ObjectError("validation_failed", "The preview gave nothing");
+  }
+
+  /** Imports the rows (and makes the list or fields it needs) in one write, all or nothing. */
+  async importRecords(actor: Actor, key: string | null, spec: ImportSpec): Promise<ImportResult> {
+    return this.write(
+      actor,
+      key,
+      ["import_records", spec],
+      (ts) => {
+        const plan = this.planImport(actor, spec, ts);
+        if (plan.problems.length && !spec.skip_bad)
+          throw new ObjectError(
+            "validation_failed",
+            `${plan.problems.length} row${plan.problems.length === 1 ? " can't" : "s can't"} be read: ${plan.problems.slice(0, 3).join("; ")}. Fix the file, or skip those rows (skip_bad)`,
+            { problems: plan.problems.slice(0, 20) },
+          );
+        const c = this.requireCollection(plan.collectionId);
+        let added = 0;
+        for (const values of plan.records) {
+          if (!values) continue;
+          this.insertRecord(actor, ts, c, { values });
+          added++;
+        }
+        this.sql.exec(`delete from imports where id = ?`, spec.import_id);
+        audit(this.sql, actor, {
+          action: "import_records",
+          entityType: "collection",
+          entityId: c.id,
+          after: { import_id: spec.import_id, added, skipped: plan.problems.length },
+        });
+        return { added, skipped: plan.problems.length, collection: this.collectionView(c) };
+      },
+      () => (spec.columns.some((col) => col.add) ? this.canArrange(actor) : this.canWrite(actor)),
+    );
+  }
+
+  /**
+   * Maps the file's columns to fields (making the list or the new fields now, inside the
+   * caller's transaction) and reads every row the way a write would, noting the rows that
+   * can't be read.
+   */
+  private planImport(actor: Actor, spec: ImportSpec, ts: string) {
+    const { parsed } = this.requireImport(spec.import_id);
+    const at = (name: string) => {
+      const i = parsed.columns.findIndex((col) => nameKey(col) === nameKey(name));
+      if (i < 0)
+        throw new ObjectError(
+          "validation_failed",
+          `No column "${name}" in the file. Columns: ${parsed.columns.join(", ")}`,
+        );
+      return i;
+    };
+    const cols = spec.columns.map((col) => ({ ...col, at: at(col.column) }));
+    const words: string[] = [];
+    let collectionId: string;
+    let into: string;
+    const existing = this.sql
+      .exec<{ id: string }>(
+        `select id from collections where deleted_at is null and (id = ? or name_key = ?)`,
+        spec.collection,
+        nameKey(spec.collection),
+      )
+      .toArray()[0];
+    if (existing) {
+      collectionId = existing.id;
+      into = this.requireCollection(collectionId).name;
+      for (const col of cols)
+        if (col.add) {
+          this.insertField(collectionId, col.add, this.fieldRows(collectionId).length, ts);
+          words.push(`New field ${col.add.name} (${col.add.type.replace("_", " ")}) ← ${col.column}`);
+        }
+    } else {
+      const adds = cols.filter((c) => c.add);
+      if (cols.some((c) => c.field))
+        throw new ObjectError(
+          "not_found",
+          `No list called "${spec.collection}"; name the fields to make (add) and it's made with them`,
+        );
+      if (!adds.length)
+        throw new ObjectError("validation_failed", "Say which fields to make (add) for the new list");
+      collectionId = this.insertCollection(
+        actor,
+        { name: spec.collection, fields: adds.map((c) => c.add!) },
+        ts,
+      );
+      into = `${spec.collection} (new list)`;
+      words.push(
+        `New list ${spec.collection}: ${adds.map((c) => `${c.add!.name} (${c.add!.type.replace("_", " ")})`).join(", ")}`,
+      );
+    }
+    const fields = this.fieldRows(collectionId);
+    const mapped = cols.flatMap((col) => {
+      const ref = col.add ? col.add.name : col.field;
+      if (!ref) return [];
+      const f = this.matchField(fields, ref);
+      if (toField(f).options.formula || toField(f).options.rollup)
+        throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be filled from a file`);
+      if (!col.add) words.push(`${f.name} ← ${col.column}`);
+      return [{ f, at: col.at }];
+    });
+    if (!mapped.length)
+      throw new ObjectError("validation_failed", "No column goes anywhere; map at least one");
+    const left = parsed.columns.filter((_, i) => !mapped.some((m) => m.at === i));
+    if (left.length) words.push(`Left out: ${left.join(", ")}`);
+    const c = this.requireCollection(collectionId);
+    const problems: string[] = [];
+    const sample: string[] = [];
+    const records = parsed.rows.map((row, n) => {
+      const values: Record<string, unknown> = {};
+      for (const m of mapped) values[m.f.id] = readCell(m.f.type, row[m.at] ?? "");
+      try {
+        // Read as a write would (choices, links by title, required fields), then dropped.
+        const seen = this.readValues(fields, values, actor);
+        for (const f of fields)
+          if (
+            f.required &&
+            (f.type === "link"
+              ? !seen.links.get(f.id)?.length
+              : seen.values[f.id] === null || seen.values[f.id] === undefined)
+          )
+            throw new ObjectError("validation_failed", `${f.name} is required`);
+        if (sample.length < 3)
+          sample.push(
+            mapped
+              .map((m) => {
+                const v =
+                  m.f.type === "link" ? row[m.at] : displayValue(m.f.type, seen.values[m.f.id] ?? null);
+                return `${m.f.name}: ${Array.isArray(v) ? v.join(", ") : (v ?? "empty")}`;
+              })
+              .join(", "),
+          );
+        return values;
+      } catch (e) {
+        problems.push(`row ${n + 2}: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      }
+    });
+    return { parsed, collectionId, into, words, records, problems, sample, c };
+  }
+
+  /** A list (or one of its views) as CSV: field names first, values as people read them. */
+  async exportCsv(
+    actor: Actor,
+    spec: { collection: string; view?: string; filters: Filter[] },
+  ): Promise<ExportResult> {
+    this.role(actor);
+    const c = this.requireCollection(spec.collection);
+    const view = spec.view ? this.viewOf(this.requireView(spec.view)) : null;
+    if (view && view.collection_id !== c.id)
+      throw new ObjectError(
+        "validation_failed",
+        `“${view.name}” is a view of ${view.collection}, not ${c.name}`,
+      );
+    const { rows } = this.findRows(actor, c, {
+      filters: [...(view?.filters ?? []), ...spec.filters],
+      search: view?.search ?? undefined,
+      sort: view?.sort ?? undefined,
+      limit: MAX_EXPORT_ROWS,
+    });
+    const fields = this.fieldRows(c.id).filter((f) => !toField(f).options.personal);
+    const cell = (f: FieldRow, v: StoredValue | undefined): string => {
+      if (v === null || v === undefined) return "";
+      switch (f.type) {
+        case "money":
+          return ((v as number) / 100).toFixed(2);
+        case "boolean":
+          return v ? "Yes" : "No";
+        case "multi_choice":
+          return (v as string[]).join("; ");
+        case "person":
+          return (v as { name: string }).name;
+        default:
+          return String(v);
+      }
+    };
+    const out = rows.map((r) => {
+      const view = this.recordView(r, actor);
+      return fields.map((f) =>
+        f.type === "link"
+          ? (view.links[f.id] ?? []).map((l) => l.title).join("; ")
+          : cell(f, view.values[f.id]),
+      );
+    });
+    return {
+      name: `${(view?.name ?? c.name).replace(/[\\/:*?"<>|]+/g, " ").trim()}.csv`,
+      rows: out.length,
+      csv: toCsv(
+        fields.map((f) => f.name),
+        out,
+      ),
+    };
+  }
+
+  // --- Bulk changes (decision 2026-10-15 "Toward Excel", 2) -----------------------------
+  // Every record that matches gets the same value, or a value worked out from itself by a
+  // formula. Always confirmed first: the preview says how many and shows the first few.
+
+  /** What a bulk change would do, checked all the way; nothing is written. */
+  async previewChange(actor: Actor, spec: ChangeRecordsSpec): Promise<ChangePreview> {
+    this.canWrite(actor);
+    const plan = this.planChange(actor, spec);
+    return {
+      count: plan.rows.length,
+      words: plan.words,
+      examples: plan.rows.slice(0, 3).map((r) => this.changeExample(r, plan)),
+    };
+  }
+
+  /** Changes every matching record in one write (all or nothing). */
+  async changeRecords(actor: Actor, key: string | null, spec: ChangeRecordsSpec): Promise<ChangeResult> {
+    return this.write(actor, key, ["change_records", spec], (ts) => {
+      const plan = this.planChange(actor, spec);
+      const out = plan.rows.map((r) =>
+        this.changeRecord(actor, ts, r, { values: this.changeValues(r, plan) }),
+      );
+      return { changed: out.length, records: out.slice(0, 20) };
+    });
+  }
+
+  private planChange(actor: Actor, spec: ChangeRecordsSpec) {
+    const c = this.requireCollection(spec.collection);
+    const fields = this.fieldRows(c.id);
+    const { rows } = this.findRows(actor, c, {
+      filters: spec.filters as Filter[],
+      search: spec.search,
+      limit: MAX_CHANGE_RECORDS + 1,
+    });
+    if (rows.length > MAX_CHANGE_RECORDS)
+      throw new ObjectError(
+        "validation_failed",
+        `More than ${MAX_CHANGE_RECORDS} records match; narrow it down (filters) and change them in parts`,
+      );
+    const typeOfName = this.formulaTyper(c.id, fields, null);
+    const words: string[] = [];
+    const sets = spec.set.map((item) => {
+      const f = this.matchField(fields, item.field);
+      const o = toField(f).options;
+      if (o.formula || o.rollup)
+        throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be set`);
+      if (item.formula === undefined) {
+        words.push(
+          `${f.name} → ${item.value === null || item.value === undefined ? "empty" : rawShown(item.value)}`,
+        );
+        return { f, value: item.value, tree: null };
+      }
+      if (f.type === "link" || f.type === "person" || f.type === "multi_choice")
+        throw new ObjectError("validation_failed", `${f.name} takes a value, not a formula`);
+      let tree: FormulaNode;
+      let out: FormulaType;
+      try {
+        tree = parseFormula(item.formula);
+        out = inferType(tree, typeOfName);
+      } catch (e) {
+        if (e instanceof ObjectError) throw e;
+        throw new ObjectError("validation_failed", (e as Error).message);
+      }
+      const want = formulaTypeOf(f.type);
+      if (out !== want)
+        throw new ObjectError(
+          "validation_failed",
+          `${item.formula} gives ${FORMULA_KIND_WORDS[out]}, but ${f.name} is ${f.type === "boolean" ? "yes/no" : f.type.replace("_", " ")}`,
+        );
+      words.push(`${f.name} = ${item.formula}`);
+      return { f, value: undefined, tree };
+    });
+    const where = (spec.filters as Filter[]).map((x) =>
+      filterWords({ ...x, field: this.matchField(fields, x.field).name }),
+    );
+    if (spec.search) where.push(`title has “${spec.search}”`);
+    return {
+      c,
+      fields,
+      rows,
+      sets,
+      words: [...(where.length ? [`Where ${where.join(" and ")}`] : []), ...words],
+    };
+  }
+
+  /** The values one record gets from the plan (formulas worked out from its own values). */
+  private changeValues(r: RecordRow, plan: ReturnType<SpaceObject["planChange"]>): Record<string, unknown> {
+    const values = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const own = plan.fields.map((f) => toField(f));
+    const linked = this.linkedForFormula(r.id);
+    const get = (name: string): FormulaValue => {
+      const f = findFormulaField(own, name);
+      if (f) return f.type === "link" ? null : formulaValueOf(f, values[f.id]);
+      const path = splitPath(own, name);
+      const far = path ? linked(path.link) : null;
+      const g = far ? findFormulaField(far.fields, path!.rest) : undefined;
+      return g && g.type !== "link" ? formulaValueOf(g, far!.values[g.id]) : null;
+    };
+    const out: Record<string, unknown> = {};
+    for (const s of plan.sets) {
+      if (!s.tree) {
+        out[s.f.id] = s.value;
+        continue;
+      }
+      try {
+        const v = storedFormulaValue(evalFormula(s.tree, get));
+        // Money comes out in paise; a write reads a plain number as rupees.
+        out[s.f.id] = s.f.type === "money" && typeof v === "number" ? v / 100 : v;
+      } catch (e) {
+        throw new ObjectError("validation_failed", `${s.f.name} for “${r.title}”: ${(e as Error).message}`);
+      }
+    }
+    return out;
+  }
+
+  /** “Test Wedding: Fee ₹50,000 → ₹55,000”, for the confirm card. */
+  private changeExample(r: RecordRow, plan: ReturnType<SpaceObject["planChange"]>): string {
+    const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
+    const after = this.changeValues(r, plan);
+    // Stored values show as they are; new ones are read as a write would read them.
+    const show = (f: FieldRow, v: unknown, stored: boolean) => {
+      if (v === null || v === undefined || v === "") return "empty";
+      if (f.type === "link") return rawShown(v);
+      try {
+        const d = displayValue(f.type, stored ? (v as StoredValue) : normalizeValue(toField(f), v));
+        return Array.isArray(d) ? d.join(", ") : (d ?? "empty");
+      } catch {
+        return rawShown(v);
+      }
+    };
+    return `${r.title}: ${plan.sets.map((s) => `${s.f.name} ${show(s.f, before[s.f.id], true)} → ${show(s.f, after[s.f.id], false)}`).join(", ")}`;
   }
 
   private changeRecord(
@@ -3489,7 +4190,7 @@ export class SpaceObject extends DurableObject<Env> {
           } catch {
             r = null;
           }
-          vals.push(r ? r.v : null);
+          vals.push(r && typeof r.v === "number" ? r.v : null);
           continue;
         }
         const recs = only[i] ? b.recs.filter((e) => only[i]!.has(e.r.id)) : b.recs;
@@ -4683,6 +5384,7 @@ export class SpaceObject extends DurableObject<Env> {
       controls?: CardControlInputValue[];
       row?: RowLayoutInput | null;
       question?: CardQuestion | null;
+      grid?: { fields: string[] } | null;
     },
     view?: { c: CollectionRow; filters: Filter[] },
   ): CardConfig | null {
@@ -4751,6 +5453,24 @@ export class SpaceObject extends DurableObject<Env> {
         "validation_failed",
         `A ${card.arrangement} card needs a question (group_by and measures, as for the query tool)`,
       );
+    // A grid: the list as a sheet, its columns named (decision 2026-10-15 "Toward Excel", 5).
+    if (card.grid || card.arrangement === "grid") {
+      if (card.arrangement && card.arrangement !== "grid")
+        throw new ObjectError(
+          "validation_failed",
+          `card.grid goes with arrangement "grid", not ${card.arrangement}`,
+        );
+      if (controls.length || row)
+        throw new ObjectError(
+          "validation_failed",
+          "A grid card has no controls or row layout; its cells are edited in place",
+        );
+      const refs = card.grid?.fields ?? [];
+      if (!refs.length)
+        throw new ObjectError("validation_failed", "A grid needs its columns (card.grid.fields)");
+      const ids = [...new Set(refs.map((ref) => this.matchField(fields, ref).id))];
+      return { arrangement: "grid", controls: [], grid: { fields: ids } };
+    }
     if (!card.arrangement && !controls.length && !row) return null;
     // Controls and row layouts live on a list's rows: such a card is a list card.
     const LISTS: Arrangement[] = ["list-plain", "list-ticks", "next"];
@@ -4795,7 +5515,24 @@ export class SpaceObject extends DurableObject<Env> {
         ? { field: pick(r.action.field, TEXT, `A ${r.action.as} button`), as: r.action.as }
         : null,
     };
-    const empty = !row.date && !row.details.length && !row.pills.length && !row.callout && !row.action;
+    // Highlights: each filter checked now, like a view's, and stored by field id.
+    const highlights = (r.highlights ?? []).map((h) => ({
+      when: h.when.map((flt) => {
+        const f = this.matchField(fields, flt.field);
+        this.filterClause(f, flt, { userId: null, source: "system" });
+        return { ...flt, field: f.id };
+      }),
+      colour: h.colour,
+      label: h.label?.trim() || null,
+    }));
+    if (highlights.length) row.highlights = highlights;
+    const empty =
+      !row.date &&
+      !row.details.length &&
+      !row.pills.length &&
+      !row.callout &&
+      !row.action &&
+      !highlights.length;
     return empty ? null : row;
   }
 
@@ -4861,6 +5598,7 @@ export class SpaceObject extends DurableObject<Env> {
             arrangement: q.card.arrangement,
             controls: q.card.controls.filter((c) => live.has(c.field)),
             ...(q.card.row ? { row: rowOfLive(q.card.row, live) } : {}),
+            ...(q.card.grid ? { grid: { fields: q.card.grid.fields.filter((id) => live.has(id)) } } : {}),
             ...(q.card.question ? { question: q.card.question } : {}),
           }
         : null,
@@ -8506,6 +9244,14 @@ function rowByName(r: RowLayout, name: (id: string) => string | null | undefined
     pills: r.pills.flatMap((id) => n(id) ?? []),
     callout: r.callout && n(r.callout.field) ? { ...r.callout, field: n(r.callout.field)! } : null,
     action: r.action && n(r.action.field) ? { ...r.action, field: n(r.action.field)! } : null,
+    ...(r.highlights?.length
+      ? {
+          highlights: r.highlights.flatMap((h) => {
+            const when = h.when.flatMap((flt) => (n(flt.field) ? [{ ...flt, field: n(flt.field)! }] : []));
+            return when.length === h.when.length ? [{ ...h, when }] : [];
+          }),
+        }
+      : {}),
   };
 }
 
@@ -8518,5 +9264,8 @@ function rowOfLive(r: RowLayout, live: Set<string>): RowLayout {
     pills: r.pills.filter(ok),
     callout: r.callout && ok(r.callout.field) ? r.callout : null,
     action: r.action && ok(r.action.field) ? r.action : null,
+    ...(r.highlights?.length
+      ? { highlights: r.highlights.filter((h) => h.when.every((flt) => ok(flt.field))) }
+      : {}),
   };
 }

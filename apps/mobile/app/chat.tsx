@@ -9,6 +9,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatItem, ChatView, CollectionView, HistoryItem } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard } from "@/components/LiveCard";
+import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
+import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
@@ -41,6 +43,10 @@ export default function Chat() {
   // What the last reply changed (shown under it, with Undo), and the full list (the sheet).
   const [changed, setChanged] = useState<HistoryItem[]>([]);
   const [showChanges, setShowChanges] = useState(false);
+  // A CSV for the assistant to put somewhere (decision 2026-10-15 "Toward Excel", 3).
+  const [showImport, setShowImport] = useState(false);
+  // A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix").
+  const [editing, setEditing] = useState<ChatItem["card"] | null>(null);
   const list = useRef<FlatList<ChatItem>>(null);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
@@ -113,12 +119,20 @@ export default function Chat() {
     }
   };
 
-  // online-only: a confirm card runs (or drops) its action on the server, once.
-  const answer = async (actionId: string, what: "confirm" | "cancel") => {
+  // online-only: a confirm card runs (or drops) its action on the server, once; a setup card
+  // may run with the person's own changes to it.
+  const answer = async (actionId: string, what: "confirm" | "cancel", args?: Record<string, unknown>) => {
     if (busy) return;
     setBusy(true);
     try {
-      setView(await request<ChatView>("POST", `/api/chats/${MAIN}/actions/${enc(actionId)}/${what}`, {}));
+      setView(
+        await request<ChatView>(
+          "POST",
+          `/api/chats/${MAIN}/actions/${enc(actionId)}/${what}`,
+          args ? { args } : {},
+        ),
+      );
+      setEditing(null);
       setNote("");
     } catch (e) {
       setNote(isOffline(e) ? "Confirming needs a connection." : e instanceof Error ? e.message : String(e));
@@ -167,6 +181,7 @@ export default function Chat() {
               item={item}
               rate={item.id === lastReply}
               onAnswer={answer}
+              onEdit={(card) => setEditing(card)}
               busy={busy}
               collections={getCollections}
               onAsk={(title) => setText((t) => t || `About "${title}": `)}
@@ -206,7 +221,33 @@ export default function Chat() {
             </Pressable>
           )}
         />
+        {editing ? (
+          <SetupEditSheet
+            tool={editing.tool}
+            args={editing.args ?? null}
+            busy={busy}
+            onClose={() => setEditing(null)}
+            onConfirm={(args) => void answer(editing.action_id, "confirm", args)}
+          />
+        ) : null}
+        <ImportSheet
+          open={showImport}
+          onClose={() => setShowImport(false)}
+          onUploaded={(file) => {
+            setShowImport(false);
+            void say(uploadedWords(file));
+          }}
+        />
         <View style={[s.compose, { paddingBottom: room ? 8 : insets.bottom + 8 }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add a CSV file"
+            onPress={() => setShowImport(true)}
+            disabled={busy}
+            style={[s.attach, { borderColor: t.sep, backgroundColor: t.cell }]}
+          >
+            <Text style={{ color: t.fg2, fontWeight: "800", fontSize: 20, lineHeight: 22 }}>+</Text>
+          </Pressable>
           <TextInput
             autoFocus={!!ask}
             accessibilityLabel="Message Gigspree"
@@ -276,6 +317,7 @@ function Bubble({
   item,
   rate,
   onAnswer,
+  onEdit,
   busy,
   collections,
   onAsk,
@@ -284,6 +326,8 @@ function Bubble({
   /** The newest answer: show 👍 / 👎 under it. */
   rate?: boolean;
   onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
+  /** A setup card: change it by hand before Confirm. */
+  onEdit?: (card: NonNullable<ChatItem["card"]>) => void;
   busy: boolean;
   collections: () => Promise<CollectionView[]>;
   onAsk: (title: string) => void;
@@ -330,6 +374,17 @@ function Bubble({
             >
               <Text style={{ color: t.fg, fontWeight: "600", fontSize: 14 }}>Not now</Text>
             </Pressable>
+            {item.card.editable && onEdit ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Change it first"
+                disabled={busy}
+                onPress={() => onEdit(item.card!)}
+                style={[s.answer, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+              >
+                <Text style={{ color: t.accent, fontWeight: "700", fontSize: 14 }}>Change…</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : item.card && item.card.status !== "done" ? (
           <Text style={[s.sys, { color: t.fg2, textAlign: "left", padding: 0 }]}>
@@ -410,4 +465,12 @@ const s = StyleSheet.create({
     fontSize: 16,
   },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  attach: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

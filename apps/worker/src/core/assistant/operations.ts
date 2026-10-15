@@ -124,7 +124,7 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/chat/actions/:action_id/confirm" },
       input: ChatActionRef,
-      handler: (ctx, i) => confirmAction(ctx, all(), i.action_id),
+      handler: (ctx, i) => confirmAction(ctx, all(), i.action_id, undefined, i.args),
     }),
     defineOperation({
       id: "core.chat_cancel",
@@ -206,7 +206,7 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/chats/:chat_id/actions/:action_id/confirm" },
       input: ChatActionIn,
-      handler: (ctx, i) => confirmAction(ctx, all(), i.action_id, i.chat_id),
+      handler: (ctx, i) => confirmAction(ctx, all(), i.action_id, i.chat_id, i.args),
     }),
     defineOperation({
       id: "core.chat_cancel_in",

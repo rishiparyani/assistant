@@ -441,6 +441,15 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-15: Chat makes, screens can fix (owner: "we don't have a UI fallback, right? So if the user can't get the desired setup then what?")
+
+Amends "Chat makes, screens use" (2026-10-11). The owner's reason for chat-first stands: no toolbox in the main screens, so people aren't overwhelmed. But when the assistant won't build what's asked, rephrasing can't be the only way out. Two side doors, neither on the home or a tab:
+
+- **The setup card is editable before Confirm.** The assistant proposes; "Change…" on the card opens a form over its arguments (a list's name, each field's name, kind, choices, link, formula, required; add or drop a field); Confirm runs the changed version, checked exactly like the model's own arguments, and the card shows what ran. Only setup cards (`make_setup`, `create_collection`, `add_field`, `update_field`, `save_view`, `update_view`); money and deletes never take changed arguments.
+- **A plain setup screen per list, hidden under its ⋯ menu** ("Fields and cards"): fields, rules, cards and views as ordinary forms, through the same operations the assistant uses. Someone who never opens the menu never sees it.
+
+Not doing: a builder tab, a visible "Edit" on every screen, by-hand workflows (the chat shows them as diagrams and that stays the way).
+
 ## 2026-10-11: Chat makes, screens use
 
 Owner's decision, replacing "Assistant first" (which kept by-hand builders as a fallback). Everything is made and changed in the chat: lists, fields, records, workflows, rules, setups, songs. Screens are for using what exists: opening, ticking done, picking, playing (stage mode, transpose), sharing, deleting. The by-hand builders are gone: the workflow form, starting a list by hand, Edit by hand (add a record, rules), record edit forms and "Add to …" on record pages, the chat's + menu, and Songbook's Add and Edit sheets. There are no add or edit screens by default; a person who wants one asks the chat to make it (a quick add is saved and pinned like a view; built next). Offline, what's typed in the chat waits and runs when the connection is back (built next). Collaborators still fill in forms someone shared with them; those are made in the chat too.
@@ -649,13 +658,14 @@ The owner isn't an active developer: he sends a message about once a day and loo
 
 **Decision:** a list card's rows can have a **layout**, chosen in the chat like everything else and kept on the saved view (`card.row`). Each part names a field of the list:
 
-| Part      | Field it takes                                 | What it shows                                                                                            |
-| --------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `date`    | date or date-time                              | A calendar tile (OCT / 17); today's is coloured, past ones are faded                                     |
-| `details` | up to 3, any type                              | A line under the title ("Sat · 6 pm · ● Vibe Tribe"); a choice shows with its colour dot                 |
-| `pills`   | up to 2: money, number, choice, text or yes/no | Highlighted pills ("₹5,000")                                                                             |
-| `callout` | text or long text, plus an optional label      | A highlighted box when it has something ("To do: …")                                                     |
-| `action`  | text                                           | A button on the right: `directions` (an address, opens maps), `call` (a phone number) or `open` (a link) |
+| Part         | Field it takes                                 | What it shows                                                                                                            |
+| ------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `date`       | date or date-time                              | A calendar tile (OCT / 17); today's is coloured, past ones are faded                                                     |
+| `details`    | up to 3, any type                              | A line under the title ("Sat · 6 pm · ● Vibe Tribe"); a choice shows with its colour dot                                 |
+| `pills`      | up to 2: money, number, choice, text or yes/no | Highlighted pills ("₹5,000")                                                                                             |
+| `callout`    | text or long text, plus an optional label      | A highlighted box when it has something ("To do: …")                                                                     |
+| `action`     | text                                           | A button on the right: `directions` (an address, opens maps), `call` (a phone number) or `open` (a link)                 |
+| `highlights` | up to 4 of filters + colour (+ a word)         | Rows that match get a coloured edge, a soft tint and the word as a pill; first match wins (2026-10-15 "Toward Excel", 4) |
 
 - **Checks:** the space's object checks each part against its field and stores field ids, like controls.
 - **List cards only:** a row layout makes the card a list card. Controls still work on rich rows.
@@ -861,6 +871,19 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Its own money, its own caps:** Cerebras's cost is logged to see (`calls.cost_paise`) but never reserved against the ₹2,000 Cloudflare cap, and it uses no free neurons. The app allows `AI_FAST_CALLS_PER_DAY` (60) a day for everyone together and `AI_FAST_CALLS_PER_MINUTE` (4) a minute (the trial allows five), so the credit lasts the month and a burst is never refused by Cerebras itself. A slot is taken before each call, counted and taken in one step inside the budget object (`takeFastSlot`, table `fast_slots`), so requests at the same moment can't all pass the same count. The admin panel shows today's count.
 - **Scorecard:** `model: gpt-oss-120b` on the Scorecard workflow tries it (the key is passed; the app's caps are off there, so any suite × repeat finishes), spacing cases out by the calls each made to stay under five a minute.
 - **Privacy:** the privacy page says the faster model runs at Cerebras (US) and isn't trained on people's data; nothing is logged there by us.
+
+## 2026-10-15: Toward Excel: the engine gets the expression power people expect (owner: "as flexible as Excel")
+
+The owner asked for a review of the universal / chat-first / home-first design against "the chatbot should be able to do pretty much anything, as flexible as Excel". The review's verdict: the design is a typed database with links, rollups, rules, automations, a query tool and cards, which covers most of what people use Excel for, but it lacks Excel's expression power. The owner said "do all the features". Six slices, each its own PR, in this order:
+
+1. **Formulas (this PR).** The formula language grows from arithmetic to: comparisons, `and`/`or`/`not`, `if`, `blank`/`ifblank`, `round`/`floor`/`ceil`/`abs`, `min`/`max`/`sum`/`avg`, text (`len`, `upper`, `lower`, `trim`, `join`, `text`, `contains`), dates (`today`, `year`, `month`, `day`, `weekday`, `date`), one field of the record a single link points at (`{Client.Rate}`), and formulas of other formulas and rollups of the same list (a loop is refused). A formula field can be text or yes/no as well as a number, money or a date. The type of a formula is worked out from its parts when it's saved (`inferType`), not by trying sample values, so both sides of an `if` must agree and nothing adds text to money. A formula with `today()` is worked out again for every record of its list at midnight in India (the space's alarm; `daily_formulas` meta). Rollups gain `avg`. Still one shared module (`packages/shared/src/core/formula.ts`) for the server and the offline overlay; the overlay leaves link paths to the sync (it has no linked record at hand).
+2. **Bulk changes by expression**: `update_records` takes a formula per field ("Fee = {Fee} * 1.1" for a filtered set), preview and confirm as for any money change.
+3. **Import and export**: paste or upload a CSV, the assistant maps columns to fields as a setup (confirmed first, a preview of the first rows); any view exports as CSV.
+4. **Highlight rules** on views and cards: a filter and a colour token, data only.
+5. **An editable grid arrangement** (tab across cells), writes through the outbox.
+6. **The fallback when the assistant won't build it** ("Chat makes, screens can fix", amending "Chat makes, screens use"): the setup card the assistant proposes is editable before Confirm (rename or retype a field, add or remove a choice, tick a link); and a plain setup screen per list (fields, rules, cards and views as forms), hidden under the list's ⋯ menu, never a tab or a home button. Both write through the operations the assistant uses. The owner's reason for chat-first stands: no toolbox in the main screens; the fallback is a side door for when the chat sticks.
+
+Not doing: raw spreadsheet cells, user-written code, AI-written pages. They would break offline merging, row-level authorization and the paise rule, and are Excel's main source of errors.
 
 ## 2026-10-15: The comparison's second round: the setups model (owner: "Test all five, Cloudflare is in")
 

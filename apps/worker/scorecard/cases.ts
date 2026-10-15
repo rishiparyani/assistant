@@ -431,6 +431,22 @@ export const CASES: Case[] = [
     },
   },
   {
+    id: "setup-formula",
+    about: "a text formula with if() on money fields",
+    level: 2,
+    lang: "en",
+    text: 'Add a field "Status" to my Expenses that says "Big" when Amount is over 2000 and "Small" otherwise',
+    check: async (u, o) => {
+      const c = await json<CollectionView>(await api(u)("/collections/Expenses"));
+      const f = c.fields.find((x) => has(x.name, "status"));
+      const formula = f?.options.formula ?? "";
+      if (f) return has(formula, "if(") && has(formula, "big") ? null : `field: ${f.type} ${formula}`;
+      const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
+      const d = card?.details.join(" | ") ?? "";
+      return has(d, "if(") && has(d, "big") ? null : `reply: ${o.reply.slice(0, 160)}`;
+    },
+  },
+  {
     id: "setup-field-hinglish",
     about: "Hinglish: a choice field with its choices",
     level: 2,
@@ -571,6 +587,30 @@ export const CASES: Case[] = [
       const c = addCard(o)[0];
       if (!c) return `no card; reply: ${o.reply.slice(0, 120)}`;
       return c.details.some((d) => /2,?000/.test(d)) ? null : `card details: ${show(c.details)}`;
+    },
+  },
+  {
+    id: "bulk-raise",
+    about: "a bulk change by formula on a filtered set",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    seed: async (u) => {
+      for (const [t, a] of [
+        ["Test strings", "500"],
+        ["Test cable", "1500"],
+        ["Test amp", "30000"],
+      ])
+        await api(u)("/collections/Expenses/records", { body: { values: { What: t, Amount: a } } });
+    },
+    text: "Add 10% to every expense above 1000",
+    check: async (_u, o) => {
+      const c = o.cards.find((x) => x.tool === "change_records");
+      if (!c) return `no change card; reply: ${o.reply.slice(0, 160)}`;
+      const d = c.details.join(" | ");
+      return /2 records/.test(c.title) && /1\.1|10 ?%|\* ?1\.10?/.test(d)
+        ? null
+        : `card: ${c.title} / ${d.slice(0, 200)}`;
     },
   },
   {

@@ -111,6 +111,7 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
   const out = chosen ?? spec;
   if (v.card?.controls.length) out.controls = v.card.controls;
   if (v.card?.row) out.row = v.card.row;
+  if (v.card?.grid) out.grid = v.card.grid;
   // The person's size wins when the arrangement can be drawn at it.
   if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;
   else if (!sizesFor(out).includes(out.size)) out.size = sizesFor(out)[0]!;
@@ -131,6 +132,7 @@ function chosenSpec(v: SavedView, c: CollectionView, arrangement: Arrangement): 
     arrangement,
     size: ARRANGEMENT_SIZES[arrangement][0],
     sources: [source],
+    ...(v.card?.grid ? { grid: v.card.grid } : {}),
   });
   return parsed.success && !cardProblems(parsed.data).length ? parsed.data : null;
 }

@@ -4,6 +4,44 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF50: the fallback: a setup card you can change before Confirm, and a plain setup screen hidden under the list's ⋯ menu (decision 2026-10-15 "Chat makes, screens can fix", slice 6 of 6).**
+  - **Shared / server:** `ChatActionRef.args` (confirm with changed arguments); a waiting card of `make_setup`, `create_collection`, `add_field`, `update_field`, `save_view`, `update_view` (`EDITABLE_CARDS` in `chat-object.ts`) carries `args` and `editable: true`; `confirmAction(…, edited)` checks the changed arguments like the model's own, stores them on the card (`reviseAction`, the details follow) and runs them; a money or delete card refuses changed arguments.
+  - **Phone/web app:** "Change…" on such a card opens `SetupEditSheet` (rename the list, rename / retype a field, its choices, link target, formula, required, add or drop a field) and confirms with the changes. The list screen's "Recently deleted" button becomes a ⋯ menu: Recently deleted, Fields and cards, Download as CSV (website). `app/setup.tsx` is the plain setup screen: fields (add, rename, choices, required, formula, remove), rules (remove), cards and views (on home, delete), through the same operations the assistant uses; online-only.
+  - **Tests:** `assistant.test.ts` (a card changed by hand is what runs; a money card refuses).
+  - **Not yet:** retyping an existing field from the screen (the chat does it), rules made by hand (the chat), the sheet's screenshots at 390/820/1280 (the web preview harness is in the scratchpad: run it before the owner's review).
+
+- **HF49: the editable grid (decision 2026-10-15 "Toward Excel", slice 5 of 6).**
+  - **Shared / cards:** arrangement `grid` (sizes m, l) with `card.grid.fields` (up to 8 columns, by id); the catalogue line; `EditableGrid` in `packages/cards/native/Grid.tsx`: a column per field, tap a cell to type (number, money as rupees, date the Indian way, text), flip a yes/no, or pick a choice; Next on the keyboard moves along the row; links, people and calculated fields show but aren't typed over; each change shows at once and goes through the outbox (`setValue`).
+  - **Server:** `checkCard` takes `grid` (columns to ids; no controls or row layout with it); setups carry the columns by name; hidden fields drop out.
+  - **App:** a grid card on the home (3 or 8 rows); the full-list screen has a Sheet / List button (the sheet is the default for a grid view; columns from `card.grid`, else the row layout's fields, else the first six).
+  - **Tests:** `card-rows.test.ts` (grid saved by id, refused without columns, with a bad column, or with a row layout); the catalogue test covers the new line.
+  - **Not yet:** adding a row from the sheet (the chat bar does it), column widths by hand, a web-only keyboard arrow navigation.
+
+- **HF48: highlight rules (decision 2026-10-15 "Toward Excel", slice 4 of 6).**
+  - **Shared:** `RowLayout.highlights: [{when: filters, colour: red|amber|green|blue|violet|grey, label}]` (`HIGHLIGHT_COLOURS`); `matchesAll` in `space-query.ts` runs filters on a record on the device.
+  - **Server:** `checkRow` checks each highlight's filters like a view's and stores field ids; `rowByName` / `rowOfLive` carry them (a highlight on a hidden field drops out).
+  - **Cards and app:** `highlightOf` / `highlightColour` in `packages/cards`; rich rows on home cards and the full-list screen's rows get a coloured edge, a soft tint and the label as a pill; first match wins.
+  - **Tests:** `card-rows.test.ts` (highlights saved by id, a bad field refused).
+
+- **HF47: CSV in and out (decision 2026-10-15 "Toward Excel", slice 3 of 6).**
+  - **Shared:** `csv.ts` (`parseCsv` RFC 4180 with tabs, `toCsv`, `guessType`, `readDate` dd/mm/yyyy, `readCell` ₹/commas/haan/“a; b”), `UploadImportInput`, `ImportRecordsInput` (`columns: [{column, field | add}]`, `skip_bad`), `ImportPreview`, `ImportResult`, `ExportCsvInput`, `ExportResult`, `MAX_IMPORT_ROWS` 5,000.
+  - **Server:** space table `imports` (a day); `uploadImport` (columns, a guess and samples per column, never the rows to the model), `previewImport` (the plan runs in a transaction that's rolled back), `importRecords` (new list or new fields allowed: `canArrange`; all or nothing unless `skip_bad`; the upload is deleted after), `exportCsv` (a list or a view, values as people read them, links by title); operations `core.upload_import`, `core.preview_import`, `core.import_records` (confirm), `core.export_csv`; `GET /api/export/<collection>.csv?view=` for the browser (BOM for Excel); the assistant's confirm card says "Add N rows to …" with the mapping, three sample rows and the rows that can't be read.
+  - **Phone/web app:** a + on the chat bar opens `ImportSheet` (a file picker on the website, paste anywhere); after the upload the chat says the file's columns and row count and asks the assistant to propose the import. Export is by chat (the tool) or the file link; no screen button yet.
+  - **Tests:** `csv.test.ts` (3), `import-export.test.ts` (2).
+  - **Not yet:** a native file picker (needs expo-document-picker: a dependency to decide), export buttons on list screens, importing into link fields by title is supported but person fields take names only.
+
+- **HF46: bulk changes by expression (decision 2026-10-15 "Toward Excel", slice 2 of 6).**
+  - **Shared:** `ChangeRecordsInput` (`filters`, `search`, `set: [{field, value} | {field, formula}]`), `ChangePreview`, `ChangeResult`, `MAX_CHANGE_RECORDS` (500).
+  - **Server:** `previewChange` / `changeRecords` on the space object (`planChange` types each formula with the shared `formulaTyper`, `changeValues` works it out per record, `changeExample` for the card); operations `core.preview_change` (read) and `core.change_records` (write, always confirmed); the assistant's confirm card runs the preview and says "Change N records in …" with the words and the first three examples; no match → the model is told, no card.
+  - **Tests:** `bulk-change.test.ts` (2). Scorecard case `bulk-raise` (hard). The first real run showed the tools weren't offered to the model at all (not in `EVERYDAY`): now `preview_change`, `change_records`, `preview_import`, `import_records` and `export_csv` are everyday tools, and the prompt (2026-10-15b) says one card for all of them, never one per record.
+  - **Not in this slice:** a bulk change offline (it's online-only through the chat: the preview needs the server).
+
+- **HF45: formulas grow up (decision 2026-10-15 "Toward Excel", slice 1 of 6).**
+  - **Shared:** `formula.ts` rewritten: comparisons, and/or/not, `if`, blank/ifblank, round/floor/ceil/abs, min/max/sum/avg, text and date functions, `{Link.Field}`, formulas of formulas (lazy, loop-safe); `inferType` for static typing; `formulaUsesToday`; `formulaValueOf`/`storedFormulaValue`; `FORMULA_HELP` in the field schema's description; `ROLLUP_FNS` has `avg`.
+  - **Server:** `computedOptions` allows text and boolean formula fields, types them with `inferType`, resolves one-step link paths (single links to one list only), refuses loops (`noFormulaLoop`); `recompute` passes a `linked` lookup; `avg` rollups; `refreshDaily` in the alarm with `nextDailyTime` (midnight India) for `today()` formulas.
+  - **Tests:** `formula.test.ts` (6), `computed.test.ts` (+2: if/text/yes-no/link path/avg and the refusals; the daily refresh via the alarm). Scorecard case `setup-formula` (level 2).
+  - **Next slices:** bulk changes by expression → CSV import/export → highlight rules → editable grid → editable setup card + hidden setup screen.
+
 - **HF44: the everyday comparison done, the setups comparison wired** (decision 2026-10-15 "The comparison's second round").
   - **Results:** `docs/scorecard/2026-10-15-comparison.md` (Haiku, GPT-5.4 mini, nano, Gemini Flash-Lite, three runs each, next to GLM and Cerebras). Gemini ran on the free tier (rate-limited; a floor).
   - **Fixes on the way:** `callChatCompletions` and `callAnthropic` name the maker's error code / type / parameter on a refusal (`errorCode`); OpenAI's body sends `reasoning_effort: "none"` (chat completions refuse tools with any other value on GPT-5.4); the runner paces Gemini (7 s a call) as well as Cerebras (15 s).

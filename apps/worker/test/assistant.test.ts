@@ -88,6 +88,68 @@ describe("chat", () => {
     expect(again.status).toBe(409);
   });
 
+  it("lets a setup card be changed by hand before Confirm, never a money card", async () => {
+    const me = await signUp("Test Owner");
+    // A setup card in the chat (as the smart model, or a shared setup, would leave it).
+    const chat = env.CHATS.getByName(`chat:${me.id}`);
+    await chat.deliverCard(
+      me.id,
+      "test-setup-card",
+      {
+        tool: "create_collection",
+        args: {
+          name: "Test fam jam sign-ups",
+          fields: [
+            { name: "Name", type: "text" },
+            { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Vocals"] } },
+          ],
+        },
+        title: "Make a collection “Test fam jam sign-ups”",
+        details: ["Name (text)", "Instrument (choice)"],
+      },
+      "A list for the jam?",
+      60,
+    );
+    const view = await json<ChatView>(await call("/api/chat", { cookie: me.cookie }));
+    const card = view.items.find((i) => i.role === "card")!.card!;
+    expect(card).toMatchObject({ tool: "create_collection", status: "waiting", editable: true });
+    const args = card.args as { name: string; fields: { name: string; type: string }[] };
+    expect(args.fields.map((f) => f.name)).toContain("Instrument");
+    // Renamed and one field more, then confirmed: what's made is the changed version.
+    const edited = {
+      ...args,
+      name: "Test jam list",
+      fields: [...args.fields, { name: "Ready", type: "boolean" }],
+    };
+    const done = await json<ChatView>(
+      await call(`/api/chat/actions/${card.action_id}/confirm`, {
+        cookie: me.cookie,
+        body: { args: edited },
+      }),
+    );
+    const after = done.items.find((i) => i.role === "card")!.card!;
+    expect(after.status).toBe("done");
+    expect(after.details.join(" ")).toContain("Ready");
+    expect(after.editable).toBeUndefined();
+    const made = await json<{ name: string; fields: { name: string }[] }>(
+      await call("/api/collections/Test jam list", { cookie: me.cookie }),
+    );
+    expect(made.fields.map((f) => f.name)).toEqual(["Name", "Instrument", "Ready"]);
+
+    // A money card never takes changed arguments: it fails and says so, nothing is added.
+    const cards = (await say(me, "Test: spent 450 on groceries")).items.filter((i) => i.role === "card");
+    const money = cards[cards.length - 1]!.card!;
+    expect(money.editable).toBeUndefined();
+    const refused = await json<ChatView>(
+      await call(`/api/chat/actions/${money.action_id}/confirm`, {
+        cookie: me.cookie,
+        body: { args: { values: { Amount: 1 } } },
+      }),
+    );
+    expect(refused.items.find((i) => i.card?.action_id === money.action_id)!.card!.status).toBe("failed");
+    expect((await find(me, "Expenses")).items).toEqual([]);
+  });
+
   it("cancels a card without running it", async () => {
     const me = await signUp("Test Owner");
     const card = (await say(me, "Test: spent 450 on groceries")).items.find((i) => i.role === "card")!;

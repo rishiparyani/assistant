@@ -128,7 +128,7 @@ export function setupWords(s: SetupDef): string[] {
         out.push(
           (r.fn === "count"
             ? `${f.name} in ${c.name} counts the records linked through ${r.via}`
-            : `${f.name} in ${c.name} is the ${r.fn === "sum" ? "total" : r.fn === "min" ? "lowest" : "highest"} ${r.of ?? "?"} of the records linked through ${r.via}`) +
+            : `${f.name} in ${c.name} is the ${r.fn === "sum" ? "total" : r.fn === "avg" ? "average" : r.fn === "min" ? "lowest" : "highest"} ${r.of ?? "?"} of the records linked through ${r.via}`) +
             (only ? ` where ${only}` : ""),
         );
       }
