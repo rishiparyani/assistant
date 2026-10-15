@@ -95,7 +95,8 @@ it("scorecard", { timeout: 120 * 60_000 }, async () => {
     (c) =>
       (c.level === 1 || paid) &&
       (!only || only.split(",").includes(c.id)) &&
-      (suite === "all" || (suite === "setups" ? c.level === 2 : (c.suite ?? "core") === suite)),
+      (suite === "all" ||
+        (suite === "setups" ? c.level === 2 : c.level === 1 && (c.suite ?? "core") === suite)),
   );
   // Cerebras's trial allows five calls a minute, Gemini's free tier about ten: space the
   // cases out by what each one used.
