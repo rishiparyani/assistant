@@ -414,31 +414,53 @@ export async function createPoll(
   groupId: string,
   question: string,
   options: string[],
-  about?: { share_id: string; field: string },
+  about?: { share_id: string; field: string; apply?: "auto" | "ask" },
 ): Promise<GroupView> {
   let acts = null;
   if (about) {
     // A question that acts (decision 2026-10-15): the record's space says which field, and
-    // the answers offered must mean something on it.
+    // the answers offered must mean something on it (it checks each, except a yes/no's).
     const spaceId = await groupOf(ctx, groupId).cardSpace(ctx.user.id, about.share_id);
     const f = await ctx.objects.SPACES.getByName(`space:${spaceId}`).chatPollField(
       actorOf(ctx),
       groupId,
       about.share_id,
       about.field,
+      options,
     );
-    const known = f.type === "boolean" ? ["yes", "no", "maybe"] : f.choices.map((c) => c.toLowerCase());
-    const odd = options.filter((o) => !known.includes(o.toLowerCase()));
-    if (odd.length)
-      throw new AppError(
-        "validation_failed",
-        f.type === "boolean"
-          ? `${f.field} is yes/no: the answers can be Yes, No and Maybe`
-          : `${f.field} takes ${f.choices.join(", ")}; "${odd[0]}" isn't one of them`,
-      );
-    acts = { ...about, ...f, space_id: spaceId };
+    if (f.type === "boolean") {
+      const odd = options.find((o) => !["yes", "no", "maybe"].includes(o.toLowerCase()));
+      if (odd)
+        throw new AppError("validation_failed", `${f.field} is yes/no: the answers can be Yes, No and Maybe`);
+    }
+    acts = {
+      share_id: about.share_id,
+      space_id: spaceId,
+      record_id: f.record_id,
+      record: f.record,
+      field_id: f.field_id,
+      field: f.field,
+      type: f.type,
+      personal: f.personal,
+      choices: f.choices,
+      // A plain field: set it as the lead changes, or (unless asked otherwise) when the asker says.
+      apply: f.personal ? null : (about.apply ?? "ask"),
+      owner_user_id: "",
+      values: f.values,
+    };
   }
   await groupOf(ctx, groupId).createPoll(actorOf(ctx), ctx.idempotencyKey, question, options, acts);
+  return groupView(ctx, groupId);
+}
+
+/** The asker (or an admin) sets the plain field a question is about to one of its answers. */
+export async function applyPoll(
+  ctx: OpUserCtx,
+  groupId: string,
+  messageId: string,
+  option: string,
+): Promise<GroupView> {
+  await groupOf(ctx, groupId).applyPoll(actorOf(ctx), ctx.idempotencyKey, messageId, option);
   return groupView(ctx, groupId);
 }
 

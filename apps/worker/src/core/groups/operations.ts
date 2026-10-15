@@ -1,6 +1,7 @@
 // Group chats (chat-first step 7): in the app only (never API tokens or MCP).
 import { z } from "zod";
 import {
+  ApplyPollInput,
   AddGroupPeopleInput,
   AskInGroupInput,
   CreatePollInput,
@@ -23,6 +24,7 @@ import {
   askInGroup,
   createPoll,
   votePoll,
+  applyPoll,
   groupAssistant,
   shareAnswer,
   chatPeople,
@@ -138,12 +140,22 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       id: "core.create_poll",
       tool: "create_poll",
       description:
-        "Ask everyone in a chat a question with a few answers to pick from; with `about`, each answer fills in that person's own answer on a pinned record.",
+        "Ask everyone in a chat a question with a few answers to pick from; with `about`, the answers fill in a field on a pinned record: each person's own answer (a personal field), or the most picked answer sets it (a plain field, as the lead changes or when the asker says).",
       kind: "write",
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/polls" },
       input: CreatePollInput,
       handler: (ctx, i) => createPoll(ctx, i.group_id, i.question, i.options, i.about),
+    }),
+    defineOperation({
+      id: "core.apply_answer",
+      tool: "apply_answer",
+      description: "Set the field a question is about to one of its answers (the asker or an admin).",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "POST", path: "/groups/:group_id/polls/:message_id/apply" },
+      input: ApplyPollInput,
+      handler: (ctx, i) => applyPoll(ctx, i.group_id, i.message_id, i.option),
     }),
     defineOperation({
       id: "core.vote",

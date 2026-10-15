@@ -5105,13 +5105,17 @@ export class SpaceObject extends DurableObject<Env> {
     groupId: string,
     shareId: string,
     field: string,
+    options: string[] = [],
   ): Promise<{
     record_id: string;
     record: string;
     field_id: string;
     field: string;
-    type: "boolean" | "choice";
+    type: FieldType;
+    personal: boolean;
     choices: string[];
+    /** Each option as the field stores it (the option itself for a yes/no). */
+    values: Record<string, string | number | boolean>;
   }> {
     const s = this.joinedShare(actor, shareId);
     if (s.group_id !== groupId || s.kind !== "card")
@@ -5120,24 +5124,77 @@ export class SpaceObject extends DurableObject<Env> {
     const shown = this.sharedFields(s, r.collection_id);
     const f = this.matchField(shown, field);
     const o = toField(f).options;
-    if (!o.personal)
-      throw new ObjectError(
-        "validation_failed",
-        `${f.name} isn't a personal answer; a question can fill in a field where each person has their own answer`,
-      );
-    if (f.type !== "boolean" && f.type !== "choice")
+    const personal = !!o.personal;
+    if (personal && f.type !== "boolean" && f.type !== "choice")
       throw new ObjectError(
         "validation_failed",
         `${f.name} is ${f.type}; a question fills in a yes/no or a choice`,
       );
+    if (!personal && !["choice", "text", "date", "datetime"].includes(f.type))
+      throw new ObjectError(
+        "validation_failed",
+        `${f.name} is ${f.type}; the most picked answer can set a choice, text, date or date-and-time field`,
+      );
+    // Every answer must mean something on the field: a choice's own choices (in its own
+    // spelling), a date the field can store, any text.
+    const values: Record<string, string | number | boolean> = {};
+    for (const opt of options) {
+      if (f.type === "boolean") continue;
+      if (f.type === "choice") {
+        const c = (o.choices ?? []).find((x) => x.toLowerCase() === opt.toLowerCase());
+        if (!c)
+          throw new ObjectError(
+            "validation_failed",
+            `${f.name} takes ${(o.choices ?? []).join(", ")}; "${opt}" isn't one of them`,
+          );
+        values[opt] = c;
+        continue;
+      }
+      let v: unknown;
+      try {
+        v = normalizeValue(toField(f), opt);
+      } catch (e) {
+        throw new ObjectError("validation_failed", e instanceof Error ? e.message : String(e));
+      }
+      if (v === null || (typeof v !== "string" && typeof v !== "number" && typeof v !== "boolean"))
+        throw new ObjectError("validation_failed", `"${opt}" isn't a ${f.type} ${f.name} can take`);
+      values[opt] = v;
+    }
     return {
       record_id: r.id,
       record: r.title,
       field_id: f.id,
       field: f.name,
       type: f.type,
+      personal,
       choices: o.choices ?? [],
+      values,
     };
+  }
+
+  /**
+   * The most picked answer in the chat, written to the record as the person who pinned it
+   * (their role here decides: a viewer can't). The chat sends it from its alarm with a key, so
+   * a repeat is harmless.
+   */
+  async applyFromChat(
+    groupId: string,
+    shareId: string,
+    owner: { user_id: string },
+    fieldId: string,
+    value: string | number | boolean,
+    key: string,
+  ): Promise<void> {
+    const s = this.sql.exec<ShareRow>(`select * from shares where id = ?`, shareId).toArray()[0];
+    if (!s || s.group_id !== groupId || s.revoked_at || !this.alive(s))
+      throw new ObjectError("not_found", "Share not found");
+    if (s.created_by !== owner.user_id)
+      throw new ObjectError("forbidden", "Only whoever pinned it can set it");
+    const f = this.liveField(fieldId);
+    if (!f || toField(f).options.personal) throw new ObjectError("not_found", "Field not found");
+    const actor: Actor = { userId: owner.user_id, source: "system" };
+    this.canWrite(actor);
+    await this.updateRecord(actor, key, s.target_id, { values: { [fieldId]: value } });
   }
 
   /**

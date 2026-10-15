@@ -138,6 +138,15 @@ const MIGRATIONS: Migrations = [
      option text,
      tries integer not null default 0
    );`,
+  // Questions that act, second part (decision 2026-10-15): the most picked answer sets a plain
+  // field; what was last sent to the record (and how it went), and the sends still to do.
+  `alter table polls add column applied_json text;
+   create table poll_apply (
+     seq integer primary key autoincrement,
+     message_id text not null,
+     option text not null,
+     tries integer not null default 0
+   );`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -160,9 +169,18 @@ type PollAbout = {
   record: string;
   field_id: string;
   field: string;
-  type: "boolean" | "choice";
+  type: string;
+  /** Personal: each answer is that person's own (a yes/no or a choice). Plain: the most picked
+   *  answer sets the field, as the person who pinned the record (`owner_user_id`). */
+  personal: boolean;
   choices: string[];
+  /** A plain field: set it as the lead changes, or when the asker says so. */
+  apply: "auto" | "ask" | null;
+  owner_user_id: string;
+  /** Each option as the field stores it (a plain field). */
+  values: Record<string, string | number | boolean>;
 };
+type Applied = { option: string; status: "sending" | "done" | "failed" };
 type CardRow = {
   share_id: string;
   title: string;
@@ -574,13 +592,20 @@ export class GroupObject extends DurableObject<Env> {
 
   private poll(messageId: string, question: string, userId: string): PollView {
     const row = this.sql
-      .exec<{ options_json: string; about_json: string | null }>(
-        `select options_json, about_json from polls where message_id = ?`,
+      .exec<{
+        options_json: string;
+        about_json: string | null;
+        applied_json: string | null;
+        author_id: string | null;
+      }>(
+        `select p.options_json, p.about_json, p.applied_json, m.author_id
+         from polls p join messages m on m.id = p.message_id where p.message_id = ?`,
         messageId,
       )
       .toArray()[0];
     const options = row ? (JSON.parse(row.options_json) as string[]) : [];
     const about = row?.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
+    const applied = row?.applied_json ? (JSON.parse(row.applied_json) as Applied) : null;
     const votes = this.sql
       .exec<{ user_id: string; name: string; option: string }>(
         `select user_id, name, option from poll_votes where message_id = ? order by at`,
@@ -595,8 +620,30 @@ export class GroupObject extends DurableObject<Env> {
         people: votes.filter((v) => v.option === o).map((v) => v.name),
       })),
       mine: votes.find((v) => v.user_id === userId)?.option ?? null,
-      about: about ? { share_id: about.share_id, record: about.record, field: about.field } : null,
+      about: about
+        ? {
+            share_id: about.share_id,
+            record: about.record,
+            field: about.field,
+            personal: about.personal,
+            ...(about.personal
+              ? {}
+              : {
+                  apply: about.apply,
+                  applied,
+                  can_apply: row?.author_id === userId || this.memberRole(userId) === "owner",
+                }),
+          }
+        : null,
     };
+  }
+
+  /** A member's role here, or null for someone who isn't one. */
+  private memberRole(userId: string): string | null {
+    return (
+      this.sql.exec<{ role: string }>(`select role from members where user_id = ?`, userId).toArray()[0]
+        ?.role ?? null
+    );
   }
 
   /**
@@ -610,9 +657,10 @@ export class GroupObject extends DurableObject<Env> {
     key: string | null,
     question: string,
     options: string[],
-    about: PollAbout | null = null,
+    given: PollAbout | null = null,
   ): Promise<{ message_id: string }> {
     const m = this.member(actor.userId);
+    let about = given;
     if (about) {
       const pin = this.sql
         .exec<{ owner_user_id: string }>(
@@ -626,6 +674,8 @@ export class GroupObject extends DurableObject<Env> {
           "forbidden",
           "Only the chat's admins, or whoever pinned it, can ask a question that fills it in",
         );
+      // A plain field is set as the person who pinned the record (their role there decides).
+      about = { ...about, owner_user_id: pin.owner_user_id };
     }
     return this.write(
       actor,
@@ -740,9 +790,10 @@ export class GroupObject extends DurableObject<Env> {
     if (!row) throw new ObjectError("not_found", "Question not found");
     if (option !== null && !(JSON.parse(row.options_json) as string[]).includes(option))
       throw new ObjectError("validation_failed", "That isn't one of the answers");
+    const about = row.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
     return this.write(actor, key, ["vote", messageId, option], (ts) => {
       // A question that acts: the answer goes to the record from the alarm (never from here).
-      if (row.about_json)
+      if (about?.personal)
         this.sql.exec(
           `insert into poll_out (message_id, user_id, option) values (?, ?, ?)`,
           messageId,
@@ -776,8 +827,138 @@ export class GroupObject extends DurableObject<Env> {
         before: { option: before },
         after: { option },
       });
+      // A plain field set as the lead changes: one answer clearly ahead, not yet sent.
+      if (about && !about.personal && about.apply === "auto") {
+        const lead = this.leader(messageId);
+        if (lead && lead !== this.applied(messageId)?.option) this.queueApply(actor, messageId, lead);
+      }
       return { message_id: messageId, option };
     });
+  }
+
+  /** The one answer with the most picks, or null when none or a tie. */
+  private leader(messageId: string): string | null {
+    const counts = this.sql
+      .exec<{ option: string; n: number }>(
+        `select option, count(*) as n from poll_votes where message_id = ? group by option order by n desc limit 2`,
+        messageId,
+      )
+      .toArray();
+    if (!counts.length) return null;
+    if (counts.length > 1 && counts[1]!.n === counts[0]!.n) return null;
+    return counts[0]!.option;
+  }
+
+  private applied(messageId: string): Applied | null {
+    const row = this.sql
+      .exec<{ applied_json: string | null }>(`select applied_json from polls where message_id = ?`, messageId)
+      .toArray()[0];
+    return row?.applied_json ? (JSON.parse(row.applied_json) as Applied) : null;
+  }
+
+  /** Queues an answer for the record (sent by the alarm, in order) and shows it as on its way. */
+  private queueApply(actor: Actor, messageId: string, option: string) {
+    this.sql.exec(`insert into poll_apply (message_id, option) values (?, ?)`, messageId, option);
+    const applied: Applied = { option, status: "sending" };
+    this.sql.exec(
+      `update polls set applied_json = ? where message_id = ?`,
+      JSON.stringify(applied),
+      messageId,
+    );
+    audit(this.sql, actor, {
+      action: "apply_answer",
+      entityType: "group_message",
+      entityId: messageId,
+      after: { option },
+    });
+    void this.ctx.storage.setAlarm(Date.now() + 50);
+  }
+
+  /** The asker (or an admin) sets the plain field to one of the answers. */
+  async applyPoll(
+    actor: Actor & { userId: string },
+    key: string | null,
+    messageId: string,
+    option: string,
+  ): Promise<{ message_id: string; option: string }> {
+    const m = this.member(actor.userId);
+    const row = this.sql
+      .exec<{ options_json: string; about_json: string | null; author_id: string | null }>(
+        `select p.options_json, p.about_json, m.author_id
+         from polls p join messages m on m.id = p.message_id where p.message_id = ?`,
+        messageId,
+      )
+      .toArray()[0];
+    if (!row) throw new ObjectError("not_found", "Question not found");
+    const about = row.about_json ? (JSON.parse(row.about_json) as PollAbout) : null;
+    if (!about || about.personal)
+      throw new ObjectError("validation_failed", "This question doesn't set a field");
+    if (row.author_id !== actor.userId && m.role !== "owner")
+      throw new ObjectError("forbidden", "Only whoever asked, or an admin, can set it");
+    if (!(JSON.parse(row.options_json) as string[]).includes(option))
+      throw new ObjectError("validation_failed", "That isn't one of the answers");
+    return this.write(actor, key, ["apply", messageId, option], () => {
+      this.queueApply(actor, messageId, option);
+      return { message_id: messageId, option };
+    });
+  }
+
+  /**
+   * Sends the answers that set a plain field to their records, in order, as the person who
+   * pinned the record, each with a key. A refusal for good (the card taken off, the field
+   * removed, that person can't write there any more) marks it failed and moves on; only a
+   * conflict is tried again. Returns a delay to try again after, or null when done.
+   */
+  private async syncApplies(): Promise<number | null> {
+    const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
+    if (!g) return null;
+    const due = this.sql
+      .exec<{ seq: number; message_id: string; option: string; tries: number; about_json: string | null }>(
+        `select a.seq, a.message_id, a.option, a.tries, p.about_json
+         from poll_apply a join polls p on p.message_id = a.message_id order by a.seq limit 50`,
+      )
+      .toArray();
+    let retry: number | null = null;
+    const mark = (messageId: string, option: string, status: Applied["status"]) =>
+      this.sql.exec(
+        `update polls set applied_json = ? where message_id = ?`,
+        JSON.stringify({ option, status } satisfies Applied),
+        messageId,
+      );
+    for (const a of due) {
+      const about = a.about_json ? (JSON.parse(a.about_json) as PollAbout) : null;
+      if (!about || about.personal) {
+        this.sql.exec(`delete from poll_apply where seq = ?`, a.seq);
+        continue;
+      }
+      try {
+        await this.env.SPACES.getByName(`space:${about.space_id}`).applyFromChat(
+          g.id,
+          about.share_id,
+          { user_id: about.owner_user_id },
+          about.field_id,
+          about.values[a.option] ?? a.option,
+          `apply:${a.message_id}:${a.seq}`,
+        );
+        this.sql.exec(`delete from poll_apply where seq = ?`, a.seq);
+        mark(a.message_id, a.option, "done");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const app = toAppError(e);
+        if ((app && app.code !== "conflict") || a.tries + 1 >= 10) {
+          console.warn("chat answer not applied", app?.code ?? "gave up");
+          this.sql.exec(`delete from poll_apply where seq = ?`, a.seq);
+          mark(a.message_id, a.option, "failed");
+          continue;
+        }
+        this.sql.exec(`update poll_apply set tries = tries + 1 where seq = ?`, a.seq);
+        console.warn("chat answer apply failed", msg);
+        const d = retryDelayMs(a.tries + 1);
+        retry = retry === null ? d : Math.min(retry, d);
+        break;
+      }
+    }
+    return retry;
   }
 
   /** The owner adds people (they appear in the group at once). */
@@ -1269,6 +1450,7 @@ export class GroupObject extends DurableObject<Env> {
       await this.syncHome(),
       await this.syncCards(),
       await this.syncAnswers(),
+      await this.syncApplies(),
       await this.syncSearch(),
     ].filter((x): x is number => x !== null);
     const retry = waits.length ? Math.min(...waits) : null;

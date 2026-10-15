@@ -214,8 +214,9 @@ export function askEveryone(
   groupId: string,
   question: string,
   options: string[],
-  /** A question that acts: the pinned record and personal field each answer fills in. */
-  about?: { share_id: string; field: string },
+  /** A question that acts: the pinned record and field the answers fill in; `apply` for a
+   *  plain field (the most picked answer sets it as the lead changes, or when I say). */
+  about?: { share_id: string; field: string; apply?: "auto" | "ask" },
 ) {
   send({
     kind: "poll",
@@ -223,6 +224,17 @@ export function askEveryone(
     path: pollsPath(groupId),
     body: { question, options, ...(about ? { about } : {}) },
     label: question.length > 40 ? question.slice(0, 40) + "…" : question,
+  });
+}
+
+/** The asker (or an admin) sets the field a question is about to one of its answers. */
+export function applyPoll(groupId: string, messageId: string, option: string) {
+  send({
+    kind: "poll_apply",
+    method: "POST",
+    path: `/api/groups/${enc(groupId)}/polls/${enc(messageId)}/apply`,
+    body: { option },
+    label: `Set to ${option}`,
   });
 }
 
