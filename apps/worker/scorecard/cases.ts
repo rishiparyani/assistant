@@ -601,7 +601,7 @@ export const CASES: Case[] = [
         ["Test cable", "1500"],
         ["Test amp", "30000"],
       ])
-        await api(u)("/collections/Expenses/records", { body: { values: { Title: t, Amount: a } } });
+        await api(u)("/collections/Expenses/records", { body: { values: { What: t, Amount: a } } });
     },
     text: "Add 10% to every expense above 1000",
     check: async (_u, o) => {
