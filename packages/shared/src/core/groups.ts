@@ -63,6 +63,14 @@ export const CreatePollInput = GroupRef.extend({
     .max(6)
     .default(["Yes", "No", "Maybe"])
     .refine((o) => new Set(o.map((x) => x.toLowerCase())).size === o.length, "Answers must differ"),
+  /** A question that acts (decision 2026-10-15): a record pinned to the chat and one of its
+   *  personal fields; each person's answer fills in their own answer on the record. */
+  about: z
+    .object({
+      share_id: z.string().trim().min(1).max(40),
+      field: z.string().trim().min(1).max(80).describe("A personal yes/no or choice field (name or id)"),
+    })
+    .optional(),
 });
 /** My answer to a question in a chat (null takes it back). */
 export const VoteInput = GroupRef.extend({
@@ -164,6 +172,8 @@ export interface ChatPerson {
 export interface PollView {
   question: string;
   options: string[];
+  /** A question that acts: which pinned record and personal field the answers fill in. */
+  about?: { share_id: string; record: string; field: string } | null;
   /** Who picked each answer, in the order of `options`. */
   votes: { option: string; people: string[] }[];
   /** My answer, if any. */

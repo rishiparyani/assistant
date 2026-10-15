@@ -385,7 +385,18 @@ export default function Talk() {
           onChanged={() => void reload()}
         />
       ) : null}
-      <AskEveryoneSheet groupId={id ?? ""} open={polling} onClose={() => setPolling(false)} />
+      <AskEveryoneSheet
+        groupId={id ?? ""}
+        cards={chat?.cards ?? []}
+        canAct={
+          !!chat &&
+          (chat.direct ||
+            chat.members.some((m) => m.user_id === myId && m.role === "owner") ||
+            chat.cards.some((c) => c.owner_id === myId))
+        }
+        open={polling}
+        onClose={() => setPolling(false)}
+      />
       <AskSheet
         groupId={id ?? ""}
         chatName={chat?.name ?? ""}
