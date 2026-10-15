@@ -2,7 +2,7 @@
 // say, in English and Hinglish, each run through the whole app (router, tools, checks) on a
 // fresh test person with fake data, and graded by what the app ended up with: the records,
 // the cards waiting for a tap, the reply. Only the model calls are real.
-import type { ChatView, FindResult, Memory, QueryResult, SavedView } from "@assistant/shared";
+import type { ChatView, CollectionView, FindResult, Memory, QueryResult, SavedView } from "@assistant/shared";
 import { call, json, signUp } from "../test/http.ts";
 
 export type User = Awaited<ReturnType<typeof signUp>>;
@@ -412,6 +412,77 @@ export const CASES: Case[] = [
       if (!c) return `no setup card; reply: ${o.reply.slice(0, 120)}`;
       const d = c.details.join(" | ");
       return has(d, "learning") && has(d, "ready") ? null : `card details: ${d.slice(0, 200)}`;
+    },
+  },
+  // ---- More setups (2026-10-15, for the setups comparison): a field added to a list that
+  // exists, in Hinglish with choices, a home card with a filter, and a new list linked to one.
+  {
+    id: "setup-field",
+    about: "adds a yes/no field to a list that exists",
+    level: 2,
+    lang: "en",
+    text: "Add a yes/no field called Reimbursed to my Expenses",
+    check: async (u, o) => {
+      const c = await json<CollectionView>(await api(u)("/collections/Expenses"));
+      const f = c.fields.find((x) => has(x.name, "reimburs"));
+      if (f) return f.type === "boolean" ? null : `field type: ${f.type}`;
+      const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
+      return card && has(card.details.join(" | "), "reimburs") ? null : `reply: ${o.reply.slice(0, 160)}`;
+    },
+  },
+  {
+    id: "setup-field-hinglish",
+    about: "Hinglish: a choice field with its choices",
+    level: 2,
+    lang: "hi-en",
+    text: "Expenses me ek field add karo 'Kisne diya', choices: Rishi, Band, Client",
+    check: async (u, o) => {
+      const c = await json<CollectionView>(await api(u)("/collections/Expenses"));
+      const f = c.fields.find((x) => has(x.name, "kisne") || has(x.name, "diya"));
+      if (f) {
+        const choices = (f.options.choices ?? []).map((x) => x.toLowerCase());
+        return f.type === "choice" && ["rishi", "band", "client"].every((x) => choices.includes(x))
+          ? null
+          : `field: ${f.type} ${show(f.options.choices)}`;
+      }
+      const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
+      const d = card?.details.join(" | ") ?? "";
+      return has(d, "kisne") && has(d, "band") && has(d, "client") ? null : `reply: ${o.reply.slice(0, 160)}`;
+    },
+  },
+  {
+    id: "setup-view-filter",
+    about: "a home card with a filter",
+    level: 2,
+    lang: "en",
+    text: "Put a card on my home that lists only my Gear expenses",
+    seed: async (u) => {
+      await add(u, "Expenses", { What: "Strings", Amount: "450", Date: isoDay(0), Category: "Gear" });
+      await add(u, "Expenses", { What: "Cab", Amount: "300", Date: isoDay(0), Category: "Travel" });
+    },
+    check: async (u, o) => {
+      const views = await json<SavedView[]>(await api(u)("/views"));
+      const made = views.find((v) => JSON.stringify(v).toLowerCase().includes("gear"));
+      if (made) return null;
+      const card = o.cards.find((x) => ["save_view", "make_setup"].includes(x.tool));
+      return card && has(card.details.join(" | "), "gear")
+        ? null
+        : `no card; reply: ${o.reply.slice(0, 160)}`;
+    },
+  },
+  {
+    id: "setup-link",
+    about: "a new list linked from one that exists",
+    level: 2,
+    lang: "en",
+    text: "Make me a Venues list with name, city and the sound contact's phone, and link each of my Events to a venue",
+    check: async (_u, o) => {
+      const c = o.cards.find((x) => ["make_setup", "create_collection"].includes(x.tool));
+      if (!c) return `no setup card; reply: ${o.reply.slice(0, 120)}`;
+      const d = c.details.join(" | ");
+      return has(d, "city") && has(d, "phone") && (has(d, "link") || has(d, "event"))
+        ? null
+        : `card details: ${d.slice(0, 200)}`;
     },
   },
   // ---- Harder ones (2026-10-13): dates said many ways, money in Indian words, choosing
