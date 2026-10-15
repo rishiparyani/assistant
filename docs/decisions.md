@@ -862,6 +862,11 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Scorecard:** `model: gpt-oss-120b` on the Scorecard workflow tries it (the key is passed; the app's caps are off there, so any suite × repeat finishes), spacing cases out by the calls each made to stay under five a minute.
 - **Privacy:** the privacy page says the faster model runs at Cerebras (US) and isn't trained on people's data; nothing is logged there by us.
 
+## 2026-10-15: A yes/no never set is a no (from the scorecard's `open-reminders` miss)
+
+- **What:** filtering a yes/no field with `eq false` (or `ne true`) finds records that have no value for it as well as those set to no; `eq true` finds only those set to yes. A reminder never ticked is open; the list screen already shows it unticked, so the find tool now agrees.
+- **Why:** two models (Cerebras, Haiku) asked for open reminders with `Done = false`, got nothing (the open one had never been set), and told the person there were none. A model making the natural call and being wrong because of our storage is our bug, not a miss. `find-boolean.test.ts`.
+
 ## 2026-10-15: Try the small frontier models (owner: "Okay let's try haiku… we should also try an equivalent gpt… Is there an equivalent gemini? Let's compare all three")
 
 - **Why:** the everyday misses that are left (a Hindi day word, weekday arithmetic, a filter that found nothing and gave up) are what small open models get wrong and frontier models don't; no scaffold closes that gap (the prompt already lists the coming week by name and GPT-OSS still slipped). The owner's rule stands: no rule engine for meaning, no date parser. The honest lever is a stronger small model, so it's a cost question, answered by the scorecard.
