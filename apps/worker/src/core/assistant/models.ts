@@ -117,6 +117,19 @@ export const MODELS: ModelEntry[] = [
     // The everyday default since 2026-10-15 (AI_EVERYDAY_MODEL; GLM answers without the key).
     ready: true,
   },
+  // GPT-6 Luna (OpenAI, out 2026-09-22; missed in the first round): Haiku's price exactly.
+  {
+    id: "gpt-6-luna",
+    label: "GPT-6 Luna",
+    level: 1,
+    route: "paid",
+    provider: "openai",
+    price: { input: 0.1, output: 0.5 },
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
   {
     id: "gpt-5.4-nano",
     label: "GPT-5.4 nano",
@@ -182,6 +195,19 @@ export const MODELS: ModelEntry[] = [
     effort: "low",
     // The setups default since 2026-10-15 (AI_SETUP_MODEL; 21 of 21 on the setups scorecard).
     ready: true,
+  },
+  // GPT-6.1 Sol (the id on OpenAI's models page; the launch post says gpt-6-sol): Sonnet's price.
+  {
+    id: "gpt-6.1-sol",
+    label: "GPT-6.1 Sol",
+    level: 2,
+    route: "paid",
+    provider: "openai",
+    price: { input: 2, output: 10 },
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 8_000,
+    effort: "low",
+    ready: false,
   },
   {
     id: "gpt-5.4",
