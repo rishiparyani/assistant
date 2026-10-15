@@ -95,14 +95,16 @@ it("scorecard", { timeout: 120 * 60_000 }, async () => {
       (!only || only.split(",").includes(c.id)) &&
       (suite === "all" || (c.suite ?? "core") === suite),
   );
-  // Cerebras's trial allows five calls a minute: space the cases out by what each one used.
-  const paced = /cerebras|gpt-oss/i.test(vars.AI_EVERYDAY_MODEL ?? "");
+  // Cerebras's trial allows five calls a minute, Gemini's free tier about ten: space the
+  // cases out by what each one used.
+  const tried = vars.AI_EVERYDAY_MODEL ?? "";
+  const paceMs = /cerebras|gpt-oss/i.test(tried) ? 15_000 : /gemini/i.test(tried) ? 7_000 : 0;
   for (let n = 0; n < repeat; n++)
     for (const c of cases) {
       const started = Date.now();
       const row = await runOnce(c);
       rows.push(row);
-      const wait = paced ? 15_000 * Math.max(1, row.calls.length) - (Date.now() - started) : 0;
+      const wait = paceMs ? paceMs * Math.max(1, row.calls.length) - (Date.now() - started) : 0;
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
   console.log("\n=== SCORECARD ===\n" + table(rows) + "\n=== END ===");

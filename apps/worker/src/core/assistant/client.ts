@@ -112,10 +112,12 @@ const OPENAI_SHAPED = {
   },
   openai: {
     url: "https://api.openai.com/v1/chat/completions",
-    // Reasoning models take no temperature; thinking at the lowest setting.
+    // Reasoning models take no temperature. On chat completions GPT-5.4 refuses function
+    // tools together with any reasoning effort but "none" (a 400 naming reasoning_effort;
+    // the Responses API would allow it), so these answer without thinking first.
     body: (m: ModelEntry) => ({
       max_completion_tokens: m.maxOutput,
-      reasoning_effort: m.effort === "high" || m.effort === "max" ? "high" : "low",
+      reasoning_effort: "none",
     }),
   },
   gemini: {
