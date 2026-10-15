@@ -37,7 +37,7 @@ import {
   shown,
   tint,
 } from "@assistant/cards/native";
-import { Tap } from "@assistant/cards/native";
+import { Boundary, Tap } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
@@ -399,17 +399,19 @@ export default function ListPage() {
               item.kind === "head" ? (
                 <Text style={[s.month, { color: t.fg2 }]}>{item.label}</Text>
               ) : c ? (
-                <Row
-                  r={item.r}
-                  c={c}
-                  view={current.view}
-                  dateField={dateField}
-                  tickField={tickField}
-                  colour={listColour}
-                  onTick={onTick}
-                  onOpen={() => askAbout(`About “${item.r.title}” in ${c.name}: `)}
-                  onHold={() => setHeld(item.r)}
-                />
+                <Boundary where="list row">
+                  <Row
+                    r={item.r}
+                    c={c}
+                    view={current.view}
+                    dateField={dateField}
+                    tickField={tickField}
+                    colour={listColour}
+                    onTick={onTick}
+                    onOpen={() => askAbout(`About “${item.r.title}” in ${c.name}: `)}
+                    onHold={() => setHeld(item.r)}
+                  />
+                </Boundary>
               ) : null
             }
           />
@@ -535,7 +537,8 @@ function Row({
     .filter((f): f is FieldView => !!f)
     .map((f) => shown(f, r, dateField))
     .filter(Boolean);
-  const when = dateField ? shown(byId(dateField)!, r, dateField) : "";
+  const dateF = dateField ? byId(dateField) : undefined;
+  const when = dateF ? shown(dateF, r, dateField) : "";
   const pills = (
     layout?.pills.length ? layout.pills.map(byId) : c.fields.filter((f) => f.type === "money").slice(0, 2)
   )
@@ -544,10 +547,11 @@ function Row({
       const v = shown(f, r, dateField);
       return v ? [v] : [];
     });
-  const callout = layout?.callout ? shown(byId(layout.callout.field)!, r, dateField) : "";
-  const action = layout?.action
-    ? { as: layout.action.as, value: shown(byId(layout.action.field)!, r, dateField) }
-    : null;
+  const calloutF = layout?.callout ? byId(layout.callout.field) : undefined;
+  const callout = calloutF ? shown(calloutF, r, dateField) : "";
+  const actionF = layout?.action ? byId(layout.action.field) : undefined;
+  const action =
+    layout?.action && actionF ? { as: layout.action.as, value: shown(actionF, r, dateField) } : null;
   const day = dateField ? istDay(r.values[dateField]) : null;
   const today = new Date(Date.now() + IST).toISOString().slice(0, 10);
   const isToday = day === today;

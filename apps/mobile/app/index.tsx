@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Text } from "@assistant/cards/native";
-import { Tap } from "@assistant/cards/native";
+import { Boundary, Tap } from "@assistant/cards/native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextUp, type CardSize } from "@assistant/cards";
@@ -388,42 +388,44 @@ export default function Home() {
             onReorder={reorder(index)}
             onDrop={dropped(index)}
             renderCard={(card, canOpen) => (
-              <Card
-                card={card}
-                onTick={onTick(card)}
-                onSet={onSet(card)}
-                onSeeAll={
-                  card.collection && !card.shared && !card.waiting && !card.memory
-                    ? () => canOpen() && openList(card.collection!.id, card.view?.id)
-                    : undefined
-                }
-                onOpen={() =>
-                  canOpen() &&
-                  (card.memory
-                    ? router.push("/memory")
-                    : card.waiting
-                      ? router.push({
-                          pathname: "/process",
-                          params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
-                        })
-                      : card.shared?.kind === "form"
-                        ? openOnWeb(card)
-                        : ask(card))
-                }
-                onAnswer={
-                  card.waiting
-                    ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
-                    : undefined
-                }
-                onNudge={
-                  card.waiting?.share_id
-                    ? undefined
-                    : card.waiting
-                      ? processAction(card, () => nudgeWaiting(card.waiting!))
+              <Boundary where="home card">
+                <Card
+                  card={card}
+                  onTick={onTick(card)}
+                  onSet={onSet(card)}
+                  onSeeAll={
+                    card.collection && !card.shared && !card.waiting && !card.memory
+                      ? () => canOpen() && openList(card.collection!.id, card.view?.id)
                       : undefined
-                }
-                busy={busyCard === card.id}
-              />
+                  }
+                  onOpen={() =>
+                    canOpen() &&
+                    (card.memory
+                      ? router.push("/memory")
+                      : card.waiting
+                        ? router.push({
+                            pathname: "/process",
+                            params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
+                          })
+                        : card.shared?.kind === "form"
+                          ? openOnWeb(card)
+                          : ask(card))
+                  }
+                  onAnswer={
+                    card.waiting
+                      ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
+                      : undefined
+                  }
+                  onNudge={
+                    card.waiting?.share_id
+                      ? undefined
+                      : card.waiting
+                        ? processAction(card, () => nudgeWaiting(card.waiting!))
+                        : undefined
+                  }
+                  busy={busyCard === card.id}
+                />
+              </Boundary>
             )}
           />
         </View>

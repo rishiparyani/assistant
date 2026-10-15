@@ -4,7 +4,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
-import { Markdown, Tap, Text, TextInput, ThinkingDots, motion, type } from "@assistant/cards/native";
+import {
+  Boundary,
+  Markdown,
+  Tap,
+  Text,
+  TextInput,
+  ThinkingDots,
+  motion,
+  type,
+} from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatItem, ChatView, CollectionView, HistoryItem, LiveRef } from "@assistant/shared";
@@ -261,12 +270,13 @@ export default function Chat() {
                 onAsk={(title) => setText((t) => t || `About "${title}": `)}
               />
             );
+            const safe = <Boundary where="chat item">{bubble}</Boundary>;
             return fresh ? (
               <Animated.View entering={FadeInUp.duration(motion.enter).springify().damping(18)}>
-                {bubble}
+                {safe}
               </Animated.View>
             ) : (
-              bubble
+              safe
             );
           }}
           ListFooterComponent={
