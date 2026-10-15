@@ -144,6 +144,53 @@ describe("questions that act", () => {
         async () => (await answers("Lift")).find((a) => a.name === "Test Asha")?.value === "Need a lift",
       ),
     ).toBe(true);
+    // A question made with the choices spelt differently still fills in the field's own spelling.
+    const g2 = await json<GroupView>(
+      await api(owner)(`/groups/${chat}/polls`, {
+        body: {
+          question: "Lift, again?",
+          options: ["own car", "need a lift", "train"],
+          about: { share_id: shareId, field: "Lift" },
+        },
+      }),
+    );
+    await api(asha)(`/groups/${chat}/polls/${lastPoll(g2).id}/vote`, { body: { option: "train" } });
+    expect(
+      await until(async () => (await answers("Lift")).find((a) => a.name === "Test Asha")?.value === "Train"),
+    ).toBe(true);
+  });
+
+  it("drops an answer the record can't take, so later answers still land", async () => {
+    const { owner, asha, chat, shareId, answers } = await gig();
+    const g = await json<GroupView>(
+      await api(owner)(`/groups/${chat}/polls`, {
+        body: {
+          question: "How are you getting there?",
+          options: ["Own car", "Need a lift", "Train"],
+          about: { share_id: shareId, field: "Lift" },
+        },
+      }),
+    );
+    const lift = lastPoll(g).id;
+    // Asha answers while the owner takes "Train" out of the field's choices.
+    const shows = await json<CollectionView>(await api(owner)("/collections/Test Shows"));
+    const liftField = shows.fields.find((f) => f.name === "Lift")!;
+    await api(owner)(`/collections/Test Shows/fields/${liftField.id}`, {
+      method: "PATCH",
+      body: { options: { choices: ["Own car", "Need a lift"], personal: true } },
+    });
+    await api(asha)(`/groups/${chat}/polls/${lift}/vote`, { body: { option: "Train" } });
+    // Then answers a yes/no question; that one must still reach the record.
+    const g2 = await json<GroupView>(
+      await api(owner)(`/groups/${chat}/polls`, {
+        body: { question: "Playing?", about: { share_id: shareId, field: "Playing?" } },
+      }),
+    );
+    await api(asha)(`/groups/${chat}/polls/${lastPoll(g2).id}/vote`, { body: { option: "Yes" } });
+    expect(await until(async () => (await answers("Playing?")).some((a) => a.name === "Test Asha"))).toBe(
+      true,
+    );
+    expect((await answers("Lift")).some((a) => a.name === "Test Asha")).toBe(false);
   });
 
   it("only fills in personal yes/no or choice fields, and only admins or the pin's owner ask", async () => {

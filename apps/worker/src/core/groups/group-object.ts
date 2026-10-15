@@ -31,7 +31,7 @@ import {
   type ObjectDump,
   type Migrations,
 } from "../objects/storage.ts";
-import { ObjectError } from "../objects/errors.ts";
+import { ObjectError, toAppError } from "../objects/errors.ts";
 import { liveOf } from "../live/live-object.ts";
 import { searchOf, type SearchDoc } from "../search/search-object.ts";
 import { embed } from "../search/embed.ts";
@@ -657,7 +657,9 @@ export class GroupObject extends DurableObject<Env> {
       const o = option.trim().toLowerCase();
       return o === "yes" ? true : o === "no" ? false : null;
     }
-    return about.choices.includes(option) ? option : null;
+    // The field's own spelling of the choice (a question may have been made with another case).
+    const o = option.trim().toLowerCase();
+    return about.choices.find((c) => c.toLowerCase() === o) ?? null;
   }
 
   /**
@@ -700,8 +702,13 @@ export class GroupObject extends DurableObject<Env> {
         this.sql.exec(`delete from poll_out where seq = ?`, a.seq);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (/not found/i.test(msg)) {
-          // The card was taken off, the field removed, or this person left: nothing to fill in.
+        const app = toAppError(e);
+        // An answer the record can't take any more (the card taken off, the field removed or
+        // changed, this person out of the share) is dropped, so it never holds up the ones
+        // after it. Only an error that may pass next time (the space busy) is tried again, and
+        // not forever.
+        if ((app && app.code !== "conflict") || a.tries + 1 >= 10) {
+          console.warn("chat answer dropped", app?.code ?? "gave up");
           this.sql.exec(`delete from poll_out where seq = ?`, a.seq);
           continue;
         }

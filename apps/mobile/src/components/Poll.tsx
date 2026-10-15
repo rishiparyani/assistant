@@ -1,6 +1,6 @@
 // Asking everyone in a chat (decision 2026-10-14 "Ask everyone", as in the mock-up): a question
 // card with an answer button each (with how many picked it and who), and the sheet that asks.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -155,22 +155,33 @@ export function AskEveryoneSheet({
   const [adding, setAdding] = useState("");
   const [fillable, setFillable] = useState<Fillable[]>([]);
   const [fills, setFills] = useState<Fillable | null>(null);
+  // The answers follow the field: Yes / No / Maybe for a yes/no, its choices for a choice.
+  const pickFill = (f: Fillable | null) => {
+    setFills(f);
+    setOptions(f ? (f.choices ? f.choices.slice(0, 6) : ["Yes", "No", "Maybe"]) : ["Yes", "No", "Maybe"]);
+  };
   // online-only: which pinned records have personal fields is read when the sheet opens.
+  const fillsRef = useRef(fills);
+  fillsRef.current = fills;
+  const cardKey = cards.map((c) => c.share_id).join(",");
   useEffect(() => {
-    if (!open || !canAct || !cards.length) return;
+    // Another chat, or the cards gone: nothing from before may be offered or sent.
+    setFillable([]);
+    if (fillsRef.current) pickFill(null);
+    if (!open || !canAct || !cardKey) return;
     let current = true;
     Promise.all(
-      cards.map((c) =>
+      cardKey.split(",").map((shareId) =>
         request<SharedOpened>(
           "GET",
-          `/api/groups/${encodeURIComponent(groupId)}/cards/${encodeURIComponent(c.share_id)}`,
+          `/api/groups/${encodeURIComponent(groupId)}/cards/${encodeURIComponent(shareId)}`,
         )
           .then((o) =>
             o.share.kind === "card" && "record" in o
               ? o.record.fields
                   .filter((f) => f.personal && (f.type === "boolean" || f.type === "choice"))
                   .map((f): Fillable => ({
-                    share_id: c.share_id,
+                    share_id: shareId,
                     record: o.record.title,
                     field_id: f.id,
                     field: f.name,
@@ -181,17 +192,16 @@ export function AskEveryoneSheet({
           .catch(() => [] as Fillable[]),
       ),
     ).then((all) => {
-      if (current) setFillable(all.flat());
+      if (!current) return;
+      const now = all.flat();
+      setFillable(now);
+      const f = fillsRef.current;
+      if (f && !now.some((x) => x.share_id === f.share_id && x.field_id === f.field_id)) pickFill(null);
     });
     return () => {
       current = false;
     };
-  }, [open, canAct, cards, groupId]);
-  // The answers follow the field: Yes / No / Maybe for a yes/no, its choices for a choice.
-  const pickFill = (f: Fillable | null) => {
-    setFills(f);
-    setOptions(f ? (f.choices ? f.choices.slice(0, 6) : ["Yes", "No", "Maybe"]) : ["Yes", "No", "Maybe"]);
-  };
+  }, [open, canAct, cardKey, groupId]);
   const clean = options.map((o) => o.trim()).filter(Boolean);
   const distinct = new Set(clean.map((o) => o.toLowerCase())).size === clean.length;
   const ready = question.trim().length > 0 && clean.length >= 2 && distinct;
