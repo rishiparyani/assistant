@@ -137,6 +137,14 @@ const FORMULA_KIND_WORDS: Record<FormulaType, string> = {
   text: "text",
   bool: "yes/no",
 };
+/** A saved formula's tree; a formula that no longer parses reads nothing. */
+const parseFormulaSafe = (formula: string): FormulaNode => {
+  try {
+    return parseFormula(formula);
+  } catch {
+    return { k: "num", v: 0 };
+  }
+};
 /** A raw value in a card line. */
 const rawShown = (v: unknown): string =>
   Array.isArray(v) ? v.map(rawShown).join(", ") : typeof v === "object" && v ? JSON.stringify(v) : String(v);
@@ -2124,7 +2132,10 @@ export class SpaceObject extends DurableObject<Env> {
     const ids = this.dailyCollections();
     if (ids.length) {
       const ts = nowIso();
-      for (const id of ids) this.backfill(id, ts);
+      let changed = 0;
+      for (const id of ids) changed += this.backfill(id, ts);
+      // Open apps hear about it like any write (the alarm pings them next).
+      if (changed) bumpAndNote(this.sql);
     }
     setMeta(this.sql, "daily_formulas", day);
   }
@@ -2316,7 +2327,7 @@ export class SpaceObject extends DurableObject<Env> {
    * A record whose calculated values may have moved because another record changed: save
    * them, and treat it as changed (its rules must still hold; its workflows see the change).
    */
-  private refreshNeighbor(id: string, ts: string) {
+  private refreshNeighbor(id: string, ts: string, seen = new Set<string>(), depth = 0) {
     const r = this.liveRecord(id);
     if (!r) return;
     const before = JSON.parse(r.values_json) as Record<string, StoredValue>;
@@ -2326,10 +2337,67 @@ export class SpaceObject extends DurableObject<Env> {
     const c = this.requireCollection(r.collection_id);
     this.enforceRules(c, id, before, after);
     this.queueWorkflows(c.id, id, before, after);
+    this.refreshReaders(id, ts, seen, depth);
   }
 
-  /** A new or changed calculated field: work it out for every record already there. */
-  private backfill(collectionId: string, ts: string) {
+  /** How far a change travels through records that read others through links. */
+  private static readonly PATH_HOPS = 3;
+
+  /**
+   * A record's calculated values changed: records whose formulas read it through a link
+   * ({Client.Rate}) are worked out again, and so on, a few hops at most.
+   */
+  private refreshReaders(id: string, ts: string, seen: Set<string>, depth: number) {
+    if (depth >= SpaceObject.PATH_HOPS) return;
+    seen.add(id);
+    for (const reader of this.pathReaders(id))
+      if (!seen.has(reader)) this.refreshNeighbor(reader, ts, seen, depth + 1);
+  }
+
+  /** The records with a formula that reads this record through a link field. */
+  private pathReaders(recordId: string): string[] {
+    const r = this.liveRecord(recordId);
+    if (!r) return [];
+    const out = new Set<string>();
+    for (const link of this.linksInto(r.collection_id)) {
+      const fields = this.fieldRows(link.collection_id).map((f) => toField(f));
+      const reads = fields.some(
+        (f) =>
+          f.options.formula &&
+          formulaFields(parseFormulaSafe(f.options.formula)).some(
+            (name) => splitPath(fields, name)?.link.id === link.id,
+          ),
+      );
+      if (!reads) continue;
+      for (const row of this.sql
+        .exec<{ from_id: string }>(
+          `select from_id from links where field_id = ? and to_id = ?`,
+          link.id,
+          recordId,
+        )
+        .toArray())
+        out.add(row.from_id);
+    }
+    return [...out];
+  }
+
+  /** The live link fields anywhere that point at a collection. */
+  private linksInto(collectionId: string): FieldRow[] {
+    return this.sql
+      .exec<FieldRow>(
+        `select f.* from fields f join collections c on c.id = f.collection_id
+           where f.type = 'link' and f.deleted_at is null and c.deleted_at is null`,
+      )
+      .toArray()
+      .filter((f) => toField(f).options.target === collectionId);
+  }
+
+  /**
+   * A new or changed calculated field: work it out for every record already there, and
+   * for the records that read them through a link. How many changed.
+   */
+  private backfill(collectionId: string, ts: string): number {
+    let changed = 0;
     for (let after = ""; ;) {
       const batch = this.sql
         .exec<{ id: string }>(
@@ -2338,10 +2406,16 @@ export class SpaceObject extends DurableObject<Env> {
           after,
         )
         .toArray();
-      for (const r of batch) if (this.recompute(r.id)) this.logChange("record", r.id, "upsert", ts);
+      for (const r of batch)
+        if (this.recompute(r.id)) {
+          changed++;
+          this.logChange("record", r.id, "upsert", ts);
+          this.refreshReaders(r.id, ts, new Set(), 0);
+        }
       if (batch.length < 500) break;
       after = batch[batch.length - 1]!.id;
     }
+    return changed;
   }
 
   private recomputeAround(recordId: string, alsoIds: Iterable<string> = []) {

@@ -144,6 +144,8 @@ describe("formulas", () => {
       f10: null,
       f11: true,
     });
+    // Without a linked lookup (the device, offline), a formula through a link keeps what was stored.
+    expect(formulaValues(fields, { f1: 500000, f8: 42 })).toMatchObject({ f8: 42, f6: "Big" });
     expect(formulaValues(fields, {})).toEqual({
       f2: null,
       f3: null,

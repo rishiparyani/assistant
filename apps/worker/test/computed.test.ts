@@ -303,7 +303,52 @@ describe("calculated fields", () => {
     // The client's rate changes: the gig's quote follows.
     await api(me)(`/records/${client.id}`, { method: "PATCH", body: { values: { Rate: "2000" } } });
     expect((await read()).named.Quote).toBe("₹6,000");
-    await pay("Test rest", "20000");
+    // Two links away: a payment changes the gig's balance, and an invoice reading {Gig.Balance} follows.
+    await api(me)("/collections", {
+      body: {
+        name: "Invoices",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Gig", type: "link", options: { target: "Gigs" } },
+          { name: "Owed", type: "money", options: { formula: "{Gig.Balance}" } },
+        ],
+      },
+    });
+    const invoice = await json<RecordView>(
+      await api(me)("/collections/Invoices/records", {
+        body: { values: { Title: "Test invoice", Gig: gig.id } },
+      }),
+    );
+    const owed = async () => (await json<RecordView>(await api(me)(`/records/${invoice.id}`))).named.Owed;
+    expect(await owed()).toBe("₹20,000");
+    await pay("Test more", "5000");
+    expect(await owed()).toBe("₹15,000");
+    // A long text result is cut to a text field's size, never stored whole.
+    await api(me)("/collections/Gigs/fields", {
+      body: {
+        field: {
+          name: "Long",
+          type: "text",
+          options: {
+            formula:
+              "join({Title}, {Title}, {Title}, {Title}, {Title}, {Title}, {Title}, {Title}, {Title}, {Title})",
+          },
+        },
+      },
+    });
+    await api(me)("/collections/Gigs/fields", {
+      body: {
+        field: {
+          name: "Longer",
+          type: "text",
+          options: {
+            formula: "join({Long}, {Long}, {Long}, {Long}, {Long}, {Long}, {Long}, {Long}, {Long}, {Long})",
+          },
+        },
+      },
+    });
+    expect(String((await read()).named.Longer).length).toBe(500);
+    await pay("Test rest", "15000");
     expect((await read()).named).toMatchObject({ Status: "Paid", Settled: "Yes", "Half balance": "₹0" });
     // Text formulas filter like any text; yes/no ones like any yes/no.
     const settled = await json<FindResult>(

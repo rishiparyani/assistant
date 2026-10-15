@@ -24,6 +24,10 @@ export class FormulaError extends Error {}
 
 const MAX_LENGTH = 500;
 const MAX_NODES = 120;
+/** Text while calculating is cut here (a chain of joins can't grow without bound). */
+const MAX_TEXT = 2_000;
+/** A text formula's stored result: a text field's own limit. */
+export const MAX_FORMULA_TEXT = 500;
 
 /** The functions, lower-case, with how many arguments each takes ([least, most]). */
 export const FORMULA_FNS = {
@@ -456,6 +460,8 @@ function arithmeticType(op: "+" | "-" | "*" | "/", a: FormulaType, b: FormulaTyp
 /** The day in India that `now` falls on, as UTC midnight (what today() gives). */
 export const todayIST = (now: number) => Math.floor((now + IST) / DAY) * DAY;
 
+const cut = (s: string) => (s.length > MAX_TEXT ? s.slice(0, MAX_TEXT) : s);
+
 /** A value shown as text, as the app shows it (money with ₹, a date as yyyy-mm-dd). */
 function asText(v: FormulaValue): string {
   if (!v) return "";
@@ -656,15 +662,15 @@ function call(
     case "len":
       return { t: "num", v: asText(ev(args[0]!)).length };
     case "upper":
-      return { t: "text", v: asText(ev(args[0]!)).toUpperCase() };
+      return { t: "text", v: cut(asText(ev(args[0]!)).toUpperCase()) };
     case "lower":
-      return { t: "text", v: asText(ev(args[0]!)).toLowerCase() };
+      return { t: "text", v: cut(asText(ev(args[0]!)).toLowerCase()) };
     case "trim":
-      return { t: "text", v: asText(ev(args[0]!)).trim() };
+      return { t: "text", v: cut(asText(ev(args[0]!)).trim()) };
     case "join":
-      return { t: "text", v: args.map((a) => asText(ev(a))).join("") };
+      return { t: "text", v: cut(args.map((a) => asText(ev(a))).join("")) };
     case "text":
-      return { t: "text", v: asText(ev(args[0]!)) };
+      return { t: "text", v: cut(asText(ev(args[0]!))) };
     case "contains": {
       const hay = asText(ev(args[0]!)).toLowerCase();
       const part = asText(ev(args[1]!)).toLowerCase();
@@ -752,7 +758,7 @@ export function storedFormulaValue(r: FormulaValue): number | string | boolean |
     case "num":
       return Math.round(r.v * 1000) / 1000;
     case "text":
-      return r.v;
+      return r.v.length > MAX_FORMULA_TEXT ? r.v.slice(0, MAX_FORMULA_TEXT) : r.v;
     case "bool":
       return r.v;
   }
@@ -781,11 +787,21 @@ export function splitPath(fields: FormulaField[], name: string): { link: Formula
   return link && link.type === "link" ? { link, rest: name.slice(dot + 1).trim() } : null;
 }
 
+/** Whether a formula reads through a link ({Client.Rate}), by the list's fields. */
+export function formulaUsesLink(fields: FormulaField[], formula: string): boolean {
+  try {
+    return formulaFields(parseFormula(formula)).some((name) => !!splitPath(fields, name));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Every formula field's value from a record's stored values (null when it can't be worked
  * out), the same on the server and in the app's offline overlay. Fields are found by name or
  * alias; a formula may use other formulas (worked out first; a loop gives empty) and, with
- * `linked`, a field of the one record a link points at ({Client.Rate}).
+ * `linked`, a field of the one record a link points at ({Client.Rate}). Without `linked`
+ * (the device, offline), a formula that reads through a link keeps its stored value.
  */
 export function formulaValues(
   fields: FormulaField[],
@@ -798,6 +814,7 @@ export function formulaValues(
     if (!f.options.formula || f.type === "link") return formulaValueOf(f, values[f.id]);
     if (done.has(f.id)) return done.get(f.id)!;
     if (busy.has(f.id)) return null; // a loop
+    if (!opts.linked && formulaUsesLink(fields, f.options.formula)) return formulaValueOf(f, values[f.id]);
     busy.add(f.id);
     let r: FormulaValue;
     try {
