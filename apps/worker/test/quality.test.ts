@@ -40,8 +40,13 @@ describe("assistant quality numbers", () => {
       ["card_cancelled", "add_record"],
       ["good", null],
     ]);
-    // Nothing the person wrote, or the assistant answered, is anywhere in the rows.
-    const stored = JSON.stringify({ turns, signals });
+    // Nothing the person wrote, or the assistant answered, is anywhere in the rows. Ids, keys
+    // and times are random digits that could spell "450" by chance; they carry no words.
+    const words = ({ ...r }: Record<string, unknown>) => {
+      for (const k of ["id", "at", "user_id", "key", "ms"]) delete r[k];
+      return r;
+    };
+    const stored = JSON.stringify({ turns: turns.map(words), signals: signals.map(words) });
     for (const word of ["DI boxes", "groceries", "450", "Done"]) expect(stored).not.toContain(word);
   });
 
