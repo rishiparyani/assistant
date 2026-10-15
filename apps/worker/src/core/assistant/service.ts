@@ -953,6 +953,8 @@ async function ask(
       // Its own prepaid credit and limits, not the Cloudflare cap or the free allowance.
       if (!ctx.ai.cerebrasKey || !(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute)))
         continue;
+    } else if (m.provider === "anthropic" && !ctx.ai.anthropicKey) {
+      continue;
     } else if (m.route === "free") {
       const used = await budget.neurons();
       if (used + neuronsFor(m, size, m.maxOutput) > FREE_NEURONS_PER_DAY) continue;
@@ -970,6 +972,7 @@ async function ask(
     try {
       const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity, {
         cerebras: ctx.ai.cerebrasKey,
+        anthropic: ctx.ai.anthropicKey,
       });
       await settle(ctx, m, level, reservation, answer.usage, Date.now() - started, "ok");
       return { answer, level };
@@ -992,7 +995,8 @@ async function settle(
   outcome: string,
 ) {
   const budget = budgetOf(ctx);
-  // Cerebras's cost is logged to see (its own credit), never reserved against the cap.
+  // Cerebras's cost is logged to see (its own credit), never reserved against the cap; a paid
+  // model's (Anthropic's own credit too) is reserved and settled against it.
   const paise =
     m.route === "paid" || m.provider === "cerebras"
       ? costPaise(m, usage.input, usage.output, ctx.ai.settings.usdInr)

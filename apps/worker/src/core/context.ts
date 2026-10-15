@@ -50,7 +50,7 @@ export interface UserCtx {
   /** What an API token may do; null for a signed-in session (everything). */
   scopes: readonly TokenScope[] | null;
   /** The in-app assistant's models and limits (docs/design/universal.md §10). */
-  ai: { binding?: Ai; settings: AiSettings; cerebrasKey?: string };
+  ai: { binding?: Ai; settings: AiSettings; cerebrasKey?: string; anthropicKey?: string };
   /** Owners' emails (ADMIN_EMAILS, lower case): they always have the assistant. */
   owners: readonly string[];
 }
@@ -132,6 +132,7 @@ export function userCtxFor(
       binding: env.AI,
       settings: aiSettings(env),
       cerebrasKey: env.CEREBRAS_API_KEY?.trim() || undefined,
+      anthropicKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
     },
     owners: (env.ADMIN_EMAILS ?? "")
       .split(",")
@@ -154,6 +155,7 @@ export function aiSettings(env: Env): AiSettings {
     fast: !!vars.CEREBRAS_API_KEY?.trim(),
     fastCallsPerDay: num(vars.AI_FAST_CALLS_PER_DAY, 60),
     fastCallsPerMinute: num(vars.AI_FAST_CALLS_PER_MINUTE, 4),
+    anthropic: !!vars.ANTHROPIC_API_KEY?.trim(),
   };
 }
 

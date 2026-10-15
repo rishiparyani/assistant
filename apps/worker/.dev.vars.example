@@ -28,6 +28,10 @@ AI_FAKE=1
 # the GitHub secret CEREBRAS_API_KEY. Never commit it.
 CEREBRAS_API_KEY=
 
+# Optional: Claude models from Anthropic (platform.claude.com → API keys), on prepaid credit
+# there. In prod/dev this is the GitHub secret ANTHROPIC_API_KEY. Never commit it.
+ANTHROPIC_API_KEY=
+
 # Optional: encrypts the nightly backup (any long random string, e.g. `openssl rand -base64 32`).
 # Keep it in your password manager: a restore needs the same key. Without it, backups are
 # gzipped JSON in your private Drive.

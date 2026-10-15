@@ -1,8 +1,11 @@
 # Status
 
-_Updated: 2026-10-14_
+_Updated: 2026-10-15_
 
 ## Last done
+
+- **HF42: Claude Haiku 5.5 wired for the model comparison** (decision 2026-10-15 "Try the small frontier models"). `models.ts`: `claude-haiku-5-5` (provider `anthropic`, level 1, `route: paid`, `effort: low`, `ready: false`: the scorecard only), `AiSettings.anthropic`, `modelsFor` funds a paid Anthropic model by its key; `client.ts` `callAnthropic` + `toAnthropic` / `fromAnthropic` (Messages API, cached system prompt, tool_use/tool_result); `service.ts` skips it without the key, reserves it against the cap; `context.ts` `ai.anthropicKey`; secret `ANTHROPIC_API_KEY` in the deploy and Scorecard workflows and the scorecard config; admin stat; privacy page line. `anthropic-model.test.ts` (2).
+  - **Next:** the owner added the Anthropic key (2026-10-15, $5 prepaid, auto-reload off): run `scorecard.yml` with `model=claude-haiku-5-5`, `suite=core` and `hard`, `repeat=3`; write `docs/scorecard/2026-10-16.md` side by side with GLM and Cerebras. Then OpenAI (`OPENAI_API_KEY`: GPT-5.4 nano, mini) and Gemini (`GEMINI_API_KEY`: Flash-Lite) the same way when their keys arrive; the owner picks the everyday default from the table.
 
 - **HF41: questions that act, first part** (decision 2026-10-15 "Questions that act").
   - **Group object** (migration: `polls.about_json`, `poll_out`): `createPoll(…, about)` (admins or the pin's owner), `vote` queues the answer, the alarm's `syncAnswers` sends each in order to the record's space with a key; `PollView.about`.

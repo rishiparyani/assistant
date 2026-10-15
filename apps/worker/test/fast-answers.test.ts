@@ -16,6 +16,7 @@ const base: AiSettings = {
   fast: false,
   fastCallsPerDay: 60,
   fastCallsPerMinute: 4,
+  anthropic: false,
 };
 const ids = (ms: { id: string }[]) => ms.map((m) => m.id);
 

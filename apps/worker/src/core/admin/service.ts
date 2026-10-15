@@ -89,6 +89,14 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
           : "needs CEREBRAS_API_KEY (docs/setup.md)",
         tone: settings.fast && v.fast_calls_today >= settings.fastCallsPerDay ? "warn" : "ok",
       },
+      {
+        label: "Claude models (Anthropic)",
+        value: settings.anthropic ? "Key in" : "Off",
+        hint: settings.anthropic
+          ? "scorecard comparison only until one wins (docs/scorecard)"
+          : "needs ANTHROPIC_API_KEY (docs/setup.md)",
+        tone: "ok",
+      },
     ],
   };
 }

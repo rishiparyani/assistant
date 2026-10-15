@@ -12,8 +12,8 @@ export interface ModelEntry {
   label: string;
   level: Level;
   route: Route;
-  /** How it's called: Workers AI through the binding, Cerebras straight (its own prepaid
-   *  credit, not the Cloudflare cap), or a provider through the gateway. */
+  /** How it's called: Workers AI through the binding, or Cerebras or Anthropic straight, each
+   *  with the owner's own key and prepaid credit there (decisions 2026-10-15). */
   provider: "workers-ai" | "anthropic" | "cerebras";
   /** USD per million tokens. */
   price: { input: number; output: number };
@@ -95,6 +95,21 @@ export const MODELS: ModelEntry[] = [
     effort: "low",
     ready: true,
   },
+  // The comparison (decision 2026-10-15 "Try the small frontier models"): the makers' smallest
+  // current models at the everyday level, tried through the scorecard (AI_EVERYDAY_MODEL), each
+  // on its own prepaid credit and key. Not used by the app until one wins and is made ready.
+  {
+    id: "claude-haiku-5-5",
+    label: "Claude Haiku 5.5",
+    level: 1,
+    route: "paid",
+    provider: "anthropic",
+    price: { input: 0.1, output: 0.5 },
+    // Its thinking counts as output; room for it and the answer.
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
   {
     id: "@cf/moonshotai/kimi-k2.6",
     label: "Kimi K2.6",
@@ -113,7 +128,7 @@ export const MODELS: ModelEntry[] = [
     provider: "anthropic",
     price: { input: 2, output: 10 },
     maxOutput: 3_000,
-    // Called through AI Gateway with the official SDK once prepaid credit is set up.
+    // Called straight once the owner has prepaid credit there (ANTHROPIC_API_KEY).
     ready: false,
   },
 ];
@@ -140,6 +155,8 @@ export interface AiSettings {
   fastCallsPerDay: number;
   /** And a minute (the trial allows five). */
   fastCallsPerMinute: number;
+  /** Anthropic is set up: its key is in (its models bill its own prepaid credit). */
+  anthropic: boolean;
 }
 
 /** Paise for a call of this size (rounded up). */
@@ -160,14 +177,13 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
   const tried = level === 1 && s.everydayModel ? MODELS.find((m) => m.id === s.everydayModel) : null;
   // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
-  // allowance); Cerebras has its own credit.
+  // allowance); Cerebras and Anthropic have their own credit.
   if (tried) return [s.paidGateway && tried.provider === "workers-ai" ? { ...tried, route: "paid" } : tried];
   const fastFirst = (m: ModelEntry) => (m.provider === "cerebras" ? 0 : 1);
+  // A paid model needs its money: the Cloudflare credit route, or the provider's own key.
+  const funded = (m: ModelEntry) =>
+    m.route === "free" || (m.provider === "anthropic" ? s.anthropic : !!s.paidGateway);
   return MODELS.filter(
-    (m) =>
-      m.level === level &&
-      m.ready &&
-      (m.route === "free" || !!s.paidGateway) &&
-      (m.provider !== "cerebras" || (s.fast && fast)),
+    (m) => m.level === level && m.ready && funded(m) && (m.provider !== "cerebras" || (s.fast && fast)),
   ).sort((a, b) => fastFirst(a) - fastFirst(b));
 }
