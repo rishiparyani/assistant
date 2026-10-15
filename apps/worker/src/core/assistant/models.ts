@@ -197,6 +197,7 @@ export const MODELS: ModelEntry[] = [
     ready: true,
   },
   // GPT-6.1 Sol (the id on OpenAI's models page; the launch post says gpt-6-sol): Sonnet's price.
+  // No effort setting: it answered 400 (unsupported_value, reasoning_effort) to "low".
   {
     id: "gpt-6.1-sol",
     label: "GPT-6.1 Sol",
@@ -206,7 +207,6 @@ export const MODELS: ModelEntry[] = [
     price: { input: 2, output: 10 },
     cache: { read: 0.1, write: 1 },
     maxOutput: 8_000,
-    effort: "low",
     ready: false,
   },
   {
