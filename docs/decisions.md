@@ -862,6 +862,19 @@ This replaces the 2026-10-12 rule that a delete can't be undone.
 - **Scorecard:** `model: gpt-oss-120b` on the Scorecard workflow tries it (the key is passed; the app's caps are off there, so any suite × repeat finishes), spacing cases out by the calls each made to stay under five a minute.
 - **Privacy:** the privacy page says the faster model runs at Cerebras (US) and isn't trained on people's data; nothing is logged there by us.
 
+## 2026-10-15: Toward Excel: the engine gets the expression power people expect (owner: "as flexible as Excel")
+
+The owner asked for a review of the universal / chat-first / home-first design against "the chatbot should be able to do pretty much anything, as flexible as Excel". The review's verdict: the design is a typed database with links, rollups, rules, automations, a query tool and cards, which covers most of what people use Excel for, but it lacks Excel's expression power. The owner said "do all the features". Six slices, each its own PR, in this order:
+
+1. **Formulas (this PR).** The formula language grows from arithmetic to: comparisons, `and`/`or`/`not`, `if`, `blank`/`ifblank`, `round`/`floor`/`ceil`/`abs`, `min`/`max`/`sum`/`avg`, text (`len`, `upper`, `lower`, `trim`, `join`, `text`, `contains`), dates (`today`, `year`, `month`, `day`, `weekday`, `date`), one field of the record a single link points at (`{Client.Rate}`), and formulas of other formulas and rollups of the same list (a loop is refused). A formula field can be text or yes/no as well as a number, money or a date. The type of a formula is worked out from its parts when it's saved (`inferType`), not by trying sample values, so both sides of an `if` must agree and nothing adds text to money. A formula with `today()` is worked out again for every record of its list at midnight in India (the space's alarm; `daily_formulas` meta). Rollups gain `avg`. Still one shared module (`packages/shared/src/core/formula.ts`) for the server and the offline overlay; the overlay leaves link paths to the sync (it has no linked record at hand).
+2. **Bulk changes by expression**: `update_records` takes a formula per field ("Fee = {Fee} * 1.1" for a filtered set), preview and confirm as for any money change.
+3. **Import and export**: paste or upload a CSV, the assistant maps columns to fields as a setup (confirmed first, a preview of the first rows); any view exports as CSV.
+4. **Highlight rules** on views and cards: a filter and a colour token, data only.
+5. **An editable grid arrangement** (tab across cells), writes through the outbox.
+6. **The fallback when the assistant won't build it** ("Chat makes, screens can fix", amending "Chat makes, screens use"): the setup card the assistant proposes is editable before Confirm (rename or retype a field, add or remove a choice, tick a link); and a plain setup screen per list (fields, rules, cards and views as forms), hidden under the list's ⋯ menu, never a tab or a home button. Both write through the operations the assistant uses. The owner's reason for chat-first stands: no toolbox in the main screens; the fallback is a side door for when the chat sticks.
+
+Not doing: raw spreadsheet cells, user-written code, AI-written pages. They would break offline merging, row-level authorization and the paise rule, and are Excel's main source of errors.
+
 ## 2026-10-15: The comparison's second round: the setups model (owner: "Test all five, Cloudflare is in")
 
 - **Everyday result** (`docs/scorecard/2026-10-15-comparison.md`): Haiku 5.5 57/60 and 98/102 with every Hinglish and date case right; GPT-5.4 mini 57/60 and 94/102; nano 50/60 and 94/102; Gemini 3.1 Flash-Lite on the free tier 45/60 and 64/102, rate-limited. The owner picks; the recommendation on the table is Haiku for everyday.

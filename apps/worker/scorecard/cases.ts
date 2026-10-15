@@ -431,6 +431,22 @@ export const CASES: Case[] = [
     },
   },
   {
+    id: "setup-formula",
+    about: "a text formula with if() on money fields",
+    level: 2,
+    lang: "en",
+    text: 'Add a field "Status" to my Expenses that says "Big" when Amount is over 2000 and "Small" otherwise',
+    check: async (u, o) => {
+      const c = await json<CollectionView>(await api(u)("/collections/Expenses"));
+      const f = c.fields.find((x) => has(x.name, "status"));
+      const formula = f?.options.formula ?? "";
+      if (f) return has(formula, "if(") && has(formula, "big") ? null : `field: ${f.type} ${formula}`;
+      const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
+      const d = card?.details.join(" | ") ?? "";
+      return has(d, "if(") && has(d, "big") ? null : `reply: ${o.reply.slice(0, 160)}`;
+    },
+  },
+  {
     id: "setup-field-hinglish",
     about: "Hinglish: a choice field with its choices",
     level: 2,

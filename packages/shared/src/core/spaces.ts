@@ -6,6 +6,7 @@ import { clientId, optionalText } from "./fields.ts";
 import type { RuleView } from "./rules.ts";
 import { isDateOnly, toUtcIso } from "./dates.ts";
 import { formatINR, parseINR } from "./money.ts";
+import { FORMULA_HELP } from "./formula.ts";
 
 export const SPACE_LIMITS = {
   collections: 200,
@@ -52,11 +53,15 @@ export interface FieldOptions {
   on_delete?: LinkOnDelete;
   /** Each person fills in their own answer ("Going?"); not for links or the title. */
   personal?: boolean;
-  /** number / money / date: calculated from other fields, e.g. "{Fee} - {Paid}" (read-only). */
+  /**
+   * number / money / date / text / boolean: calculated from other fields (read-only), e.g.
+   * "{Fee} - {Paid}", "if({Paid} >= {Fee}, "Paid", "Due")", "{Client.Rate} * {Hours}",
+   * "{Date} - today()". The language: formula.ts (FORMULA_HELP).
+   */
   formula?: string;
   /**
    * number / money / date: calculated over linked records (read-only): count them, or the
-   * sum, smallest or largest of one of their fields. `via` is a link field of this record, or
+   * sum, average, smallest or largest of one of their fields. `via` is a link field of this record, or
    * a link field elsewhere that points here.
    */
   rollup?: {
@@ -69,7 +74,7 @@ export interface FieldOptions {
   };
 }
 
-export const ROLLUP_FNS = ["count", "sum", "min", "max"] as const;
+export const ROLLUP_FNS = ["count", "sum", "avg", "min", "max"] as const;
 export type RollupFn = (typeof ROLLUP_FNS)[number];
 
 export interface FieldView {
@@ -218,10 +223,13 @@ export const FieldOptionsInput = z
       .string()
       .trim()
       .min(1)
-      .max(300)
+      .max(500)
       .optional()
       .describe(
-        'number / money / date: a calculated value, fields in braces, e.g. "{Fee} - {Paid}" or "{Date} + 7"',
+        'number / money / date / text / boolean: a calculated value, e.g. "{Fee} - {Paid}", "{Date} + 7", ' +
+          '"if({Paid} >= {Fee}, "Paid", "Due")", "{Client.Rate} * {Hours}" (one field of the linked record), ' +
+          '"{Date} - today()" (days). ' +
+          FORMULA_HELP,
       ),
     rollup: z
       .object({
@@ -231,14 +239,14 @@ export const FieldOptionsInput = z
           .min(1)
           .max(160)
           .describe('A link field of this collection, or a collection that links here (e.g. "Payments")'),
-        fn: z.enum(["count", "sum", "min", "max"]),
+        fn: z.enum(ROLLUP_FNS),
         of: z
           .string()
           .trim()
           .min(1)
           .max(80)
           .optional()
-          .describe("sum / min / max: the field of the linked records"),
+          .describe("sum / avg / min / max: the field of the linked records"),
         where: z
           .array(
             z.object({

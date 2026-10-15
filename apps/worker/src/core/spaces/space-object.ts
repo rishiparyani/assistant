@@ -42,9 +42,16 @@ import {
   type Person,
   type QuestionView,
   type FormulaNode,
+  type FormulaType,
   type FormulaValue,
   evalFormula,
   parseFormula,
+  inferType,
+  formulaTypeOf,
+  formulaUsesToday,
+  findFormulaField,
+  splitPath,
+  todayIST,
   type RuleKind,
   type RuleView,
   ruleWords,
@@ -945,9 +952,10 @@ export class SpaceObject extends DurableObject<Env> {
          union all select min(next_nudge_at) as at from workflow_waits where next_nudge_at != 'resumed')`,
       )
       .toArray()[0];
-    const erase = this.nextEraseTime();
-    const at = row?.at ? Date.parse(row.at) : null;
-    return at === null ? erase : erase === null ? at : Math.min(at, erase);
+    const times = [row?.at ? Date.parse(row.at) : null, this.nextEraseTime(), this.nextDailyTime()].filter(
+      (t): t is number => t !== null,
+    );
+    return times.length ? Math.min(...times) : null;
   }
 
   /** When the oldest record in Recently deleted is due to be erased (ms), or null. */
@@ -1127,6 +1135,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     this.eraseDue();
+    this.refreshDaily();
     await this.runDueJobs();
     const searchIn = await this.syncSearch();
     const liveIn = await this.pingLive();
@@ -1876,7 +1885,9 @@ export class SpaceObject extends DurableObject<Env> {
 
   /**
    * A formula or rollup, checked now: every field it names exists and has a type it can use,
-   * and its result has the field's type. Formulas can't use other formulas (no loops).
+   * and its result has the field's type. A formula may use other formulas and rollups of its
+   * list, and one field of the record a (single) link points at ({Client.Rate}); a loop is
+   * refused.
    */
   private computedOptions(
     type: FieldType,
@@ -1887,41 +1898,80 @@ export class SpaceObject extends DurableObject<Env> {
     if (!o.formula && !o.rollup) return null;
     if (o.formula && o.rollup)
       throw new ObjectError("validation_failed", "A field is a formula or a rollup, not both");
-    if (type !== "number" && type !== "money" && type !== "date")
-      throw new ObjectError("validation_failed", "Calculated fields are number, money or date fields");
     const fields = this.fieldRows(collectionId).filter((f) => f.id !== selfId);
     if (o.formula) {
+      if (!["number", "money", "date", "text", "boolean"].includes(type))
+        throw new ObjectError(
+          "validation_failed",
+          "A formula field is a number, money, date, text or yes/no field",
+        );
       let tree: FormulaNode;
       try {
         tree = parseFormula(o.formula);
       } catch (e) {
         throw new ObjectError("validation_failed", (e as Error).message);
       }
-      const sample = (name: string): FormulaValue => {
-        const f = this.matchField(fields, name);
-        if (toField(f).options.formula)
+      const asFormula = (f: FieldRow) => ({ ...toField(f), options: toField(f).options });
+      const kind = (f: FieldRow, name: string): FormulaType => {
+        const t = formulaTypeOf(f.type);
+        if (!t)
+          throw new ObjectError("validation_failed", `${name} is a ${f.type} field; a formula can't read it`);
+        return t;
+      };
+      const own = fields.map(asFormula);
+      const typeOfName = (name: string): FormulaType => {
+        const f = findFormulaField(own, name);
+        if (f) {
+          if (toField(fields.find((x) => x.id === f.id)!).options.formula)
+            this.noFormulaLoop(collectionId, f.id, selfId);
+          return kind(
+            fields.find((x) => x.id === f.id)!,
+            f.name,
+          );
+        }
+        const path = splitPath(own, name);
+        if (!path) return kind(this.matchField(fields, name), name); // throws with the field list
+        const link = fields.find((x) => x.id === path.link.id)!;
+        const target = toField(link).options.target;
+        if (!target)
           throw new ObjectError(
             "validation_failed",
-            `${f.name} is a formula itself; use the fields it's made of`,
+            `${link.name} can link anywhere; {${name}} needs a link to one list`,
           );
-        if (f.type === "number") return { t: "num", v: 1 };
-        if (f.type === "money") return { t: "money", v: 100 };
-        if (f.type === "date" || f.type === "datetime") return { t: "date", v: 0 };
-        throw new ObjectError("validation_failed", `${f.name} isn't a number, money or date field`);
+        if (toField(link).options.many)
+          throw new ObjectError(
+            "validation_failed",
+            `${link.name} links to several records; use a rollup for {${name}}`,
+          );
+        const far = this.matchField(this.fieldRows(target), path.rest);
+        if (far.type === "link")
+          throw new ObjectError(
+            "validation_failed",
+            `{${name}} is a link; a formula reads one step through a link`,
+          );
+        return kind(far, name);
       };
-      let out: FormulaValue;
+      let out: FormulaType;
       try {
-        out = evalFormula(tree, sample);
+        out = inferType(tree, typeOfName);
       } catch (e) {
         if (e instanceof ObjectError) throw e;
         throw new ObjectError("validation_failed", (e as Error).message);
       }
-      const want = type === "number" ? "num" : type;
-      if (out && out.t !== want)
+      const want = formulaTypeOf(type)!;
+      if (out !== want) {
+        const words: Record<FormulaType, string> = {
+          num: "a number",
+          money: "money",
+          date: "a date",
+          text: "text",
+          bool: "yes/no",
+        };
         throw new ObjectError(
           "validation_failed",
-          `That formula gives ${out.t === "num" ? "a number" : out.t}, but the field is ${type}`,
+          `That formula gives ${words[out]}, but the field is ${type === "boolean" ? "yes/no" : type}`,
         );
+      }
       return { formula: o.formula.trim() };
     }
     const r = o.rollup!;
@@ -1939,7 +1989,11 @@ export class SpaceObject extends DurableObject<Env> {
         );
       const f = this.matchField(this.fieldRows(linkedCollection), r.of);
       const t = f.type === "datetime" ? "date" : f.type;
-      if (r.fn === "sum" ? t !== "number" && t !== "money" : t !== "number" && t !== "money" && t !== "date")
+      if (
+        r.fn === "sum" || r.fn === "avg"
+          ? t !== "number" && t !== "money"
+          : t !== "number" && t !== "money" && t !== "date"
+      )
         throw new ObjectError("validation_failed", `Can't ${r.fn} ${f.name}`);
       if (t !== type)
         throw new ObjectError("validation_failed", `${f.name} is ${t}, but this field is ${type}`);
@@ -1964,6 +2018,76 @@ export class SpaceObject extends DurableObject<Env> {
         .filters as RuleFilter[];
     }
     return { rollup: { via: via.id, dir, fn: r.fn, of, ...(where ? { where } : {}) } };
+  }
+
+  /** Refuses a formula that, through other formulas of the list, would come back to itself. */
+  private noFormulaLoop(collectionId: string, fromId: string, selfId: string | null) {
+    if (!selfId) return;
+    // The field being changed included: a loop goes through it.
+    const fields = this.fieldRows(collectionId);
+    const seen = new Set<string>();
+    const walk = (id: string) => {
+      if (id === selfId) throw new ObjectError("validation_failed", "That formula would loop back to itself");
+      if (seen.has(id)) return;
+      seen.add(id);
+      const f = fields.find((x) => x.id === id);
+      const formula = f ? toField(f).options.formula : null;
+      if (!f || !formula) return;
+      let names: string[];
+      try {
+        names = formulaFields(parseFormula(formula));
+      } catch {
+        return;
+      }
+      for (const name of names) {
+        const g = findFormulaField(
+          fields.map((x) => toField(x)),
+          name,
+        );
+        if (g) walk(g.id);
+      }
+    };
+    walk(fromId);
+  }
+
+  /** The lists with a formula that uses today(), whose stored values move with the day. */
+  private dailyCollections(): string[] {
+    return [
+      ...new Set(
+        this.sql
+          .exec<{ collection_id: string; options_json: string }>(
+            `select collection_id, options_json from fields where deleted_at is null and options_json like '%today%'`,
+          )
+          .toArray()
+          .filter((f) => {
+            const o = JSON.parse(f.options_json) as FieldOptions;
+            try {
+              return !!o.formula && formulaUsesToday(parseFormula(o.formula));
+            } catch {
+              return false;
+            }
+          })
+          .map((f) => f.collection_id),
+      ),
+    ];
+  }
+
+  /** When today() formulas next need working out again: the next midnight in India (ms), or null. */
+  private nextDailyTime(): number | null {
+    if (!this.dailyCollections().length) return null;
+    return todayIST(Date.now()) + 86_400_000 - 330 * 60_000 + 60_000;
+  }
+
+  /** A new day in India: works today() formulas out again for every record of their lists. */
+  private refreshDaily() {
+    const day = new Date(todayIST(Date.now())).toISOString().slice(0, 10);
+    if (getMeta(this.sql, "daily_formulas") === day) return;
+    const ids = this.dailyCollections();
+    if (ids.length) {
+      const ts = nowIso();
+      for (const id of ids) this.backfill(id, ts);
+    }
+    setMeta(this.sql, "daily_formulas", day);
   }
 
   /**
@@ -2081,7 +2205,10 @@ export class SpaceObject extends DurableObject<Env> {
         .filter((v): v is string | number => typeof v === "number" || typeof v === "string");
       if (!vals.length) next[f.id] = ru.fn === "sum" ? 0 : null;
       else if (ru.fn === "sum") next[f.id] = (vals as number[]).reduce((a, b) => a + b, 0);
-      else {
+      else if (ru.fn === "avg") {
+        const mean = (vals as number[]).reduce((a, b) => a + b, 0) / vals.length;
+        next[f.id] = f.type === "money" ? Math.round(mean) : Math.round(mean * 1000) / 1000;
+      } else {
         const sorted = [...vals].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
         const v = ru.fn === "min" ? sorted[0]! : sorted[sorted.length - 1]!;
         next[f.id] = f.type === "date" && typeof v === "string" ? v.slice(0, 10) : v;
@@ -2092,6 +2219,15 @@ export class SpaceObject extends DurableObject<Env> {
       formulaValues(
         fields.map((f) => toField(f)),
         next,
+        {
+          // {Client.Rate}: the one record the link points at.
+          linked: (link) => {
+            const id = this.linkedIds(link.id, "out", r.id)[0];
+            const target = link.options.target;
+            if (!id || !target) return null;
+            return { fields: this.fieldRows(target).map((x) => toField(x)), values: this.currentValues(id) };
+          },
+        },
       ),
     );
     if (computed.every((f) => JSON.stringify(next[f.id] ?? null) === JSON.stringify(values[f.id] ?? null)))
@@ -3489,7 +3625,7 @@ export class SpaceObject extends DurableObject<Env> {
           } catch {
             r = null;
           }
-          vals.push(r ? r.v : null);
+          vals.push(r && typeof r.v === "number" ? r.v : null);
           continue;
         }
         const recs = only[i] ? b.recs.filter((e) => only[i]!.has(e.r.id)) : b.recs;

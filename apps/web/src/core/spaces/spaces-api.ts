@@ -413,9 +413,10 @@ function myAnswers(r: RecordView, a: Args): RecordView["answers"] {
 
 function changed(r: RecordView, a: Args, c: Change): RecordView {
   const values = { ...r.values, ...a.values };
-  // Formulas follow at once, worked out the same way the server will (rollups wait for sync).
+  // Formulas follow at once, worked out the same way the server will (rollups and fields read
+  // through a link wait for sync).
   const fields = savedCollections()?.find((x) => x.id === r.collection_id)?.fields ?? [];
-  Object.assign(values, formulaValues(fields, values));
+  Object.assign(values, formulaValues(fields, values, { now: Date.now() }));
   for (const [k, v] of Object.entries(values)) if (v === null) delete values[k];
   const title = values[a.title_field_id];
   return {

@@ -1,7 +1,8 @@
 // Formulas and rollups (chat-first step 6): calculated in the write, kept current when linked
 // records change, filterable like any value. Fake data only.
 import { describe, expect, it } from "vitest";
-import type { FindResult, RecordView } from "@assistant/shared";
+import { env, runInDurableObject } from "cloudflare:test";
+import type { FindResult, RecordView, SpaceView } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
@@ -122,9 +123,10 @@ describe("calculated fields", () => {
     expect((await add({ name: "Unknown", type: "money", options: { formula: "{Nope} + 1" } })).status).toBe(
       400,
     );
+    // A formula may use another formula of the list.
     expect(
       (await add({ name: "Of formula", type: "money", options: { formula: "{Balance} + 1" } })).status,
-    ).toBe(400);
+    ).toBe(201);
   });
 
   it("works out new formulas for records already there, by name or alias", async () => {
@@ -244,5 +246,133 @@ describe("calculated fields", () => {
     // A field a filtered rollup uses can't be removed until the rollup changes.
     const removed = await api(me)("/collections/Payments/fields/Amount", { method: "DELETE" });
     expect(removed.status).toBe(409);
+  });
+
+  it("decides, reads through a link, uses other formulas and averages", async () => {
+    const me = await signUp("Test Formulas");
+    const { gig, pay, read } = await gigsWithPayments(me);
+    const add = (collection: string, field: unknown) =>
+      api(me)(`/collections/${collection}/fields`, { body: { field } });
+    await api(me)("/collections", {
+      body: {
+        name: "Clients",
+        fields: [
+          { name: "Name", type: "text" },
+          { name: "Rate", type: "money" },
+          { name: "City", type: "choice", options: { choices: ["Pune", "Mumbai"] } },
+        ],
+      },
+    });
+    const client = await json<RecordView>(
+      await api(me)("/collections/Clients/records", {
+        body: { values: { Name: "Test Client", Rate: "1500", City: "Pune" } },
+      }),
+    );
+    expect((await add("Gigs", { name: "Client", type: "link", options: { target: "Clients" } })).status).toBe(
+      201,
+    );
+    expect((await add("Gigs", { name: "Hours", type: "number" })).status).toBe(201);
+    // Text and yes/no formulas, a formula of a formula, a field read through the link, an average.
+    for (const f of [
+      { name: "Status", type: "text", options: { formula: 'if({Paid} >= {Fee}, "Paid", "Due")' } },
+      { name: "Settled", type: "boolean", options: { formula: "{Balance} <= 0" } },
+      { name: "Half balance", type: "money", options: { formula: "{Balance} / 2" } },
+      { name: "Quote", type: "money", options: { formula: "{Client.Rate} * {Hours}" } },
+      { name: "Where", type: "text", options: { formula: 'join({Client.Name}, " in ", {Client.City})' } },
+      {
+        name: "Average payment",
+        type: "money",
+        options: { rollup: { via: "Payments", fn: "avg", of: "Amount" } },
+      },
+    ])
+      expect((await add("Gigs", f)).status, f.name).toBe(201);
+    await api(me)(`/records/${gig.id}`, {
+      method: "PATCH",
+      body: { values: { Client: client.id, Hours: 3 } },
+    });
+    await pay("Test one", "10000");
+    await pay("Test two", "20000");
+    expect((await read()).named).toMatchObject({
+      Status: "Due",
+      Settled: "No",
+      "Half balance": "₹10,000",
+      Quote: "₹4,500",
+      Where: "Test Client in Pune",
+      "Average payment": "₹15,000",
+    });
+    // The client's rate changes: the gig's quote follows.
+    await api(me)(`/records/${client.id}`, { method: "PATCH", body: { values: { Rate: "2000" } } });
+    expect((await read()).named.Quote).toBe("₹6,000");
+    await pay("Test rest", "20000");
+    expect((await read()).named).toMatchObject({ Status: "Paid", Settled: "Yes", "Half balance": "₹0" });
+    // Text formulas filter like any text; yes/no ones like any yes/no.
+    const settled = await json<FindResult>(
+      await api(me)("/collections/Gigs/find", {
+        body: { filters: [{ field: "Settled", op: "eq", value: true }] },
+      }),
+    );
+    expect(settled.items.map((g) => g.id)).toEqual([gig.id]);
+
+    // What's refused: a loop, a wrong result type, text in arithmetic, a link to many, a bad function.
+    const bad = async (f: unknown) => (await add("Gigs", f)).status;
+    expect(await bad({ name: "Loop", type: "money", options: { formula: "{Half balance} * 2" } })).toBe(201);
+    expect(
+      (
+        await api(me)("/collections/Gigs/fields/Half balance", {
+          method: "PATCH",
+          body: { options: { formula: "{Loop} / 2" } },
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      await bad({ name: "Wrong", type: "number", options: { formula: 'if({Paid} >= {Fee}, "Paid", 0)' } }),
+    ).toBe(400);
+    expect(await bad({ name: "Wrong 2", type: "money", options: { formula: "{Title} + 1" } })).toBe(400);
+    expect(await bad({ name: "Wrong 3", type: "text", options: { formula: "nope({Title})" } })).toBe(400);
+    expect(await bad({ name: "Wrong 4", type: "money", options: { formula: "{Payments.Amount}" } })).toBe(
+      400,
+    );
+    expect(await bad({ name: "Wrong 5", type: "choice", options: { choices: ["a"], formula: '"a"' } })).toBe(
+      400,
+    );
+  });
+
+  it("works today() formulas out again each day", async () => {
+    const me = await signUp("Test Today");
+    const { gig, read } = await gigsWithPayments(me);
+    expect(
+      (
+        await api(me)("/collections/Gigs/fields", {
+          body: { field: { name: "Days to go", type: "number", options: { formula: "{Date} - today()" } } },
+        })
+      ).status,
+    ).toBe(201);
+    const ist = new Date(Date.now() + 330 * 60_000);
+    const today = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate());
+    const days = Math.round((Date.UTC(2026, 11, 12) - today) / 86_400_000);
+    expect((await read()).named["Days to go"]).toBe(String(days));
+    // A new day: the alarm works the stored values out again (here: after they were put wrong).
+    const spaces = await json<SpaceView[]>(await api(me)("/spaces"));
+    const stub = env.SPACES.getByName(`space:${spaces[0]!.id}`);
+    await runInDurableObject(stub, async (inst, state) => {
+      const r = state.storage.sql
+        .exec<{ values_json: string }>(`select values_json from records where id = ?`, gig.id)
+        .one();
+      const values = JSON.parse(r.values_json) as Record<string, unknown>;
+      const f = state.storage.sql
+        .exec<{ id: string }>(`select id from fields where name = 'Days to go'`)
+        .one();
+      values[f.id] = 999;
+      state.storage.sql.exec(
+        `update records set values_json = ? where id = ?`,
+        JSON.stringify(values),
+        gig.id,
+      );
+      state.storage.sql.exec(
+        `insert or replace into _meta (key, value) values ('daily_formulas', '2000-01-01')`,
+      );
+      await (inst as unknown as { alarm(): Promise<void> }).alarm();
+    });
+    expect((await read()).named["Days to go"]).toBe(String(days));
   });
 });

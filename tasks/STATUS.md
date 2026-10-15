@@ -4,6 +4,12 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF45: formulas grow up (decision 2026-10-15 "Toward Excel", slice 1 of 6).**
+  - **Shared:** `formula.ts` rewritten: comparisons, and/or/not, `if`, blank/ifblank, round/floor/ceil/abs, min/max/sum/avg, text and date functions, `{Link.Field}`, formulas of formulas (lazy, loop-safe); `inferType` for static typing; `formulaUsesToday`; `formulaValueOf`/`storedFormulaValue`; `FORMULA_HELP` in the field schema's description; `ROLLUP_FNS` has `avg`.
+  - **Server:** `computedOptions` allows text and boolean formula fields, types them with `inferType`, resolves one-step link paths (single links to one list only), refuses loops (`noFormulaLoop`); `recompute` passes a `linked` lookup; `avg` rollups; `refreshDaily` in the alarm with `nextDailyTime` (midnight India) for `today()` formulas.
+  - **Tests:** `formula.test.ts` (6), `computed.test.ts` (+2: if/text/yes-no/link path/avg and the refusals; the daily refresh via the alarm). Scorecard case `setup-formula` (level 2).
+  - **Next slices:** bulk changes by expression → CSV import/export → highlight rules → editable grid → editable setup card + hidden setup screen.
+
 - **HF44: the everyday comparison done, the setups comparison wired** (decision 2026-10-15 "The comparison's second round").
   - **Results:** `docs/scorecard/2026-10-15-comparison.md` (Haiku, GPT-5.4 mini, nano, Gemini Flash-Lite, three runs each, next to GLM and Cerebras). Gemini ran on the free tier (rate-limited; a floor).
   - **Fixes on the way:** `callChatCompletions` and `callAnthropic` name the maker's error code / type / parameter on a refusal (`errorCode`); OpenAI's body sends `reasoning_effort: "none"` (chat completions refuse tools with any other value on GPT-5.4); the runner paces Gemini (7 s a call) as well as Cerebras (15 s).
