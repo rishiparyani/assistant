@@ -112,10 +112,12 @@ const OPENAI_SHAPED = {
   },
   openai: {
     url: "https://api.openai.com/v1/chat/completions",
-    // Reasoning models take no temperature; thinking at the lowest setting.
+    // Reasoning models take no temperature. On chat completions GPT-5.4 refuses function
+    // tools together with any reasoning effort but "none" (a 400 naming reasoning_effort;
+    // the Responses API would allow it), so these answer without thinking first.
     body: (m: ModelEntry) => ({
       max_completion_tokens: m.maxOutput,
-      reasoning_effort: m.effort === "high" || m.effort === "max" ? "high" : "low",
+      reasoning_effort: "none",
     }),
   },
   gemini: {
@@ -159,8 +161,6 @@ async function callChatCompletions(
     throw new ModelError(`${model.label}: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!res.ok) {
-    // The status says enough (the body could echo the prompt).
-    await res.body?.cancel();
     throw new ModelError(
       res.status === 429
         ? `${model.label} is busy (rate limit)`
@@ -168,7 +168,7 @@ async function callChatCompletions(
           ? `${model.label} refused the key`
           : res.status === 402 || res.status === 403
             ? `${model.label} has no credit left`
-            : `${model.label} answered ${res.status}`,
+            : `${model.label} answered ${res.status}${await errorCode(res)}`,
     );
   }
   const raw = (await res.json()) as WorkersAiResult;
@@ -183,6 +183,24 @@ async function callChatCompletions(
       cached: raw.usage?.prompt_tokens_details?.cached_tokens ?? 0,
     },
   };
+}
+
+/**
+ * What a maker's error names, for the log: its code, type and the parameter it objects to.
+ * Never the message (it could echo the prompt; decision 2026-10-14 "We don't read people's
+ * data"). Codes and parameter names are the maker's own words, not anyone's.
+ */
+async function errorCode(res: Response): Promise<string> {
+  try {
+    const body = (await res.json()) as { error?: { code?: unknown; type?: unknown; param?: unknown } };
+    const e = body.error ?? {};
+    const parts = [e.code, e.type, e.param].filter(
+      (x): x is string => typeof x === "string" && x.length < 80,
+    );
+    return parts.length ? ` (${parts.join(", ")})` : "";
+  } catch {
+    return "";
+  }
 }
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
@@ -337,8 +355,6 @@ async function callAnthropic(
     throw new ModelError(`${model.label}: ${e instanceof Error ? e.message : String(e)}`);
   }
   if (!res.ok) {
-    // The status says enough (the body could echo the prompt).
-    await res.body?.cancel();
     throw new ModelError(
       res.status === 429
         ? `${model.label} is busy (rate limit)`
@@ -346,7 +362,7 @@ async function callAnthropic(
           ? `${model.label} refused the key`
           : res.status === 402
             ? `${model.label} has no credit left`
-            : `${model.label} answered ${res.status}`,
+            : `${model.label} answered ${res.status}${await errorCode(res)}`,
     );
   }
   const raw = (await res.json()) as AnthropicResult;

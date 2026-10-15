@@ -45,8 +45,10 @@ const steps = async (userId: string): Promise<string> => {
     .join("\n");
 };
 const vars = env as unknown as Record<string, string | undefined>;
-const paid = !!vars.AI_PAID_GATEWAY?.trim();
+/** Setups (level 2) run with the Cloudflare credit route or a setups model tried on its maker's. */
+const paid = !!vars.AI_PAID_GATEWAY?.trim() || !!vars.AI_SETUP_MODEL?.trim();
 const only = vars.SCORECARD_ONLY?.trim();
+/** core, hard (everyday cases), setups (level 2 only) or all. */
 const suite = vars.SCORECARD_SUITE?.trim() || "all";
 /** Each case this many times: a model that's right once may not be right every time. */
 const repeat = Math.min(5, Math.max(1, Number(vars.SCORECARD_REPEAT) || 1));
@@ -93,16 +95,19 @@ it("scorecard", { timeout: 120 * 60_000 }, async () => {
     (c) =>
       (c.level === 1 || paid) &&
       (!only || only.split(",").includes(c.id)) &&
-      (suite === "all" || (c.suite ?? "core") === suite),
+      (suite === "all" ||
+        (suite === "setups" ? c.level === 2 : c.level === 1 && (c.suite ?? "core") === suite)),
   );
-  // Cerebras's trial allows five calls a minute: space the cases out by what each one used.
-  const paced = /cerebras|gpt-oss/i.test(vars.AI_EVERYDAY_MODEL ?? "");
+  // Cerebras's trial allows five calls a minute, Gemini's free tier about ten: space the
+  // cases out by what each one used.
+  const tried = `${vars.AI_EVERYDAY_MODEL ?? ""} ${vars.AI_SETUP_MODEL ?? ""}`;
+  const paceMs = /cerebras|gpt-oss/i.test(tried) ? 15_000 : /gemini/i.test(tried) ? 7_000 : 0;
   for (let n = 0; n < repeat; n++)
     for (const c of cases) {
       const started = Date.now();
       const row = await runOnce(c);
       rows.push(row);
-      const wait = paced ? 15_000 * Math.max(1, row.calls.length) - (Date.now() - started) : 0;
+      const wait = paceMs ? paceMs * Math.max(1, row.calls.length) - (Date.now() - started) : 0;
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
   console.log("\n=== SCORECARD ===\n" + table(rows) + "\n=== END ===");
@@ -169,7 +174,11 @@ function table(rows: Row[]): string {
         `${per((x) => x.inputTokens)}/${per((x) => x.outputTokens)} | ${miss.replace(/\|/g, "/").replace(/\n/g, " ")} |`,
     );
   }
-  if (!paid) lines.push("", "Level 2 (setups) not run: no AI credit yet (AI_PAID_GATEWAY is empty).");
+  if (!paid)
+    lines.push(
+      "",
+      "Level 2 (setups) not run: no AI credit yet (AI_PAID_GATEWAY and AI_SETUP_MODEL are empty).",
+    );
   lines.push(
     "",
     "Not counted: search embeddings (bge-base, a few neurons per request on the free allowance); everything else is.",

@@ -32,6 +32,10 @@ describe("Claude models", () => {
     expect(tried.map((m) => [m.id, m.route, m.provider])).toEqual([
       ["claude-haiku-5-5", "paid", "anthropic"],
     ]);
+    // A setups candidate the same way, at the setups level only.
+    expect(ids(modelsFor(2, { ...base, setupModel: "gpt-5.4" }))).toEqual(["gpt-5.4"]);
+    expect(ids(modelsFor(1, { ...base, setupModel: "gpt-5.4" }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
+    expect(ids(modelsFor(2, { ...base, openai: true }))).toEqual([]);
     // The same for the others in the comparison.
     for (const id of ["gpt-5.4-nano", "gpt-5.4-mini", "gemini-3.1-flash-lite"]) {
       expect(ids(modelsFor(1, { ...base, everydayModel: id }))).toEqual([id]);

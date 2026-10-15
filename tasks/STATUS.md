@@ -4,6 +4,14 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF44: the everyday comparison done, the setups comparison wired** (decision 2026-10-15 "The comparison's second round").
+  - **Results:** `docs/scorecard/2026-10-15-comparison.md` (Haiku, GPT-5.4 mini, nano, Gemini Flash-Lite, three runs each, next to GLM and Cerebras). Gemini ran on the free tier (rate-limited; a floor).
+  - **Fixes on the way:** `callChatCompletions` and `callAnthropic` name the maker's error code / type / parameter on a refusal (`errorCode`); OpenAI's body sends `reasoning_effort: "none"` (chat completions refuse tools with any other value on GPT-5.4); the runner paces Gemini (7 s a call) as well as Cerebras (15 s).
+  - **Setups round:** `AiSettings.setupModel` (`AI_SETUP_MODEL`), `modelsFor(2)` tries it; `suite=setups` runs the level-2 cases only, and a tried setups model counts as "paid" for them; workflow input `setup_model`; candidates `claude-sonnet-5-5`, `gpt-5.4`, `gemini-3.1-pro-preview`, `gemini-3.6-flash` (ids to confirm on the first run) plus Kimi via `paid_gateway`.
+  - **Prompt 2026-10-15:** a card on the home is a setup → `hand_over` (every model had made the card in the chat).
+  - **Setups results so far:** `docs/scorecard/2026-10-15-setups.md`: Sonnet 5.5 21/21 (7/7 every time, 5.5 s, ≈ ₹2.65 a setup), GPT-5.4 19/21 (drops the second half of a two-part request sometimes, 7.1 s, ≈ ₹2.70). `setup-link` reads every setup card now (the link may come as a second `add_field` card); `suite=core` / `hard` are level-1 cases only.
+  - **Next:** Gemini 3.1 Pro and 3.6 Flash once the owner bills the Google project; Kimi once the `paid` gateway exists; then the owner picks both levels; make the winners ready, retire Cerebras if Haiku wins everyday.
+
 - **HF43: questions that act, second part: the most picked answer sets a plain field** (decision 2026-10-15 "Questions that act, second part").
   - **Shared:** `CreatePollInput.about.apply` (`auto` | `ask`), `ApplyPollInput`; `PollView.about` carries `personal`, `apply`, `applied` (`{option, status}`), `can_apply`.
   - **Space object:** `chatPollField(actor, groupId, shareId, field, options)` now takes personal (yes/no, choice) or plain (choice, text, date, datetime) fields and checks every option against the field (`values`: option → stored value); `applyFromChat(groupId, shareId, owner, fieldId, value, key)` writes as the share's creator with their role.

@@ -18,17 +18,21 @@ on:
         required: false
         default: ""
       suite:
-        description: "Which cases: core (the first 23), hard (the harder 31) or all"
+        description: "Which cases: core (everyday), hard (the harder everyday ones), setups (level 2 only) or all"
         required: false
         default: "all"
         type: choice
-        options: [all, core, hard]
+        options: [all, core, hard, setups]
       repeat:
         description: "Runs of each case (1-5), to see how steady a model is"
         required: false
         default: "1"
       model:
         description: "Everyday model to try instead of the current one (an id from core/assistant/models.ts, e.g. gpt-oss-120b, claude-haiku-5-5, gpt-5.4-nano, gemini-3.1-flash-lite; empty: current)"
+        required: false
+        default: ""
+      setup_model:
+        description: "Setups model to try (level 2; an id from models.ts, e.g. claude-sonnet-5-5, gpt-5.4, gemini-3.1-pro-preview, gemini-3.6-flash; @cf/moonshotai/kimi-k2.6 needs paid_gateway; empty: the current one, needs paid_gateway)"
         required: false
         default: ""
 
@@ -64,6 +68,7 @@ jobs:
           SCORECARD_SUITE: ${{ inputs.suite }}
           SCORECARD_REPEAT: ${{ inputs.repeat }}
           AI_EVERYDAY_MODEL: ${{ inputs.model }}
+          AI_SETUP_MODEL: ${{ inputs.setup_model }}
           # Faster answers (Cerebras); only used when the model input names gpt-oss-120b.
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
           # The makers' keys; each only used when the model input names one of its models.

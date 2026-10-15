@@ -164,15 +164,55 @@ export const MODELS: ModelEntry[] = [
     maxOutput: 3_000,
     ready: true,
   },
+  // The setups comparison (decision 2026-10-15 "Try the small frontier models", second round):
+  // candidates for the setups level, tried through the scorecard (AI_SETUP_MODEL), each on its
+  // maker's credit. Not used by the app until one wins and is made ready. Prices as found
+  // 2026-10-15; a setup answer can be long, so room for it (and for thinking where it counts).
   {
     id: "claude-sonnet-5-5",
     label: "Claude Sonnet 5.5",
-    level: 3,
+    level: 2,
     route: "paid",
     provider: "anthropic",
     price: { input: 2, output: 10 },
-    maxOutput: 3_000,
-    // Called straight once the owner has prepaid credit there (ANTHROPIC_API_KEY).
+    cache: { read: 0.1, write: 1.25 },
+    maxOutput: 8_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gpt-5.4",
+    label: "GPT-5.4",
+    level: 2,
+    route: "paid",
+    provider: "openai",
+    price: { input: 2.5, output: 15 },
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 8_000,
+    ready: false,
+  },
+  {
+    id: "gemini-3.1-pro-preview",
+    label: "Gemini 3.1 Pro",
+    level: 2,
+    route: "paid",
+    provider: "gemini",
+    price: { input: 2, output: 12 },
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 8_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gemini-3.6-flash",
+    label: "Gemini 3.6 Flash",
+    level: 2,
+    route: "paid",
+    provider: "gemini",
+    price: { input: 0.75, output: 3.75 },
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 8_000,
+    effort: "low",
     ready: false,
   },
 ];
@@ -193,6 +233,8 @@ export interface AiSettings {
   fake: boolean;
   /** The scorecard only: try this model (an id from MODELS) for everyday requests. */
   everydayModel?: string | null;
+  /** The scorecard only: try this model for setups (level 2). */
+  setupModel?: string | null;
   /** Faster answers (Cerebras) are set up: its key is in. */
   fast: boolean;
   /** Cerebras calls a day, all people together (its trial credit must last the month). */
@@ -242,7 +284,8 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 
 /** Models a level may use now, in order. `fast`: this person has faster answers (Cerebras first). */
 export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
-  const tried = level === 1 && s.everydayModel ? MODELS.find((m) => m.id === s.everydayModel) : null;
+  const want = level === 1 ? s.everydayModel : level === 2 ? s.setupModel : null;
+  const tried = want ? MODELS.find((m) => m.id === want) : null;
   // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
   // allowance); Cerebras and Anthropic have their own credit.
   if (tried) return [s.paidGateway && tried.provider === "workers-ai" ? { ...tried, route: "paid" } : tried];
