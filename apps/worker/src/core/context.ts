@@ -50,7 +50,7 @@ export interface UserCtx {
   /** What an API token may do; null for a signed-in session (everything). */
   scopes: readonly TokenScope[] | null;
   /** The in-app assistant's models and limits (docs/design/universal.md §10). */
-  ai: { binding?: Ai; settings: AiSettings };
+  ai: { binding?: Ai; settings: AiSettings; cerebrasKey?: string };
   /** Owners' emails (ADMIN_EMAILS, lower case): they always have the assistant. */
   owners: readonly string[];
 }
@@ -128,7 +128,11 @@ export function userCtxFor(
     sealer: sealerFor(env),
     google: googleApp(env),
     scopes,
-    ai: { binding: env.AI, settings: aiSettings(env) },
+    ai: {
+      binding: env.AI,
+      settings: aiSettings(env),
+      cerebrasKey: env.CEREBRAS_API_KEY?.trim() || undefined,
+    },
     owners: (env.ADMIN_EMAILS ?? "")
       .split(",")
       .map((e) => e.trim().toLowerCase())
@@ -147,6 +151,9 @@ export function aiSettings(env: Env): AiSettings {
     usdInr: num(vars.USD_INR, 90),
     fake: vars.AI_FAKE === "1",
     everydayModel: vars.AI_EVERYDAY_MODEL?.trim() || null,
+    fast: !!vars.CEREBRAS_API_KEY?.trim(),
+    fastCallsPerDay: num(vars.AI_FAST_CALLS_PER_DAY, 60),
+    fastCallsPerMinute: num(vars.AI_FAST_CALLS_PER_MINUTE, 4),
   };
 }
 

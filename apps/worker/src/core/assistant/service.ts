@@ -30,7 +30,7 @@ import { operationContext, type AnyOperation, type OpUserCtx } from "../operatio
 import { parse } from "../validation.ts";
 import { spaceOf } from "../spaces/service.ts";
 import { resolvePeople } from "../spaces/shares.ts";
-import { assistantAllowed, requireAssistant } from "./access.ts";
+import { assistantAllowed, fasterAnswers, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
 import type { MemoryRow, StoredMessage } from "./chat-object.ts";
 import {
@@ -699,6 +699,8 @@ async function answerMessage(
   const chat = chatOf(ctx, chatId);
   const uid = ctx.user.id;
   const s = ctx.ai.settings;
+  // Faster answers (Cerebras) for this person: first choice at the everyday level.
+  const fast = await fasterAnswers(ctx);
   let level: Level = (await chat.setupInProgress(uid)) || input.think_harder ? 2 : 1;
   if (level === 2 && !modelsFor(2, s).length) level = 1;
 
@@ -736,7 +738,7 @@ async function answerMessage(
       ...history,
       ...turn,
     ];
-    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`);
+    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast);
     stats.steps++;
     if (!answer) {
       outcome = "no_answer";
@@ -940,13 +942,18 @@ async function ask(
   messages: ChatMessage[],
   tools: ToolSpec[],
   affinity?: string,
+  fast = false,
 ): Promise<{ answer: Awaited<ReturnType<typeof callModel>>; level: Level } | null> {
   const s = ctx.ai.settings;
   const budget = budgetOf(ctx);
   const size = estimateTokens(JSON.stringify(messages)) + estimateTokens(JSON.stringify(tools));
-  for (const m of modelsFor(level, s)) {
+  for (const m of modelsFor(level, s, fast)) {
     let reservation: string | null = null;
-    if (m.route === "free") {
+    if (m.provider === "cerebras") {
+      // Its own prepaid credit and limits, not the Cloudflare cap or the free allowance.
+      if (!ctx.ai.cerebrasKey || !(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute)))
+        continue;
+    } else if (m.route === "free") {
       const used = await budget.neurons();
       if (used + neuronsFor(m, size, m.maxOutput) > FREE_NEURONS_PER_DAY) continue;
     } else {
@@ -961,7 +968,9 @@ async function ask(
     }
     const started = Date.now();
     try {
-      const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity);
+      const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity, {
+        cerebras: ctx.ai.cerebrasKey,
+      });
       await settle(ctx, m, level, reservation, answer.usage, Date.now() - started, "ok");
       return { answer, level };
     } catch (e) {
@@ -983,7 +992,11 @@ async function settle(
   outcome: string,
 ) {
   const budget = budgetOf(ctx);
-  const paise = m.route === "paid" ? costPaise(m, usage.input, usage.output, ctx.ai.settings.usdInr) : 0;
+  // Cerebras's cost is logged to see (its own credit), never reserved against the cap.
+  const paise =
+    m.route === "paid" || m.provider === "cerebras"
+      ? costPaise(m, usage.input, usage.output, ctx.ai.settings.usdInr)
+      : 0;
   const neurons = m.route === "free" ? neuronsFor(m, usage.input, usage.output) : 0;
   // Settle to what the provider reported (a failed call reports nothing and isn't billed).
   if (reservation) await budget.settle(reservation, paise);

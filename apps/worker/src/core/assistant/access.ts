@@ -19,6 +19,14 @@ async function anyOwner(ctx: OpUserCtx): Promise<boolean> {
   return (await ctx.d1.prepare(`select 1 as ok from admins limit 1`).first()) !== null;
 }
 
+/**
+ * Whether this person gets faster answers (Cerebras; decision 2026-10-15): owners and admins
+ * while it runs on trial credit. A per-person switch comes when it's on for everyone.
+ */
+export async function fasterAnswers(ctx: OpUserCtx): Promise<boolean> {
+  return isAdminCtx(ctx);
+}
+
 /** Whether this person may ask the assistant. */
 export async function assistantAllowed(ctx: OpUserCtx): Promise<boolean> {
   if (!(await anyOwner(ctx)) || (await isAdminCtx(ctx))) return true;

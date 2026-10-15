@@ -46,8 +46,11 @@ export async function callModel(
   /** One id per conversation: calls with the same id go to the same model server, which
    *  keeps what it already read of the prompt (prefix caching) and skips reading it again. */
   affinity?: string,
+  /** Providers' own keys (never in settings, which the admin panel and tests read). */
+  keys: { cerebras?: string } = {},
 ): Promise<ModelAnswer> {
   if (settings.fake) return fakeModel(model, messages, tools);
+  if (model.provider === "cerebras") return callCerebras(keys.cerebras, model, messages, tools);
   if (model.provider !== "workers-ai" || !ai) throw new ModelError(`${model.label} isn't available`);
   const gateway = model.route === "free" ? "default" : settings.paidGateway;
   if (!gateway) throw new ModelError(`${model.label} needs AI credit`);
@@ -73,6 +76,65 @@ export async function callModel(
   } catch (e) {
     throw new ModelError(e instanceof Error ? e.message : String(e));
   }
+  const msg = raw.choices?.[0]?.message;
+  if (!msg) throw new ModelError(`${model.label} gave no answer`);
+  return {
+    content: msg.content ?? null,
+    tool_calls: (msg.tool_calls ?? []).filter((t) => t.type === "function"),
+    usage: {
+      input: raw.usage?.prompt_tokens ?? 0,
+      output: raw.usage?.completion_tokens ?? 0,
+      cached: raw.usage?.prompt_tokens_details?.cached_tokens ?? 0,
+    },
+  };
+}
+
+const CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions";
+const CEREBRAS_TIMEOUT_MS = 30_000;
+
+/**
+ * Cerebras (decision 2026-10-15 "Faster answers from Cerebras"): the OpenAI-shaped chat
+ * completions call, straight to Cerebras with the owner's key. Nothing is logged there by us;
+ * a refusal (no credit, too many requests) is a ModelError, so the next model answers instead.
+ */
+async function callCerebras(
+  key: string | undefined,
+  model: ModelEntry,
+  messages: ChatMessage[],
+  tools: ToolSpec[],
+): Promise<ModelAnswer> {
+  if (!key) throw new ModelError(`${model.label} isn't set up`);
+  let res: Response;
+  try {
+    res = await fetch(CEREBRAS_URL, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: model.id,
+        messages,
+        ...(tools.length ? { tools } : {}),
+        max_completion_tokens: model.maxOutput,
+        temperature: 0.2,
+        // GPT-OSS thinks before every answer; low is the least it accepts.
+        reasoning_effort: model.effort === "high" || model.effort === "max" ? "high" : "low",
+      }),
+      signal: AbortSignal.timeout(CEREBRAS_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new ModelError(`${model.label}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!res.ok) {
+    // The status says enough (the body could echo the prompt).
+    await res.body?.cancel();
+    throw new ModelError(
+      res.status === 429
+        ? `${model.label} is busy (rate limit)`
+        : res.status === 402 || res.status === 403
+          ? `${model.label} has no credit left`
+          : `${model.label} answered ${res.status}`,
+    );
+  }
+  const raw = (await res.json()) as WorkersAiResult;
   const msg = raw.choices?.[0]?.message;
   if (!msg) throw new ModelError(`${model.label} gave no answer`);
   return {
