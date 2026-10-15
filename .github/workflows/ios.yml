@@ -210,10 +210,11 @@ jobs:
             shot "$dev" "$label-dark-2-chat"
             go "$dev" "/gallery" 8
             shot "$dev" "$label-dark-6-gallery"
-            # What the app said (no secrets: fake data, cookies and tokens cut), kept for the last
+            # What the app said (no secrets: fake data, cookies and tokens cut; network chatter cut
+            # so every launch's lines survive the tail), kept for the last
             # step: an agent reads the end of the job log, and the screenshots come in between.
             xcrun simctl spawn "$dev" log show --last 12m --style compact \
-              --predicate 'processImagePath CONTAINS "Gigspree"' 2>/dev/null | grep -v -i "cookie\|token" | tail -150 > "$RUNNER_TEMP/applog-$label.txt" || true
+              --predicate 'processImagePath CONTAINS "Gigspree"' 2>/dev/null | grep -v -i "cookie\|token\|nw_protocol\|Task <\|SecTrust\|SecItem\|SecSecurity\|connection_\|event: client" | tail -200 > "$RUNNER_TEMP/applog-$label.txt" || true
             # A crash's reason, if the app died (an unhandled JS exception names its message here).
             {
               xcrun simctl spawn "$dev" log show --last 12m --style compact \

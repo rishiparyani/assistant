@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { isUlid, ulid, ulidTime } from "./ids.ts";
 
 describe("ulid", () => {
@@ -13,6 +13,15 @@ describe("ulid", () => {
     expect(ulidTime(ulid(t))).toBe(t);
     expect(ulid(t) < ulid(t + 1)).toBe(true);
   });
+
+  // The phone's JavaScript engine has no `crypto` global (the Expenses list crash, 2026-10-15).
+  it("works without a crypto global", () => {
+    vi.stubGlobal("crypto", undefined);
+    const ids = new Set(Array.from({ length: 200 }, () => ulid()));
+    expect(ids.size).toBe(200);
+    for (const id of ids) expect(isUlid(id)).toBe(true);
+  });
+  afterEach(() => vi.unstubAllGlobals());
 
   it("rejects bad input", () => {
     expect(isUlid("not-a-ulid")).toBe(false);
