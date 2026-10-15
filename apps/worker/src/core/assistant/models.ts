@@ -12,9 +12,10 @@ export interface ModelEntry {
   label: string;
   level: Level;
   route: Route;
-  /** How it's called: Workers AI through the binding, or Cerebras or Anthropic straight, each
-   *  with the owner's own key and prepaid credit there (decisions 2026-10-15). */
-  provider: "workers-ai" | "anthropic" | "cerebras";
+  /** How it's called: Workers AI through the binding, or a maker straight (Cerebras,
+   *  Anthropic, OpenAI, Google), each with the owner's own key and prepaid credit there
+   *  (decisions 2026-10-15). */
+  provider: "workers-ai" | "anthropic" | "cerebras" | "openai" | "gemini";
   /** USD per million tokens. */
   price: { input: number; output: number };
   /** Workers AI neurons per million tokens (the free allowance is 10,000 a day). */
@@ -111,6 +112,39 @@ export const MODELS: ModelEntry[] = [
     ready: false,
   },
   {
+    id: "gpt-5.4-nano",
+    label: "GPT-5.4 nano",
+    level: 1,
+    route: "paid",
+    provider: "openai",
+    price: { input: 0.2, output: 1.25 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gpt-5.4-mini",
+    label: "GPT-5.4 mini",
+    level: 1,
+    route: "paid",
+    provider: "openai",
+    price: { input: 0.75, output: 4.5 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    label: "Gemini 3.1 Flash-Lite",
+    level: 1,
+    route: "paid",
+    provider: "gemini",
+    price: { input: 0.25, output: 1.5 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
+  {
     id: "@cf/moonshotai/kimi-k2.6",
     label: "Kimi K2.6",
     level: 2,
@@ -157,7 +191,17 @@ export interface AiSettings {
   fastCallsPerMinute: number;
   /** Anthropic is set up: its key is in (its models bill its own prepaid credit). */
   anthropic: boolean;
+  /** OpenAI, the same way. */
+  openai: boolean;
+  /** Google (the Gemini API), the same way. */
+  gemini: boolean;
 }
+
+/** Makers called straight with their own key, each billing its own prepaid credit. */
+export type KeyedProvider = "anthropic" | "openai" | "gemini";
+export const KEYED: readonly KeyedProvider[] = ["anthropic", "openai", "gemini"];
+export const keyed = (m: ModelEntry): KeyedProvider | null =>
+  (KEYED as readonly string[]).includes(m.provider) ? (m.provider as KeyedProvider) : null;
 
 /** Paise for a call of this size (rounded up). */
 export function costPaise(m: ModelEntry, inputTokens: number, outputTokens: number, usdInr: number): number {
@@ -181,8 +225,10 @@ export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry
   if (tried) return [s.paidGateway && tried.provider === "workers-ai" ? { ...tried, route: "paid" } : tried];
   const fastFirst = (m: ModelEntry) => (m.provider === "cerebras" ? 0 : 1);
   // A paid model needs its money: the Cloudflare credit route, or the provider's own key.
-  const funded = (m: ModelEntry) =>
-    m.route === "free" || (m.provider === "anthropic" ? s.anthropic : !!s.paidGateway);
+  const funded = (m: ModelEntry) => {
+    const k = keyed(m);
+    return m.route === "free" || (k ? s[k] : !!s.paidGateway);
+  };
   return MODELS.filter(
     (m) => m.level === level && m.ready && funded(m) && (m.provider !== "cerebras" || (s.fast && fast)),
   ).sort((a, b) => fastFirst(a) - fastFirst(b));

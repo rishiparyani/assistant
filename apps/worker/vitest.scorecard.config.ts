@@ -29,8 +29,10 @@ export default defineConfig({
           // Faster answers (Cerebras): its key. The app's caps are off here (the runner itself
           // spaces cases out for the trial's five a minute), so any suite × repeat can finish.
           CEREBRAS_API_KEY: process.env.CEREBRAS_API_KEY ?? "",
-          // Claude models (Anthropic): its key, for the comparison runs.
+          // The makers' keys, for the comparison runs.
           ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+          OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
+          GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? "",
           AI_FAST_CALLS_PER_DAY: "1000000",
           AI_FAST_CALLS_PER_MINUTE: "1000000",
         },

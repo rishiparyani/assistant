@@ -8,7 +8,7 @@ import { AppError } from "./errors.ts";
 import { decryptSecret, deriveSecret, encryptSecret } from "./crypto.ts";
 import { hashToken } from "./tokens.ts";
 import type { UserCreatedHook } from "./module.ts";
-import type { AiSettings } from "./assistant/models.ts";
+import type { KeyedProvider, AiSettings } from "./assistant/models.ts";
 import { googleApp, type GoogleApp } from "./connectors/google-app.ts";
 
 export interface CtxUser {
@@ -50,7 +50,13 @@ export interface UserCtx {
   /** What an API token may do; null for a signed-in session (everything). */
   scopes: readonly TokenScope[] | null;
   /** The in-app assistant's models and limits (docs/design/universal.md §10). */
-  ai: { binding?: Ai; settings: AiSettings; cerebrasKey?: string; anthropicKey?: string };
+  ai: {
+    binding?: Ai;
+    settings: AiSettings;
+    cerebrasKey?: string;
+    /** The makers' own keys (Anthropic, OpenAI, Google), never in settings. */
+    keys: Partial<Record<KeyedProvider, string>>;
+  };
   /** Owners' emails (ADMIN_EMAILS, lower case): they always have the assistant. */
   owners: readonly string[];
 }
@@ -132,7 +138,11 @@ export function userCtxFor(
       binding: env.AI,
       settings: aiSettings(env),
       cerebrasKey: env.CEREBRAS_API_KEY?.trim() || undefined,
-      anthropicKey: env.ANTHROPIC_API_KEY?.trim() || undefined,
+      keys: {
+        anthropic: env.ANTHROPIC_API_KEY?.trim() || undefined,
+        openai: env.OPENAI_API_KEY?.trim() || undefined,
+        gemini: env.GEMINI_API_KEY?.trim() || undefined,
+      },
     },
     owners: (env.ADMIN_EMAILS ?? "")
       .split(",")
@@ -156,6 +166,8 @@ export function aiSettings(env: Env): AiSettings {
     fastCallsPerDay: num(vars.AI_FAST_CALLS_PER_DAY, 60),
     fastCallsPerMinute: num(vars.AI_FAST_CALLS_PER_MINUTE, 4),
     anthropic: !!vars.ANTHROPIC_API_KEY?.trim(),
+    openai: !!vars.OPENAI_API_KEY?.trim(),
+    gemini: !!vars.GEMINI_API_KEY?.trim(),
   };
 }
 

@@ -90,11 +90,12 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
         tone: settings.fast && v.fast_calls_today >= settings.fastCallsPerDay ? "warn" : "ok",
       },
       {
-        label: "Claude models (Anthropic)",
-        value: settings.anthropic ? "Key in" : "Off",
-        hint: settings.anthropic
-          ? "scorecard comparison only until one wins (docs/scorecard)"
-          : "needs ANTHROPIC_API_KEY (docs/setup.md)",
+        label: "Small frontier models",
+        value:
+          [settings.anthropic && "Anthropic", settings.openai && "OpenAI", settings.gemini && "Google"]
+            .filter(Boolean)
+            .join(", ") || "Off",
+        hint: "keys in; scorecard comparison only until one wins (docs/scorecard)",
         tone: "ok",
       },
     ],

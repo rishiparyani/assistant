@@ -41,6 +41,7 @@ import {
   neuronsFor,
   type Level,
   type ModelEntry,
+  keyed,
 } from "./models.ts";
 
 /** Everyday tools (level 1). No tool here can change a setup, so setups must be handed over. */
@@ -953,7 +954,8 @@ async function ask(
       // Its own prepaid credit and limits, not the Cloudflare cap or the free allowance.
       if (!ctx.ai.cerebrasKey || !(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute)))
         continue;
-    } else if (m.provider === "anthropic" && !ctx.ai.anthropicKey) {
+    } else if (keyed(m) && !ctx.ai.keys[keyed(m)!]) {
+      // A maker called with its own key: nothing to try without it.
       continue;
     } else if (m.route === "free") {
       const used = await budget.neurons();
@@ -972,7 +974,7 @@ async function ask(
     try {
       const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity, {
         cerebras: ctx.ai.cerebrasKey,
-        anthropic: ctx.ai.anthropicKey,
+        ...ctx.ai.keys,
       });
       await settle(ctx, m, level, reservation, answer.usage, Date.now() - started, "ok");
       return { answer, level };
@@ -996,7 +998,7 @@ async function settle(
 ) {
   const budget = budgetOf(ctx);
   // Cerebras's cost is logged to see (its own credit), never reserved against the cap; a paid
-  // model's (Anthropic's own credit too) is reserved and settled against it.
+  // model's (a maker's own credit too) is reserved and settled against it.
   const paise =
     m.route === "paid" || m.provider === "cerebras"
       ? costPaise(m, usage.input, usage.output, ctx.ai.settings.usdInr)

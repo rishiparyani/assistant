@@ -1,7 +1,7 @@
 // Calls one model (docs/design/universal.md §10). Workers AI models go through the AI
 // binding with the gateway of the model's billing route; the answer comes back in the
 // chat-completions shape (text, tool calls, token counts). No logic about what people said.
-import type { AiSettings, ModelEntry } from "./models.ts";
+import type { AiSettings, KeyedProvider, ModelEntry } from "./models.ts";
 import { fakeModel } from "./fake-model.ts";
 
 export interface ChatMessage {
@@ -47,11 +47,12 @@ export async function callModel(
    *  keeps what it already read of the prompt (prefix caching) and skips reading it again. */
   affinity?: string,
   /** Providers' own keys (never in settings, which the admin panel and tests read). */
-  keys: { cerebras?: string; anthropic?: string } = {},
+  keys: Partial<Record<KeyedProvider | "cerebras", string>> = {},
 ): Promise<ModelAnswer> {
   if (settings.fake) return fakeModel(model, messages, tools);
-  if (model.provider === "cerebras") return callCerebras(keys.cerebras, model, messages, tools);
   if (model.provider === "anthropic") return callAnthropic(keys.anthropic, model, messages, tools);
+  if (model.provider === "cerebras" || model.provider === "openai" || model.provider === "gemini")
+    return callChatCompletions(OPENAI_SHAPED[model.provider], keys[model.provider], model, messages, tools);
   if (model.provider !== "workers-ai" || !ai) throw new ModelError(`${model.label} isn't available`);
   const gateway = model.route === "free" ? "default" : settings.paidGateway;
   if (!gateway) throw new ModelError(`${model.label} needs AI credit`);
@@ -90,15 +91,45 @@ export async function callModel(
   };
 }
 
-const CEREBRAS_URL = "https://api.cerebras.ai/v1/chat/completions";
-const CEREBRAS_TIMEOUT_MS = 30_000;
+const CHAT_TIMEOUT_MS = 30_000;
+
+/** Makers that take the OpenAI chat-completions shape straight, with a bearer key. */
+const OPENAI_SHAPED = {
+  cerebras: {
+    url: "https://api.cerebras.ai/v1/chat/completions",
+    // GPT-OSS thinks before every answer; low is the least it accepts. Temperature is allowed.
+    body: (m: ModelEntry) => ({
+      max_completion_tokens: m.maxOutput,
+      temperature: 0.2,
+      reasoning_effort: m.effort === "high" || m.effort === "max" ? "high" : "low",
+    }),
+  },
+  openai: {
+    url: "https://api.openai.com/v1/chat/completions",
+    // Reasoning models take no temperature; thinking at the lowest setting.
+    body: (m: ModelEntry) => ({
+      max_completion_tokens: m.maxOutput,
+      reasoning_effort: m.effort === "high" || m.effort === "max" ? "high" : "low",
+    }),
+  },
+  gemini: {
+    // The Gemini API's OpenAI-shaped endpoint: the same conversation, tools and usage fields.
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    body: (m: ModelEntry) => ({
+      max_tokens: m.maxOutput,
+      reasoning_effort: m.effort === "high" || m.effort === "max" ? "high" : "low",
+    }),
+  },
+} as const;
 
 /**
- * Cerebras (decision 2026-10-15 "Faster answers from Cerebras"): the OpenAI-shaped chat
- * completions call, straight to Cerebras with the owner's key. Nothing is logged there by us;
- * a refusal (no credit, too many requests) is a ModelError, so the next model answers instead.
+ * An OpenAI-shaped chat completions call straight to a maker with the owner's key (Cerebras:
+ * decision 2026-10-15 "Faster answers from Cerebras"; OpenAI and Google: "Try the small
+ * frontier models"). Nothing is logged there by us; a refusal (no credit, too many requests)
+ * is a ModelError, so the next model answers instead.
  */
-async function callCerebras(
+async function callChatCompletions(
+  at: { url: string; body: (m: ModelEntry) => Record<string, unknown> },
   key: string | undefined,
   model: ModelEntry,
   messages: ChatMessage[],
@@ -107,19 +138,16 @@ async function callCerebras(
   if (!key) throw new ModelError(`${model.label} isn't set up`);
   let res: Response;
   try {
-    res = await fetch(CEREBRAS_URL, {
+    res = await fetch(at.url, {
       method: "POST",
       headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: model.id,
         messages,
         ...(tools.length ? { tools } : {}),
-        max_completion_tokens: model.maxOutput,
-        temperature: 0.2,
-        // GPT-OSS thinks before every answer; low is the least it accepts.
-        reasoning_effort: model.effort === "high" || model.effort === "max" ? "high" : "low",
+        ...at.body(model),
       }),
-      signal: AbortSignal.timeout(CEREBRAS_TIMEOUT_MS),
+      signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
     });
   } catch (e) {
     throw new ModelError(`${model.label}: ${e instanceof Error ? e.message : String(e)}`);
@@ -130,9 +158,11 @@ async function callCerebras(
     throw new ModelError(
       res.status === 429
         ? `${model.label} is busy (rate limit)`
-        : res.status === 402 || res.status === 403
-          ? `${model.label} has no credit left`
-          : `${model.label} answered ${res.status}`,
+        : res.status === 401
+          ? `${model.label} refused the key`
+          : res.status === 402 || res.status === 403
+            ? `${model.label} has no credit left`
+            : `${model.label} answered ${res.status}`,
     );
   }
   const raw = (await res.json()) as WorkersAiResult;
