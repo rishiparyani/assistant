@@ -60,6 +60,13 @@ const EVERYDAY = [
   "add_record",
   "update_record",
   "delete_record",
+  // Many records at once, by a value or a formula (decision 2026-10-15 "Toward Excel", 2).
+  "preview_change",
+  "change_records",
+  // CSV in and out (decision 2026-10-15 "Toward Excel", 3); the app uploads the file.
+  "preview_import",
+  "import_records",
+  "export_csv",
   "link_records",
   "unlink_records",
   "list_views",
@@ -107,7 +114,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-15";
+export const PROMPT_VERSION = "2026-10-15b";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -244,6 +251,7 @@ function systemPrompt(
     setupSummary(cols) || "(none yet)",
     ...(apps.length ? ["Apps they have:", ...apps] : []),
     "- If they ask for a note, a reminder, an event or an expense and that list isn't there yet, start it with start_list (it's made at once and shown to them), then add the record.",
+    "- To change several records the same way (raise every fee by 10%, mark all of last month paid), use change_records once with filters and a value or a formula: one card for all of them, never one card per record. A file they uploaded goes in with import_records (preview_import first when unsure where columns go).",
     "- Someone new (no collections yet) telling you about their week: start the everyday lists that fit what they said (start_list: reminders, expenses, events, notes), each comes with a card on their home, then say what's there now and ask what else they keep forgetting or paying for. Don't ask them to design anything.",
     "Rules:",
     '- Money in rupees ("450" or "₹450"). Dates as YYYY-MM-DD; date and time as YYYY-MM-DDTHH:MM in India time.',

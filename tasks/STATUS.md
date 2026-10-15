@@ -33,7 +33,7 @@ _Updated: 2026-10-15_
 - **HF46: bulk changes by expression (decision 2026-10-15 "Toward Excel", slice 2 of 6).**
   - **Shared:** `ChangeRecordsInput` (`filters`, `search`, `set: [{field, value} | {field, formula}]`), `ChangePreview`, `ChangeResult`, `MAX_CHANGE_RECORDS` (500).
   - **Server:** `previewChange` / `changeRecords` on the space object (`planChange` types each formula with the shared `formulaTyper`, `changeValues` works it out per record, `changeExample` for the card); operations `core.preview_change` (read) and `core.change_records` (write, always confirmed); the assistant's confirm card runs the preview and says "Change N records in …" with the words and the first three examples; no match → the model is told, no card.
-  - **Tests:** `bulk-change.test.ts` (2). Scorecard case `bulk-raise` (hard).
+  - **Tests:** `bulk-change.test.ts` (2). Scorecard case `bulk-raise` (hard). The first real run showed the tools weren't offered to the model at all (not in `EVERYDAY`): now `preview_change`, `change_records`, `preview_import`, `import_records` and `export_csv` are everyday tools, and the prompt (2026-10-15b) says one card for all of them, never one per record.
   - **Not in this slice:** a bulk change offline (it's online-only through the chat: the preview needs the server).
 
 - **HF45: formulas grow up (decision 2026-10-15 "Toward Excel", slice 1 of 6).**
