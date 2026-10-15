@@ -89,6 +89,15 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
           : "needs CEREBRAS_API_KEY (docs/setup.md)",
         tone: settings.fast && v.fast_calls_today >= settings.fastCallsPerDay ? "warn" : "ok",
       },
+      {
+        label: "Small frontier models",
+        value:
+          [settings.anthropic && "Anthropic", settings.openai && "OpenAI", settings.gemini && "Google"]
+            .filter(Boolean)
+            .join(", ") || "Off",
+        hint: "keys in; scorecard comparison only until one wins (docs/scorecard)",
+        tone: "ok",
+      },
     ],
   };
 }

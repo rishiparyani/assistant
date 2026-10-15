@@ -28,7 +28,7 @@ on:
         required: false
         default: "1"
       model:
-        description: "Everyday model to try instead of the current one (an id from core/assistant/models.ts, e.g. gpt-oss-120b for Cerebras; empty: current)"
+        description: "Everyday model to try instead of the current one (an id from core/assistant/models.ts, e.g. gpt-oss-120b, claude-haiku-5-5, gpt-5.4-nano, gemini-3.1-flash-lite; empty: current)"
         required: false
         default: ""
 
@@ -66,6 +66,10 @@ jobs:
           AI_EVERYDAY_MODEL: ${{ inputs.model }}
           # Faster answers (Cerebras); only used when the model input names gpt-oss-120b.
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          # The makers' keys; each only used when the model input names one of its models.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         # Only the table and per-case lines are printed (fake data); the token stays in env.
         run: |
           set -o pipefail

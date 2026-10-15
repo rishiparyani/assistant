@@ -12,11 +12,15 @@ export interface ModelEntry {
   label: string;
   level: Level;
   route: Route;
-  /** How it's called: Workers AI through the binding, Cerebras straight (its own prepaid
-   *  credit, not the Cloudflare cap), or a provider through the gateway. */
-  provider: "workers-ai" | "anthropic" | "cerebras";
+  /** How it's called: Workers AI through the binding, or a maker straight (Cerebras,
+   *  Anthropic, OpenAI, Google), each with the owner's own key and prepaid credit there
+   *  (decisions 2026-10-15). */
+  provider: "workers-ai" | "anthropic" | "cerebras" | "openai" | "gemini";
   /** USD per million tokens. */
   price: { input: number; output: number };
+  /** What a cached input token costs, as a share of the input price: read (reused) and write
+   *  (stored for next time). Makers without a discount leave it out (every token at full price). */
+  cache?: { read: number; write: number };
   /** Workers AI neurons per million tokens (the free allowance is 10,000 a day). */
   neurons?: { input: number; output: number };
   maxOutput: number;
@@ -95,6 +99,61 @@ export const MODELS: ModelEntry[] = [
     effort: "low",
     ready: true,
   },
+  // The comparison (decision 2026-10-15 "Try the small frontier models"): the makers' smallest
+  // current models at the everyday level, tried through the scorecard (AI_EVERYDAY_MODEL), each
+  // on its own prepaid credit and key. Not used by the app until one wins and is made ready.
+  {
+    id: "claude-haiku-5-5",
+    label: "Claude Haiku 5.5",
+    level: 1,
+    route: "paid",
+    provider: "anthropic",
+    price: { input: 0.1, output: 0.5 },
+    // Anthropic: a cache read is a tenth of the input price, a (five-minute) write 1.25 times.
+    cache: { read: 0.1, write: 1.25 },
+    // Its thinking counts as output; room for it and the answer.
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gpt-5.4-nano",
+    label: "GPT-5.4 nano",
+    level: 1,
+    route: "paid",
+    provider: "openai",
+    price: { input: 0.2, output: 1.25 },
+    // OpenAI: cached input at a tenth, no charge to write.
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gpt-5.4-mini",
+    label: "GPT-5.4 mini",
+    level: 1,
+    route: "paid",
+    provider: "openai",
+    price: { input: 0.75, output: 4.5 },
+    cache: { read: 0.1, write: 1 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
+  {
+    id: "gemini-3.1-flash-lite",
+    label: "Gemini 3.1 Flash-Lite",
+    level: 1,
+    route: "paid",
+    provider: "gemini",
+    price: { input: 0.25, output: 1.5 },
+    // Gemini's implicit cache: a quarter of the input price for reused tokens.
+    cache: { read: 0.25, write: 1 },
+    maxOutput: 4_000,
+    effort: "low",
+    ready: false,
+  },
   {
     id: "@cf/moonshotai/kimi-k2.6",
     label: "Kimi K2.6",
@@ -113,7 +172,7 @@ export const MODELS: ModelEntry[] = [
     provider: "anthropic",
     price: { input: 2, output: 10 },
     maxOutput: 3_000,
-    // Called through AI Gateway with the official SDK once prepaid credit is set up.
+    // Called straight once the owner has prepaid credit there (ANTHROPIC_API_KEY).
     ready: false,
   },
 ];
@@ -140,11 +199,36 @@ export interface AiSettings {
   fastCallsPerDay: number;
   /** And a minute (the trial allows five). */
   fastCallsPerMinute: number;
+  /** Anthropic is set up: its key is in (its models bill its own prepaid credit). */
+  anthropic: boolean;
+  /** OpenAI, the same way. */
+  openai: boolean;
+  /** Google (the Gemini API), the same way. */
+  gemini: boolean;
 }
 
-/** Paise for a call of this size (rounded up). */
-export function costPaise(m: ModelEntry, inputTokens: number, outputTokens: number, usdInr: number): number {
-  const usd = (inputTokens * m.price.input + outputTokens * m.price.output) / 1_000_000;
+/** Makers called straight with their own key, each billing its own prepaid credit. */
+export type KeyedProvider = "anthropic" | "openai" | "gemini";
+export const KEYED: readonly KeyedProvider[] = ["anthropic", "openai", "gemini"];
+export const keyed = (m: ModelEntry): KeyedProvider | null =>
+  (KEYED as readonly string[]).includes(m.provider) ? (m.provider as KeyedProvider) : null;
+
+/** A call's token counts: input is the whole prompt; cached and written are the parts of it the
+ *  maker priced differently (a reuse of its prompt cache, a store into it). */
+export interface Usage {
+  input: number;
+  output: number;
+  cached?: number;
+  cacheWrite?: number;
+}
+
+/** Paise for a call of this size (rounded up), at the maker's cache prices where it has them. */
+export function costPaise(m: ModelEntry, u: Usage, usdInr: number): number {
+  const cached = m.cache ? Math.min(u.cached ?? 0, u.input) : 0;
+  const written = m.cache ? Math.min(u.cacheWrite ?? 0, u.input - cached) : 0;
+  const fresh = u.input - cached - written;
+  const inputUsd = (fresh + cached * (m.cache?.read ?? 1) + written * (m.cache?.write ?? 1)) * m.price.input;
+  const usd = (inputUsd + u.output * m.price.output) / 1_000_000;
   return Math.ceil(usd * usdInr * 100);
 }
 
@@ -160,14 +244,15 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
   const tried = level === 1 && s.everydayModel ? MODELS.find((m) => m.id === s.everydayModel) : null;
   // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
-  // allowance); Cerebras has its own credit.
+  // allowance); Cerebras and Anthropic have their own credit.
   if (tried) return [s.paidGateway && tried.provider === "workers-ai" ? { ...tried, route: "paid" } : tried];
   const fastFirst = (m: ModelEntry) => (m.provider === "cerebras" ? 0 : 1);
+  // A paid model needs its money: the Cloudflare credit route, or the provider's own key.
+  const funded = (m: ModelEntry) => {
+    const k = keyed(m);
+    return m.route === "free" || (k ? s[k] : !!s.paidGateway);
+  };
   return MODELS.filter(
-    (m) =>
-      m.level === level &&
-      m.ready &&
-      (m.route === "free" || !!s.paidGateway) &&
-      (m.provider !== "cerebras" || (s.fast && fast)),
+    (m) => m.level === level && m.ready && funded(m) && (m.provider !== "cerebras" || (s.fast && fast)),
   ).sort((a, b) => fastFirst(a) - fastFirst(b));
 }

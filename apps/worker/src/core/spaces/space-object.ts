@@ -3747,6 +3747,12 @@ export class SpaceObject extends DurableObject<Env> {
       if (v === null) throw new ObjectError("validation_failed", `${f.name}: a value is needed`);
       return this.indexOf(f.type, Array.isArray(v) ? v[0]! : v)[0]![numeric ? 0 : 1];
     };
+    // A yes/no that was never set is a no: "Done = false" finds the reminders never ticked,
+    // not only the ones someone unticked.
+    if (f.type === "boolean" && (op === "eq" || op === "ne")) {
+      const yes = (op === "eq") === (value(flt.value) === 1);
+      return [yes ? sub(`num = 1`) : notSub(`num = 1`), [f.id]];
+    }
     switch (op) {
       case "eq":
         return [sub(`${col} = ?`), [f.id, value(flt.value)]];

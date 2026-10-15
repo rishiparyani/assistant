@@ -41,6 +41,8 @@ import {
   neuronsFor,
   type Level,
   type ModelEntry,
+  keyed,
+  type Usage,
 } from "./models.ts";
 
 /** Everyday tools (level 1). No tool here can change a setup, so setups must be handed over. */
@@ -749,14 +751,15 @@ async function answerMessage(
       );
       break;
     }
-    const { content, tool_calls } = answer.answer;
+    const { content, tool_calls, opaque } = answer.answer;
     if (!tool_calls.length) {
       reply(content?.trim() || "OK.", answer.level);
       break;
     }
-    const callMsg: ChatMessage = { role: "assistant", content, tool_calls };
+    const callMsg: ChatMessage = { role: "assistant", content, tool_calls, ...(opaque ? { opaque } : {}) };
     turn.push(callMsg);
-    rows.push({ ...callMsg, shown: null });
+    // Stored without the maker's opaque blocks: only this turn's tool results need them.
+    rows.push({ role: "assistant", content, tool_calls, shown: null });
     for (const [i, call] of tool_calls.entries()) {
       // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
       const result = await runTool(
@@ -953,13 +956,16 @@ async function ask(
       // Its own prepaid credit and limits, not the Cloudflare cap or the free allowance.
       if (!ctx.ai.cerebrasKey || !(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute)))
         continue;
+    } else if (keyed(m) && !ctx.ai.keys[keyed(m)!]) {
+      // A maker called with its own key: nothing to try without it.
+      continue;
     } else if (m.route === "free") {
       const used = await budget.neurons();
       if (used + neuronsFor(m, size, m.maxOutput) > FREE_NEURONS_PER_DAY) continue;
     } else {
       const r = await budget.reserve(
         ctx.user.id,
-        costPaise(m, size, m.maxOutput, s.usdInr),
+        costPaise(m, { input: size, output: m.maxOutput }, s.usdInr),
         s.capPaise,
         s.personCapPaise,
       );
@@ -970,6 +976,7 @@ async function ask(
     try {
       const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity, {
         cerebras: ctx.ai.cerebrasKey,
+        ...ctx.ai.keys,
       });
       await settle(ctx, m, level, reservation, answer.usage, Date.now() - started, "ok");
       return { answer, level };
@@ -987,16 +994,15 @@ async function settle(
   m: ModelEntry,
   level: Level,
   reservation: string | null,
-  usage: { input: number; output: number; cached?: number },
+  usage: Usage,
   ms: number,
   outcome: string,
 ) {
   const budget = budgetOf(ctx);
-  // Cerebras's cost is logged to see (its own credit), never reserved against the cap.
+  // Cerebras's cost is logged to see (its own credit), never reserved against the cap; a paid
+  // model's (a maker's own credit too) is reserved and settled against it.
   const paise =
-    m.route === "paid" || m.provider === "cerebras"
-      ? costPaise(m, usage.input, usage.output, ctx.ai.settings.usdInr)
-      : 0;
+    m.route === "paid" || m.provider === "cerebras" ? costPaise(m, usage, ctx.ai.settings.usdInr) : 0;
   const neurons = m.route === "free" ? neuronsFor(m, usage.input, usage.output) : 0;
   // Settle to what the provider reported (a failed call reports nothing and isn't billed).
   if (reservation) await budget.settle(reservation, paise);

@@ -1,8 +1,15 @@
 # Status
 
-_Updated: 2026-10-14_
+_Updated: 2026-10-15_
 
 ## Last done
+
+- **HF42: the small frontier models wired for the everyday comparison** (decision 2026-10-15 "Try the small frontier models"). `models.ts`: `claude-haiku-5-5` (Anthropic), `gpt-5.4-nano` and `gpt-5.4-mini` (OpenAI), `gemini-3.1-flash-lite` (Google), all level 1, `route: paid`, `effort: low`, `ready: false` (the scorecard only); `AiSettings.anthropic/openai/gemini`, `KEYED`/`keyed`, `modelsFor` funds a keyed maker's model by its key; `client.ts` `callAnthropic` + `toAnthropic`/`fromAnthropic` (Messages API, cached system prompt, tool_use/tool_result) and `callChatCompletions` (one OpenAI-shaped call for Cerebras, OpenAI and Gemini's OpenAI endpoint, per-maker body); `service.ts` skips a keyed model without its key, reserves it against the cap; `context.ts` `ai.keys`; secrets `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` in the deploy and Scorecard workflows and the scorecard config; admin stat; privacy page line. `anthropic-model.test.ts` (2).
+  - **Haiku, 3 runs each (2026-10-15):** core 57/60, hard 98/102, Hinglish 33/33, median 3.4 s, slowest 9.3 s, ~90% of input from the cache: `docs/scorecard/2026-10-15-haiku.md`. Misses: `handover-card` (made the card itself; maybe the case is wrong), `open-reminders` (`Done = false` finds nothing: likely a tool bug, Cerebras did the same), `tick-two` once in three.
+  - **Codex on PR #137, fixed:** Anthropic's thinking blocks come back opaque (`ModelAnswer.opaque`) and go out again first in the same turn's assistant message (`ChatMessage.opaque`, never stored); cached input is priced at the maker's cache rates (`ModelEntry.cache`, `costPaise(m, usage, usdInr)` with `Usage.cached/cacheWrite`): Anthropic read 0.1×, write 1.25×; OpenAI read 0.1×; Gemini read 0.25×.
+  - **Gotcha:** Anthropic reports fresh, cached and cache-write input tokens apart; `fromAnthropic` adds them up for `input` (the router's total) and keeps `cached` / `cacheWrite` for the price. Per-request input came out at ~27k vs ~11k on Cerebras for the same prompt: check against the Anthropic console's usage page before trusting the token column. The printed cost of these two runs priced all input in full (≈ ₹3.5 and ₹6 a run at the cache rates).
+  - **Fixed from the runs:** a yes/no never set is a no in find filters (decision 2026-10-15 "A yes/no never set is a no"), so `open-reminders` no longer penalises a model for `Done = false`; and `quality.test.ts` no longer trips on random digits in keys.
+  - **Next:** OpenAI and Gemini keys from the owner (names above; model ids to confirm on the first run), then the same two suites × 3 on each; the owner picks the everyday default from the table.
 
 - **HF41: questions that act, first part** (decision 2026-10-15 "Questions that act").
   - **Group object** (migration: `polls.about_json`, `poll_out`): `createPoll(…, about)` (admins or the pin's owner), `vote` queues the answer, the alarm's `syncAnswers` sends each in order to the record's space with a key; `PollView.about`.

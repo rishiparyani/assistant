@@ -116,6 +116,10 @@ jobs:
           BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
           # Faster answers from Cerebras (docs/setup.md); optional.
           CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          # The small frontier models, each on prepaid credit at its maker (docs/setup.md); optional.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
@@ -139,6 +143,15 @@ jobs:
           fi
           if [ -n "$CEREBRAS_API_KEY" ]; then
             printf '%s' "$CEREBRAS_API_KEY" | pnpm exec wrangler secret put CEREBRAS_API_KEY --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$ANTHROPIC_API_KEY" ]; then
+            printf '%s' "$ANTHROPIC_API_KEY" | pnpm exec wrangler secret put ANTHROPIC_API_KEY --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$OPENAI_API_KEY" ]; then
+            printf '%s' "$OPENAI_API_KEY" | pnpm exec wrangler secret put OPENAI_API_KEY --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$GEMINI_API_KEY" ]; then
+            printf '%s' "$GEMINI_API_KEY" | pnpm exec wrangler secret put GEMINI_API_KEY --name "$WORKER_NAME" > /dev/null
           fi
           # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
           if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then
