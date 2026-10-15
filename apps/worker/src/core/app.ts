@@ -6,6 +6,7 @@ import type { AppEnv } from "./context.ts";
 import { liveOf } from "./live/live-object.ts";
 import { AppError } from "./errors.ts";
 import { requireUser, userCtxFor } from "./context.ts";
+import { spaceOf } from "./spaces/service.ts";
 import { getAuth } from "./auth/auth.ts";
 import { MCP_PATH, OAUTH_SCOPES } from "./auth/options.ts";
 import { issuer, mcpUrl, mcpUserId, resourceMetadataUrl } from "./mcp/auth.ts";
@@ -14,7 +15,7 @@ import { toAppError } from "./objects/errors.ts";
 import { authRoutes } from "./auth/routes.ts";
 import { connectorOperations, connectorRoutes } from "./connectors/operations.ts";
 import { adminRoutes } from "./admin/routes.ts";
-import { registerOperations, type AnyOperation } from "./operations.ts";
+import { operationContext, registerOperations, type AnyOperation } from "./operations.ts";
 import { coreOperations } from "./me.ts";
 import { spaceOperations } from "./spaces/operations.ts";
 import { shareOperations } from "./spaces/share-operations.ts";
@@ -127,6 +128,25 @@ export function createApp({ modules }: AppOptions) {
     if (c.req.header("upgrade")?.toLowerCase() !== "websocket")
       return c.json({ error: { code: "upgrade_required", message: "Use a WebSocket" } }, 426);
     return liveOf(c.env, c.get("userCtx").user.id).fetch(c.req.raw);
+  });
+
+  // A list or a view as a CSV file for the browser (the same export as the export_csv tool).
+  app.get("/api/export/:file", requireUser, async (c) => {
+    const file = c.req.param("file");
+    if (!file.endsWith(".csv")) return c.text("Not found", 404);
+    const q = c.req.query();
+    const op = operations.find((o) => o.id === "core.export_csv")!;
+    const { stub, actor } = await spaceOf(operationContext(op, c.get("userCtx")), q.space || undefined);
+    const out = await stub.exportCsv(actor, {
+      collection: decodeURIComponent(file.slice(0, -4)),
+      view: q.view || undefined,
+      filters: [],
+    });
+    return c.body(`\uFEFF${out.csv}`, 200, {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${out.name.replace(/[^\x20-\x7e]+/g, "_").replace(/"/g, "")}"`,
+      "cache-control": "no-store",
+    });
   });
 
   // Private calendar feed (T08): no sign-in, the secret link is the key. 404 for

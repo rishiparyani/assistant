@@ -4,6 +4,13 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF47: CSV in and out (decision 2026-10-15 "Toward Excel", slice 3 of 6).**
+  - **Shared:** `csv.ts` (`parseCsv` RFC 4180 with tabs, `toCsv`, `guessType`, `readDate` dd/mm/yyyy, `readCell` ₹/commas/haan/“a; b”), `UploadImportInput`, `ImportRecordsInput` (`columns: [{column, field | add}]`, `skip_bad`), `ImportPreview`, `ImportResult`, `ExportCsvInput`, `ExportResult`, `MAX_IMPORT_ROWS` 5,000.
+  - **Server:** space table `imports` (a day); `uploadImport` (columns, a guess and samples per column, never the rows to the model), `previewImport` (the plan runs in a transaction that's rolled back), `importRecords` (new list or new fields allowed: `canArrange`; all or nothing unless `skip_bad`; the upload is deleted after), `exportCsv` (a list or a view, values as people read them, links by title); operations `core.upload_import`, `core.preview_import`, `core.import_records` (confirm), `core.export_csv`; `GET /api/export/<collection>.csv?view=` for the browser (BOM for Excel); the assistant's confirm card says "Add N rows to …" with the mapping, three sample rows and the rows that can't be read.
+  - **Phone/web app:** a + on the chat bar opens `ImportSheet` (a file picker on the website, paste anywhere); after the upload the chat says the file's columns and row count and asks the assistant to propose the import. Export is by chat (the tool) or the file link; no screen button yet.
+  - **Tests:** `csv.test.ts` (3), `import-export.test.ts` (2).
+  - **Not yet:** a native file picker (needs expo-document-picker: a dependency to decide), export buttons on list screens, importing into link fields by title is supported but person fields take names only.
+
 - **HF46: bulk changes by expression (decision 2026-10-15 "Toward Excel", slice 2 of 6).**
   - **Shared:** `ChangeRecordsInput` (`filters`, `search`, `set: [{field, value} | {field, formula}]`), `ChangePreview`, `ChangeResult`, `MAX_CHANGE_RECORDS` (500).
   - **Server:** `previewChange` / `changeRecords` on the space object (`planChange` types each formula with the shared `formulaTyper`, `changeValues` works it out per record, `changeExample` for the card); operations `core.preview_change` (read) and `core.change_records` (write, always confirmed); the assistant's confirm card runs the preview and says "Change N records in …" with the words and the first three examples; no match → the model is told, no card.

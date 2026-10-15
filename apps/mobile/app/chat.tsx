@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { ChatItem, ChatView, CollectionView, HistoryItem } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard } from "@/components/LiveCard";
+import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
@@ -41,6 +42,8 @@ export default function Chat() {
   // What the last reply changed (shown under it, with Undo), and the full list (the sheet).
   const [changed, setChanged] = useState<HistoryItem[]>([]);
   const [showChanges, setShowChanges] = useState(false);
+  // A CSV for the assistant to put somewhere (decision 2026-10-15 "Toward Excel", 3).
+  const [showImport, setShowImport] = useState(false);
   const list = useRef<FlatList<ChatItem>>(null);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
@@ -206,7 +209,24 @@ export default function Chat() {
             </Pressable>
           )}
         />
+        <ImportSheet
+          open={showImport}
+          onClose={() => setShowImport(false)}
+          onUploaded={(file) => {
+            setShowImport(false);
+            void say(uploadedWords(file));
+          }}
+        />
         <View style={[s.compose, { paddingBottom: room ? 8 : insets.bottom + 8 }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add a CSV file"
+            onPress={() => setShowImport(true)}
+            disabled={busy}
+            style={[s.attach, { borderColor: t.sep, backgroundColor: t.cell }]}
+          >
+            <Text style={{ color: t.fg2, fontWeight: "800", fontSize: 20, lineHeight: 22 }}>+</Text>
+          </Pressable>
           <TextInput
             autoFocus={!!ask}
             accessibilityLabel="Message Gigspree"
@@ -410,4 +430,12 @@ const s = StyleSheet.create({
     fontSize: 16,
   },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  attach: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

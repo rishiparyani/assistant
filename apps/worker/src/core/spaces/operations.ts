@@ -9,6 +9,9 @@ import {
   AddRecordInput,
   ChangesInput,
   ChangeRecordsInput,
+  UploadImportInput,
+  ImportRecordsInput,
+  ExportCsvInput,
   CollectionRef,
   CreateCollectionInput,
   FindRecordsInput,
@@ -285,6 +288,59 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.changeRecords(actor, ctx.idempotencyKey, i);
+    },
+  }),
+  defineOperation({
+    id: "core.upload_import",
+    tool: "upload_import",
+    description:
+      "Keep a CSV file for a day (the app sends it; the first line names the columns) and say what's in it: columns with a guess at their kind and sample cells, and the row count.",
+    kind: "write",
+    http: { method: "POST", path: "/imports", status: 201 },
+    input: UploadImportInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.uploadImport(actor, ctx.idempotencyKey, { name: i.name, csv: i.csv });
+    },
+  }),
+  defineOperation({
+    id: "core.preview_import",
+    tool: "preview_import",
+    description:
+      "What import_records would do with an uploaded file: into which list (new or existing), which column fills which field (new fields too), the first records, and the rows that can't be read. Nothing changes.",
+    kind: "read",
+    http: { method: "POST", path: "/imports/preview" },
+    input: ImportRecordsInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.previewImport(actor, i);
+    },
+  }),
+  defineOperation({
+    id: "core.import_records",
+    tool: "import_records",
+    description:
+      "Add an uploaded file's rows to a list, one record per row: map each column to a field of the list or to a new field (add); name a list that doesn't exist with add for every column to make it. The person confirms a card with the count, the mapping and sample rows; all or nothing unless skip_bad.",
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/imports/run", status: 201 },
+    input: ImportRecordsInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.importRecords(actor, ctx.idempotencyKey, i);
+    },
+  }),
+  defineOperation({
+    id: "core.export_csv",
+    tool: "export_csv",
+    description:
+      "A list, or one of its saved views, as CSV text (field names first; money in rupees, dates as yyyy-mm-dd, links by title), up to 5,000 rows. The app offers it as a file (GET /api/export/<collection>.csv?view=…).",
+    kind: "read",
+    http: { method: "POST", path: "/collections/:collection/export" },
+    input: ExportCsvInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.exportCsv(actor, i);
     },
   }),
   defineOperation({

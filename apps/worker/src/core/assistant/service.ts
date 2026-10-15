@@ -7,6 +7,7 @@ import { connectedKinds } from "../connectors/service.ts";
 import { z } from "zod";
 import {
   type ChangeRecordsSpec,
+  type ImportSpec,
   MakeSetupInput,
   nameKey,
   setupWords,
@@ -918,6 +919,28 @@ async function runTool(
         shown = { ...args, people: people.map((p) => p.name) };
       }
       let card = { tool: name, args, ...describe(name, shown, target) };
+      // An import: the card says what list, what goes where, the first rows, what can't be read.
+      if (name === "import_records") {
+        const spec = input as ImportSpec;
+        const { stub, actor } = await spaceOf(ctx, spec.space);
+        const p = await stub.previewImport(actor, spec);
+        card = {
+          tool: name,
+          args,
+          title: `Add ${p.rows - (spec.skip_bad ? p.bad : 0)} row${p.rows === 1 ? "" : "s"} to ${p.into}`,
+          details: [
+            ...p.words,
+            ...p.sample.map((e) => `e.g. ${e}`),
+            ...(p.bad
+              ? [
+                  spec.skip_bad
+                    ? `${p.bad} row${p.bad === 1 ? "" : "s"} left out: ${p.problems.join("; ")}`
+                    : `${p.bad} row${p.bad === 1 ? " can't" : "s can't"} be read (the import stops): ${p.problems.join("; ")}`,
+                ]
+              : []),
+          ],
+        };
+      }
       // A bulk change: the card says how many records and shows the first few, checked now.
       if (name === "change_records") {
         const spec = input as ChangeRecordsSpec;

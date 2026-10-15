@@ -7,6 +7,7 @@ import type { RuleView } from "./rules.ts";
 import { isDateOnly, toUtcIso } from "./dates.ts";
 import { formatINR, parseINR } from "./money.ts";
 import { FORMULA_HELP } from "./formula.ts";
+import { MAX_IMPORT_CHARS } from "./csv.ts";
 
 export const SPACE_LIMITS = {
   collections: 200,
@@ -411,6 +412,73 @@ export const FilterInput = z.object({
     ),
 });
 export type Filter = z.infer<typeof FilterInput>;
+
+// --- CSV in and out (decision 2026-10-15 "Toward Excel", 3) ------------------------------
+
+/** A CSV the app uploaded, kept in the space for a day so the assistant can import it. */
+export const UploadImportInput = SpaceRef.extend({
+  name: z.string().trim().min(1).max(120).describe("The file's name, e.g. expenses.csv"),
+  csv: z.string().min(1).max(MAX_IMPORT_CHARS),
+});
+export interface ImportView {
+  id: string;
+  name: string;
+  rows: number;
+  columns: { name: string; guess: string; sample: string[] }[];
+  /** When it's dropped if nothing's done with it. */
+  expires_at: string;
+}
+
+export const ImportColumnInput = z.object({
+  column: z.string().trim().min(1).max(200).describe("A column of the file, by name"),
+  field: nameOrId("Field").optional().describe("The field of the list it fills (name or id)"),
+  add: FieldInput.optional().describe("Or a new field to make for it (name, type, options)"),
+});
+
+/** Which columns go where; a column with neither field nor add is left out. */
+export const ImportRecordsInput = CollectionRef.extend({
+  import_id: z.string().trim().min(1).max(40).describe("The upload's id (upload_import)"),
+  columns: z.array(ImportColumnInput).min(1).max(SPACE_LIMITS.fieldsPerCollection),
+  skip_bad: z
+    .boolean()
+    .default(false)
+    .describe("Leave out rows that can't be read instead of refusing the whole file"),
+});
+export type ImportSpec = z.infer<typeof ImportRecordsInput>;
+
+export interface ImportPreview {
+  rows: number;
+  /** "Expenses (new list)" or "Expenses". */
+  into: string;
+  words: string[];
+  /** The first few records as they'd be saved. */
+  sample: string[];
+  /** The first few rows that can't be read ("row 7: Amount: expected an amount"). */
+  problems: string[];
+  /** How many rows have a problem. */
+  bad: number;
+}
+export interface ImportResult {
+  added: number;
+  skipped: number;
+  collection: CollectionView;
+}
+
+export const ExportCsvInput = CollectionRef.extend({
+  view: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("A saved view (its filters and sort), by name or id"),
+  filters: z.array(FilterInput).max(10).default([]),
+});
+export interface ExportResult {
+  name: string;
+  rows: number;
+  csv: string;
+}
 
 /** At most this many records change in one bulk change; more fails ("narrow it"). */
 export const MAX_CHANGE_RECORDS = 500;

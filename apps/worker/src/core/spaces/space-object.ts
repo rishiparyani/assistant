@@ -49,6 +49,17 @@ import {
   type ChangePreview,
   type ChangeResult,
   MAX_CHANGE_RECORDS,
+  type ImportView,
+  type ImportSpec,
+  type ImportPreview,
+  type ImportResult,
+  type ExportResult,
+  MAX_IMPORT_ROWS,
+  MAX_EXPORT_ROWS,
+  parseCsv,
+  toCsv,
+  guessType,
+  readCell,
   filterWords,
   formulaValueOf,
   storedFormulaValue,
@@ -130,6 +141,10 @@ import type { NewNotification } from "../push/inbox.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
 const LIVE_DELAY_MS = 500;
+/** Thrown inside a transaction to undo everything it did and carry a result out. */
+class Rollback {
+  constructor(readonly value: unknown) {}
+}
 const FORMULA_KIND_WORDS: Record<FormulaType, string> = {
   num: "a number",
   money: "money",
@@ -512,6 +527,19 @@ const MIGRATIONS: Migrations = [
   `alter table shares add column group_id text;
    alter table shares add column group_seq integer not null default 0;
    alter table shares add column group_d1 integer not null default 0;`,
+  // CSV in (decision 2026-10-15 "Toward Excel", 3): a file the app uploaded, kept a day so
+  // the assistant can map its columns and import it without the text passing through a model.
+  `
+  create table imports (
+    id text primary key,
+    name text not null,
+    csv text not null,
+    columns_json text not null,
+    rows integer not null,
+    created_by text,
+    created_at text not null
+  );
+  `,
 ];
 
 type ViewQuery = {
@@ -2835,6 +2863,296 @@ export class SpaceObject extends DurableObject<Env> {
     return this.write(actor, key, ["update_records", changes], (ts) =>
       changes.map((c) => this.changeRecord(actor, ts, this.requireRecord(c.record_id), { values: c.values })),
     );
+  }
+
+  // --- CSV in and out (decision 2026-10-15 "Toward Excel", 3) ---------------------------
+  // The app uploads a file here (never into a chat message); the assistant reads only its
+  // columns, a few sample cells and the row count, maps columns to fields (new ones too),
+  // and the person confirms a card that says what would be made. Exports are plain CSV.
+
+  /** Keeps a CSV for a day and says what's in it. */
+  async uploadImport(
+    actor: Actor,
+    key: string | null,
+    input: { name: string; csv: string },
+  ): Promise<ImportView> {
+    return this.write(actor, key, ["upload_import", input.name, input.csv.length], (ts) => {
+      const parsed = parseCsv(input.csv);
+      if (!parsed.columns.length || !parsed.rows.length)
+        throw new ObjectError("validation_failed", "The file has no rows; the first line names the columns");
+      if (parsed.rows.length > MAX_IMPORT_ROWS)
+        throw new ObjectError("validation_failed", `More than ${MAX_IMPORT_ROWS} rows; split the file`);
+      // Yesterday's uploads nobody used go.
+      this.sql.exec(
+        `delete from imports where created_at < ?`,
+        new Date(Date.now() - 86_400_000).toISOString(),
+      );
+      const id = ulid();
+      this.sql.exec(
+        `insert into imports (id, name, csv, columns_json, rows, created_by, created_at) values (?, ?, ?, ?, ?, ?, ?)`,
+        id,
+        input.name,
+        input.csv,
+        JSON.stringify(parsed.columns),
+        parsed.rows.length,
+        actor.userId,
+        ts,
+      );
+      return this.importView({ id, name: input.name, created_at: ts }, parsed);
+    });
+  }
+
+  private importView(
+    row: { id: string; name: string; created_at: string },
+    parsed: ReturnType<typeof parseCsv>,
+  ): ImportView {
+    return {
+      id: row.id,
+      name: row.name,
+      rows: parsed.rows.length,
+      columns: parsed.columns.map((name, i) => ({
+        name,
+        guess: guessType(parsed.rows.slice(0, 200).map((r) => r[i] ?? "")),
+        sample: [
+          ...new Set(
+            parsed.rows
+              .slice(0, 50)
+              .map((r) => (r[i] ?? "").slice(0, 60))
+              .filter(Boolean),
+          ),
+        ].slice(0, 3),
+      })),
+      expires_at: new Date(Date.parse(row.created_at) + 86_400_000).toISOString(),
+    };
+  }
+
+  /** An upload that's still here, parsed. */
+  private requireImport(id: string): {
+    row: { id: string; name: string; created_at: string };
+    parsed: ReturnType<typeof parseCsv>;
+  } {
+    const row = this.sql
+      .exec<{ id: string; name: string; csv: string; created_at: string }>(
+        `select id, name, csv, created_at from imports where id = ?`,
+        id,
+      )
+      .toArray()[0];
+    if (!row) throw new ObjectError("not_found", "That upload isn't here any more; upload the file again");
+    return { row, parsed: parseCsv(row.csv) };
+  }
+
+  /** What an import would do, every row checked; nothing is written. */
+  async previewImport(actor: Actor, spec: ImportSpec): Promise<ImportPreview> {
+    this.canWrite(actor);
+    try {
+      // The plan makes the list or fields it needs; the transaction is rolled back with them.
+      this.ctx.storage.transactionSync(() => {
+        const plan = this.planImport(actor, spec, nowIso());
+        throw new Rollback({
+          rows: plan.parsed.rows.length,
+          into: plan.into,
+          words: plan.words,
+          sample: plan.sample,
+          problems: plan.problems.slice(0, 5),
+          bad: plan.problems.length,
+        } satisfies ImportPreview);
+      });
+    } catch (e) {
+      if (e instanceof Rollback) return e.value as ImportPreview;
+      throw e;
+    }
+    throw new ObjectError("validation_failed", "The preview gave nothing");
+  }
+
+  /** Imports the rows (and makes the list or fields it needs) in one write, all or nothing. */
+  async importRecords(actor: Actor, key: string | null, spec: ImportSpec): Promise<ImportResult> {
+    return this.write(
+      actor,
+      key,
+      ["import_records", spec],
+      (ts) => {
+        const plan = this.planImport(actor, spec, ts);
+        if (plan.problems.length && !spec.skip_bad)
+          throw new ObjectError(
+            "validation_failed",
+            `${plan.problems.length} row${plan.problems.length === 1 ? " can't" : "s can't"} be read: ${plan.problems.slice(0, 3).join("; ")}. Fix the file, or skip those rows (skip_bad)`,
+            { problems: plan.problems.slice(0, 20) },
+          );
+        const c = this.requireCollection(plan.collectionId);
+        let added = 0;
+        for (const values of plan.records) {
+          if (!values) continue;
+          this.insertRecord(actor, ts, c, { values });
+          added++;
+        }
+        this.sql.exec(`delete from imports where id = ?`, spec.import_id);
+        audit(this.sql, actor, {
+          action: "import_records",
+          entityType: "collection",
+          entityId: c.id,
+          after: { import_id: spec.import_id, added, skipped: plan.problems.length },
+        });
+        return { added, skipped: plan.problems.length, collection: this.collectionView(c) };
+      },
+      () => (spec.columns.some((col) => col.add) ? this.canArrange(actor) : this.canWrite(actor)),
+    );
+  }
+
+  /**
+   * Maps the file's columns to fields (making the list or the new fields now, inside the
+   * caller's transaction) and reads every row the way a write would, noting the rows that
+   * can't be read.
+   */
+  private planImport(actor: Actor, spec: ImportSpec, ts: string) {
+    const { parsed } = this.requireImport(spec.import_id);
+    const at = (name: string) => {
+      const i = parsed.columns.findIndex((col) => nameKey(col) === nameKey(name));
+      if (i < 0)
+        throw new ObjectError(
+          "validation_failed",
+          `No column "${name}" in the file. Columns: ${parsed.columns.join(", ")}`,
+        );
+      return i;
+    };
+    const cols = spec.columns.map((col) => ({ ...col, at: at(col.column) }));
+    const words: string[] = [];
+    let collectionId: string;
+    let into: string;
+    const existing = this.sql
+      .exec<{ id: string }>(
+        `select id from collections where deleted_at is null and (id = ? or name_key = ?)`,
+        spec.collection,
+        nameKey(spec.collection),
+      )
+      .toArray()[0];
+    if (existing) {
+      collectionId = existing.id;
+      into = this.requireCollection(collectionId).name;
+      for (const col of cols)
+        if (col.add) {
+          this.insertField(collectionId, col.add, this.fieldRows(collectionId).length, ts);
+          words.push(`New field ${col.add.name} (${col.add.type.replace("_", " ")}) ← ${col.column}`);
+        }
+    } else {
+      const adds = cols.filter((c) => c.add);
+      if (cols.some((c) => c.field))
+        throw new ObjectError(
+          "not_found",
+          `No list called "${spec.collection}"; name the fields to make (add) and it's made with them`,
+        );
+      if (!adds.length)
+        throw new ObjectError("validation_failed", "Say which fields to make (add) for the new list");
+      collectionId = this.insertCollection(
+        actor,
+        { name: spec.collection, fields: adds.map((c) => c.add!) },
+        ts,
+      );
+      into = `${spec.collection} (new list)`;
+      words.push(
+        `New list ${spec.collection}: ${adds.map((c) => `${c.add!.name} (${c.add!.type.replace("_", " ")})`).join(", ")}`,
+      );
+    }
+    const fields = this.fieldRows(collectionId);
+    const mapped = cols.flatMap((col) => {
+      const ref = col.add ? col.add.name : col.field;
+      if (!ref) return [];
+      const f = this.matchField(fields, ref);
+      if (toField(f).options.formula || toField(f).options.rollup)
+        throw new ObjectError("validation_failed", `${f.name} is calculated; it can't be filled from a file`);
+      if (!col.add) words.push(`${f.name} ← ${col.column}`);
+      return [{ f, at: col.at }];
+    });
+    if (!mapped.length)
+      throw new ObjectError("validation_failed", "No column goes anywhere; map at least one");
+    const left = parsed.columns.filter((_, i) => !mapped.some((m) => m.at === i));
+    if (left.length) words.push(`Left out: ${left.join(", ")}`);
+    const c = this.requireCollection(collectionId);
+    const problems: string[] = [];
+    const sample: string[] = [];
+    const records = parsed.rows.map((row, n) => {
+      const values: Record<string, unknown> = {};
+      for (const m of mapped) values[m.f.id] = readCell(m.f.type, row[m.at] ?? "");
+      try {
+        // Read as a write would (choices, links by title, required fields), then dropped.
+        const seen = this.readValues(fields, values, actor);
+        for (const f of fields)
+          if (
+            f.required &&
+            (f.type === "link"
+              ? !seen.links.get(f.id)?.length
+              : seen.values[f.id] === null || seen.values[f.id] === undefined)
+          )
+            throw new ObjectError("validation_failed", `${f.name} is required`);
+        if (sample.length < 3)
+          sample.push(
+            mapped
+              .map((m) => {
+                const v =
+                  m.f.type === "link" ? row[m.at] : displayValue(m.f.type, seen.values[m.f.id] ?? null);
+                return `${m.f.name}: ${Array.isArray(v) ? v.join(", ") : (v ?? "empty")}`;
+              })
+              .join(", "),
+          );
+        return values;
+      } catch (e) {
+        problems.push(`row ${n + 2}: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
+      }
+    });
+    return { parsed, collectionId, into, words, records, problems, sample, c };
+  }
+
+  /** A list (or one of its views) as CSV: field names first, values as people read them. */
+  async exportCsv(
+    actor: Actor,
+    spec: { collection: string; view?: string; filters: Filter[] },
+  ): Promise<ExportResult> {
+    this.role(actor);
+    const c = this.requireCollection(spec.collection);
+    const view = spec.view ? this.viewOf(this.requireView(spec.view)) : null;
+    if (view && view.collection_id !== c.id)
+      throw new ObjectError(
+        "validation_failed",
+        `“${view.name}” is a view of ${view.collection}, not ${c.name}`,
+      );
+    const { rows } = this.findRows(actor, c, {
+      filters: [...(view?.filters ?? []), ...spec.filters],
+      search: view?.search ?? undefined,
+      sort: view?.sort ?? undefined,
+      limit: MAX_EXPORT_ROWS,
+    });
+    const fields = this.fieldRows(c.id).filter((f) => !toField(f).options.personal);
+    const cell = (f: FieldRow, v: StoredValue | undefined): string => {
+      if (v === null || v === undefined) return "";
+      switch (f.type) {
+        case "money":
+          return ((v as number) / 100).toFixed(2);
+        case "boolean":
+          return v ? "Yes" : "No";
+        case "multi_choice":
+          return (v as string[]).join("; ");
+        case "person":
+          return (v as { name: string }).name;
+        default:
+          return String(v);
+      }
+    };
+    const out = rows.map((r) => {
+      const view = this.recordView(r, actor);
+      return fields.map((f) =>
+        f.type === "link"
+          ? (view.links[f.id] ?? []).map((l) => l.title).join("; ")
+          : cell(f, view.values[f.id]),
+      );
+    });
+    return {
+      name: `${(view?.name ?? c.name).replace(/[\\/:*?"<>|]+/g, " ").trim()}.csv`,
+      rows: out.length,
+      csv: toCsv(
+        fields.map((f) => f.name),
+        out,
+      ),
+    };
   }
 
   // --- Bulk changes (decision 2026-10-15 "Toward Excel", 2) -----------------------------
