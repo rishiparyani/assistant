@@ -108,6 +108,7 @@ import {
   type CardQuestion,
   type CardControl,
   type RowAction,
+  type HighlightColour,
   type RowLayout,
   type Arrangement,
 } from "@assistant/shared";
@@ -575,6 +576,7 @@ type RowLayoutInput = {
   pills?: string[];
   callout?: { field: string; label?: string | null } | null;
   action?: { field: string; as: RowAction } | null;
+  highlights?: { when: Filter[]; colour: HighlightColour; label?: string | null }[];
 };
 type CardControlInputValue = Omit<CardControl, "value"> & { value?: unknown };
 type ViewRow = {
@@ -5487,7 +5489,24 @@ export class SpaceObject extends DurableObject<Env> {
         ? { field: pick(r.action.field, TEXT, `A ${r.action.as} button`), as: r.action.as }
         : null,
     };
-    const empty = !row.date && !row.details.length && !row.pills.length && !row.callout && !row.action;
+    // Highlights: each filter checked now, like a view's, and stored by field id.
+    const highlights = (r.highlights ?? []).map((h) => ({
+      when: h.when.map((flt) => {
+        const f = this.matchField(fields, flt.field);
+        this.filterClause(f, flt, { userId: null, source: "system" });
+        return { ...flt, field: f.id };
+      }),
+      colour: h.colour,
+      label: h.label?.trim() || null,
+    }));
+    if (highlights.length) row.highlights = highlights;
+    const empty =
+      !row.date &&
+      !row.details.length &&
+      !row.pills.length &&
+      !row.callout &&
+      !row.action &&
+      !highlights.length;
     return empty ? null : row;
   }
 
@@ -9198,6 +9217,14 @@ function rowByName(r: RowLayout, name: (id: string) => string | null | undefined
     pills: r.pills.flatMap((id) => n(id) ?? []),
     callout: r.callout && n(r.callout.field) ? { ...r.callout, field: n(r.callout.field)! } : null,
     action: r.action && n(r.action.field) ? { ...r.action, field: n(r.action.field)! } : null,
+    ...(r.highlights?.length
+      ? {
+          highlights: r.highlights.flatMap((h) => {
+            const when = h.when.flatMap((flt) => (n(flt.field) ? [{ ...flt, field: n(flt.field)! }] : []));
+            return when.length === h.when.length ? [{ ...h, when }] : [];
+          }),
+        }
+      : {}),
   };
 }
 
@@ -9210,5 +9237,8 @@ function rowOfLive(r: RowLayout, live: Set<string>): RowLayout {
     pills: r.pills.filter(ok),
     callout: r.callout && ok(r.callout.field) ? r.callout : null,
     action: r.action && ok(r.action.field) ? r.action : null,
+    ...(r.highlights?.length
+      ? { highlights: r.highlights.filter((h) => h.when.every((flt) => ok(flt.field))) }
+      : {}),
   };
 }

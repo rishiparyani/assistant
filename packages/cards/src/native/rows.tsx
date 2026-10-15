@@ -5,7 +5,13 @@
 import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
-import type { FieldView, RecordView, StoredValue } from "@assistant/shared";
+import {
+  matchesAll,
+  type FieldView,
+  type HighlightColour,
+  type RecordView,
+  type StoredValue,
+} from "@assistant/shared";
 import type { HomeCard } from "./model.ts";
 import { Tick } from "./tick.tsx";
 import { COLLECTION_COLOURS, useTheme, type CollectionColour } from "./theme.ts";
@@ -71,6 +77,49 @@ export function shown(f: FieldView, r: RecordView, tileField: string | null): st
     default:
       return String(v);
   }
+}
+
+/** A highlight's colour in the theme (decision 2026-10-15 "Toward Excel", 4). */
+export function highlightColour(
+  colour: HighlightColour,
+  t: { danger: string; warn: string; good: string },
+  dark: boolean,
+): string {
+  const palette = COLLECTION_COLOURS[dark ? "dark" : "light"];
+  switch (colour) {
+    case "red":
+      return t.danger;
+    case "amber":
+      return t.warn;
+    case "green":
+      return t.good;
+    case "blue":
+      return palette.people;
+    case "violet":
+      return palette.flow;
+    default:
+      return palette.neutral;
+  }
+}
+
+/** The first highlight a record matches, or null. */
+export function highlightOf(
+  fields: FieldView[],
+  r: RecordView,
+  highlights:
+    | {
+        when: { field: string; op: string; value?: unknown }[];
+        colour: HighlightColour;
+        label: string | null;
+      }[]
+    | undefined,
+  userId: string | null = null,
+) {
+  if (!highlights?.length) return null;
+  const c = { id: r.collection_id, fields };
+  return (
+    highlights.find((h) => matchesAll(c, r, h.when as Parameters<typeof matchesAll>[2], { userId })) ?? null
+  );
 }
 
 /** A colour with some transparency (for soft backgrounds). */
@@ -148,8 +197,27 @@ export function RichRows({
         const actionField = byId(row.action?.field);
         const actionValue = actionField ? shown(actionField, r, null) : "";
         const done = tickField ? r.values[tickField] === true : false;
+        const hit = highlightOf(fields, r, row.highlights);
+        const hitColour = hit ? highlightColour(hit.colour, t, dark) : null;
         return (
-          <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
+          <View
+            key={r.id}
+            style={[
+              s.row,
+              { borderBottomColor: t.sep },
+              hitColour
+                ? {
+                    backgroundColor: tint(hitColour, dark ? 0.14 : 0.08),
+                    borderLeftWidth: 3,
+                    borderLeftColor: hitColour,
+                    paddingLeft: 8,
+                    marginLeft: -11,
+                    borderRadius: 6,
+                  }
+                : null,
+            ]}
+            accessibilityLabel={hit?.label ? `${hit.label}: ${r.title}` : undefined}
+          >
             {tickField ? (
               <Pressable
                 accessibilityRole="checkbox"
@@ -209,8 +277,13 @@ export function RichRows({
                   ))}
                 </View>
               ) : null}
-              {pills.length ? (
+              {pills.length || (hit && hit.label) ? (
                 <View style={s.pills}>
+                  {hit?.label && hitColour ? (
+                    <Text style={[s.pill, { color: hitColour, backgroundColor: tint(hitColour, 0.16) }]}>
+                      {hit.label}
+                    </Text>
+                  ) : null}
                   {pills.map((p) => (
                     <Text key={p.id} style={[s.pill, { color: colour, backgroundColor: tint(colour, 0.14) }]}>
                       {p.text}

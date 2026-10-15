@@ -683,6 +683,18 @@ export interface CardControl {
  */
 export const ROW_ACTIONS = ["directions", "call", "open"] as const;
 export type RowAction = (typeof ROW_ACTIONS)[number];
+/** The colours a highlight can be (the app maps them to its theme). */
+export const HIGHLIGHT_COLOURS = ["red", "amber", "green", "blue", "violet", "grey"] as const;
+export type HighlightColour = (typeof HIGHLIGHT_COLOURS)[number];
+/**
+ * A row's colour when it matches (decision 2026-10-15 "Toward Excel", 4): the first
+ * highlight whose filters all hold tints the row and may label it ("Overdue").
+ */
+export interface Highlight {
+  when: Filter[];
+  colour: HighlightColour;
+  label: string | null;
+}
 export interface RowLayout {
   /** A date or date-time field shown as a calendar tile (OCT / 17). */
   date: string | null;
@@ -694,6 +706,8 @@ export interface RowLayout {
   callout: { field: string; label: string | null } | null;
   /** A text field the row's button acts on: an address (directions), a phone (call), a link (open). */
   action: { field: string; as: RowAction } | null;
+  /** Rows that match get a colour (and a word), first match wins; [] or missing: none. */
+  highlights?: Highlight[];
 }
 
 /** How a saved view's card looks, when the person (or the assistant) chose. */
@@ -786,9 +800,26 @@ const rowLayout = z
       .object({ field: fieldName, as: z.enum(ROW_ACTIONS) })
       .nullish()
       .describe("A button on the right: directions (an address field), call (a phone), open (a link)"),
+    highlights: z
+      .array(
+        z.object({
+          when: z
+            .array(FilterInput)
+            .min(1)
+            .max(3)
+            .describe("Filters, as for find_records, all of which must hold"),
+          colour: z.enum(HIGHLIGHT_COLOURS),
+          label: z.string().trim().min(1).max(16).nullish().describe('A word on the row, e.g. "Overdue"'),
+        }),
+      )
+      .max(4)
+      .optional()
+      .describe(
+        'Rows that match get a colour, first match wins, e.g. [{when: [{field: "Paid", op: "eq", value: false}, {field: "Date", op: "period", value: "past"}], colour: "red", label: "Overdue"}]',
+      ),
   })
   .nullish()
-  .describe("How each row of a list card looks; only when the person asks for a richer list");
+  .describe("How each row of a list card looks (and which rows stand out); only when the person asks for it");
 // Questions about the data (data-query.ts): the parts a card can keep, so a pinned answer
 // stays live on the home.
 export const QUERY_FNS = ["count", "sum", "avg", "min", "max", "count_distinct"] as const;

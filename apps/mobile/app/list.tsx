@@ -9,7 +9,16 @@ import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Vie
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CollectionView, FieldView, FindResult, RecordView, SavedView } from "@assistant/shared";
-import { Text, Tick, act, ACTION_WORDS, shown, tint } from "@assistant/cards/native";
+import {
+  Text,
+  Tick,
+  act,
+  ACTION_WORDS,
+  highlightColour,
+  highlightOf,
+  shown,
+  tint,
+} from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
 import { cardFor, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
@@ -421,10 +430,13 @@ function Row({
   const isToday = day === today;
   const past = !!day && day < today;
   const done = tickField ? r.values[tickField] === true : false;
+  // A row that stands out (decision 2026-10-15 "Toward Excel", 4): a coloured edge and a word.
+  const hit = highlightOf(c.fields, r, layout?.highlights);
+  const hitColour = hit ? highlightColour(hit.colour, t, dark) : null;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={r.title}
+      accessibilityLabel={hit?.label ? `${hit.label}: ${r.title}` : r.title}
       onPress={onOpen}
       onLongPress={onHold}
       accessibilityHint="Hold for more, like chatting about it with people"
@@ -433,6 +445,13 @@ function Row({
       style={({ pressed }) => [
         s.card,
         { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.92 : 1 },
+        hitColour
+          ? {
+              borderLeftWidth: 4,
+              borderLeftColor: hitColour,
+              backgroundColor: tint(hitColour, dark ? 0.14 : 0.07),
+            }
+          : null,
       ]}
     >
       {tickField ? (
@@ -482,8 +501,15 @@ function Row({
             ].join(" · ")}
           </Text>
         ) : null}
-        {pills.length ? (
+        {pills.length || hit?.label ? (
           <View style={s.pills}>
+            {hit?.label && hitColour ? (
+              <Text
+                style={[s.pill, { color: hitColour, backgroundColor: tint(hitColour, dark ? 0.2 : 0.12) }]}
+              >
+                {hit.label}
+              </Text>
+            ) : null}
             {pills.map((p) => (
               <Text
                 key={p}

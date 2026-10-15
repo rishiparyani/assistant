@@ -118,6 +118,27 @@ function matches(f: FieldView, r: RecordView, flt: Filter, userId: string | null
   return false;
 }
 
+/**
+ * Whether a record matches every filter (by field id, name or alias), the way the server's
+ * find would; a filter on a field that's gone doesn't match. For highlights on the device.
+ */
+export function matchesAll(
+  c: Pick<CollectionView, "id" | "fields">,
+  r: RecordView,
+  filters: Filter[],
+  opts: { userId: string | null; now?: number } = { userId: null },
+): boolean {
+  const now = opts.now ?? Date.now();
+  return filters.every((flt) => {
+    const f = fieldOf(c as CollectionView, flt.field);
+    try {
+      return !!f && matches(f, r, flt, opts.userId, now);
+    } catch {
+      return false;
+    }
+  });
+}
+
 export interface LocalQuery {
   filters?: Filter[];
   search?: string;

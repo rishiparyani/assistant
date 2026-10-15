@@ -7,6 +7,7 @@ import {
   ARRANGEMENTS,
   CARD_CONTROL_KINDS,
   ROW_ACTIONS,
+  HIGHLIGHT_COLOURS,
   CARD_SIZE_VALUES,
   FilterInput,
   type Arrangement,
@@ -98,6 +99,20 @@ export const CardSpec = z.object({
         .object({ field: z.string().min(1).max(80), label: z.string().max(24).nullable() })
         .nullable(),
       action: z.object({ field: z.string().min(1).max(80), as: z.enum(ROW_ACTIONS) }).nullable(),
+      /** Rows that match get a colour and maybe a word; first match wins. */
+      highlights: z
+        .array(
+          z.object({
+            when: z
+              .array(z.object({ field: z.string(), op: z.string(), value: z.unknown().optional() }))
+              .min(1)
+              .max(3),
+            colour: z.enum(HIGHLIGHT_COLOURS),
+            label: z.string().max(16).nullable(),
+          }),
+        )
+        .max(4)
+        .optional(),
     })
     .nullish(),
 });

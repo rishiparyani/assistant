@@ -649,13 +649,14 @@ The owner isn't an active developer: he sends a message about once a day and loo
 
 **Decision:** a list card's rows can have a **layout**, chosen in the chat like everything else and kept on the saved view (`card.row`). Each part names a field of the list:
 
-| Part      | Field it takes                                 | What it shows                                                                                            |
-| --------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `date`    | date or date-time                              | A calendar tile (OCT / 17); today's is coloured, past ones are faded                                     |
-| `details` | up to 3, any type                              | A line under the title ("Sat · 6 pm · ● Vibe Tribe"); a choice shows with its colour dot                 |
-| `pills`   | up to 2: money, number, choice, text or yes/no | Highlighted pills ("₹5,000")                                                                             |
-| `callout` | text or long text, plus an optional label      | A highlighted box when it has something ("To do: …")                                                     |
-| `action`  | text                                           | A button on the right: `directions` (an address, opens maps), `call` (a phone number) or `open` (a link) |
+| Part         | Field it takes                                 | What it shows                                                                                                            |
+| ------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `date`       | date or date-time                              | A calendar tile (OCT / 17); today's is coloured, past ones are faded                                                     |
+| `details`    | up to 3, any type                              | A line under the title ("Sat · 6 pm · ● Vibe Tribe"); a choice shows with its colour dot                                 |
+| `pills`      | up to 2: money, number, choice, text or yes/no | Highlighted pills ("₹5,000")                                                                                             |
+| `callout`    | text or long text, plus an optional label      | A highlighted box when it has something ("To do: …")                                                                     |
+| `action`     | text                                           | A button on the right: `directions` (an address, opens maps), `call` (a phone number) or `open` (a link)                 |
+| `highlights` | up to 4 of filters + colour (+ a word)         | Rows that match get a coloured edge, a soft tint and the word as a pill; first match wins (2026-10-15 "Toward Excel", 4) |
 
 - **Checks:** the space's object checks each part against its field and stores field ids, like controls.
 - **List cards only:** a row layout makes the card a list card. Controls still work on rich rows.

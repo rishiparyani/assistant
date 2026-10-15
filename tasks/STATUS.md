@@ -4,6 +4,12 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF48: highlight rules (decision 2026-10-15 "Toward Excel", slice 4 of 6).**
+  - **Shared:** `RowLayout.highlights: [{when: filters, colour: red|amber|green|blue|violet|grey, label}]` (`HIGHLIGHT_COLOURS`); `matchesAll` in `space-query.ts` runs filters on a record on the device.
+  - **Server:** `checkRow` checks each highlight's filters like a view's and stores field ids; `rowByName` / `rowOfLive` carry them (a highlight on a hidden field drops out).
+  - **Cards and app:** `highlightOf` / `highlightColour` in `packages/cards`; rich rows on home cards and the full-list screen's rows get a coloured edge, a soft tint and the label as a pill; first match wins.
+  - **Tests:** `card-rows.test.ts` (highlights saved by id, a bad field refused).
+
 - **HF47: CSV in and out (decision 2026-10-15 "Toward Excel", slice 3 of 6).**
   - **Shared:** `csv.ts` (`parseCsv` RFC 4180 with tabs, `toCsv`, `guessType`, `readDate` dd/mm/yyyy, `readCell` ₹/commas/haan/“a; b”), `UploadImportInput`, `ImportRecordsInput` (`columns: [{column, field | add}]`, `skip_bad`), `ImportPreview`, `ImportResult`, `ExportCsvInput`, `ExportResult`, `MAX_IMPORT_ROWS` 5,000.
   - **Server:** space table `imports` (a day); `uploadImport` (columns, a guess and samples per column, never the rows to the model), `previewImport` (the plan runs in a transaction that's rolled back), `importRecords` (new list or new fields allowed: `canArrange`; all or nothing unless `skip_bad`; the upload is deleted after), `exportCsv` (a list or a view, values as people read them, links by title); operations `core.upload_import`, `core.preview_import`, `core.import_records` (confirm), `core.export_csv`; `GET /api/export/<collection>.csv?view=` for the browser (BOM for Excel); the assistant's confirm card says "Add N rows to …" with the mapping, three sample rows and the rows that can't be read.
