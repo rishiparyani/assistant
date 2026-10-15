@@ -441,6 +441,15 @@ Workflows (universal.md "Automation", chat-first step 5) are saved definitions i
 
 Checks, uniqueness and status flows (universal.md §2) are saved rules on a collection, never code, and the space object checks them in the same transaction as every record write (people, collaborators, forms, workflows alike), after values and links are saved, so a broken rule leaves nothing behind. Uniqueness answers 409 with the record that holds the place, so the app can offer to replace it (the pick board, step 6). A rule that existing records already break is refused when it's added, so a saved rule always holds. Status flows constrain changes only; new records may start at any value.
 
+## 2026-10-15: Chat makes, screens can fix (owner: "we don't have a UI fallback, right? So if the user can't get the desired setup then what?")
+
+Amends "Chat makes, screens use" (2026-10-11). The owner's reason for chat-first stands: no toolbox in the main screens, so people aren't overwhelmed. But when the assistant won't build what's asked, rephrasing can't be the only way out. Two side doors, neither on the home or a tab:
+
+- **The setup card is editable before Confirm.** The assistant proposes; "Change…" on the card opens a form over its arguments (a list's name, each field's name, kind, choices, link, formula, required; add or drop a field); Confirm runs the changed version, checked exactly like the model's own arguments, and the card shows what ran. Only setup cards (`make_setup`, `create_collection`, `add_field`, `update_field`, `save_view`, `update_view`); money and deletes never take changed arguments.
+- **A plain setup screen per list, hidden under its ⋯ menu** ("Fields and cards"): fields, rules, cards and views as ordinary forms, through the same operations the assistant uses. Someone who never opens the menu never sees it.
+
+Not doing: a builder tab, a visible "Edit" on every screen, by-hand workflows (the chat shows them as diagrams and that stays the way).
+
 ## 2026-10-11: Chat makes, screens use
 
 Owner's decision, replacing "Assistant first" (which kept by-hand builders as a fallback). Everything is made and changed in the chat: lists, fields, records, workflows, rules, setups, songs. Screens are for using what exists: opening, ticking done, picking, playing (stage mode, transpose), sharing, deleting. The by-hand builders are gone: the workflow form, starting a list by hand, Edit by hand (add a record, rules), record edit forms and "Add to …" on record pages, the chat's + menu, and Songbook's Add and Edit sheets. There are no add or edit screens by default; a person who wants one asks the chat to make it (a quick add is saved and pinned like a view; built next). Offline, what's typed in the chat waits and runs when the connection is back (built next). Collaborators still fill in forms someone shared with them; those are made in the chat too.

@@ -28,7 +28,7 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 3. ~~Import and export: CSV in (upload or paste; the assistant maps columns to fields, new ones too; preview with every row checked), CSV out for any list or view~~ (HF47). Later: a native file picker, export buttons on list screens.
 4. ~~Highlight rules on views and cards: filters → a colour and a word, data only; on home cards and in lists~~ (HF48).
 5. ~~An editable grid arrangement: a sheet of one list where cells are edited in place (Next moves along the row), writes through the outbox; a Sheet button on every list~~ (HF49).
-6. The fallback ("Chat makes, screens can fix"): the proposed setup card editable before Confirm; a plain setup screen per list under its ⋯ menu (fields, rules, cards and views), never a tab.
+6. ~~The fallback ("Chat makes, screens can fix"): the proposed setup card editable before Confirm; a plain setup screen per list under its ⋯ menu (fields, rules, cards and views), never a tab~~ (HF50).
 
 ## C1 New look and the chat-first shell
 

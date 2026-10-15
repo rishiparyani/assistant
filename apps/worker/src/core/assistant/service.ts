@@ -34,7 +34,7 @@ import { spaceOf } from "../spaces/service.ts";
 import { resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed, fasterAnswers, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
-import type { MemoryRow, StoredMessage } from "./chat-object.ts";
+import { EDITABLE_CARDS, type MemoryRow, type StoredMessage } from "./chat-object.ts";
 import {
   FREE_NEURONS_PER_DAY,
   costPaise,
@@ -1069,6 +1069,8 @@ export async function confirmAction(
   ops: readonly AnyOperation[],
   actionId: string,
   chatId = MAIN,
+  /** The card changed by hand before Confirm (setup cards only): these replace its arguments. */
+  edited?: Record<string, unknown>,
 ): Promise<ChatView> {
   await requireAssistant(ctx);
   const chat = await useChat(ctx, chatId);
@@ -1079,7 +1081,19 @@ export async function confirmAction(
   let live: LiveRef | null = null;
   try {
     if (!op) throw new AppError("not_found", "That action isn't available any more");
-    const input = parse(op.input, JSON.parse(a.args_json) as unknown);
+    let args = JSON.parse(a.args_json) as Record<string, unknown>;
+    if (edited) {
+      if (!EDITABLE_CARDS.has(a.tool))
+        throw new AppError(
+          "validation_failed",
+          "This card can't be changed by hand; ask in the chat instead",
+        );
+      args = { ...args, ...edited };
+      // Checked like the model's own arguments; the card shows the changed version.
+      parse(op.input, args);
+      await chat.reviseAction(uid, a.id, JSON.stringify(args), describe(a.tool, args).details);
+    }
+    const input = parse(op.input, args);
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;

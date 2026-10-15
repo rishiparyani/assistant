@@ -32,6 +32,9 @@ const WIDTH: Record<string, number> = {
   link: 140,
 };
 
+/** A column's width; the first (the title) stays narrower, so three columns fit a phone. */
+const widthOf = (f: FieldView, i: number) => (i === 0 && f.type === "text" ? 128 : (WIDTH[f.type] ?? 120));
+
 /** Whether a cell of this field can be edited in the grid. */
 export function gridEditable(f: FieldView): boolean {
   return (
@@ -149,12 +152,8 @@ export function EditableGrid({
       <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
         <View>
           <View style={[s.row, s.headRow, { borderBottomColor: t.sep }]}>
-            {fields.map((f) => (
-              <Text
-                key={f.id}
-                style={[s.head, { color: t.fg2, width: WIDTH[f.type] ?? 120 }]}
-                numberOfLines={1}
-              >
+            {fields.map((f, i) => (
+              <Text key={f.id} style={[s.head, { color: t.fg2, width: widthOf(f, i) }]} numberOfLines={1}>
                 {f.name.toUpperCase()}
               </Text>
             ))}
@@ -164,7 +163,7 @@ export function EditableGrid({
               {fields.map((f, i) => {
                 const active = editing?.record === r.id && editing.field === f.id;
                 const can = !!onSet && gridEditable(f);
-                const width = WIDTH[f.type] ?? 120;
+                const width = widthOf(f, i);
                 if (active)
                   return (
                     <View key={f.id} style={[s.cell, { width }]}>
@@ -196,7 +195,13 @@ export function EditableGrid({
                     </View>
                   );
                 const value =
-                  f.type === "boolean" ? (r.values[f.id] === true ? "Yes" : "") : shown(f, r, null);
+                  f.type === "boolean"
+                    ? r.values[f.id] === true
+                      ? "Yes"
+                      : r.values[f.id] === false
+                        ? "No"
+                        : ""
+                    : shown(f, r, null);
                 return (
                   <Pressable
                     key={f.id}

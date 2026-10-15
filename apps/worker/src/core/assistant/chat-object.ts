@@ -175,6 +175,16 @@ const expired = (a: { created_at: string; expires_at: string | null }) =>
   Date.parse(a.expires_at ?? "") < Date.now() ||
   (!a.expires_at && Date.parse(a.created_at) < Date.now() - ACTION_MINUTES * 60_000);
 
+/** Cards whose arguments the person may change before Confirm (setups, never money or deletes). */
+export const EDITABLE_CARDS: ReadonlySet<string> = new Set([
+  "make_setup",
+  "create_collection",
+  "add_field",
+  "update_field",
+  "save_view",
+  "update_view",
+]);
+
 export class ChatObject extends DurableObject<Env> {
   private sql: SqlStorage;
 
@@ -441,6 +451,17 @@ export class ChatObject extends DurableObject<Env> {
     }
     this.sql.exec(`update actions set status = 'running' where id = ?`, id);
     return a;
+  }
+
+  /** The person changed a setup card by hand: what runs (and shows) is the changed version. */
+  async reviseAction(userId: string, id: string, argsJson: string, details: string[]) {
+    this.own(userId);
+    this.sql.exec(
+      `update actions set args_json = ?, details_json = ? where id = ?`,
+      argsJson,
+      JSON.stringify(details),
+      id,
+    );
   }
 
   async finishAction(userId: string, id: string, status: ActionRow["status"], result: string | null) {
@@ -796,6 +817,10 @@ export class ChatObject extends DurableObject<Env> {
         status:
           a.status === "waiting" && expired(a) ? "expired" : a.status === "running" ? "waiting" : a.status,
         ...(a.result ? { result: a.result } : {}),
+        // A setup still waiting can be changed by hand before Confirm.
+        ...(a.status === "waiting" && !expired(a) && EDITABLE_CARDS.has(a.tool)
+          ? { args: JSON.parse(a.args_json) as Record<string, unknown>, editable: true }
+          : {}),
       };
     }
     return item;

@@ -4,6 +4,12 @@ _Updated: 2026-10-15_
 
 ## Last done
 
+- **HF50: the fallback: a setup card you can change before Confirm, and a plain setup screen hidden under the list's ⋯ menu (decision 2026-10-15 "Chat makes, screens can fix", slice 6 of 6).**
+  - **Shared / server:** `ChatActionRef.args` (confirm with changed arguments); a waiting card of `make_setup`, `create_collection`, `add_field`, `update_field`, `save_view`, `update_view` (`EDITABLE_CARDS` in `chat-object.ts`) carries `args` and `editable: true`; `confirmAction(…, edited)` checks the changed arguments like the model's own, stores them on the card (`reviseAction`, the details follow) and runs them; a money or delete card refuses changed arguments.
+  - **Phone/web app:** "Change…" on such a card opens `SetupEditSheet` (rename the list, rename / retype a field, its choices, link target, formula, required, add or drop a field) and confirms with the changes. The list screen's "Recently deleted" button becomes a ⋯ menu: Recently deleted, Fields and cards, Download as CSV (website). `app/setup.tsx` is the plain setup screen: fields (add, rename, choices, required, formula, remove), rules (remove), cards and views (on home, delete), through the same operations the assistant uses; online-only.
+  - **Tests:** `assistant.test.ts` (a card changed by hand is what runs; a money card refuses).
+  - **Not yet:** retyping an existing field from the screen (the chat does it), rules made by hand (the chat), the sheet's screenshots at 390/820/1280 (the web preview harness is in the scratchpad: run it before the owner's review).
+
 - **HF49: the editable grid (decision 2026-10-15 "Toward Excel", slice 5 of 6).**
   - **Shared / cards:** arrangement `grid` (sizes m, l) with `card.grid.fields` (up to 8 columns, by id); the catalogue line; `EditableGrid` in `packages/cards/native/Grid.tsx`: a column per field, tap a cell to type (number, money as rupees, date the Indian way, text), flip a yes/no, or pick a choice; Next on the keyboard moves along the row; links, people and calculated fields show but aren't typed over; each change shows at once and goes through the outbox (`setValue`).
   - **Server:** `checkCard` takes `grid` (columns to ids; no controls or row layout with it); setups carry the columns by name; hidden fields drop out.

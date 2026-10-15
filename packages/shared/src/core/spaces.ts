@@ -1206,6 +1206,10 @@ export interface ChatItem {
     details: string[];
     status: "waiting" | "done" | "cancelled" | "failed" | "expired";
     result?: string;
+    /** A waiting setup card's arguments, so the app can offer to change them before Confirm. */
+    args?: Record<string, unknown>;
+    /** Whether the app may change the arguments before Confirm (setup cards). */
+    editable?: boolean;
   };
   /** Which level answered (1 everyday, 2 smart, 3 best). */
   level?: number;
@@ -1283,7 +1287,11 @@ export const ShowInChatInput = z.object({
     z.object({ kind: z.literal("workflow"), workflow_id: z.string().min(1).max(40) }),
   ]),
 });
-export const ChatActionRef = z.object({ action_id: z.string().trim().min(1).max(60) });
+export const ChatActionRef = z.object({
+  action_id: z.string().trim().min(1).max(60),
+  /** A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix"). */
+  args: z.record(z.string(), z.unknown()).optional(),
+});
 export const ChatSendTo = ChatRef.extend(ChatSendInput.shape);
 export const ChatActionIn = ChatRef.extend(ChatActionRef.shape);
 /** 👍 / 👎 on an answer: only the rating is kept, never the answer (decision 2026-10-14). */

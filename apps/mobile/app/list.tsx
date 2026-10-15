@@ -5,7 +5,17 @@
 // "Open list", search, or the All lists page; back is a swipe. Read online, the last copy kept
 // on the device for offline; ticks go through the outbox like everywhere else.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import {
+  FlatList,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
@@ -28,6 +38,7 @@ import {
   tint,
 } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
+import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
@@ -80,6 +91,9 @@ export default function ListPage() {
   const [refreshing, setRefreshing] = useState(false);
   // A held row: what to do with it; then the chat-about sheet for it.
   const [held, setHeld] = useState<RecordView | null>(null);
+  // The list's ⋯ menu: Recently deleted, the plain setup screen (hidden here on purpose,
+  // decision 2026-10-15 "Chat makes, screens can fix"), the CSV file on the website.
+  const [menu, setMenu] = useState(false);
   const [chatAbout, setChatAbout] = useState<RecordView | null>(null);
 
   // The list and its saved views (the chips).
@@ -281,11 +295,11 @@ export default function ListPage() {
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Recently deleted from ${c?.name ?? "this list"}`}
-            onPress={() => router.push({ pathname: "/trash", params: c ? { collection: c.name } : {} })}
+            accessibilityLabel="More"
+            onPress={() => setMenu(true)}
             style={[s.deleted, { backgroundColor: t.cell, shadowColor: t.shadow }]}
           >
-            <Text style={{ color: t.fg2, fontSize: 14, fontWeight: "700" }}>Recently deleted</Text>
+            <Text style={{ color: t.fg2, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>⋯</Text>
           </Pressable>
         </View>
         <View style={s.head}>
@@ -415,6 +429,44 @@ export default function ListPage() {
           </Pressable>
         </View>
       </View>
+      <Modal visible={menu} transparent animationType="fade" onRequestClose={() => setMenu(false)}>
+        <Pressable style={[s.scrim, { backgroundColor: t.shadow }]} onPress={() => setMenu(false)} />
+        <View style={[s.menu, { backgroundColor: t.cell }]}>
+          {[
+            {
+              label: "Recently deleted",
+              run: () => router.push({ pathname: "/trash", params: c ? { collection: c.name } : {} }),
+            },
+            {
+              label: "Fields and cards",
+              run: () => router.push({ pathname: "/setup", params: c ? { collection: c.name } : {} }),
+            },
+            ...(Platform.OS === "web" && c
+              ? [
+                  {
+                    label: "Download as CSV",
+                    run: () =>
+                      void Linking.openURL(
+                        `${API_URL}/api/export/${enc(c.name)}.csv${current.view ? `?view=${enc(current.view.id)}` : ""}`,
+                      ),
+                  },
+                ]
+              : []),
+          ].map((x) => (
+            <Pressable
+              key={x.label}
+              accessibilityRole="button"
+              onPress={() => {
+                setMenu(false);
+                x.run();
+              }}
+              style={[s.menuRow, { backgroundColor: t.cell }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 16, fontWeight: "600" }}>{x.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </Modal>
       <Modal visible={!!held} transparent animationType="fade" onRequestClose={() => setHeld(null)}>
         <Pressable
           style={[s.scrim, { backgroundColor: t.shadow }]}

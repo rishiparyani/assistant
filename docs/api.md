@@ -174,28 +174,28 @@ A **quick add** (only when the person asks the chat for one): `add_fields: ["Wha
 
 ### Chat with the assistant (session only)
 
-| Method | Path                                             | What                                                                                          |
-| ------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| GET    | `/api/chat`                                      | `{ items, setup_in_progress, smart_available }`                                               |
-| POST   | `/api/chat`                                      | Send `{ text, think_harder? }`; answers with the updated chat                                 |
-| POST   | `/api/chat/actions/:action_id/confirm`           | Run what a card shows (once)                                                                  |
-| POST   | `/api/chat/actions/:action_id/cancel`            | Drop a card                                                                                   |
-| POST   | `/api/chat/feedback`                             | 👍 / 👎 on an answer (`{rating: good\|bad}`); only the rating is kept                         |
-| GET    | `/api/records/:record_id/chat`                   | Who a chat about a record would start with, and its fields (money hidden)                     |
-| POST   | `/api/records/:record_id/chat`                   | Start a chat about a record (`{chat_id, people?, hide_fields?, include?}`), or pin it to mine |
-| GET    | `/api/groups/:group_id/cards/:share_id`          | Open a record pinned to a chat I'm in                                                         |
-| DELETE | `/api/groups/:group_id/cards/:share_id`          | Take a record off a chat (admins, or its owner); its share goes off                           |
-| DELETE | `/api/chat`                                      | Clear the main chat (saved records stay)                                                      |
-| GET    | `/api/chats`                                     | My chats: `[{ id, title, updated_at }]`, `main` first                                         |
-| POST   | `/api/chats`                                     | New chat `{ id? }` (a ULID made on the device); 201 + the chat                                |
-| GET    | `/api/chats/:chat_id`                            | One chat (`main` or its id): `{ id, title, items, … }`                                        |
-| POST   | `/api/chats/:chat_id`                            | Send in that chat `{ text, think_harder? }`                                                   |
-| POST   | `/api/chats/:chat_id/actions/:action_id/confirm` | Run a card in that chat                                                                       |
-| POST   | `/api/chats/:chat_id/actions/:action_id/cancel`  | Drop a card in that chat                                                                      |
-| DELETE | `/api/chats/:chat_id`                            | Delete a chat (`main` is cleared instead)                                                     |
-| GET    | `/api/memories`                                  | What the assistant remembers: `[{ id, text, source, created_at }]` (also MCP `list_memories`) |
-| POST   | `/api/memories`                                  | Remember `{ text }` (also the assistant's and MCP's `remember` tool)                          |
-| DELETE | `/api/memories/:memory_id`                       | Forget one (also `forget_memory`)                                                             |
+| Method | Path                                             | What                                                                                                                                                                             |
+| ------ | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/api/chat`                                      | `{ items, setup_in_progress, smart_available }`                                                                                                                                  |
+| POST   | `/api/chat`                                      | Send `{ text, think_harder? }`; answers with the updated chat                                                                                                                    |
+| POST   | `/api/chat/actions/:action_id/confirm`           | Run what a card shows (once); `{args}` runs a setup card with changed arguments (the card view carries `args` and `editable`; decision 2026-10-15 "Chat makes, screens can fix") |
+| POST   | `/api/chat/actions/:action_id/cancel`            | Drop a card                                                                                                                                                                      |
+| POST   | `/api/chat/feedback`                             | 👍 / 👎 on an answer (`{rating: good\|bad}`); only the rating is kept                                                                                                            |
+| GET    | `/api/records/:record_id/chat`                   | Who a chat about a record would start with, and its fields (money hidden)                                                                                                        |
+| POST   | `/api/records/:record_id/chat`                   | Start a chat about a record (`{chat_id, people?, hide_fields?, include?}`), or pin it to mine                                                                                    |
+| GET    | `/api/groups/:group_id/cards/:share_id`          | Open a record pinned to a chat I'm in                                                                                                                                            |
+| DELETE | `/api/groups/:group_id/cards/:share_id`          | Take a record off a chat (admins, or its owner); its share goes off                                                                                                              |
+| DELETE | `/api/chat`                                      | Clear the main chat (saved records stay)                                                                                                                                         |
+| GET    | `/api/chats`                                     | My chats: `[{ id, title, updated_at }]`, `main` first                                                                                                                            |
+| POST   | `/api/chats`                                     | New chat `{ id? }` (a ULID made on the device); 201 + the chat                                                                                                                   |
+| GET    | `/api/chats/:chat_id`                            | One chat (`main` or its id): `{ id, title, items, … }`                                                                                                                           |
+| POST   | `/api/chats/:chat_id`                            | Send in that chat `{ text, think_harder? }`                                                                                                                                      |
+| POST   | `/api/chats/:chat_id/actions/:action_id/confirm` | Run a card in that chat                                                                                                                                                          |
+| POST   | `/api/chats/:chat_id/actions/:action_id/cancel`  | Drop a card in that chat                                                                                                                                                         |
+| DELETE | `/api/chats/:chat_id`                            | Delete a chat (`main` is cleared instead)                                                                                                                                        |
+| GET    | `/api/memories`                                  | What the assistant remembers: `[{ id, text, source, created_at }]` (also MCP `list_memories`)                                                                                    |
+| POST   | `/api/memories`                                  | Remember `{ text }` (also the assistant's and MCP's `remember` tool)                                                                                                             |
+| DELETE | `/api/memories/:memory_id`                       | Forget one (also `forget_memory`)                                                                                                                                                |
 
 Chat items have `role` `user`, `assistant`, `card` (a confirm card), `note` or `live` (a live card: `live` is `{ kind: "record", collection_id, record_id }`, `{ kind: "list", collection_id, title, query }` or `{ kind: "view", view_id }`; the app loads its data fresh).
 
