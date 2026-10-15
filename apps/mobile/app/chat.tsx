@@ -14,6 +14,7 @@ import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
+import { useLive } from "@/live-socket";
 import { radius, useTheme } from "@/theme";
 import { useKeyboardRoom } from "@/keyboard";
 
@@ -43,6 +44,23 @@ export default function Chat() {
   // every platform rather than left to the platform's own idea of a text area.
   const [typedHeight, setTypedHeight] = useState(0);
   const [busy, setBusy] = useState(false);
+  // What the assistant is doing right now (decision 2026-10-15 "Feel: the ChatGPT bar"): the
+  // server says over the live socket as it thinks and runs each tool; without the socket the
+  // words still move on their own.
+  const [status, setStatus] = useState<string | null>(null);
+  useLive((m) => {
+    if (m.type !== "assistant_progress" || m.chat !== MAIN) return;
+    setStatus(m.step === "done" ? null : typeof m.label === "string" ? m.label : "Thinking…");
+  });
+  useEffect(() => {
+    if (!busy) {
+      setStatus(null);
+      return;
+    }
+    setStatus("Thinking…");
+    const later = setTimeout(() => setStatus((x) => (x === "Thinking…" ? "Still thinking…" : x)), 9000);
+    return () => clearTimeout(later);
+  }, [busy]);
   const [note, setNote] = useState("");
   // What the last reply changed (shown under it, with Undo), and the full list (the sheet).
   const [changed, setChanged] = useState<HistoryItem[]>([]);
@@ -229,6 +247,16 @@ export default function Chat() {
                 style={[s.bub, s.them, s.thinking, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}
               >
                 <ThinkingDots />
+                {status ? (
+                  <Animated.Text
+                    key={status}
+                    entering={FadeIn.duration(motion.fade)}
+                    style={[type.caption, { color: t.fg2 }]}
+                    accessibilityLiveRegion="polite"
+                  >
+                    {status}
+                  </Animated.Text>
+                ) : null}
               </Animated.View>
             ) : null
           }
@@ -246,7 +274,9 @@ export default function Chat() {
             )
           }
         />
-        {changed.length ? <Changes items={changed} inline onChange={setChanged} /> : null}
+        {changed.length ? (
+          <Changes items={changed} inline onChange={setChanged} onClose={() => setChanged([])} />
+        ) : null}
         {note && view?.items.length ? <Text style={[s.sys, { color: t.fg2 }]}>{note}</Text> : null}
         {showChanges ? <Changes onClose={() => setShowChanges(false)} /> : null}
         <FlatList
@@ -483,7 +513,14 @@ const s = StyleSheet.create({
   me: { alignSelf: "flex-end", borderBottomRightRadius: 5 },
   them: { alignSelf: "flex-start", borderBottomLeftRadius: 5, borderWidth: StyleSheet.hairlineWidth },
   bubText: { ...type.body },
-  thinking: { paddingVertical: 12, paddingHorizontal: 14, marginTop: 4 },
+  thinking: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   inline: {
     alignSelf: "stretch",
     borderRadius: radius.card,

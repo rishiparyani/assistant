@@ -699,6 +699,56 @@ export async function sendMessage(
   }
 }
 
+/**
+ * What the assistant is doing, to this person's open apps as it happens (decision 2026-10-15
+ * "Feel: the ChatGPT bar"): thinking, then a line per tool ("Adding to Reminders"), then done.
+ * Only the step and a list's name, never the words of the request; sent and not waited for.
+ */
+function progress(ctx: OpUserCtx, chatId: string, step: "thinking" | "tool" | "done", label?: string) {
+  void ctx.objects.LIVE.getByName(`live:${ctx.user.id}`)
+    .ping({ type: "assistant_progress", chat: chatId, step, ...(label ? { label } : {}) })
+    .catch(() => undefined);
+}
+
+const PROGRESS_WORDS: Record<string, (col: string | null) => string> = {
+  find_records: (c) => `Looking at ${c ?? "your lists"}…`,
+  get_record: (c) => `Looking at ${c ?? "your lists"}…`,
+  search: () => "Searching…",
+  query: () => "Working it out…",
+  add_record: (c) => `Adding to ${c ?? "a list"}…`,
+  update_record: (c) => `Changing ${c ?? "a record"}…`,
+  delete_record: (c) => `Deleting from ${c ?? "a list"}…`,
+  preview_change: (c) => `Working out the change to ${c ?? "the records"}…`,
+  change_records: (c) => `Changing ${c ?? "the records"}…`,
+  preview_import: () => "Reading the file…",
+  import_records: () => "Adding the rows…",
+  export_csv: () => "Making the file…",
+  make_setup: () => "Building the setup…",
+  create_collection: () => "Making the list…",
+  add_field: () => "Adding the field…",
+  update_field: () => "Changing the field…",
+  save_view: () => "Saving the view…",
+  update_view: () => "Changing the view…",
+  remember: () => "Remembering…",
+  hand_over: () => "Handing to the smart model…",
+};
+
+/** The progress line for a tool call: the tool's words with the list it names, if any. */
+function progressWords(call: ToolCall): string {
+  const name = call.function.name;
+  let col: string | null = null;
+  try {
+    const args = JSON.parse(call.function.arguments || "{}") as Record<string, unknown>;
+    if (typeof args.collection === "string" && args.collection.length <= 40) col = args.collection;
+  } catch {
+    // not ours to read
+  }
+  const words = PROGRESS_WORDS[name];
+  if (words) return words(col);
+  const plain = name.replace(/_/g, " ");
+  return `${plain.charAt(0).toUpperCase()}${plain.slice(1)}…`;
+}
+
 async function answerMessage(
   ctx: OpUserCtx,
   ops: readonly AnyOperation[],
@@ -750,6 +800,7 @@ async function answerMessage(
       ...history,
       ...turn,
     ];
+    progress(ctx, chatId, "thinking");
     const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast);
     stats.steps++;
     if (!answer) {
@@ -771,6 +822,7 @@ async function answerMessage(
     // Stored without the maker's opaque blocks: only this turn's tool results need them.
     rows.push({ role: "assistant", content, tool_calls, shown: null });
     for (const [i, call] of tool_calls.entries()) {
+      progress(ctx, chatId, "tool", progressWords(call));
       // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
       const result = await runTool(
         ctx,
@@ -853,6 +905,7 @@ async function answerMessage(
   }
   for (const live of [...lives.values()].slice(-MAX_LIVE))
     rows.push({ role: "assistant", content: "", shown: "live", live, level });
+  progress(ctx, chatId, "done");
   await chat.append(uid, rows, requestKey);
   await budgetOf(ctx)
     .logTurn({

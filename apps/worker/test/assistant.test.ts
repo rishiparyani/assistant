@@ -2,7 +2,7 @@
 // (src/core/assistant/fake-model.ts): tools run through the operations, money and setups
 // wait for a tap, level 1 hands setups over, and the budget keeps the cap. Fake data only.
 import { describe, expect, it } from "vitest";
-import { env } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
 import type { ChatView, FindResult } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
@@ -15,6 +15,9 @@ const find = (u: User, collection: string) =>
   call(`/api/collections/${collection}/find`, { cookie: u.cookie, body: {} }).then((r) =>
     json<FindResult>(r),
   );
+
+const BASE = "http://localhost:8787";
+const worker = () => (exports as unknown as { default: Fetcher }).default;
 
 describe("chat", () => {
   it("runs everyday tools at once and shows the answer", async () => {
@@ -36,6 +39,35 @@ describe("chat", () => {
       collection_id: notes.items[0]!.collection_id,
       record_id: notes.items[0]!.id,
     });
+  });
+
+  it("tells my open app what it's doing as it goes, never the words", async () => {
+    const me = await signUp("Test Owner");
+    const res = await worker().fetch(`${BASE}/api/live`, {
+      headers: { cookie: me.cookie, origin: BASE, upgrade: "websocket" },
+    });
+    expect(res.status).toBe(101);
+    const ws = res.webSocket!;
+    ws.accept();
+    const got: Record<string, unknown>[] = [];
+    ws.addEventListener("message", (e) => {
+      try {
+        got.push(JSON.parse(String(e.data)) as Record<string, unknown>);
+      } catch {
+        // pong
+      }
+    });
+    await say(me, "Test: note the PA needs two DI boxes");
+    const until = Date.now() + 5000;
+    while (!got.some((m) => m.step === "done") && Date.now() < until)
+      await new Promise((r) => setTimeout(r, 50));
+    const steps = got.filter((m) => m.type === "assistant_progress").map((m) => [m.step, m.label ?? null]);
+    expect(steps[0]).toEqual(["thinking", null]);
+    expect(steps).toContainEqual(["tool", "Adding to Notes…"]);
+    expect(steps.at(-1)).toEqual(["done", null]);
+    // Only the step and a list's name: nothing of what was said.
+    expect(JSON.stringify(got)).not.toContain("DI boxes");
+    ws.close(1000);
   });
 
   it("shows a find as a live list card", async () => {

@@ -4,8 +4,9 @@
 // online-only: the log and Undo live on the server.
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import { Sheet } from "@/components/Sheet";
-import { Text } from "@assistant/cards/native";
+import { Tap, Text, motion } from "@assistant/cards/native";
 import type { HistoryItem } from "@assistant/shared";
 import { ApiError, isOffline, request } from "../api.ts";
 import { radius, useTheme } from "../theme.ts";
@@ -220,13 +221,32 @@ export function Changes({
     </View>
   ));
 
+  // Under a reply: rises in, and goes with a tap on × (or on its own with the next message).
   if (inline)
     return (
-      <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
-        <Text style={[s.title, { color: t.accent }]}>What changed</Text>
+      <Animated.View
+        entering={FadeInDown.duration(motion.enter).springify().damping(18)}
+        exiting={FadeOutDown.duration(motion.fade)}
+        style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}
+      >
+        <View style={s.inlineHead}>
+          <Text style={[s.title, { color: t.accent }]}>What changed</Text>
+          {onClose ? (
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Hide"
+              onPress={onClose}
+              hitSlop={10}
+              scale={0.85}
+              style={s.hide}
+            >
+              <Text style={{ color: t.fg2, fontSize: 16, lineHeight: 18, fontWeight: "700" }}>×</Text>
+            </Tap>
+          ) : null}
+        </View>
         {rows}
         {note ? <Text style={[s.line, { color: t.danger }]}>{note}</Text> : null}
-      </View>
+      </Animated.View>
     );
   return (
     <Sheet open onClose={onClose ?? (() => undefined)} gap={10} accessibilityLabel="What changed">
@@ -273,6 +293,15 @@ const s = StyleSheet.create({
     paddingVertical: 10,
   },
   title: { fontSize: 12, fontWeight: "700", marginBottom: 4 },
+  inlineHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  hide: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: -6,
+    marginRight: -6,
+  },
   item: { paddingVertical: 8, gap: 8, borderTopWidth: StyleSheet.hairlineWidth },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   ask: { borderRadius: 16, padding: 12, gap: 8 },
