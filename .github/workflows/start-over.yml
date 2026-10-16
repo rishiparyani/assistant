@@ -1,6 +1,7 @@
 # Start over (decision 2026-10-16 "Start over from a GitHub job, never from the app"): the
 # test phase only. Erases every account and everything people made in the chosen app, after a
-# backup to the owner's Google Drive. Kept: the app's settings (Drive link, alerts, push keys),
+# backup to the owner's Google Drive (on the real app it stops if that fails, unless "backup:
+# skip if it fails" was chosen for the run). Kept: the app's settings (Drive link, alerts, push keys),
 # the AI budget (this month's spend still counts) and the database's migrations.
 #
 # How it can't happen by mistake: nothing in the app can start it; it runs only from the
@@ -31,6 +32,13 @@ on:
         description: "Type today's date in India, as YYYY-MM-DD"
         required: true
         type: string
+      backup:
+        description: "Backup to Google Drive first"
+        type: choice
+        # The backup is always tried. "Required" stops the real app's erase when it fails;
+        # "skip if it fails" goes on, and whatever wasn't backed up is gone for good.
+        options: [required, skip if it fails]
+        default: required
 
 permissions:
   contents: read
@@ -50,6 +58,7 @@ jobs:
       WHERE: ${{ inputs.where }}
       WORDS: ${{ inputs.words }}
       TODAY: ${{ inputs.today }}
+      BACKUP: ${{ inputs.backup }}
       WORKER_NAME: ${{ inputs.where == 'production' && 'assistant' || 'assistant-dev' }}
       APP_URL: ${{ inputs.where == 'production' && 'https://gigspree.in' || 'https://dev.gigspree.in' }}
     steps:
@@ -109,9 +118,11 @@ jobs:
             -d '{"words":"ERASE EVERYTHING","step":"backup"}')"
           if [ "$(jq -r .ok <<< "$out")" = "true" ]; then
             echo "Backup saved ($(jq -r .bytes <<< "$out") bytes)."
-          elif [ "$WHERE" = "production" ]; then
-            echo "::error::The backup to Google Drive didn't work (connected: $(jq -r .connected <<< "$out")). Nothing was erased."
+          elif [ "$WHERE" = "production" ] && [ "$BACKUP" != "skip if it fails" ]; then
+            echo "::error::The backup to Google Drive didn't work (connected: $(jq -r .connected <<< "$out")). Nothing was erased. Connect Drive in the admin panel, or run again with backup: skip if it fails."
             exit 1
+          elif [ "$WHERE" = "production" ]; then
+            echo "::warning::No backup (connected: $(jq -r .connected <<< "$out")): going on without one, as chosen. What's erased can't be brought back."
           else
             echo "::warning::No backup for dev (connected: $(jq -r .connected <<< "$out")); its data is made up."
           fi
