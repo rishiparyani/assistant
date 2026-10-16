@@ -170,6 +170,8 @@ jobs:
                   -d "{\"words\":\"ERASE EVERYTHING\",\"step\":\"objects\",\"binding\":\"${binding[$cls]}\",\"ids\":$batch}")"
                 erased[$cls]=$(( ${erased[$cls]:-0} + $(jq -r .wiped <<< "$out") ))
                 failed=$((failed + $(jq -r .failed <<< "$out")))
+                # Why an erase failed, by kind (the runtime's words, never anyone's data).
+                jq -r '.errors[]? | "  \(.)"' <<< "$out" | sort -u | head -5
               done
             done
             echo "Pass $pass: $found objects with data, $failed failed to erase."

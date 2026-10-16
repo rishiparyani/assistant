@@ -42,27 +42,52 @@ export const RESET_WORDS = "ERASE EVERYTHING";
 
 type Wipeable = { wipe(): Promise<void> };
 
+/** Why an erase failed, in fixed words: the error's class and a category from its message. */
+export function errorKind(err: unknown): string {
+  if (!(err instanceof Error)) return "error";
+  const m = err.message.toLowerCase();
+  const kind = /abort|reset/.test(m)
+    ? "the object was reset"
+    : /invalid|not for this|idfromstring/.test(m)
+      ? "an id not of this kind"
+      : /overload|too many|exceeded/.test(m)
+        ? "overloaded"
+        : /timed out|timeout|deadline/.test(m)
+          ? "timed out"
+          : /not a function|no such method|does not (exist|implement)/.test(m)
+            ? "no wipe method"
+            : /sql|storage/.test(m)
+              ? "a storage error"
+              : "something else";
+  // The class name only when it's a plain one (never text built from data).
+  return `${/^[A-Za-z]{1,40}$/.test(err.name) ? err.name : "Error"}: ${kind}`;
+}
+
 /** Erases the given objects of one kind (ids as the Cloudflare API lists them). */
 export async function wipeObjects(
   env: ResetEnv,
   binding: WipedBinding,
   ids: readonly string[],
-): Promise<{ wiped: number; failed: number }> {
+): Promise<{ wiped: number; failed: number; errors: string[] }> {
   const ns = env[binding] as unknown as DurableObjectNamespace;
   let wiped = 0;
   let failed = 0;
+  // What went wrong, by kind: the error's name and a fixed category, never its message (the
+  // job's log is public, and a message can carry someone's words).
+  const errors = new Set<string>();
   for (const id of ids) {
     try {
       const stub = ns.get(ns.idFromString(id)) as unknown as Wipeable;
       await stub.wipe();
       wiped++;
     } catch (err) {
-      // Counts only: never an id's data in the logs.
-      console.error("reset: an object failed to erase", binding, err instanceof Error ? err.name : "error");
+      const e = errorKind(err);
+      console.error("reset: an object failed to erase", binding, e);
+      if (errors.size < 5) errors.add(e);
       failed++;
     }
   }
-  return { wiped, failed };
+  return { wiped, failed, errors: [...errors] };
 }
 
 /** Every table that holds people's rows: everything but the kept ones and the engine's own. */
