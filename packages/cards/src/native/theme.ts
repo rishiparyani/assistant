@@ -84,26 +84,62 @@ export const COLLECTION_COLOURS = {
 } as const;
 export type CollectionColour = keyof typeof COLLECTION_COLOURS.light;
 
-export function useTheme(): { t: Theme; dark: boolean; colour: (c: CollectionColour) => string } {
+/** `hex` laid over `base` at `amount` (0–1), as a solid colour. */
+function mix(hex: string, base: string, amount: number): string {
+  const ch = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
+  const out = [0, 1, 2].map((i) => Math.round(ch(base, i) + (ch(hex, i) - ch(base, i)) * amount));
+  return `#${out.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
+ * A card's soft colour (decision 2026-10-16 "Soft coloured cards"): a pale wash of the list's
+ * colour on white in light mode, a deep muted one on the card grey in dark mode, so a whole
+ * card says which list it is without shouting. Text, ticks and money keep their own colours.
+ */
+export const CARD_TINTS = {
+  light: Object.fromEntries(
+    Object.entries(COLLECTION_COLOURS.light).map(([k, v]) => [k, mix(v, light.cell, 0.1)]),
+  ) as Record<CollectionColour, string>,
+  dark: Object.fromEntries(
+    Object.entries(COLLECTION_COLOURS.dark).map(([k, v]) => [k, mix(v, dark.cell, 0.14)]),
+  ) as Record<CollectionColour, string>,
+};
+
+export function useTheme(): {
+  t: Theme;
+  dark: boolean;
+  colour: (c: CollectionColour) => string;
+  /** The card's soft background in this list's colour. */
+  cardTint: (c: CollectionColour) => string;
+} {
   const scheme = useColorScheme();
   const isDark = scheme === "dark";
   return {
     t: isDark ? dark : light,
     dark: isDark,
     colour: (c) => COLLECTION_COLOURS[isDark ? "dark" : "light"][c],
+    cardTint: (c) => CARD_TINTS[isDark ? "dark" : "light"][c],
   };
 }
 
-/** Until collections carry a colour of their own: a steady pick from the name. */
+/** The colours a list can get from its name (grey is kept for things that aren't lists). */
+const PICKS: CollectionColour[] = ["money", "time", "people", "flow", "music", "home"];
+
+/**
+ * Until collections carry a colour of their own: a steady pick from the name. A few everyday
+ * words choose a fitting colour; any other name gets one of the six by its letters, the same
+ * every time, so every list has a colour of its own rather than grey.
+ */
 export function colourFor(name: string): CollectionColour {
   const n = name.toLowerCase();
-  if (/expense|money|pay|fee|budget|cost/.test(n)) return "money";
-  if (/remind|today|task|todo|event|rehears/.test(n)) return "time";
-  if (/guest|people|band|contact|member|patient|client/.test(n)) return "people";
-  if (/song|set ?list|music|chart/.test(n)) return "music";
+  if (/expense|money|pay|fee|budget|cost|spent|bill/.test(n)) return "money";
+  if (/remind|today|task|todo|event|due/.test(n)) return "time";
+  if (/guest|people|contact|member|patient|client|visitor/.test(n)) return "people";
   if (/flow|process|rule/.test(n)) return "flow";
   if (/home|grocer|shop|house/.test(n)) return "home";
-  return "neutral";
+  let h = 0;
+  for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return PICKS[h % PICKS.length]!;
 }
 
 export const radius = { card: 22, sheet: 26, control: 12, pill: 999 };

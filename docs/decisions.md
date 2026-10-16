@@ -917,6 +917,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **The home picks a card's size from what it shows** when nobody chose one (`DEFAULT_CARD_SIZE` in `packages/cards/src/spec.ts`): a number or a countdown is a half-width tile so two sit side by side, a list is full width, a table, bars or a grid is tall, "next" is a full-width strip. Before, every chosen arrangement got its smallest size and every default list got medium, so a home came out one flat size.
 - **The assistant is told to leave the size out** unless the person asks for one, so the content rule is the normal path and a spoken size the exception. A person's own size (hold a card, resize) still wins.
 
+## 2026-10-16: Soft coloured cards (owner: "should we have colored cards… softer colored cards so that it looks good in dark mode and light mode… instead of having that small dot")
+
+- **Every card is filled with a soft wash of its list's colour:** in light mode the colour laid over white at 10%, in dark mode over the card grey at 14%, so it reads as calm in both (`CARD_TINTS` and `cardTint` in `packages/cards/src/native/theme.ts`). The edge is the same colour a little stronger. Text, ticks, money and the "left" pills keep their own colours, so nothing becomes hard to read and warnings still stand out. The "Next up" card keeps its deep blue.
+- **The list tiles** (All lists, a space's lists) are filled the same way, with "See all" in the list's colour; the small dot is gone.
+- **Every list has a colour of its own:** a few everyday words still pick a fitting one (money, reminders, people, home); any other name gets one of six by its letters, the same every time, instead of grey. Grey stays for things that aren't lists.
+- **Next:** a colour chosen in the chat ("make Expenses green"), kept on the list, so two lists that land on the same colour can be told apart.
+
 ## 2026-10-16: No band or gig words in what people see (owner: "is this a default message… I've told you repeatedly that this is not a gig specific app or a band specific app")
 
 - **What was wrong:** the Chats screen's empty state said "Talk to your band and family here", a fixed sentence written into the app, not something it knew about the person. The new-group box suggested "Band", a chat idea said "call the venue", and the assistant's own instructions gave "the band" and "by venue" as examples.
