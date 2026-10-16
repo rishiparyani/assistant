@@ -69,7 +69,17 @@ export default function Chat() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { card, ask, id } = useLocalSearchParams<{ card?: string; ask?: string; id?: string }>();
+  const {
+    card,
+    ask,
+    id,
+    send: sendNow,
+  } = useLocalSearchParams<{
+    card?: string;
+    ask?: string;
+    id?: string;
+    send?: string;
+  }>();
   const [view, setView] = useState<ChatView | null>(null);
   // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
   // current one (the server picks: the latest if used in the last two hours, else a new one).
@@ -84,7 +94,10 @@ export default function Chat() {
     const at = items.findLastIndex((i) => i.role === "assistant" && !!i.text);
     return at >= 0 && !items.slice(at + 1).some((i) => i.role === "user") ? items[at]!.id : null;
   })();
-  const [text, setText] = useState(ask ?? "");
+  // From the home's bar with send=1, the words go the moment the chat is open (not just typed in).
+  const sendAtOnce = !!ask && sendNow === "1";
+  const sentAtOnce = useRef(false);
+  const [text, setText] = useState(sendAtOnce ? "" : (ask ?? ""));
   // The box's height follows what's typed (one line to about five), measured the same way on
   // every platform rather than left to the platform's own idea of a text area.
   const [typedHeight, setTypedHeight] = useState(0);
@@ -241,6 +254,13 @@ export default function Chat() {
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (!view || !sendAtOnce || sentAtOnce.current) return;
+    sentAtOnce.current = true;
+    // say is this render's; the send happens once, when the chat first shows.
+    void say(ask!);
+  }, [view, sendAtOnce]);
 
   // online-only: a confirm card runs (or drops) its action on the server, once; a setup card
   // may run with the person's own changes to it.

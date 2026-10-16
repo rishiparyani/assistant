@@ -6,7 +6,6 @@ import {
   AppState,
   Linking,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -22,7 +21,7 @@ import { nextUp, type CardSize } from "@assistant/cards";
 import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
-import { SearchSheet } from "@/components/SearchSheet";
+import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
 import { API_URL } from "@/config";
@@ -52,7 +51,6 @@ import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
-const logoDark = require("../assets/logo-dark.png");
 const SIDE = 16;
 /** From this width the home is one dashboard (four columns) instead of swipeable pages. */
 const WIDE = 900;
@@ -89,11 +87,13 @@ export default function Home() {
   usePendingPath();
   // Guidance (decision 2026-10-13 "Guide people, no presets"): the first-run tour lights up
   // the real parts of the home; Help ("?") takes it again, and has ideas and "How do I…?".
+  // One bar asks and searches (decision 2026-10-16 "One bar"): both tour steps point at it.
+  const barRef = useRef<View>(null);
   const tourRefs = {
-    chat: useRef<View>(null),
+    chat: barRef,
     cards: useRef<View>(null),
     pages: useRef<View>(null),
-    search: useRef<View>(null),
+    search: barRef,
     help: useRef<View>(null),
   } satisfies TourRefs;
   const [touring, setTouring] = useState(false);
@@ -193,7 +193,8 @@ export default function Home() {
 
   // Chats with something unread (the dot on the Chats button); refreshes on live pings.
   const unread = (useChats().chats ?? []).filter((c) => c.unread > 0).length;
-  const [search, setSearch] = useState(false);
+  // What's typed in the bar; while there's something, matches show above it over a scrim.
+  const [barText, setBarText] = useState("");
   const [busyCard, setBusyCard] = useState<string | null>(null);
 
   // No hook below this line (the signed-out home crashed on the phone and the web, 2026-10-15:
@@ -523,6 +524,15 @@ export default function Home() {
         />
       )}
 
+      {barText.trim() ? (
+        // While searching from the bar: a tap anywhere on the page closes the matches.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close search"
+          onPress={() => setBarText("")}
+          style={[StyleSheet.absoluteFill, { backgroundColor: t.shadow }]}
+        />
+      ) : null}
       <View
         style={[s.bottom, { paddingBottom: insets.bottom + 10, backgroundColor: t.page }]}
         pointerEvents="box-none"
@@ -559,35 +569,35 @@ export default function Home() {
           >
             <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
           </Tap>
-          {assistant ? (
-            <Tap
-              ref={tourRefs.search}
-              accessibilityRole="button"
-              accessibilityLabel="Search"
-              onPress={() => setSearch(true)}
-              scale={0.92}
-              style={[s.searchBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
-            >
-              <Text style={{ color: t.fg, fontSize: 20, fontWeight: "700", lineHeight: 22 }}>⌕</Text>
-            </Tap>
-          ) : null}
-          <Tap
-            ref={assistant ? tourRefs.chat : tourRefs.search}
-            accessibilityRole="button"
-            accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
-            onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
-            scale={0.98}
-            dim={0.08}
-            style={[s.bar, { backgroundColor: t.ink, shadowColor: t.shadow }]}
-          >
-            <Image source={logoDark} style={{ width: 26, height: 26 }} accessibilityIgnoresInvertColors />
-            <Text style={[s.barText, { color: t.onInk }]} numberOfLines={1}>
-              {assistant ? "Ask, add or arrange…" : "Search your cards"}
-            </Text>
-            <View style={[s.send, { backgroundColor: t.accent }]}>
-              <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
-            </View>
-          </Tap>
+          <HomeBar
+            ref={barRef}
+            assistant={!!assistant}
+            text={barText}
+            onChangeText={setBarText}
+            cards={(pages ?? []).flatMap((p) => p.cards)}
+            lists={pages?.find((p) => p.lists)?.lists ?? []}
+            onAsk={(words) => router.push({ pathname: "/chat", params: { ask: words, send: "1" } })}
+            onOpenCard={(card) =>
+              card.collection && !card.shared
+                ? openList(card.collection.id, card.view?.id)
+                : assistant
+                  ? ask(card)
+                  : openOnWeb(card)
+            }
+            onOpenList={openList}
+            onOpenHit={(hit, q) => {
+              if (hit.kind === "message") {
+                router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
+                return;
+              }
+              if (assistant)
+                router.push({
+                  pathname: "/chat",
+                  params: { ask: `About "${hit.title}" in ${hit.collection}: ` },
+                });
+              else openList(hit.collection_id);
+            }}
+          />
         </View>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
@@ -639,34 +649,6 @@ export default function Home() {
                 }
               : undefined
           }
-        />
-      ) : null}
-      {search ? (
-        <SearchSheet
-          cards={pagesRef.current?.flatMap((p) => p.cards) ?? []}
-          lists={pagesRef.current?.find((p) => p.lists)?.lists ?? []}
-          onOpenList={(id) => {
-            setSearch(false);
-            openList(id);
-          }}
-          onClose={() => setSearch(false)}
-          onOpen={(card) => {
-            setSearch(false);
-            if (assistant) ask(card);
-            else openOnWeb(card);
-          }}
-          onOpenResult={(hit, q) => {
-            setSearch(false);
-            if (hit.kind === "message") {
-              router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
-              return;
-            }
-            if (assistant)
-              router.push({
-                pathname: "/chat",
-                params: { ask: `About "${hit.title}" in ${hit.collection}: ` },
-              });
-          }}
         />
       ) : null}
     </View>
@@ -749,22 +731,6 @@ const s = StyleSheet.create({
     elevation: 3,
   },
   barRow: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 8 },
-  bar: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingLeft: 14,
-    paddingRight: 9,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  barText: { flex: 1, fontSize: 15, fontWeight: "600", opacity: 0.75 },
-  send: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   failed: {
     alignSelf: "stretch",
     flexDirection: "row",

@@ -60,7 +60,7 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
   steps.push({
     target: "search",
     title: "Find anything",
-    text: "Search everything you've kept, by words or by meaning.",
+    text: "Type in the bar: your lists, cards and records appear as you type, with or without a connection. Press send to ask instead.",
   });
   steps.push({
     target: "help",
