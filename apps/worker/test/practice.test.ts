@@ -254,4 +254,85 @@ describe("practice copies", () => {
     // Someone the space doesn't know can't be played.
     expect((await api(owner)(`${base}/as/someone-else`)).status).toBe(404);
   });
+
+  it("starts a workflow with a sample record and plays a role nobody fills with a stand-in", async () => {
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Flats",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Resident", type: "person" },
+        ],
+      },
+    });
+    const cols = await json<{ id: string; name: string }[]>(await api(owner)("/collections"));
+    const flats = cols.find((c) => c.name === "Flats")!.id;
+    await api(owner)("/collections", {
+      body: {
+        name: "Visitors",
+        fields: [
+          { name: "Visitor name", type: "text" },
+          { name: "Flat", type: "link", options: { target: flats } },
+          { name: "Status", type: "choice", options: { choices: ["Waiting", "Approved", "Denied"] } },
+        ],
+      },
+    });
+    // A flat with nobody in Resident: in a real run, nobody would be asked.
+    await api(owner)("/collections/Flats/records", { body: { values: { Title: "Test A-101" } } });
+    const wf = await json<WorkflowView>(
+      await api(owner)("/workflows", {
+        body: {
+          name: "Visitor approval",
+          when: { event: "added", collection: "Visitors" },
+          then: [
+            {
+              do: "ask",
+              who: ["{Flat.Resident}"],
+              text: "{Visitor name} is at the gate for {Flat}. Let them in?",
+              choices: ["Approved", "Denied"],
+              save_to: "Status",
+              until: "first",
+            },
+            { do: "notify", text: "{Visitor name}: {Status}", to: ["me"] },
+          ],
+          enabled: false,
+        },
+      }),
+    );
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    const view = async () => json<PracticeView>(await api(owner)(base));
+
+    // Start it: a sample visitor at the first flat.
+    const started = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id } });
+    expect(started.status).toBe(200);
+    const { record } = await json<{ record: { id: string; title: string } }>(started);
+    expect(record.title).toBe("Sample visitor name");
+    // The Resident nobody fills is played by a stand-in, asked like anyone.
+    expect(
+      await until(async () => (await view()).people.some((p) => p.role === "standin" && p.waiting === 1)),
+    ).toBe(true);
+    const standIn = (await view()).people.find((p) => p.role === "standin")!;
+    expect(standIn.name).toBe("Resident (stand-in)");
+    const theirs = await json<PracticeAsView>(
+      await api(owner)(`${base}/as/${encodeURIComponent(standIn.user_id)}`),
+    );
+    const q = theirs.cards.find((c) => c.kind === "question")!;
+    expect(q.title).toBe("Sample visitor name is at the gate for Test A-101. Let them in?");
+    expect(
+      (
+        await api(owner)(`${base}/as/${encodeURIComponent(standIn.user_id)}/cards/${q.share_id}/answer`, {
+          body: { answer: "Approved" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      await until(async () => (await view()).log.some((l) => l.body === "Sample visitor name: Approved")),
+    ).toBe(true);
+    // A real space has no stand-ins: there, the step asks nobody.
+    expect((await api(owner)(`/spaces/Personal/practice/run`, { body: { workflow_id: wf.id } })).status).toBe(
+      404,
+    );
+  });
 });

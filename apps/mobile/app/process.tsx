@@ -9,7 +9,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Rehearsal, RehearsalAnswer, WaitingItem, WorkflowDetail } from "@assistant/shared";
 import { isOffline, request } from "@/api";
-import { answerWaiting, nudgeWaiting } from "@/home";
+import { answerWaiting, homeChanged, nudgeWaiting } from "@/home";
 import { radius, useTheme } from "@/theme";
 
 export default function Process() {
@@ -29,6 +29,7 @@ export default function Process() {
   const [rehearsal, setRehearsal] = useState<Rehearsal | null>(null);
   const [answers, setAnswers] = useState<RehearsalAnswer[]>([]);
   const [typed, setTyped] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const space = fromCard?.space_id;
   const load = useCallback(async () => {
@@ -92,7 +93,7 @@ export default function Process() {
         `/api/spaces/${encodeURIComponent(space ?? "Personal")}/practice`,
         {},
       );
-      router.push({ pathname: "/practice", params: { space: made.id } });
+      router.push({ pathname: "/practice", params: { space: made.id, ...(id ? { workflow: id } : {}) } });
     } catch (e) {
       setNote(
         isOffline(e) ? "A practice copy needs a connection." : e instanceof Error ? e.message : String(e),
@@ -105,6 +106,23 @@ export default function Process() {
   const answer = (a: string) => {
     const w = rehearsal?.waiting;
     if (w) void rehearse([...answers, { step: w.step, time: w.time, person: w.next, answer: a }]);
+  };
+
+  // online-only: a workflow lives in its space's object; deleting stops it at once there.
+  // Two taps, like ending a practice run (screens may delete what the chat made).
+  const remove = async () => {
+    if (!id) return;
+    if (!deleting) return setDeleting(true);
+    setBusy("delete");
+    try {
+      const where = space ? `?space=${encodeURIComponent(space)}` : "";
+      await request("DELETE", `/api/workflows/${encodeURIComponent(id)}${where}`);
+      homeChanged();
+      router.back();
+    } catch (e) {
+      setNote(isOffline(e) ? "Deleting needs a connection." : e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
   };
 
   const waiting: WaitingItem[] = detail?.waiting ?? (mine ? [mine] : []);
@@ -131,6 +149,18 @@ export default function Process() {
                 {i + 1}. {w}
               </Text>
             ))}
+            <View style={s.row}>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy !== null}
+                onPress={() => void remove()}
+                style={[s.btn, { backgroundColor: deleting ? t.danger : t.fill, opacity: busy ? 0.6 : 1 }]}
+              >
+                <Text style={[s.btnText, { color: deleting ? t.onAccent : t.danger }]}>
+                  {busy === "delete" ? "Deleting…" : deleting ? "Tap again to delete it" : "Delete workflow"}
+                </Text>
+              </Pressable>
+            </View>
           </View>
         ) : null}
 

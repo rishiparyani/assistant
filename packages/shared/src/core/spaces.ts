@@ -1665,3 +1665,22 @@ export const CommentRef = SpaceRef.extend({ comment_id: z.string().trim().min(1)
 export const SharedRecordRef = SharedRef.extend({ record_id: z.string().trim().min(1).max(40) });
 export const AddSharedCommentInput = SharedRecordRef.extend({ id: clientId, body: commentBody });
 export const SharedCommentRef = SharedRef.extend({ comment_id: z.string().trim().min(1).max(40) });
+
+// --- The home you arrange (decision 2026-10-16 "A home you arrange") -----------------------
+
+/**
+ * A card on the home, by key: "view:<space>:<view>", "list:<space>:<collection>",
+ * "share:<share>", "wait:<wait>", "now", "memory".
+ */
+const cardKey = z.string().trim().min(1).max(120);
+export const HomeLayoutInput = z.object({
+  /** The pages, in order, each its cards in order. */
+  pages: z.array(z.array(cardKey).max(40)).max(20),
+  /** Every card the home has shown: a card not in here is new and lands on the last page. */
+  seen: z.array(cardKey).max(2000),
+});
+export interface HomeLayout {
+  pages: string[][];
+  seen: string[];
+  updated_at: string;
+}
