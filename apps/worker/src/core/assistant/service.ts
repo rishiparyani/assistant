@@ -92,6 +92,12 @@ const EVERYDAY = [
   "list_rules",
   // Setups travel between people as cards (home-first.md §5.4): structure, never records.
   "share_setup",
+  // Spaces of one's own (decision 2026-10-16 "Spaces"): made in the chat (a card to tap), and
+  // how the person wants things done in each one, in their words.
+  "list_spaces",
+  "new_space",
+  "space_settings",
+  "set_space_instructions",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -114,7 +120,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-16a";
+export const PROMPT_VERSION = "2026-10-16b";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
