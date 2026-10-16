@@ -551,3 +551,30 @@ export function nextScheduleTime(s: WorkflowSchedule, after: number): number {
   }
   return after + 86_400_000;
 }
+
+/**
+ * Rehearse a workflow (decision 2026-10-16 "Rehearse a workflow"): run it on one record with
+ * nothing kept and nobody told, to see each step in plain words. At a question it stops,
+ * showing what would be asked; give an answer for that step (1-based) and it goes on as if
+ * the person had answered.
+ */
+export const RehearseWorkflowInput = WorkflowRef.extend({
+  /** The record to try it on (an id); left out, the list's newest. */
+  record_id: z.string().trim().min(1).max(40).optional(),
+  answers: z
+    .array(z.object({ step: z.number().int().min(1).max(50), answer: z.string().trim().min(1).max(200) }))
+    .max(20)
+    .default([]),
+});
+
+export interface Rehearsal {
+  workflow: string;
+  /** The record it was tried on (null for a scheduled workflow). */
+  record: { id: string; title: string } | null;
+  /** What each step would do, in order ("Told Asha: “…”", "Set Status"). */
+  lines: string[];
+  /** Where it stopped for a question; answer it (by step) to go on. */
+  waiting: { step: number; question: string; choices: string[] | null; people: string[] } | null;
+  /** True when it ran to the end. */
+  finished: boolean;
+}

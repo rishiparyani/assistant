@@ -75,6 +75,7 @@ import {
   type RuleView,
   ruleWords,
   type WorkflowDetail,
+  type Rehearsal,
   type WorkflowEvent,
   type WaitingItem,
   type WorkflowRun,
@@ -1214,6 +1215,16 @@ export class SpaceObject extends DurableObject<Env> {
   // A write leaves one outbox note (in its own transaction); shortly after, the alarm pings
   // the live object of everyone in the space or in one of its shares. A ping carries no data
   // (their apps fetch again, so nobody sees more than they may), and repeats are harmless.
+
+  /**
+   * Set while a rehearsal runs (decision 2026-10-16 "Rehearse a workflow"): its run lines are
+   * kept here, an "ask" step takes a scripted answer (or stops), and everything is rolled back.
+   */
+  private rehearsal: {
+    answers: Map<number, string>;
+    lines: string[];
+    waiting: Rehearsal["waiting"];
+  } | null = null;
 
   private changed() {
     bumpAndNote(this.sql);
@@ -6505,6 +6516,80 @@ export class SpaceObject extends DurableObject<Env> {
       .map((w) => this.workflowView(w));
   }
 
+  /**
+   * Rehearse a workflow (decision 2026-10-16 "Rehearse a workflow"): its steps run on one
+   * record inside a transaction that is rolled back, so nothing is kept, nobody is told and
+   * nothing is asked; what each step would do comes back in words. A workflow that's off can
+   * be rehearsed (that's the point: try it before turning it on).
+   */
+  async rehearseWorkflow(
+    actor: Actor,
+    id: string,
+    recordId: string | null,
+    answers: { step: number; answer: string }[],
+  ): Promise<Rehearsal> {
+    this.canArrange(actor);
+    const w = this.requireWorkflow(id);
+    const def = JSON.parse(w.def_json) as WorkflowDef;
+    const scheduled = def.when.event === "schedule";
+    let record: RecordRow | null = null;
+    if (!scheduled) {
+      record = recordId
+        ? (this.liveRecord(recordId) ?? null)
+        : (this.sql
+            .exec<RecordRow>(
+              `select * from records where collection_id = ? and deleted_at is null order by created_at desc limit 1`,
+              w.collection_id,
+            )
+            .toArray()[0] ?? null);
+      if (!record || record.collection_id !== w.collection_id)
+        throw new ObjectError(
+          "validation_failed",
+          recordId ? "That record isn't in this workflow's list" : "Add a record to the list to rehearse on",
+        );
+    }
+    const out: Rehearsal = {
+      workflow: w.name,
+      record: record ? { id: record.id, title: this.requireRecord(record.id).title } : null,
+      lines: [],
+      waiting: null,
+      finished: false,
+    };
+    const actorW: Actor = { userId: w.created_by, source: "system" };
+    if (record && def.check.length) {
+      const c = this.requireCollection(w.collection_id);
+      if (!this.findRows(actorW, c, { filters: def.check, ids: [record.id], limit: 1 }).rows.length) {
+        out.lines = ["It wouldn't run: this record doesn't match the workflow's check"];
+        return out;
+      }
+    }
+    if (def.wait_minutes) out.lines.push(`It would wait ${def.wait_minutes} minutes first`);
+    const ROLLBACK = Symbol("rollback");
+    const queued = this.queued;
+    this.rehearsal = { answers: new Map(answers.map((a) => [a.step, a.answer])), lines: [], waiting: null };
+    try {
+      this.queued = [];
+      this.ctx.storage.transactionSync(() => {
+        this.wfDepth = 1;
+        this.runSteps(w, def, record, 0, {});
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) {
+        // A step that would fail says so, as the run's last line.
+        this.rehearsal.lines.push(`It would stop here: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } finally {
+      out.lines.push(...this.rehearsal.lines);
+      out.waiting = this.rehearsal.waiting;
+      this.rehearsal = null;
+      this.queued = queued;
+      this.wfDepth = 0;
+    }
+    out.finished = !out.waiting && !out.lines.some((l) => l.startsWith("It would stop here"));
+    return out;
+  }
+
   async getWorkflow(actor: Actor, id: string): Promise<WorkflowDetail> {
     this.role(actor);
     const w = this.requireWorkflow(id);
@@ -7463,6 +7548,23 @@ export class SpaceObject extends DurableObject<Env> {
           did.push("Nobody to ask: the record names nobody in the space");
           continue;
         }
+        if (this.rehearsal) {
+          // A rehearsal asks nobody: it stops here, or takes the answer given for this step.
+          const names = people.map((p) => p.name);
+          did.push(`Would ask ${names.join(", ")}: “${text}”`);
+          const answer = this.rehearsal.answers.get(i + 1);
+          if (answer === undefined) {
+            this.rehearsal.waiting = { step: i + 1, question: text, choices: a.choices, people: names };
+            this.noteRun(w.id, r.id, true, false, did.join(" · "));
+            return tell;
+          }
+          if (a.save_to)
+            this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.save_to]: answer } });
+          did.push(
+            `The answer: “${answer}”${a.save_to ? `, kept in ${this.liveField(a.save_to)?.name ?? "a field"}` : ""}`,
+          );
+          continue;
+        }
         const questionId = ulid();
         const shareId = ulid();
         // No link: the people asked are known by account, so nobody can join by a token.
@@ -7591,7 +7693,11 @@ export class SpaceObject extends DurableObject<Env> {
     }
     if (a.do === "set" && r) {
       this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });
-      return `Set ${this.liveField(a.field_id)?.name ?? "a field"}`;
+      // "Set Status to Confirmed": the value as people see it, when there's one to show.
+      const f = this.liveField(a.field_id);
+      const shown = f ? displayValue(f.type, a.value as StoredValue) : "";
+      const value = Array.isArray(shown) ? shown.join(", ") : shown;
+      return `Set ${f?.name ?? "a field"}${value ? ` to ${value}` : ""}`;
     }
     if (a.do !== "add") return "";
     const t = this.requireCollection(a.collection_id);
@@ -7882,6 +7988,7 @@ export class SpaceObject extends DurableObject<Env> {
     counted: boolean,
     detail: string,
   ) {
+    if (this.rehearsal) this.rehearsal.lines.push(...detail.split(" · "));
     const at = nowIso();
     this.sql.exec(
       `insert into workflow_runs (id, workflow_id, record_id, at, ok, counted, detail) values (?, ?, ?, ?, ?, ?, ?)`,

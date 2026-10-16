@@ -4,10 +4,10 @@
 // online-only: a process's state lives in its space's object.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Text } from "@assistant/cards/native";
+import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { WaitingItem, WorkflowDetail } from "@assistant/shared";
+import type { Rehearsal, WaitingItem, WorkflowDetail } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { answerWaiting, nudgeWaiting } from "@/home";
 import { radius, useTheme } from "@/theme";
@@ -24,6 +24,11 @@ export default function Process() {
   const [detail, setDetail] = useState<WorkflowDetail | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  // Rehearse (decision 2026-10-16 "Rehearse a workflow"): the run in words, nothing kept or
+  // sent; each answer given to a question is kept here and sent again to go further.
+  const [rehearsal, setRehearsal] = useState<Rehearsal | null>(null);
+  const [answers, setAnswers] = useState<{ step: number; answer: string }[]>([]);
+  const [typed, setTyped] = useState("");
 
   const space = fromCard?.space_id;
   const load = useCallback(async () => {
@@ -59,6 +64,28 @@ export default function Process() {
     }
   };
 
+  const rehearse = async (given: { step: number; answer: string }[]) => {
+    if (!id) return;
+    setBusy("rehearse");
+    try {
+      const r = await request<Rehearsal>("POST", `/api/workflows/${encodeURIComponent(id)}/rehearse`, {
+        answers: given,
+        ...(space ? { space } : {}),
+        ...(rehearsal?.record ? { record_id: rehearsal.record.id } : {}),
+      });
+      setAnswers(given);
+      setRehearsal(r);
+      setTyped("");
+      setNote("");
+    } catch (e) {
+      setNote(isOffline(e) ? "Rehearsing needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  const answer = (a: string) =>
+    rehearsal?.waiting && void rehearse([...answers, { step: rehearsal.waiting.step, answer: a }]);
+
   const waiting: WaitingItem[] = detail?.waiting ?? (mine ? [mine] : []);
   const title = detail?.workflow.name ?? mine?.workflow ?? fromCard?.workflow ?? "Process";
   return (
@@ -84,6 +111,107 @@ export default function Process() {
               </Text>
             ))}
           </View>
+        ) : null}
+
+        {detail ? (
+          <>
+            <Text style={[s.h2, { color: t.fg }]}>Rehearse</Text>
+            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
+              {rehearsal ? (
+                <>
+                  <Text style={[s.label, { color: t.fg2 }]}>
+                    {rehearsal.record ? `On “${rehearsal.record.title}”` : "As a scheduled run"} · nothing is
+                    kept, nobody is told
+                  </Text>
+                  {rehearsal.lines.map((l, i) => (
+                    <Text
+                      key={i}
+                      style={[s.line, { color: l.startsWith("It would stop") ? t.danger : t.fg }]}
+                    >
+                      {l}
+                    </Text>
+                  ))}
+                  {rehearsal.waiting ? (
+                    <>
+                      <Text style={[s.label, { color: t.fg2 }]}>
+                        Answer as {rehearsal.waiting.people.join(" or ")} to go on:
+                      </Text>
+                      {rehearsal.waiting.choices ? (
+                        <View style={s.row}>
+                          {rehearsal.waiting.choices.map((c) => (
+                            <Pressable
+                              key={c}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Answer ${c}`}
+                              disabled={busy !== null}
+                              onPress={() => answer(c)}
+                              style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                            >
+                              <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : (
+                        <View style={s.row}>
+                          <TextInput
+                            accessibilityLabel="Their answer"
+                            placeholder="Their answer"
+                            placeholderTextColor={t.fg3}
+                            value={typed}
+                            onChangeText={setTyped}
+                            onSubmitEditing={() => typed.trim() && answer(typed.trim())}
+                            style={[s.input, { color: t.fg, backgroundColor: t.fill }]}
+                          />
+                          <Pressable
+                            accessibilityRole="button"
+                            disabled={busy !== null || !typed.trim()}
+                            onPress={() => answer(typed.trim())}
+                            style={[
+                              s.btn,
+                              { backgroundColor: t.accent, opacity: busy || !typed.trim() ? 0.6 : 1 },
+                            ]}
+                          >
+                            <Text style={[s.btnText, { color: t.onAccent }]}>Go on</Text>
+                          </Pressable>
+                        </View>
+                      )}
+                    </>
+                  ) : rehearsal.finished ? (
+                    <Text style={[s.label, { color: t.fg2 }]}>That's the whole run.</Text>
+                  ) : null}
+                  <View style={s.row}>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy !== null}
+                      onPress={() => void rehearse([])}
+                      style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+                    >
+                      <Text style={[s.btnText, { color: t.accent }]}>Start again</Text>
+                    </Pressable>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={[s.label, { color: t.fg2 }]}>
+                    Try it on the newest record: every step in words, with nothing kept and nobody told or
+                    asked. It works while the workflow is off.
+                  </Text>
+                  <View style={s.row}>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy !== null}
+                      onPress={() => void rehearse([])}
+                      style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                    >
+                      <Text style={[s.btnText, { color: t.onAccent }]}>
+                        {busy === "rehearse" ? "Rehearsing…" : "Rehearse"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </>
+              )}
+            </View>
+          </>
         ) : null}
 
         <Text style={[s.h2, { color: t.fg }]}>Waiting on</Text>
@@ -209,4 +337,5 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   btnText: { fontSize: 15, fontWeight: "700" },
+  input: { flex: 1, minWidth: 0, minHeight: 44, borderRadius: 22, paddingHorizontal: 16, fontSize: 16 },
 });

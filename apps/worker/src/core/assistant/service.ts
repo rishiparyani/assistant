@@ -83,6 +83,8 @@ const EVERYDAY = [
   "get_question",
   "list_workflows",
   "get_workflow",
+  // Rehearse (decision 2026-10-16): a workflow tried out in words, nothing kept or sent.
+  "rehearse_workflow",
   "set_workflow_enabled",
   // Processes (home-first.md §2 point 9): what's waiting on whom, and a nudge.
   "whats_waiting",
@@ -120,7 +122,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-16c";
+export const PROMPT_VERSION = "2026-10-16d";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -446,7 +448,11 @@ function describe(
                     : simple(a),
         ),
       });
-      return { title: `Make a workflow “${String(args.name ?? "")}” (saved off)`, details: words };
+      return {
+        title: `Make a workflow “${String(args.name ?? "")}” (saved off)`,
+        // Rehearse before it's on (decision 2026-10-16 "Rehearse a workflow").
+        details: [...words, "Saved off: say “rehearse it” to try it on a record first, nothing kept or sent"],
+      };
     }
     case "ask_people":
       return {
