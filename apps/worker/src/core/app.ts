@@ -27,6 +27,7 @@ import { PublicShareInput } from "@assistant/shared";
 import { assistantOperations } from "./assistant/operations.ts";
 import { groupOperations } from "./groups/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
+import { resetRoutes } from "./reset/service.ts";
 
 /** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
 const IOS_BUNDLE_ID = "in.gigspree.assistant";
@@ -97,6 +98,10 @@ export function createApp({ modules }: AppOptions) {
     console.error("unhandled error", err);
     return c.json({ error: { code: "internal", message: "Something went wrong" } }, 500);
   });
+
+  // The test-phase reset (decision 2026-10-16 "Start over from a GitHub job"): a 404 unless
+  // the "Start over" job has set RESET_TOKEN for its own run.
+  app.route("/api/internal/reset", resetRoutes(modules));
 
   app.get("/api/health", async (c) => {
     try {

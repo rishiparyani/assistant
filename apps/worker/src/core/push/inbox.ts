@@ -3,7 +3,7 @@
 // place. Modules call `notify()` (core/push/notify.ts); nothing here knows about gigs.
 import { DurableObject } from "cloudflare:workers";
 import { ulid, type NotificationView } from "@assistant/shared";
-import { migrate, nowIso, type Migrations } from "../objects/storage.ts";
+import { migrate, nowIso, type Migrations, wipeStorage } from "../objects/storage.ts";
 import { sendPush, type PushResult, type PushSubscriptionKeys } from "./webpush.ts";
 
 const MIGRATIONS: Migrations = [
@@ -41,6 +41,11 @@ export interface NewNotification {
 }
 
 export class InboxObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   private sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {

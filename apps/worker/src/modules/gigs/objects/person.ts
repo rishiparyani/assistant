@@ -16,6 +16,7 @@ import {
   nowIso,
   type Actor,
   type Migrations,
+  wipeStorage,
 } from "../../../core/objects/storage.ts";
 import type { LearnedContact, PersonEventSummary, PersonGigSummary } from "./types.ts";
 import { notify } from "../../../core/push/notify.ts";
@@ -229,6 +230,11 @@ type GigRow = {
 };
 
 export class PersonObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   private sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {

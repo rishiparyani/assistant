@@ -287,3 +287,21 @@ export function importTables(
 export function hasData(sql: SqlStorage): boolean {
   return backupTables(sql).some((t) => sql.exec(`select 1 from ${t} limit 1`).toArray().length > 0);
 }
+
+/**
+ * Erases everything an object holds (the test-phase reset, decision 2026-10-16 "Start over
+ * from a GitHub job, never from the app"): its alarm, its tables, its key-value data. The
+ * instance is then thrown away (after this call answers), so nothing it kept in memory, such
+ * as "tables are made", outlives the data; the next request starts it fresh and empty.
+ */
+export async function wipeStorage(ctx: DurableObjectState): Promise<void> {
+  await ctx.storage.deleteAlarm();
+  await ctx.storage.deleteAll();
+  setTimeout(() => {
+    try {
+      ctx.abort("reset");
+    } catch {
+      // Already gone.
+    }
+  }, 0);
+}

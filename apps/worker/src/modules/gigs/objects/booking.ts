@@ -49,6 +49,7 @@ import {
   type AuditEntry,
   type ObjectDump,
   type Migrations,
+  wipeStorage,
 } from "../../../core/objects/storage.ts";
 import { ObjectError } from "../../../core/objects/errors.ts";
 import { describe, sourceLabel, whoDid, type AuditRow, type HistoryNames } from "../history.ts";
@@ -509,6 +510,11 @@ const TRANSITIONS: Record<"confirm" | "complete" | "cancel", { to: GigStatus; fr
 };
 
 export class BookingObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   private sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {

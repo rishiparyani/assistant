@@ -1,0 +1,191 @@
+# Start over (decision 2026-10-16 "Start over from a GitHub job, never from the app"): the
+# test phase only. Erases every account and everything people made in the chosen app, after a
+# backup to the owner's Google Drive. Kept: the app's settings (Drive link, alerts, push keys),
+# the AI budget (this month's spend still counts) and the database's migrations.
+#
+# How it can't happen by mistake: nothing in the app can start it; it runs only from the
+# Actions tab, by hand, with the words ERASE EVERYTHING and today's date (India time) typed in;
+# the Worker's reset path exists only during this run (a one-time secret, deleted at the end).
+#
+# DELETE THIS FILE BEFORE GOING LIVE (tasks/STATUS.md "Before going live").
+#
+# Public repo rules (docs/security.md): workflow_dispatch only, minimal permissions, actions
+# pinned to SHAs, inputs passed through env (never into the script), counts only in the log.
+name: Start over (test phase only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      where:
+        description: "Which app to erase"
+        type: choice
+        options: [dev, production]
+        default: dev
+      words:
+        description: "Type ERASE EVERYTHING"
+        required: true
+        type: string
+      today:
+        description: "Type today's date in India, as YYYY-MM-DD"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  start-over:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.where }}
+    # Never at the same time as a deploy of the same app.
+    concurrency:
+      group: deploy-${{ inputs.where }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WHERE: ${{ inputs.where }}
+      WORDS: ${{ inputs.words }}
+      TODAY: ${{ inputs.today }}
+      WORKER_NAME: ${{ inputs.where == 'production' && 'assistant' || 'assistant-dev' }}
+      APP_URL: ${{ inputs.where == 'production' && 'https://gigspree.in' || 'https://dev.gigspree.in' }}
+    steps:
+      - name: Check the words and the date
+        run: |
+          if [ "$WORDS" != "ERASE EVERYTHING" ]; then
+            echo "::error::The words must be exactly ERASE EVERYTHING. Nothing was erased."
+            exit 1
+          fi
+          india="$(TZ=Asia/Kolkata date +%F)"
+          if [ "$TODAY" != "$india" ]; then
+            echo "::error::The date must be today's date in India ($india). Nothing was erased."
+            exit 1
+          fi
+          if [ "$WHERE" = "production" ] && [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::The real app can only be erased from main. Nothing was erased."
+            exit 1
+          fi
+          echo "Erasing $WHERE."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Open the reset path for this run
+        working-directory: apps/worker
+        run: |
+          token="$(openssl rand -hex 32)"
+          echo "::add-mask::$token"
+          echo "RESET_TOKEN=$token" >> "$GITHUB_ENV"
+          printf '%s' "$token" | pnpm exec wrangler secret put RESET_TOKEN --name "$WORKER_NAME" > /dev/null
+          # A new secret takes a few seconds to reach every copy of the Worker.
+          for i in $(seq 1 36); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/internal/reset" \
+              -H "authorization: Bearer $token" -H 'content-type: application/json' \
+              -d '{"words":"ERASE EVERYTHING","step":"ready"}')"
+            # 400 "Unknown step": the path is open and the secret matches.
+            if [ "$code" = "400" ]; then echo "Reset path open."; exit 0; fi
+            sleep 5
+          done
+          echo "::error::The reset path didn't open. Nothing was erased."
+          exit 1
+
+      - name: Back up to Google Drive first
+        run: |
+          out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+            -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
+            -d '{"words":"ERASE EVERYTHING","step":"backup"}')"
+          if [ "$(jq -r .ok <<< "$out")" = "true" ]; then
+            echo "Backup saved ($(jq -r .bytes <<< "$out") bytes)."
+          elif [ "$WHERE" = "production" ]; then
+            echo "::error::The backup to Google Drive didn't work (connected: $(jq -r .connected <<< "$out")). Nothing was erased."
+            exit 1
+          else
+            echo "::warning::No backup for dev (connected: $(jq -r .connected <<< "$out")); its data is made up."
+          fi
+
+      - name: Erase every object
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/durable_objects/namespaces"
+          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN")
+          if ! namespaces="$(curl -fsS "${auth[@]}" "$api?per_page=1000")"; then
+            echo "::error::Couldn't list the objects. The Cloudflare API token needs Account → Workers Scripts: Read (docs/setup.md). Nothing was erased."
+            exit 1
+          fi
+          # Class → binding (apps/worker/wrangler.jsonc). BudgetObject is left out on purpose.
+          declare -A binding=(
+            [BookingObject]=BOOKINGS [PersonObject]=PEOPLE [MonthIndexObject]=MONTHS
+            [PendingObject]=PENDING [InboxObject]=INBOX [LibraryObject]=LIBRARIES
+            [SpaceObject]=SPACES [ChatObject]=CHATS [LiveObject]=LIVE
+            [GroupObject]=GROUPS [SearchObject]=SEARCH
+          )
+          total=0; failed=0
+          echo "| Kind | Erased | Failed |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          for cls in "${!binding[@]}"; do
+            ns="$(jq -r --arg s "$WORKER_NAME" --arg c "$cls" \
+              '.result[] | select(.script == $s and .class == $c) | .id' <<< "$namespaces" | head -1)"
+            [ -z "$ns" ] && continue
+            ids=(); cursor=""
+            while :; do
+              page="$(curl -fsS "${auth[@]}" "$api/$ns/objects?limit=1000${cursor:+&cursor=$cursor}")"
+              mapfile -t more < <(jq -r '.result[] | select(.hasStoredData) | .id' <<< "$page")
+              ids+=("${more[@]}")
+              cursor="$(jq -r '.result_info.cursor // empty' <<< "$page")"
+              [ -z "$cursor" ] && break
+            done
+            done_n=0; fail_n=0
+            for ((i = 0; i < ${#ids[@]}; i += 50)); do
+              batch="$(printf '%s\n' "${ids[@]:i:50}" | jq -R . | jq -s -c .)"
+              out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+                -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
+                -d "{\"words\":\"ERASE EVERYTHING\",\"step\":\"objects\",\"binding\":\"${binding[$cls]}\",\"ids\":$batch}")"
+              done_n=$((done_n + $(jq -r .wiped <<< "$out")))
+              fail_n=$((fail_n + $(jq -r .failed <<< "$out")))
+            done
+            echo "$cls: $done_n erased, $fail_n failed"
+            echo "| $cls | $done_n | $fail_n |" >> "$GITHUB_STEP_SUMMARY"
+            total=$((total + done_n)); failed=$((failed + fail_n))
+          done
+          echo "Objects erased: $total, failed: $failed."
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::Some objects didn't erase; run the job again (it carries on where it stopped). The accounts are still there."
+            exit 1
+          fi
+
+      - name: Erase accounts and the database's rows
+        run: |
+          out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+            -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
+            -d '{"words":"ERASE EVERYTHING","step":"database"}')"
+          echo "Database: $(jq -r .rows <<< "$out") rows in $(jq -r .tables <<< "$out") tables erased."
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Database: $(jq -r .rows <<< "$out") rows erased. Everyone is signed out; sign up again to start." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Close the reset path
+        if: always()
+        working-directory: apps/worker
+        run: |
+          if pnpm exec wrangler secret list --name "$WORKER_NAME" | grep -q RESET_TOKEN; then
+            yes | pnpm exec wrangler secret delete RESET_TOKEN --name "$WORKER_NAME" > /dev/null
+          fi
+          # Make sure it's gone: the path must answer 404 again.
+          for i in $(seq 1 36); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/internal/reset" \
+              -H "authorization: Bearer ${RESET_TOKEN:-none}" -H 'content-type: application/json' \
+              -d '{"words":"ERASE EVERYTHING","step":"ready"}')"
+            if [ "$code" = "404" ]; then echo "Reset path closed."; exit 0; fi
+            sleep 5
+          done
+          echo "::error::The reset path still answers. Delete the RESET_TOKEN secret from the Worker in Cloudflare."
+          exit 1
