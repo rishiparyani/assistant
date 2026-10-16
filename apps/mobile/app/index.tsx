@@ -47,6 +47,7 @@ import { useSession } from "@/session";
 import { useChats } from "@/chats";
 import { useLive } from "@/live-socket";
 import { useKeyboardRoom } from "@/keyboard";
+import { lastChat } from "@/last-chat";
 import { colourFor, radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
@@ -653,7 +654,11 @@ export default function Home() {
                 params: { ask: words, send: "1", ...(space ? { space } : {}) },
               })
             }
-            onOpenChat={(space) => router.push({ pathname: "/chat", params: space ? { space } : {} })}
+            onOpenChat={(space) => {
+              // Back to the chat last open (any space) while it's fresh, else the page's own.
+              const last = userId ? lastChat(userId) : null;
+              router.push({ pathname: "/chat", params: last ? { id: last } : space ? { space } : {} });
+            }}
             onOpenCard={(card) =>
               card.collection && !card.shared
                 ? openList(card.collection.id, card.view?.id, card.space)

@@ -35,6 +35,8 @@ import { send } from "@/outbox";
 import { useLive } from "@/live-socket";
 import { radius, useTheme } from "@/theme";
 import { useKeyboardRoom } from "@/keyboard";
+import { useSession } from "@/session";
+import { rememberChat } from "@/last-chat";
 
 const MAIN = "main";
 
@@ -88,6 +90,12 @@ export default function Chat() {
   // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
   // current one (the server picks: the latest if used in the last two hours, else a new one).
   const [chatId, setChatId] = useState<string | null>(id ?? null);
+  // Kept on the device, so the home's empty-bar button comes back here.
+  const { me } = useSession();
+  const myId = me?.user.id ?? null;
+  useEffect(() => {
+    if (myId && chatId) rememberChat(myId, chatId);
+  }, [myId, chatId]);
   const [showChats, setShowChats] = useState(false);
   // The very first chat ever gets the "tell me about your week" opening; later new chats a line.
   const [firstEver, setFirstEver] = useState<boolean | null>(null);
