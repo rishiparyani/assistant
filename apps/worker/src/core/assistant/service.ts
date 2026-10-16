@@ -983,6 +983,23 @@ async function runTool(
         shown = { ...args, people: people.map((p) => p.name) };
       }
       let card = { tool: name, args, ...describe(name, shown, target) };
+      // A setup: made and undone on the spot, so a part that can't work (a quick add on a
+      // link, a formula over a missing field) comes back to the model now, not after the tap
+      // (the owner, 2026-10-16: "Failed. A quick add can't fill in Flat" on a Confirm).
+      if (name === "make_setup") {
+        const i = input as z.infer<typeof MakeSetupInput>;
+        const { stub, actor } = await spaceOf(ctx, i.space);
+        await stub.checkSetup(actor, {
+          collections: i.collections.map((c) => ({
+            id: c.id ?? null,
+            name: c.name,
+            description: c.description ?? null,
+            fields: c.fields,
+          })),
+          rules: i.rules,
+          views: i.views,
+        });
+      }
       // An import: the card says what list, what goes where, the first rows, what can't be read.
       if (name === "import_records") {
         const spec = input as ImportSpec;

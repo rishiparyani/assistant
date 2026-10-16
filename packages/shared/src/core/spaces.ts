@@ -901,7 +901,7 @@ const addFields = z
   .max(10)
   .optional()
   .describe(
-    'Only if the person asks for a quick add (an add box): the fields it fills in, e.g. ["What", "Amount"]; include the required ones; [] removes it',
+    'Only if the person asks for a quick add (an add box): the fields it fills in, e.g. ["What", "Amount"]. Plain fields only (text, number, money, date, time, choice, yes/no): never a link, a person, a personal answer or a calculated field; include every required field; [] removes it',
   );
 
 export const SaveViewInput = SpaceRef.extend({

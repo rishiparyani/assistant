@@ -3,6 +3,8 @@
 // wait for a tap, level 1 hands setups over, and the budget keeps the cap. Fake data only.
 import { describe, expect, it } from "vitest";
 import { env, exports } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
+import type { SpaceObject } from "../src/core/spaces/space-object.ts";
 import type { ChatView, FindResult } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
@@ -118,6 +120,66 @@ describe("chat", () => {
       body: {},
     });
     expect(again.status).toBe(409);
+  });
+
+  it("checks a proposed setup all the way through and makes nothing (a quick add on a link fails now, not on Confirm)", async () => {
+    const me = await signUp("Test Owner");
+    const spaces = await json<{ id: string }[]>(await call("/api/spaces", { cookie: me.cookie }));
+    const stub = env.SPACES.getByName(`space:${spaces[0]!.id}`);
+    const actor = { userId: me.id, source: "web" as const };
+    const setup = (addFields: string[]) => ({
+      collections: [
+        {
+          id: null,
+          name: "Test flats",
+          description: null,
+          fields: [{ name: "Flat number", type: "text" as const }],
+        },
+        {
+          id: null,
+          name: "Test visitors",
+          description: null,
+          fields: [
+            { name: "Visitor name", type: "text" as const },
+            { name: "Flat", type: "link" as const, options: { target: "Test flats" } },
+            { name: "Phone", type: "text" as const },
+          ],
+        },
+      ],
+      rules: [],
+      views: [
+        { name: "Test guard quick entry", collection: "Test visitors", pinned: true, add_fields: addFields },
+      ],
+    });
+    // The owner's Visitor gate (2026-10-16): the quick add names a link. (Inside the object,
+    // so the refusal isn't an unhandled error crossing the test's object boundary.)
+    const refusal = await runInDurableObject(stub, async (raw) => {
+      const inst = raw as unknown as SpaceObject;
+      try {
+        await inst.checkSetup(actor, setup(["Visitor name", "Flat", "Phone"]));
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    });
+    expect(refusal).toContain("A quick add can't fill in Flat");
+    // Without the link it passes, and the check made nothing either way.
+    expect(await stub.checkSetup(actor, setup(["Visitor name", "Phone"]))).toEqual({ ok: true });
+    const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
+    expect(cols.map((c) => c.name)).not.toContain("Test visitors");
+    // The real thing still works after the dry runs.
+    const made = await json<{ collections: { name: string }[] }>(
+      await call("/api/setups", {
+        cookie: me.cookie,
+        // Over HTTP the schema takes no nulls: names and fields only.
+        body: {
+          name: "Test visitor gate",
+          ...setup(["Visitor name", "Phone"]),
+          collections: setup([]).collections.map((c) => ({ name: c.name, fields: c.fields })),
+        },
+      }),
+    );
+    expect(made.collections.map((c) => c.name)).toEqual(["Test flats", "Test visitors"]);
   });
 
   it("lets a setup card be changed by hand before Confirm, never a money card", async () => {
