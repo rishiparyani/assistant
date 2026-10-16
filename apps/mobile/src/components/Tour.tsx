@@ -49,13 +49,13 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
     steps.push({
       target: "cards",
       title: "These are cards",
-      text: "Tap to open, or tick and switch things right on them. Hold one to resize it, move it or take it off.",
+      text: "Tap to open, or tick and switch things right on them. Hold one to resize it, move it to another page or take it off. The library (the grid button at the top) has every card to add back.",
     });
   if (o.pages)
     steps.push({
       target: "pages",
       title: "More pages",
-      text: "Swipe sideways for your other pages. One is arranged for you, one is yours to arrange.",
+      text: "Swipe sideways for your other pages. They are all yours: new cards land on the last one.",
     });
   steps.push({
     target: "search",

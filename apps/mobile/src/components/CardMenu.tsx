@@ -1,5 +1,6 @@
 // The card's menu (hold a card): ask about it, change its size, hand it to the chat to share,
-// make a form or send on a schedule ("chat makes, screens use"), or take it off the home.
+// make a form or send on a schedule ("chat makes, screens use"), move it to another page, or
+// take it off the home (it stays in the library; decision 2026-10-16 "A home you arrange").
 import { StyleSheet, View } from "react-native";
 import { Sheet } from "@/components/Sheet";
 import { Text } from "@assistant/cards/native";
@@ -14,6 +15,10 @@ export interface MenuActions {
   ask: (card: HomeCard, prompt?: string) => void;
   resize: (card: HomeCard, size: CardSize) => void;
   unpin: (card: HomeCard) => void;
+  /** Moves the card one page on (1) or back (-1); a new page when there's none after. */
+  move?: (card: HomeCard, by: 1 | -1) => void;
+  /** Where the card is: its page (0-based) and how many pages there are. */
+  where?: (card: HomeCard) => { page: number; pages: number } | null;
 }
 
 export function CardMenu({
@@ -33,21 +38,35 @@ export function CardMenu({
     onClose();
     fn();
   };
-  // A process card or something shared with me isn't a pinned view: nothing to resize, share
-  // or take off.
-  const rows: { label: string; onPress: () => void; danger?: boolean }[] =
-    card.waiting || card.shared || card.memory
-      ? [{ label: "Ask about this", onPress: run(() => actions.ask(card)) }]
-      : [
-          { label: "Ask about this", onPress: run(() => actions.ask(card)) },
+  // Every card can move between pages and come off the home (the library keeps it). A list's
+  // own card can also be shared, made a form of or sent on a schedule, through the chat.
+  const at = actions.where?.(card) ?? null;
+  const own = !card.waiting && !card.shared && !card.memory && card.id !== "now";
+  const rows: { label: string; onPress: () => void; danger?: boolean }[] = [
+    ...(card.id !== "now" ? [{ label: "Ask about this", onPress: run(() => actions.ask(card)) }] : []),
+    ...(own
+      ? [
           { label: "Share…", onPress: run(() => actions.ask(card, "Share this with ")) },
           {
             label: "Make a form from this…",
             onPress: run(() => actions.ask(card, "Make a form for this that asks for ")),
           },
           { label: "Send on a schedule…", onPress: run(() => actions.ask(card, "Send me this every ")) },
-          { label: "Take off the home", onPress: run(() => actions.unpin(card)), danger: true },
-        ];
+        ]
+      : []),
+    ...(actions.move && at && at.page > 0
+      ? [{ label: "Move to the page before", onPress: run(() => actions.move!(card, -1)) }]
+      : []),
+    ...(actions.move && at
+      ? [
+          {
+            label: at.page < at.pages - 1 ? "Move to the next page" : "Move to a new page",
+            onPress: run(() => actions.move!(card, 1)),
+          },
+        ]
+      : []),
+    { label: "Remove from home", onPress: run(() => actions.unpin(card)), danger: true },
+  ];
   return (
     <Sheet open onClose={onClose} accessibilityLabel={`${card.spec.title} card`}>
       <View style={s.head}>

@@ -1,6 +1,7 @@
-// The home (docs/design/home-first.md §2): pages of cards, the chat bar under them. Two pages
-// for now: Now (arranged by the assistant) and My cards (the person's: hold and move to arrange,
-// hold for the card's menu). Ticks work offline; the chat is one tap away.
+// The home (docs/design/home-first.md §2; decision 2026-10-16 "A home you arrange"): the
+// person's own pages of cards, nothing pre-built, the chat bar under them. Hold a card to move
+// it, remove it or open its menu; the library has every card. Empty: a blank canvas and "Start
+// building". Ticks work offline; the chat is one tap away.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -32,12 +33,12 @@ import {
   nudgeWaiting,
   rememberHome,
   replaceCard,
+  homeLists,
   resize,
-  saveOrder,
+  savePages,
   setValue,
   stillShown,
   tick,
-  unpin,
   type HomeCard,
   type HomePage,
   onHomeChanged,
@@ -48,7 +49,7 @@ import { useChats } from "@/chats";
 import { useLive } from "@/live-socket";
 import { useKeyboardRoom } from "@/keyboard";
 import { lastChat } from "@/last-chat";
-import { colourFor, radius, useTheme } from "@/theme";
+import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
@@ -60,7 +61,7 @@ const DASH_MAX = 1180;
 
 export default function Home() {
   const { me, loaded, refresh } = useSession();
-  const { t, colour, cardTint } = useTheme();
+  const { t } = useTheme();
   // The clock the greeting, the date and Next up read: moves on at every minute.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -282,13 +283,44 @@ export default function Home() {
       setBusyCard(null);
     }
   };
+  // Arranging (decision 2026-10-16 "A home you arrange"): the pages change on screen at once
+  // and the layout is saved through the outbox; the cards' data never changes.
+  const arrangeTo = (fn: (prev: HomePage[]) => HomePage[]) =>
+    update((prev) => {
+      const next = fn(prev).filter((p) => p.keys.length);
+      savePages(next);
+      return next;
+    });
   const menuActions = {
     ask,
     resize: (card: HomeCard, size: CardSize) => update((prev) => replaceCard(prev, resize(card, size))),
-    unpin: (card: HomeCard) => {
-      unpin(card);
-      update((prev) => prev.map((p) => ({ ...p, cards: p.cards.filter((c) => c.id !== card.id) })));
+    unpin: (card: HomeCard) =>
+      arrangeTo((prev) =>
+        prev.map((p) => ({
+          ...p,
+          keys: p.keys.filter((k) => k !== card.id),
+          cards: p.cards.filter((c) => c.id !== card.id),
+        })),
+      ),
+    where: (card: HomeCard) => {
+      const i = (pagesRef.current ?? []).findIndex((p) => p.keys.includes(card.id));
+      return i < 0 ? null : { page: i, pages: pagesRef.current!.length };
     },
+    move: (card: HomeCard, by: 1 | -1) =>
+      arrangeTo((prev) => {
+        const from = prev.findIndex((p) => p.keys.includes(card.id));
+        if (from < 0) return prev;
+        const to = from + by;
+        if (to < 0) return prev;
+        const next = prev.map((p) => ({
+          ...p,
+          keys: p.keys.filter((k) => k !== card.id),
+          cards: p.cards.filter((c) => c.id !== card.id),
+        }));
+        if (to >= next.length) next.push({ name: `Page ${next.length + 1}`, keys: [], cards: [] });
+        next[to] = { ...next[to]!, keys: [...next[to]!.keys, card.id], cards: [...next[to]!.cards, card] };
+        return next;
+      }),
   };
   const reorder = (pageIndex: number) => (from: number, to: number) =>
     update((prev) =>
@@ -297,11 +329,12 @@ export default function Home() {
         const cards = [...p.cards];
         const [moved] = cards.splice(from, 1);
         if (moved) cards.splice(to, 0, moved);
-        return { ...p, cards };
+        // Keys that can't show right now keep their place at the end.
+        const shown = new Set(cards.map((c) => c.id));
+        return { ...p, cards, keys: [...cards.map((c) => c.id), ...p.keys.filter((k) => !shown.has(k))] };
       }),
     );
-  const dropped = (pageIndex: number) => () =>
-    update((prev) => prev.map((p, i) => (i !== pageIndex ? p : { ...p, cards: saveOrder(p.cards) })));
+  const dropped = () => pagesRef.current && savePages(pagesRef.current);
 
   // A laptop or a wide window (home-first.md §2 point 17): the pages flatten into one
   // dashboard, four columns of cards, the same cards and data; the chat stays one tap away.
@@ -325,240 +358,157 @@ export default function Home() {
     now,
   );
   // Before anything has loaded: the greeting and the date (nothing to wait for) over soft
-  // placeholder cards, never a blank page.
-  const shownPages: HomePage[] = pages ?? [{ name: "Now", auto: true, cards: [] }];
+  // placeholder cards, never a blank page. Loaded with no pages at all: the blank canvas.
   const loading = pages === null;
-  const renderPage = (item: HomePage, index: number) => (
-    <View key={item.space?.id ?? item.name} style={{ gap: 12 }}>
-      {item.auto ? (
-        // Now: today's date and a greeting, then what's next, big.
-        <View style={s.greetRow}>
-          <View style={s.greet}>
-            <Text style={[s.eyebrow, { color: t.fg2 }]}>
-              {todayWords(new Date(now))}
-              {stale ? "  ·  Updating…" : ""}
-            </Text>
-            <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
-          </View>
-          {/* Chats with people (decision 2026-10-13 "Chats with people"), with a dot when
-              something's unread. */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={unread ? `Chats, ${unread} with new messages` : "Chats"}
-            onPress={() => router.push("/chats")}
-            style={({ pressed }) => [
-              s.searchBtn,
-              { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <View style={[s.bubbleIcon, { borderColor: t.fg }]} />
-            {unread ? (
-              <View style={[s.unread, { backgroundColor: t.accent, borderColor: t.cell }]}>
-                <Text style={[s.unreadText, { color: t.onAccent }]}>{unread > 9 ? "9+" : unread}</Text>
-              </View>
-            ) : null}
-          </Pressable>
-        </View>
-      ) : (
-        <View style={s.pageHead}>
-          <Text style={[s.h2, { color: t.fg, flexShrink: 1 }]} numberOfLines={1}>
-            {item.name}
-          </Text>
-          <Text style={[s.metaText, { color: t.fg2 }]}>
-            {item.space?.practice
-              ? "practice run"
-              : item.space
-                ? "your space · ask below"
-                : item.lists
-                  ? "every list, whole"
-                  : "hold a card to arrange"}
-          </Text>
-        </View>
-      )}
-      {item.space?.practice ? (
-        // A practice copy (decision 2026-10-16 "Rehearse a workflow"): what people would get.
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back to the practice run"
-          onPress={() => router.push({ pathname: "/practice", params: { space: item.space!.id } })}
-          style={({ pressed }) => [
-            s.practice,
-            { backgroundColor: t.accentSoft, borderColor: t.hair },
-            pressed && { transform: [{ scale: 0.98 }] },
-          ]}
-        >
-          <Text style={[s.listName, { color: t.fg, fontSize: 15 }]}>
-            Practice run · nothing reaches anyone
-          </Text>
-          <Text style={[s.listMeta, { color: t.accent }]}>Switch between people, see their apps ›</Text>
-        </Pressable>
-      ) : null}
-      {item.auto && next ? (
-        // On a laptop it keeps a phone card's width, so its buttons stay buttons.
-        <View style={wide ? s.heroWide : undefined}>
-          <HeroCard next={next} now={now} onOpen={() => ask(next.card)} />
-        </View>
-      ) : null}
-      {item.lists && !item.space ? (
-        // All lists: a tile per list, each opening its whole list.
-        <View style={s.lists}>
-          {item.lists.map((l) => (
-            <Pressable
-              key={l.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${l.name}`}
-              onPress={() => openList(l.id)}
-              style={({ pressed }) => [
-                s.listTile,
-                {
-                  // The list's soft colour fills the tile (decision 2026-10-16 "Soft coloured cards").
-                  backgroundColor: cardTint(colourFor(l.name)),
-                  shadowColor: t.shadow,
-                  width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
-                },
-                pressed && { transform: [{ scale: 0.97 }] },
-              ]}
-            >
-              <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
-                {l.name}
-              </Text>
-              <Text style={[s.listMeta, { color: colour(colourFor(l.name)) }]}>See all ›</Text>
-            </Pressable>
+  const blank = !!pages && !pages.some((p) => p.cards.length);
+  const shownPages: HomePage[] = pages?.length ? pages : [{ name: "Page 1", keys: [], cards: [] }];
+  const header = (
+    <View style={s.greetRow}>
+      <View style={s.greet}>
+        <Text style={[s.eyebrow, { color: t.fg2 }]}>
+          {todayWords(new Date(now))}
+          {stale ? "  ·  Updating…" : ""}
+        </Text>
+        <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
+      </View>
+      {/* Every card there is (decision 2026-10-16 "A home you arrange"): add one back here. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Library: every card"
+        onPress={() => router.push("/library")}
+        style={({ pressed }) => [
+          s.searchBtn,
+          { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
+        ]}
+      >
+        <View style={s.gridIcon}>
+          {[0, 1, 2, 3].map((i) => (
+            <View key={i} style={[s.gridDot, { borderColor: t.fg }]} />
           ))}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Recently deleted"
-            onPress={() => router.push("/trash")}
-            style={({ pressed }) => [
-              s.listTile,
-              {
-                backgroundColor: t.fill,
-                shadowColor: "transparent",
-                width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
-              },
-              pressed && { transform: [{ scale: 0.97 }] },
-            ]}
-          >
-            <Text style={[s.listName, { color: t.fg2 }]} numberOfLines={2}>
-              Recently deleted
-            </Text>
-            <Text style={[s.listMeta, { color: t.fg3 }]}>Kept 30 days ›</Text>
+        </View>
+      </Pressable>
+      {/* Chats with people (decision 2026-10-13 "Chats with people"), with a dot when
+          something's unread. */}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={unread ? `Chats, ${unread} with new messages` : "Chats"}
+        onPress={() => router.push("/chats")}
+        style={({ pressed }) => [
+          s.searchBtn,
+          { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
+        ]}
+      >
+        <View style={[s.bubbleIcon, { borderColor: t.fg }]} />
+        {unread ? (
+          <View style={[s.unread, { backgroundColor: t.accent, borderColor: t.cell }]}>
+            <Text style={[s.unreadText, { color: t.onAccent }]}>{unread > 9 ? "9+" : unread}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+    </View>
+  );
+  const renderPage = (item: HomePage, index: number) => (
+    <View key={`page-${index}`} style={{ gap: 12 }}>
+      {index === 0 ? header : null}
+      {loading ? (
+        <Skeleton />
+      ) : blank ? (
+        // Nothing yet: a blank canvas and one way in (the owner, 2026-10-16: "a blank canvas…
+        // a button which says start building, and that opens a chat").
+        <View style={[s.canvas, { borderColor: t.hair }]}>
+          <Text style={[s.canvasTitle, { color: t.fg }]}>
+            {error || (assistant ? "Your home is empty" : "Nothing shared with you yet")}
+          </Text>
+          <Text style={[s.sub, { color: t.fg2, textAlign: "center" }]}>
+            {assistant
+              ? "Tell the chat what you want to keep track of. What you set up gets a card here, and you arrange them the way you like."
+              : "When someone shares a list, a card or a question with you, it shows here."}
+          </Text>
+          {assistant && !error ? (
+            <Tap
+              accessibilityRole="button"
+              onPress={() =>
+                router.push({
+                  pathname: "/chat",
+                  params: {
+                    ask: "I'd like to start building. Ask me what I want to keep track of, then set it up.",
+                    send: "1",
+                  },
+                })
+              }
+              style={[s.startBtn, { backgroundColor: t.accent }]}
+            >
+              <Text style={[s.startText, { color: t.onAccent }]}>Start building</Text>
+            </Tap>
+          ) : null}
+          <Pressable accessibilityRole="link" onPress={() => router.push("/library")} hitSlop={8}>
+            <Text style={[s.listMeta, { color: t.accent }]}>Library ›</Text>
           </Pressable>
         </View>
-      ) : loading ? (
-        <Skeleton />
       ) : item.cards.length ? (
         <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
           <CardGrid
             cards={item.cards}
             width={gridWidth}
-            arrangeable={!item.auto}
+            arrangeable
             onHold={setMenu}
             onReorder={reorder(index)}
-            onDrop={dropped(index)}
-            renderCard={(card, canOpen) => (
-              <Boundary where="home card">
-                <Card
-                  card={card}
-                  onTick={onTick(card)}
-                  onSet={onSet(card)}
-                  onSeeAll={
-                    card.collection && !card.shared && !card.waiting && !card.memory
-                      ? () => canOpen() && openList(card.collection!.id, card.view?.id, card.space)
-                      : undefined
-                  }
-                  onOpen={() =>
-                    canOpen() &&
-                    (card.memory
-                      ? router.push("/memory")
-                      : card.waiting
-                        ? router.push({
-                            pathname: "/process",
-                            params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
-                          })
-                        : card.shared?.kind === "form"
-                          ? openOnWeb(card)
-                          : ask(card))
-                  }
-                  onAnswer={
-                    card.waiting
-                      ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
-                      : undefined
-                  }
-                  onNudge={
-                    card.waiting?.share_id
-                      ? undefined
-                      : card.waiting
-                        ? processAction(card, () => nudgeWaiting(card.waiting!))
+            onDrop={dropped}
+            renderCard={(card, canOpen) =>
+              card.id === "now" ? (
+                // Now (a card like any other since 2026-10-16): the soonest thing coming up.
+                next ? (
+                  <View style={s.nowSlot}>
+                    <HeroCard next={next} now={now} onOpen={() => canOpen() && ask(next.card)} />
+                  </View>
+                ) : (
+                  <View style={[s.nowEmpty, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                    <Text style={[s.eyebrow, { color: t.fg2 }]}>NOW</Text>
+                    <Text style={[s.sub, { color: t.fg }]}>Nothing coming up on your cards.</Text>
+                  </View>
+                )
+              ) : (
+                <Boundary where="home card">
+                  <Card
+                    card={card}
+                    onTick={onTick(card)}
+                    onSet={onSet(card)}
+                    onSeeAll={
+                      card.collection && !card.shared && !card.waiting && !card.memory
+                        ? () => canOpen() && openList(card.collection!.id, card.view?.id, card.space)
                         : undefined
-                  }
-                  busy={busyCard === card.id}
-                />
-              </Boundary>
-            )}
+                    }
+                    onOpen={() =>
+                      canOpen() &&
+                      (card.memory
+                        ? router.push("/memory")
+                        : card.waiting
+                          ? router.push({
+                              pathname: "/process",
+                              params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
+                            })
+                          : card.shared?.kind === "form"
+                            ? openOnWeb(card)
+                            : ask(card))
+                    }
+                    onAnswer={
+                      card.waiting
+                        ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
+                        : undefined
+                    }
+                    onNudge={
+                      card.waiting?.share_id
+                        ? undefined
+                        : card.waiting
+                          ? processAction(card, () => nudgeWaiting(card.waiting!))
+                          : undefined
+                    }
+                    busy={busyCard === card.id}
+                  />
+                </Boundary>
+              )
+            }
           />
-        </View>
-      ) : item.space ? (
-        <View style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}>
-          <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
-            Nothing pinned in {item.space.name} yet.
-          </Text>
-          <Text style={[s.sub, { color: t.fg2 }]}>
-            Ask below to start its lists; a card for each one lands here.
-          </Text>
-        </View>
-      ) : (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Tell me about your week"
-          disabled={!pages || !assistant}
-          onPress={() => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } })}
-          style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}
-        >
-          <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
-            {error
-              ? error
-              : !pages
-                ? "Loading…"
-                : assistant
-                  ? "Tell me about your week"
-                  : "Nothing shared with you yet"}
-          </Text>
-          {pages && !error ? (
-            <Text style={[s.sub, { color: t.fg2 }]}>
-              {assistant
-                ? "What you do, what you keep forgetting, what money moves. The lists you need start from that, each with a card here."
-                : "When someone shares a list, a card or a question with you, it shows here."}
-            </Text>
-          ) : null}
-        </Pressable>
-      )}
-      {item.space && item.lists?.length ? (
-        // A space's lists under its cards, each opening whole (in that space).
-        <View style={s.lists}>
-          {item.lists.map((l) => (
-            <Pressable
-              key={l.id}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${l.name}`}
-              onPress={() => openList(l.id, undefined, item.space!.id)}
-              style={({ pressed }) => [
-                s.listTile,
-                {
-                  // The list's soft colour fills the tile (decision 2026-10-16 "Soft coloured cards").
-                  backgroundColor: cardTint(colourFor(l.name)),
-                  shadowColor: t.shadow,
-                  width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
-                },
-                pressed && { transform: [{ scale: 0.97 }] },
-              ]}
-            >
-              <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
-                {l.name}
-              </Text>
-              <Text style={[s.listMeta, { color: colour(colourFor(l.name)) }]}>See all ›</Text>
-            </Pressable>
-          ))}
         </View>
       ) : null}
     </View>
@@ -586,7 +536,7 @@ export default function Home() {
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
-          keyExtractor={(p) => p.space?.id ?? p.name}
+          keyExtractor={(_, i) => `page-${i}`}
           // The dots and the bar follow the page as it moves (a trackpad on the web never
           // sends a momentum end), settled again when the swipe ends.
           scrollEventThrottle={100}
@@ -636,9 +586,9 @@ export default function Home() {
           </Pressable>
         ) : null}
         <View ref={tourRefs.pages} collapsable={false} style={s.dots}>
-          {(wide ? [] : shownPages).map((p, i) => (
+          {(wide || shownPages.length < 2 ? [] : shownPages).map((p, i) => (
             <View
-              key={p.space?.id ?? p.name}
+              key={`dot-${i}`}
               style={[s.dotI, { backgroundColor: i === page ? t.accent : t.fg3, width: i === page ? 18 : 7 }]}
             />
           ))}
@@ -660,14 +610,8 @@ export default function Home() {
             text={barText}
             autoFocus={!!startQuery}
             onChangeText={setBarText}
-            space={wide ? undefined : shownPages[page]?.space}
             cards={(pages ?? []).flatMap((p) => p.cards)}
-            lists={(pages ?? []).flatMap((p) =>
-              (p.lists ?? []).map((l) => ({
-                ...l,
-                ...(p.space ? { space: p.space.id, space_name: p.space.name } : {}),
-              })),
-            )}
+            lists={homeLists()}
             onAsk={(words, space) =>
               router.push({
                 pathname: "/chat",
@@ -779,6 +723,37 @@ const s = StyleSheet.create({
   greet: { flex: 1, gap: 2, paddingHorizontal: 4 },
   greetRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   bubbleIcon: { width: 20, height: 16, borderRadius: 6, borderWidth: 2, borderBottomLeftRadius: 2 },
+  // The library's icon: four small squares, like a grid of cards.
+  gridIcon: { width: 18, height: 18, flexDirection: "row", flexWrap: "wrap", gap: 3 },
+  gridDot: { width: 7.5, height: 7.5, borderRadius: 2, borderWidth: 1.75 },
+  canvas: {
+    marginTop: 40,
+    paddingVertical: 44,
+    paddingHorizontal: 24,
+    borderRadius: radius.card,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    alignItems: "center",
+    gap: 14,
+  },
+  canvasTitle: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4, textAlign: "center" },
+  startBtn: {
+    minHeight: 52,
+    paddingHorizontal: 28,
+    borderRadius: 26,
+    justifyContent: "center",
+    marginTop: 6,
+  },
+  startText: { fontSize: 17, fontWeight: "800" },
+  nowSlot: { flex: 1, overflow: "hidden" },
+  nowEmpty: {
+    flex: 1,
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 16,
+    gap: 6,
+    justifyContent: "center",
+  },
   unread: {
     position: "absolute",
     top: -2,

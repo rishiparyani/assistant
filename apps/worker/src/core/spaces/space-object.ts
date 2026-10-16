@@ -78,6 +78,7 @@ import {
   type Rehearsal,
   type RehearsalAnswer,
   type PracticeView,
+  type HomeLayout,
   type PracticeAsView,
   type PracticePerson,
   type WorkflowEvent,
@@ -1581,6 +1582,53 @@ export class SpaceObject extends DurableObject<Env> {
       });
       return { instructions: clean };
     });
+  }
+
+  // --- The home you arrange (decision 2026-10-16 "A home you arrange") --------------------
+  // Kept in the person's Personal space: theirs alone, never anyone else's to read or change.
+
+  private homeOwner(actor: Actor) {
+    const space = this.sql
+      .exec<{ kind: string; owner_user_id: string }>(`select kind, owner_user_id from space limit 1`)
+      .toArray()[0];
+    if (!space || space.kind !== "personal" || space.owner_user_id !== actor.userId)
+      throw new ObjectError("not_found", "Not found");
+  }
+
+  /** The person's pages of cards, and every card they've been shown; null before the first save. */
+  async homeLayout(actor: Actor): Promise<HomeLayout | null> {
+    this.homeOwner(actor);
+    const raw = getMeta(this.sql, "home_layout");
+    return raw ? (JSON.parse(raw) as HomeLayout) : null;
+  }
+
+  async setHomeLayout(
+    actor: Actor,
+    key: string | null,
+    layout: { pages: string[][]; seen: string[] },
+  ): Promise<HomeLayout> {
+    return this.write(
+      actor,
+      key,
+      ["home_layout", layout],
+      (ts) => {
+        // Empty pages go, as on a phone's home screen.
+        const saved: HomeLayout = {
+          pages: layout.pages.filter((p) => p.length),
+          seen: layout.seen,
+          updated_at: ts,
+        };
+        setMeta(this.sql, "home_layout", JSON.stringify(saved));
+        audit(this.sql, actor, {
+          action: "home_layout",
+          entityType: "space",
+          entityId: this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "",
+          after: { pages: saved.pages.length, cards: saved.pages.flat().length },
+        });
+        return saved;
+      },
+      () => this.homeOwner(actor),
+    );
   }
 
   // --- Writes: one helper for idempotency, audit and the change log -----------------------

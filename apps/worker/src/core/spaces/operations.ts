@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   AddCommentInput,
   PracticeAnswerInput,
+  HomeLayoutInput,
   PracticeAsAnswerInput,
   PracticeAsInput,
   PracticeAsShareInput,
@@ -123,6 +124,31 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await practiceOf(ctx, i.space ?? "");
       return stub.practiceRun(actor, i.workflow_id);
+    },
+  }),
+  // The home you arrange (decision 2026-10-16 "A home you arrange"): the person's own pages.
+  defineOperation({
+    id: "core.home_layout",
+    tool: "home_layout",
+    description: "My home's pages: which cards are on each, in order (null before it was ever arranged).",
+    kind: "read",
+    http: { method: "GET", path: "/me/home" },
+    input: z.object({}),
+    handler: async (ctx) => {
+      const { stub, actor } = await spaceOf(ctx);
+      return stub.homeLayout(actor);
+    },
+  }),
+  defineOperation({
+    id: "core.set_home_layout",
+    tool: "set_home_layout",
+    description: "Arrange my home: the pages and their cards in order, and every card I've been shown.",
+    kind: "write",
+    http: { method: "PUT", path: "/me/home" },
+    input: HomeLayoutInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx);
+      return stub.setHomeLayout(actor, ctx.idempotencyKey, i);
     },
   }),
   // A rehearsal as one of its people (decision 2026-10-16 "Rehearse as each person"): what
