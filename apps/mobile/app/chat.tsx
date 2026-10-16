@@ -2,8 +2,8 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
-import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
+import { FlatList, StyleSheet, View } from "react-native";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import {
   Boundary,
   Markdown,
@@ -132,23 +132,15 @@ export default function Chat() {
   // A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix").
   const [editing, setEditing] = useState<ChatItem["card"] | null>(null);
   const list = useRef<FlatList<Shown>>(null);
-  // Scroll anchoring (decision 2026-10-15 "Feel: the ChatGPT bar"): the list follows new
-  // messages only while the person is at the bottom; reading older ones, it stays put. The
-  // first fill lands at the bottom without a scroll.
-  const atBottom = useRef(true);
-  const firstFill = useRef(true);
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-    atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
-  };
-  const follow = () => {
-    if (!atBottom.current) return;
-    list.current?.scrollToEnd({ animated: !firstFill.current });
-    firstFill.current = false;
-  };
+  // The list is upside down (the owner, 2026-10-16: "it opens at the middle", "it scrolled up
+  // and hid my message"): the newest message is the anchor, so it opens at the end by
+  // construction and a new message appears at the bottom without any scrolling code; reading
+  // older ones, the list stays put (maintainVisibleContentPosition), and when the person is
+  // near the bottom it follows.
   // Items from before this screen opened don't animate in; new ones rise into place.
   const openedAt = useRef(Date.now());
   const shownItems = useMemo(() => groupRecords(view?.items ?? []), [view]);
+  const newestFirst = useMemo(() => [...shownItems].reverse(), [shownItems]);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
   const room = useKeyboardRoom();
@@ -167,8 +159,6 @@ export default function Chat() {
   const openChat = useCallback((which: string | null) => {
     setView(null);
     setChanged([]);
-    firstFill.current = true;
-    atBottom.current = true;
     openedAt.current = Date.now();
     request<ChatView>("GET", `/api/chats/${which ?? "current"}`)
       .then((v) => {
@@ -202,7 +192,6 @@ export default function Chat() {
       setChanged([]);
       setNote("");
       setFirstEver(false);
-      firstFill.current = true;
       openedAt.current = Date.now();
     } catch (e) {
       setNote(isOffline(e) ? "A new chat needs a connection." : e instanceof Error ? e.message : String(e));
@@ -222,7 +211,8 @@ export default function Chat() {
       created_at: new Date().toISOString(),
     };
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
-    atBottom.current = true;
+    // The person's own message is what they want to see: to the bottom whatever they were reading.
+    list.current?.scrollToOffset({ offset: 0, animated: true });
     setBusy(true);
     const sentAt = new Date().toISOString();
     try {
@@ -231,8 +221,7 @@ export default function Chat() {
       setView(next);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
-      atBottom.current = true;
-      setTimeout(() => list.current?.scrollToEnd({ animated: true }), 60);
+      setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
       // What this reply changed, from the audit log, with Undo.
       fetchChanges(5)
         // Only this person's changes since the message went (another person's work in the
@@ -344,14 +333,13 @@ export default function Chat() {
         />
         <FlatList
           ref={list}
+          inverted={newestFirst.length > 0}
           extraData={[lastReply, busy]}
-          data={shownItems}
+          data={newestFirst}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, gap: 4 }}
-          onScroll={onScroll}
-          scrollEventThrottle={48}
-          onContentSizeChange={follow}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          // Near the bottom, a new message pulls the list down to it; higher up, nothing moves.
+          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
@@ -368,15 +356,17 @@ export default function Chat() {
               />
             );
             const safe = <Boundary where="chat item">{bubble}</Boundary>;
+            // In the upside-down list a cell's "down" is up on screen: new messages rise in.
             return fresh ? (
-              <Animated.View entering={FadeInUp.duration(motion.enter).springify().damping(18)}>
+              <Animated.View entering={FadeInDown.duration(motion.enter).springify().damping(18)}>
                 {safe}
               </Animated.View>
             ) : (
               safe
             );
           }}
-          ListFooterComponent={
+          // Upside down, the header is the visual bottom: the thinking bubble sits under the newest message.
+          ListHeaderComponent={
             busy && view?.items.length ? (
               <Animated.View
                 entering={FadeIn.duration(motion.fade)}
