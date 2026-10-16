@@ -1154,6 +1154,32 @@ export class SpaceObject extends DurableObject<Env> {
     this.canWrite(actor);
   }
 
+  // --- How the person wants things done here (decision 2026-10-16 "Spaces") ----------------
+
+  /** The space's instructions in the person's words (empty when none); anyone in it reads them. */
+  async instructions(actor: Actor): Promise<string> {
+    this.role(actor);
+    return getMeta(this.sql, "instructions") ?? "";
+  }
+
+  /** Sets them (whoever may arrange the space); audited, never the words in the change log. */
+  async setInstructions(actor: Actor, key: string | null, text: string): Promise<{ instructions: string }> {
+    this.canArrange(actor);
+    const clean = text.trim().slice(0, 1500);
+    return this.write(actor, key, ["set_instructions", clean], () => {
+      const before = getMeta(this.sql, "instructions") ?? "";
+      setMeta(this.sql, "instructions", clean);
+      audit(this.sql, actor, {
+        action: "set_instructions",
+        entityType: "space",
+        entityId: this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "",
+        before: { length: before.length },
+        after: { length: clean.length },
+      });
+      return { instructions: clean };
+    });
+  }
+
   // --- Writes: one helper for idempotency, audit and the change log -----------------------
 
   private async write<T>(

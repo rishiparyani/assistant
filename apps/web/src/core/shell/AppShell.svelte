@@ -69,7 +69,9 @@
 
   // The person's chats: the main one first, then the newest.
   const chats = createQuery<ChatSummary[]>(() => CHATS_KEY, chatApi.list);
-  const chatList = $derived(chats.data ?? [{ id: MAIN_CHAT, title: "Gigspree", updated_at: null }]);
+  const chatList = $derived(
+    chats.data ?? [{ id: MAIN_CHAT, title: "Gigspree", updated_at: null, space_id: null }],
+  );
   const openChat = $derived(
     route.name === "root" ? MAIN_CHAT : route.name === "chat" ? (route.params.chatId ?? null) : null,
   );

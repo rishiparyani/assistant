@@ -1,6 +1,6 @@
 // Spaces (docs/design/universal.md): thin services that find the caller's space and hand
 // the call to its object, which checks the caller's role itself.
-import { ulid, nameKey, type SpaceView } from "@assistant/shared";
+import { ulid, nameKey, type SpaceSettings, type SpaceView } from "@assistant/shared";
 import type { OpUserCtx } from "../operations.ts";
 import type { Actor } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
@@ -14,7 +14,8 @@ async function rows(ctx: OpUserCtx): Promise<SpaceRow[]> {
   const res = await ctx.d1
     .prepare(
       `select s.id, s.name, s.kind, m.role from space_members m join spaces s on s.id = m.space_id
-       where m.user_id = ? and s.deleted_at is null order by s.kind desc, s.name`,
+       where m.user_id = ? and s.deleted_at is null
+       order by case when s.kind = 'personal' then 0 else 1 end, s.name`,
     )
     .bind(ctx.user.id)
     .all<SpaceRow>();
@@ -59,6 +60,47 @@ export async function mySpaces(ctx: OpUserCtx): Promise<SpaceView[]> {
     list = await rows(ctx);
   }
   return list;
+}
+
+/**
+ * A new space of the person's own (decision 2026-10-16 "Spaces": the band, home, the society
+ * gate), with its own lists, cards, chats, memory and instructions. Kind "shared" like a
+ * chat's home (it can be shared later); the person is its owner and only member for now.
+ */
+export async function newSpace(ctx: OpUserCtx, name: string, id = ulid()): Promise<SpaceView> {
+  const clean = name.trim();
+  const mine = await mySpaces(ctx);
+  if (mine.some((s) => nameKey(s.name) === nameKey(clean)))
+    throw new ObjectError("conflict", `You already have a space called "${clean}"`);
+  if (mine.length >= 20) throw new ObjectError("conflict", "Up to 20 spaces; remove one first");
+  await ctx.d1.batch([
+    ctx.d1
+      .prepare(`insert or ignore into spaces (id, name, kind, owner_user_id) values (?, ?, 'shared', ?)`)
+      .bind(id, clean, ctx.user.id),
+    ctx.d1
+      .prepare(`insert or ignore into space_members (space_id, user_id, role) values (?, ?, 'owner')`)
+      .bind(id, ctx.user.id),
+  ]);
+  await ctx.objects.SPACES.getByName(spaceName(id)).init({
+    id,
+    name: clean,
+    kind: "shared",
+    owner: { user_id: ctx.user.id, name: ctx.user.name },
+    starter: false,
+  });
+  return { id, name: clean, kind: "shared", role: "owner" };
+}
+
+/** One space with its instructions. */
+export async function spaceSettings(ctx: OpUserCtx, ref?: string): Promise<SpaceSettings> {
+  const { space, stub, actor } = await spaceOf(ctx, ref);
+  return { ...space, instructions: await stub.instructions(actor) };
+}
+
+export async function setSpaceInstructions(ctx: OpUserCtx, ref: string | undefined, text: string) {
+  const { space, stub, actor } = await spaceOf(ctx, ref);
+  const r = await stub.setInstructions(actor, ctx.idempotencyKey, text);
+  return { ...space, instructions: r.instructions };
 }
 
 /** A space of mine by id or name; my personal space when left out. Others' spaces are 404. */

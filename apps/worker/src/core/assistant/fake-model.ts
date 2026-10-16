@@ -93,6 +93,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       });
     case "Test: remind me to call the venue":
       return call("start_list", { kind: "reminders" });
+    case "Test: make a band space":
+      return call("new_space", { name: "Test band" });
     case "Test: remember weddings are 25000":
       return call("remember", { text: "Test weddings are ₹25,000 for the band." });
     case "Test: what do you remember":

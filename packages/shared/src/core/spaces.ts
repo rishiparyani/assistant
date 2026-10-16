@@ -108,6 +108,12 @@ export interface SpaceView {
   role: "owner" | "editor" | "viewer";
 }
 
+/** One space with how the person wants things done in it (decision 2026-10-16 "Spaces"). */
+export interface SpaceSettings extends SpaceView {
+  /** Their own words, up to 1,500 characters; the assistant reads them in that space's chats. */
+  instructions: string;
+}
+
 /** A person as stored in a person field: an account in the space, or just a name. */
 export interface PersonValue {
   user_id: string | null;
@@ -180,6 +186,21 @@ const nameOrId = (what: string) => z.string().trim().min(1).max(80).describe(`${
 
 export const SpaceRef = z.object({
   space: nameOrId("Space").optional().describe("Space name or id; leave out for your Personal space"),
+});
+export const NewSpaceInput = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .describe('A space of their own, e.g. "Band", "Home", "Society gate"'),
+});
+export const SpaceInstructionsInput = SpaceRef.extend({
+  text: z
+    .string()
+    .trim()
+    .max(1500)
+    .describe("How things should work in this space, in the person's own words; empty clears"),
 });
 
 export const FILTER_OPS = [
@@ -1227,6 +1248,9 @@ export interface ChatView {
   smart_available: boolean;
   /** Whether this person may ask the assistant (owners always; others when switched on). */
   assistant_on: boolean;
+  /** The space this chat is in (decision 2026-10-16 "Spaces"); null for Personal. */
+  space_id: string | null;
+  space_name: string | null;
 }
 
 /** One of the person's chats, for the side menu. */
@@ -1234,6 +1258,8 @@ export interface ChatSummary {
   id: string;
   title: string;
   updated_at: string | null;
+  /** The space the chat is in; null for Personal (and the first chat). */
+  space_id: string | null;
 }
 
 /** Something the assistant remembers for the person (chat-first step 3). */
@@ -1243,6 +1269,8 @@ export interface Memory {
   /** Where it came from, e.g. "From a chat, 10 Oct 2026". */
   source: string;
   created_at: string;
+  /** Remembered for one space only; null for everywhere. */
+  space_id?: string | null;
 }
 
 /** "main" or a chat's ULID. */
@@ -1258,6 +1286,7 @@ export const NewChatInput = z.object({
     .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/)
     .optional()
     .describe("Made on the device, so a retry can't make two chats"),
+  space: nameOrId("Space").optional().describe("The space this chat is in; leave out for Personal"),
 });
 export const RememberInput = z.object({
   text: z
@@ -1266,6 +1295,9 @@ export const RememberInput = z.object({
     .min(3)
     .max(300)
     .describe('One fact or preference, in a short sentence: "Weddings are ₹25,000 for the band."'),
+  space: nameOrId("Space")
+    .optional()
+    .describe("Remember it for one space only (the chat's space by default); leave out for everywhere"),
 });
 export const MemoryRef = z.object({ memory_id: z.string().trim().min(1).max(60) });
 
