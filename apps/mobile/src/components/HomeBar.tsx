@@ -28,13 +28,28 @@ export interface HomeBarProps {
   space?: { id: string; name: string };
   /** Send the words to the assistant (online, with the assistant), in the page's space if any. */
   onAsk: (text: string, space?: string) => void;
+  /** Open the chat as it is (the empty bar's button: back to the conversation, its answers). */
+  onOpenChat: (space?: string) => void;
   onOpenCard: (card: HomeCard) => void;
   onOpenList: (id: string, space?: string) => void;
   onOpenHit: (hit: SearchResult, q: string) => void;
 }
 
 export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
-  { assistant, autoFocus, text, onChangeText, cards, lists, space, onAsk, onOpenCard, onOpenList, onOpenHit },
+  {
+    assistant,
+    autoFocus,
+    text,
+    onChangeText,
+    cards,
+    lists,
+    space,
+    onAsk,
+    onOpenChat,
+    onOpenCard,
+    onOpenList,
+    onOpenHit,
+  },
   ref,
 ) {
   const { t } = useTheme();
@@ -52,7 +67,10 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
   const cards_ = cardHits(cards, q);
   const remote = useRemoteHits(q, online);
   const ask = () => {
-    if (!canAsk || !q) return;
+    if (!canAsk) return;
+    // Nothing typed: the button opens the chat (the owner, 2026-10-16: "I closed the chat
+    // window and I can't seem to go back and find that chat").
+    if (!q) return onOpenChat(space?.id);
     onChangeText("");
     onAsk(q, space?.id);
   };
@@ -191,19 +209,32 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
         ) : null}
         <Tap
           accessibilityRole="button"
-          accessibilityLabel={canAsk ? "Send" : "Search"}
-          accessibilityState={{ disabled: canAsk && !q }}
+          accessibilityLabel={canAsk ? (q ? "Send" : "Open the chat") : "Search"}
           onPress={ask}
           disabled={!canAsk}
           scale={0.88}
           haptic="light"
           style={[s.send, { backgroundColor: canAsk ? t.accent : t.fill }]}
         >
-          <Text
-            style={{ color: canAsk ? t.onAccent : t.onInk, fontSize: 17, fontWeight: "800", lineHeight: 19 }}
-          >
-            {canAsk ? "↑" : "⌕"}
-          </Text>
+          {canAsk && !q ? (
+            // A speech bubble with dots (the assistant's chat; the home's plain bubble is people).
+            <View style={[s.bubble, { borderColor: t.onAccent }]}>
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={[s.dot, { backgroundColor: t.onAccent }]} />
+              ))}
+            </View>
+          ) : (
+            <Text
+              style={{
+                color: canAsk ? t.onAccent : t.onInk,
+                fontSize: 17,
+                fontWeight: "800",
+                lineHeight: 19,
+              }}
+            >
+              {canAsk ? "↑" : "⌕"}
+            </Text>
+          )}
         </Tap>
       </View>
     </View>
@@ -212,6 +243,18 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
 
 const s = StyleSheet.create({
   wrap: { flex: 1 },
+  bubble: {
+    width: 20,
+    height: 15,
+    borderRadius: 5,
+    borderWidth: 2,
+    borderBottomLeftRadius: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  dot: { width: 2.5, height: 2.5, borderRadius: 2 },
   bar: {
     height: 52,
     borderRadius: 26,

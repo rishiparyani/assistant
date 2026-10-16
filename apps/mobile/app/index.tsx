@@ -653,6 +653,7 @@ export default function Home() {
                 params: { ask: words, send: "1", ...(space ? { space } : {}) },
               })
             }
+            onOpenChat={(space) => router.push({ pathname: "/chat", params: space ? { space } : {} })}
             onOpenCard={(card) =>
               card.collection && !card.shared
                 ? openList(card.collection.id, card.view?.id, card.space)

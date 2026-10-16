@@ -43,7 +43,7 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
     steps.push({
       target: "chat",
       title: "Talk to it here",
-      text: "Tell it about your week, add an expense, ask a question. Lists and cards appear as you go.",
+      text: "Tell it about your week, add an expense, ask a question. Lists and cards appear as you go. With nothing typed, the button opens your chat and its past conversations.",
     });
   if (o.cards)
     steps.push({
