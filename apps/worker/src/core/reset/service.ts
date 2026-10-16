@@ -47,22 +47,26 @@ export async function wipeObjects(
   env: ResetEnv,
   binding: WipedBinding,
   ids: readonly string[],
-): Promise<{ wiped: number; failed: number }> {
+): Promise<{ wiped: number; failed: number; errors: string[] }> {
   const ns = env[binding] as unknown as DurableObjectNamespace;
   let wiped = 0;
   let failed = 0;
+  // What went wrong, by kind: the runtime's error name and the start of its message (they
+  // never carry anyone's data), so the job's log can say why.
+  const errors = new Set<string>();
   for (const id of ids) {
     try {
       const stub = ns.get(ns.idFromString(id)) as unknown as Wipeable;
       await stub.wipe();
       wiped++;
     } catch (err) {
-      // Counts only: never an id's data in the logs.
-      console.error("reset: an object failed to erase", binding, err instanceof Error ? err.name : "error");
+      const e = err instanceof Error ? `${err.name}: ${err.message.slice(0, 100)}` : "error";
+      console.error("reset: an object failed to erase", binding, e);
+      if (errors.size < 5) errors.add(e);
       failed++;
     }
   }
-  return { wiped, failed };
+  return { wiped, failed, errors: [...errors] };
 }
 
 /** Every table that holds people's rows: everything but the kept ones and the engine's own. */

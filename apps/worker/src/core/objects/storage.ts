@@ -297,6 +297,11 @@ export function hasData(sql: SqlStorage): boolean {
 export async function wipeStorage(ctx: DurableObjectState): Promise<void> {
   await ctx.storage.deleteAlarm();
   await ctx.storage.deleteAll();
+  // Durable before anything else: thrown away right after a write, an object can lose the
+  // write (the first real "Start over" found every erase undone, 2026-10-16).
+  await ctx.storage.sync();
+  // Then thrown away at once, so its next use starts fresh (its tables made again) instead of
+  // from what it held in memory. The erase is already on disk, even if the answer is lost.
   setTimeout(() => {
     try {
       ctx.abort("reset");
