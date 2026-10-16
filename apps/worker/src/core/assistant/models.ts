@@ -197,7 +197,9 @@ export const MODELS: ModelEntry[] = [
     ready: true,
   },
   // GPT-6.1 Sol (the id on OpenAI's models page; the launch post says gpt-6-sol): Sonnet's price.
-  // Its own effort: it answered 400 (unsupported_value, reasoning_effort) to "low" and to "none".
+  // Can't run on chat completions with function tools: 400 naming reasoning_effort for "low",
+  // "none", nothing sent and "high" (2026-10-15/16). Waits for the Responses API in client.ts;
+  // "high" stays so the first try there thinks properly.
   {
     id: "gpt-6.1-sol",
     label: "GPT-6.1 Sol",
@@ -207,7 +209,7 @@ export const MODELS: ModelEntry[] = [
     price: { input: 2, output: 10 },
     cache: { read: 0.1, write: 1 },
     maxOutput: 8_000,
-    effort: "model",
+    effort: "high",
     ready: false,
   },
   {

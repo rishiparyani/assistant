@@ -115,11 +115,14 @@ const OPENAI_SHAPED = {
     // Reasoning models take no temperature. On chat completions GPT-5.4 refuses function
     // tools together with any reasoning effort but "none" (a 400 naming reasoning_effort;
     // the Responses API would allow it), so these answer without thinking first.
-    // GPT-6.1 Sol refuses "none" as well (unsupported_value): effort "model" sends nothing and
-    // leaves it to the model's own default.
+    // GPT-6.1 Sol refuses "none", "low", "high" and nothing at all with tools here (it needs the
+    // Responses API, not built yet). Effort "high"/"max" sends "high", "model" sends nothing,
+    // anything else "none".
     body: (m: ModelEntry) => ({
       max_completion_tokens: m.maxOutput,
-      ...(m.effort === "model" ? {} : { reasoning_effort: "none" }),
+      ...(m.effort === "model"
+        ? {}
+        : { reasoning_effort: m.effort === "high" || m.effort === "max" ? "high" : "none" }),
     }),
   },
   gemini: {
@@ -194,11 +197,18 @@ async function callChatCompletions(
  */
 async function errorCode(res: Response): Promise<string> {
   try {
-    const body = (await res.json()) as { error?: { code?: unknown; type?: unknown; param?: unknown } };
+    const body = (await res.json()) as {
+      error?: { code?: unknown; type?: unknown; param?: unknown; message?: unknown };
+    };
     const e = body.error ?? {};
     const parts = [e.code, e.type, e.param].filter(
       (x): x is string => typeof x === "string" && x.length < 80,
     );
+    // A request-shape refusal says what the maker wants instead ("use /v1/responses or set
+    // reasoning_effort to 'none'"; the codes alone hid that for a day). Only that kind, and
+    // short: never a message that could carry the person's words.
+    if (e.type === "invalid_request_error" && typeof e.message === "string")
+      parts.push(e.message.replace(/\s+/g, " ").slice(0, 160));
     return parts.length ? ` (${parts.join(", ")})` : "";
   } catch {
     return "";
