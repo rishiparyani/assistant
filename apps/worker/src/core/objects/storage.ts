@@ -293,8 +293,13 @@ export function hasData(sql: SqlStorage): boolean {
  * from a GitHub job, never from the app"): its alarm, its tables, its key-value data. The
  * instance is then thrown away (after this call answers), so nothing it kept in memory, such
  * as "tables are made", outlives the data; the next request starts it fresh and empty.
+ * Answers whether it held anything.
  */
-export async function wipeStorage(ctx: DurableObjectState): Promise<void> {
+export async function wipeStorage(ctx: DurableObjectState): Promise<boolean> {
+  // Whether it held anything before (rows past its schema, or key-value data): Cloudflare's
+  // listing still shows an erased object as holding data once it has woken and made its empty
+  // tables again, so the job asks the object itself.
+  const held = hasData(ctx.storage.sql) || (await ctx.storage.list({ limit: 1 })).size > 0;
   await ctx.storage.deleteAlarm();
   await ctx.storage.deleteAll();
   // Durable before anything else: thrown away right after a write, an object can lose the
@@ -309,4 +314,5 @@ export async function wipeStorage(ctx: DurableObjectState): Promise<void> {
       // Already gone.
     }
   }, 0);
+  return held;
 }

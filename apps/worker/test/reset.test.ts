@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import type { FindResult } from "@assistant/shared";
-import { RESET_WORDS, errorKind, resetRoutes } from "../src/core/reset/service.ts";
+import { RESET_WORDS, WIPED_BINDINGS, errorKind, resetRoutes } from "../src/core/reset/service.ts";
 import { createApp } from "../src/core/app.ts";
 import { spaceName } from "../src/core/spaces/service.ts";
 import { modules } from "../src/modules/index.ts";
@@ -54,7 +54,7 @@ describe("start over", () => {
     const chats = env.CHATS.idFromName(`chat:${me.id}`).toString();
     await call("/api/chats/current", { cookie: me.cookie }); // the person's chat object holds data
     const a = await json(await step({ step: "objects", binding: "SPACES", ids: [spaces] }));
-    expect(a).toMatchObject({ ok: true, wiped: 1, failed: 0 });
+    expect(a).toMatchObject({ ok: true, wiped: 1, held: 1, failed: 0 });
     expect(await json(await step({ step: "objects", binding: "CHATS", ids: [chats] }))).toMatchObject({
       wiped: 1,
     });
@@ -114,5 +114,21 @@ describe("start over", () => {
     expect(errorKind(new Error('More than one space called "Asha\'s secret plans"'))).toBe(
       "Error: something else",
     );
+  });
+
+  it("an object of any kind that was never used holds nothing when erased", async () => {
+    // Otherwise the job could never see a pass with nothing left (waking makes only empty tables).
+    for (const binding of WIPED_BINDINGS) {
+      const ns = (env as unknown as Record<string, DurableObjectNamespace>)[binding]!;
+      const id = ns.newUniqueId().toString();
+      expect({ binding, ...(await json(await step({ step: "objects", binding, ids: [id] }))) }).toMatchObject(
+        {
+          binding,
+          wiped: 1,
+          held: 0,
+          failed: 0,
+        },
+      );
+    }
   });
 });

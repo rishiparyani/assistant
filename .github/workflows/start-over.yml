@@ -147,13 +147,11 @@ jobs:
           )
           declare -A erased=()
           # The app is closed while the path is open, but an object's own alarm may still write
-          # to another one: scan again after each pass, and go on once a pass finds nothing. The
-          # listing can keep showing an erased object as holding data (its schema tables come back
-          # when it wakes for the erase), so two passes in a row with every erase done and no more
-          # objects than before also count as done.
-          prev_found=-1; prev_failed=-1
+          # to another one: scan again after each pass, and go on once a pass finds nothing, or
+          # erases every object it found and none of them held anything (the listing keeps showing
+          # an erased object as holding data: it makes its empty tables again when woken).
           for pass in 1 2 3 4 5; do
-            found=0; failed=0
+            found=0; held=0; failed=0
             for cls in "${!binding[@]}"; do
               ns="$(jq -r --arg s "$WORKER_NAME" --arg c "$cls" \
                 '.result[] | select(.script == $s and .class == $c) | .id' <<< "$namespaces" | head -1)"
@@ -173,19 +171,19 @@ jobs:
                   -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
                   -d "{\"words\":\"ERASE EVERYTHING\",\"step\":\"objects\",\"binding\":\"${binding[$cls]}\",\"ids\":$batch}")"
                 erased[$cls]=$(( ${erased[$cls]:-0} + $(jq -r .wiped <<< "$out") ))
+                held=$((held + $(jq -r .held <<< "$out")))
                 failed=$((failed + $(jq -r .failed <<< "$out")))
                 # Why an erase failed, by kind (the runtime's words, never anyone's data).
                 jq -r '.errors[]? | "  \(.)"' <<< "$out" | sort -u | head -5
               done
             done
-            echo "Pass $pass: $found objects with data, $failed failed to erase."
-            if [ "$found" -eq 0 ] || { [ "$failed" -eq 0 ] && [ "$prev_failed" -eq 0 ] && [ "$found" -le "$prev_found" ]; }; then
+            echo "Pass $pass: $found objects listed, $held held data, $failed failed to erase."
+            if [ "$found" -eq 0 ] || { [ "$failed" -eq 0 ] && [ "$held" -eq 0 ]; }; then
               echo "| Kind | Erased |" >> "$GITHUB_STEP_SUMMARY"
               echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
               for cls in "${!erased[@]}"; do echo "| $cls | ${erased[$cls]} |" >> "$GITHUB_STEP_SUMMARY"; done
               exit 0
             fi
-            prev_found=$found; prev_failed=$failed
             sleep 10
           done
           echo "::error::Objects still hold data after five passes; the accounts were not erased. Run the job again."

@@ -511,8 +511,8 @@ const TRANSITIONS: Record<"confirm" | "complete" | "cancel", { to: GigStatus; fr
 
 export class BookingObject extends DurableObject<Env> {
   /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
-  async wipe(): Promise<void> {
-    await wipeStorage(this.ctx);
+  async wipe(): Promise<boolean> {
+    return wipeStorage(this.ctx);
   }
 
   private sql: SqlStorage;

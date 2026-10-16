@@ -76,8 +76,12 @@ const MAX_HITS = 30;
 
 export class SearchObject extends DurableObject<Env> {
   /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
-  async wipe(): Promise<void> {
+  async wipe(): Promise<boolean> {
+    // Held anything = any document: the full-text table and its kind in _meta are made on
+    // every wake, so they say nothing about whether a person's records were here.
+    const held = ["docs", "vecs"].some((t) => this.sql.exec(`select 1 from ${t} limit 1`).toArray().length);
     await wipeStorage(this.ctx);
+    return held;
   }
 
   private sql: SqlStorage;
