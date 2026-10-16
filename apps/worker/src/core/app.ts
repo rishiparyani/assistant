@@ -27,6 +27,7 @@ import { PublicShareInput } from "@assistant/shared";
 import { assistantOperations } from "./assistant/operations.ts";
 import { groupOperations } from "./groups/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
+import { resetRoutes, resetting } from "./reset/service.ts";
 
 /** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
 const IOS_BUNDLE_ID = "in.gigspree.assistant";
@@ -79,6 +80,17 @@ export function createApp({ modules }: AppOptions) {
     await next();
   });
 
+  // While the "Start over" job runs, the app is closed (see `resetting`): only the reset path
+  // and the health check answer.
+  app.use(async (c, next) => {
+    if (resetting(c.env) && !c.req.path.startsWith("/api/internal/reset") && c.req.path !== "/api/health")
+      return c.json(
+        { error: { code: "unavailable", message: "The app is being reset. Try again in a few minutes." } },
+        503,
+      );
+    await next();
+  });
+
   app.onError((err, c) => {
     if (err instanceof AppError) return c.json(err.toJSON(), err.status);
     // Errors thrown inside Durable Objects arrive as plain errors carrying their code.
@@ -97,6 +109,10 @@ export function createApp({ modules }: AppOptions) {
     console.error("unhandled error", err);
     return c.json({ error: { code: "internal", message: "Something went wrong" } }, 500);
   });
+
+  // The test-phase reset (decision 2026-10-16 "Start over from a GitHub job"): a 404 unless
+  // the "Start over" job has set RESET_TOKEN for its own run.
+  app.route("/api/internal/reset", resetRoutes(modules));
 
   app.get("/api/health", async (c) => {
     try {

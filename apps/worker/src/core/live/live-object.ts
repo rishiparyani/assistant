@@ -4,11 +4,17 @@
 // the app fetches again, so it only ever sees what the person may see. Connections hibernate
 // while idle, so they cost nothing until something changes.
 import { DurableObject } from "cloudflare:workers";
+import { wipeStorage } from "../objects/storage.ts";
 
 /** A few devices at most; the oldest is dropped beyond that. */
 const MAX_SOCKETS = 5;
 
 export class LiveObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     // Keep-alive pings are answered without waking the object (hibernation).

@@ -23,6 +23,7 @@ import {
   type ObjectDump,
   type Actor,
   type Migrations,
+  wipeStorage,
 } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import type { ChatMessage, ToolCall } from "./client.ts";
@@ -194,6 +195,11 @@ export const EDITABLE_CARDS: ReadonlySet<string> = new Set([
 ]);
 
 export class ChatObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   private sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {

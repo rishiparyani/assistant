@@ -2,11 +2,16 @@
 // Quiet in normal operation: a gig joins only after a failed send and leaves once its
 // outbox is empty. "Flush outboxes" walks these lists.
 import { DurableObject } from "cloudflare:workers";
-import { migrate, type Migrations } from "../../../core/objects/storage.ts";
+import { migrate, type Migrations, wipeStorage } from "../../../core/objects/storage.ts";
 
 const MIGRATIONS: Migrations = [`create table waiting (gig_id text primary key, since text not null);`];
 
 export class PendingObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   private sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {

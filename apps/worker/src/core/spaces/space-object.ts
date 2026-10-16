@@ -133,6 +133,7 @@ import {
   exportTables,
   importTables,
   type ObjectDump,
+  wipeStorage,
 } from "../objects/storage.ts";
 import { liveOf } from "../live/live-object.ts";
 import { inboxName } from "../push/notify.ts";
@@ -980,6 +981,11 @@ const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
 const SEARCH_ATTEMPTS = 8;
 
 export class SpaceObject extends DurableObject<Env> {
+  /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
+  async wipe(): Promise<void> {
+    await wipeStorage(this.ctx);
+  }
+
   private sql: SqlStorage;
 
   constructor(ctx: DurableObjectState, env: Env) {
