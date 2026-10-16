@@ -64,7 +64,7 @@ const enc = encodeURIComponent;
 const SUGGEST = [
   "What's due this week?",
   "Spent 450 on chai",
-  "Remind me to call the venue at 6",
+  "Remind me to pay the electricity bill at 6",
   "Pin my expenses to the home",
 ];
 

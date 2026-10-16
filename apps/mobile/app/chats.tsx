@@ -100,7 +100,7 @@ export default function Chats() {
                 onPress={() => setStarting(true)}
                 style={[s.empty, { backgroundColor: t.cell }]}
               >
-                <Text style={[s.emptyTitle, { color: t.fg }]}>Talk to your band and family here</Text>
+                <Text style={[s.emptyTitle, { color: t.fg }]}>Talk to the people you share things with</Text>
                 <Text style={[s.emptyText, { color: t.fg2 }]}>
                   Save anything they say to your lists with a tap, and share cards everyone sees live. Tap to
                   start a chat.
@@ -262,7 +262,7 @@ function NewChat({
         <TextInput
           value={name}
           onChangeText={setName}
-          placeholder="Group name, e.g. Band"
+          placeholder="Group name, e.g. Flatmates"
           placeholderTextColor={t.fg3}
           maxLength={60}
           style={[s.input, { backgroundColor: t.cell, color: t.fg }]}
