@@ -82,8 +82,11 @@ export default function ListPage() {
   const { t, colour } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ collection: string; view?: string }>();
-  const key = `gigspree:list:${params.collection}`;
+  // `space`: a list in one of the person's own spaces (decision 2026-10-16 "Spaces").
+  const params = useLocalSearchParams<{ collection: string; view?: string; space?: string }>();
+  const space = params.space || undefined;
+  const inSpace = space ? `?space=${enc(space)}` : "";
+  const key = `gigspree:list:${space ? `${space}:` : ""}${params.collection}`;
   const [saved, setSaved] = useState<Saved | null>(() => readJson<Saved>(key));
   const [chip, setChip] = useState<string>(params.view ?? "all");
   const [records, setRecords] = useState<RecordView[] | null>(null);
@@ -101,8 +104,8 @@ export default function ListPage() {
   const loadList = useCallback(async () => {
     try {
       const [cols, views] = await Promise.all([
-        request<CollectionView[]>("GET", "/api/collections"),
-        request<SavedView[]>("GET", "/api/views"),
+        request<CollectionView[]>("GET", `/api/collections${inSpace}`),
+        request<SavedView[]>("GET", `/api/views${inSpace}`),
       ]);
       const c = cols.find((x) => x.id === params.collection || x.name === params.collection);
       if (!c) return setNote("This list is gone.");
@@ -114,7 +117,7 @@ export default function ListPage() {
         isOffline(e) ? "Offline: showing what this phone kept." : e instanceof Error ? e.message : String(e),
       );
     }
-  }, [params.collection, key]);
+  }, [params.collection, key, inSpace]);
   useEffect(() => {
     void loadList();
   }, [loadList]);
@@ -161,6 +164,7 @@ export default function ListPage() {
       try {
         const r = await request<FindResult>("POST", `/api/collections/${enc(c.id)}/find`, {
           ...query,
+          ...(space ? { space } : {}),
           limit: PAGE,
           ...(after ? { cursor: after } : {}),
         });
@@ -178,7 +182,7 @@ export default function ListPage() {
         );
       }
     },
-    [c, query, pageKey, restore],
+    [c, query, pageKey, restore, space],
   );
   useEffect(() => {
     restore();
@@ -223,7 +227,11 @@ export default function ListPage() {
     return out;
   }, [records, dateField]);
 
-  const ticker = useMemo(() => (c ? cardFor(c, records ?? [], current.view) : null), [c, records, current]);
+  // The card the ticks go through carries the space, so the outbox sends them there.
+  const ticker = useMemo(
+    () => (c ? { ...cardFor(c, records ?? [], current.view), ...(space ? { space } : {}) } : null),
+    [c, records, current, space],
+  );
   const tickField = ticker?.spec.sources[0]?.answer_field ?? null;
   // The sheet (decision 2026-10-15 "Toward Excel", 5): the view's grid columns, or the row
   // layout's fields, or the first few; switched with the button at the top.
@@ -268,7 +276,8 @@ export default function ListPage() {
         )
       : null;
   const listColour = colour(colourFor(c?.name ?? ""));
-  const askAbout = (text: string) => router.push({ pathname: "/chat", params: { ask: text } });
+  const askAbout = (text: string) =>
+    router.push({ pathname: "/chat", params: { ask: text, ...(space ? { space } : {}) } });
 
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 6 }]}>

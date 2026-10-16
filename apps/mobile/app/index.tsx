@@ -244,11 +244,22 @@ export default function Home() {
     // No assistant (a collaborator): a shared card opens on the website instead of in the chat.
     if (!assistant && card.shared) return openOnWeb(card);
     if (!assistant) return;
-    router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
+    // A space's card opens that space's chat (decision 2026-10-16 "Spaces").
+    router.push({
+      pathname: "/chat",
+      params: {
+        card: card.spec.title,
+        ...(prompt ? { ask: prompt } : {}),
+        ...(card.space ? { space: card.space } : {}),
+      },
+    });
   };
   /** A whole list, on its own screen (its saved view chosen when the card is one). */
-  const openList = (collection: string, view?: string) =>
-    router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } });
+  const openList = (collection: string, view?: string, space?: string) =>
+    router.push({
+      pathname: "/list",
+      params: { collection, ...(view ? { view } : {}), ...(space ? { space } : {}) },
+    });
   // Process cards: my answer, or a nudge; then the home reads again (the run went on).
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
     setBusyCard(card.id);
@@ -311,7 +322,7 @@ export default function Home() {
   const shownPages: HomePage[] = pages ?? [{ name: "Now", auto: true, cards: [] }];
   const loading = pages === null;
   const renderPage = (item: HomePage, index: number) => (
-    <View key={item.name} style={{ gap: 12 }}>
+    <View key={item.space?.id ?? item.name} style={{ gap: 12 }}>
       {item.auto ? (
         // Now: today's date and a greeting, then what's next, big.
         <View style={s.greetRow}>
@@ -343,9 +354,15 @@ export default function Home() {
         </View>
       ) : (
         <View style={s.pageHead}>
-          <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
+          <Text style={[s.h2, { color: t.fg, flexShrink: 1 }]} numberOfLines={1}>
+            {item.name}
+          </Text>
           <Text style={[s.metaText, { color: t.fg2 }]}>
-            {item.lists ? "every list, whole" : "hold a card to arrange"}
+            {item.space
+              ? "your space · ask below"
+              : item.lists
+                ? "every list, whole"
+                : "hold a card to arrange"}
           </Text>
         </View>
       )}
@@ -355,7 +372,7 @@ export default function Home() {
           <HeroCard next={next} now={now} onOpen={() => ask(next.card)} />
         </View>
       ) : null}
-      {item.lists ? (
+      {item.lists && !item.space ? (
         // All lists: a tile per list, each opening its whole list.
         <View style={s.lists}>
           {item.lists.map((l) => (
@@ -420,7 +437,7 @@ export default function Home() {
                   onSet={onSet(card)}
                   onSeeAll={
                     card.collection && !card.shared && !card.waiting && !card.memory
-                      ? () => canOpen() && openList(card.collection!.id, card.view?.id)
+                      ? () => canOpen() && openList(card.collection!.id, card.view?.id, card.space)
                       : undefined
                   }
                   onOpen={() =>
@@ -454,6 +471,15 @@ export default function Home() {
             )}
           />
         </View>
+      ) : item.space ? (
+        <View style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}>
+          <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
+            Nothing pinned in {item.space.name} yet.
+          </Text>
+          <Text style={[s.sub, { color: t.fg2 }]}>
+            Ask below to start its lists; a card for each one lands here.
+          </Text>
+        </View>
       ) : (
         <Pressable
           accessibilityRole="button"
@@ -480,6 +506,34 @@ export default function Home() {
           ) : null}
         </Pressable>
       )}
+      {item.space && item.lists?.length ? (
+        // A space's lists under its cards, each opening whole (in that space).
+        <View style={s.lists}>
+          {item.lists.map((l) => (
+            <Pressable
+              key={l.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${l.name}`}
+              onPress={() => openList(l.id, undefined, item.space!.id)}
+              style={({ pressed }) => [
+                s.listTile,
+                {
+                  backgroundColor: t.cell,
+                  shadowColor: t.shadow,
+                  width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
+                },
+                pressed && { transform: [{ scale: 0.97 }] },
+              ]}
+            >
+              <View style={[s.listDot, { backgroundColor: colour(colourFor(l.name)) }]} />
+              <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
+                {l.name}
+              </Text>
+              <Text style={[s.listMeta, { color: t.fg2 }]}>See all ›</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
   return (
@@ -505,7 +559,11 @@ export default function Home() {
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
-          keyExtractor={(p) => p.name}
+          keyExtractor={(p) => p.space?.id ?? p.name}
+          // The dots and the bar follow the page as it moves (a trackpad on the web never
+          // sends a momentum end), settled again when the swipe ends.
+          scrollEventThrottle={100}
+          onScroll={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
           onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
           renderItem={({ item, index }) => (
             <ScrollView
@@ -553,7 +611,7 @@ export default function Home() {
         <View ref={tourRefs.pages} collapsable={false} style={s.dots}>
           {(wide ? [] : shownPages).map((p, i) => (
             <View
-              key={p.name}
+              key={p.space?.id ?? p.name}
               style={[s.dotI, { backgroundColor: i === page ? t.accent : t.fg3, width: i === page ? 18 : 7 }]}
             />
           ))}
@@ -574,17 +632,28 @@ export default function Home() {
             assistant={!!assistant}
             text={barText}
             onChangeText={setBarText}
+            space={wide ? undefined : shownPages[page]?.space}
             cards={(pages ?? []).flatMap((p) => p.cards)}
-            lists={pages?.find((p) => p.lists)?.lists ?? []}
-            onAsk={(words) => router.push({ pathname: "/chat", params: { ask: words, send: "1" } })}
+            lists={(pages ?? []).flatMap((p) =>
+              (p.lists ?? []).map((l) => ({
+                ...l,
+                ...(p.space ? { space: p.space.id, space_name: p.space.name } : {}),
+              })),
+            )}
+            onAsk={(words, space) =>
+              router.push({
+                pathname: "/chat",
+                params: { ask: words, send: "1", ...(space ? { space } : {}) },
+              })
+            }
             onOpenCard={(card) =>
               card.collection && !card.shared
-                ? openList(card.collection.id, card.view?.id)
+                ? openList(card.collection.id, card.view?.id, card.space)
                 : assistant
                   ? ask(card)
                   : openOnWeb(card)
             }
-            onOpenList={openList}
+            onOpenList={(id, space) => openList(id, undefined, space)}
             onOpenHit={(hit, q) => {
               if (hit.kind === "message") {
                 router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
@@ -670,6 +739,7 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "baseline",
     justifyContent: "space-between",
+    gap: 10,
     paddingHorizontal: 4,
   },
   h2: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },

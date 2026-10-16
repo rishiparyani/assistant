@@ -3,7 +3,7 @@
 // first chat, everything from before chats were cut by conversation.
 import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
-import type { ChatSummary } from "@assistant/shared";
+import type { ChatSummary, SpaceView } from "@assistant/shared";
 import { Sheet } from "@/components/Sheet";
 import { Tap, Text, type as typo } from "@assistant/cards/native";
 import { request, isOffline } from "@/api";
@@ -27,6 +27,8 @@ export function ChatsSheet({
 }) {
   const { t } = useTheme();
   const [chats, setChats] = useState<ChatSummary[] | null>(null);
+  // Space names, so a chat in a band's space says so (decision 2026-10-16 "Spaces").
+  const [spaces, setSpaces] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
   useEffect(() => {
     if (!open) return;
@@ -37,6 +39,9 @@ export function ChatsSheet({
         setNote("");
       })
       .catch((e: unknown) => setNote(isOffline(e) ? "Your chats need a connection." : String(e)));
+    request<SpaceView[]>("GET", "/api/spaces")
+      .then((list) => setSpaces(Object.fromEntries(list.map((sp) => [sp.id, sp.name]))))
+      .catch(() => {});
   }, [open]);
   const groups = groupByDay(chats ?? []);
   return (
@@ -86,6 +91,13 @@ export function ChatsSheet({
                   <Text style={[typo.body, { color: t.fg, flex: 1 }]} numberOfLines={1}>
                     {titleOf(c)}
                   </Text>
+                  {c.space_id && spaces[c.space_id] ? (
+                    <View style={[s.tag, { backgroundColor: t.fill }]}>
+                      <Text style={[typo.caption, { color: t.fg2 }]} numberOfLines={1}>
+                        {spaces[c.space_id]}
+                      </Text>
+                    </View>
+                  ) : null}
                   <Text style={[typo.caption, { color: t.fg2 }]}>{whenOf(c)}</Text>
                 </Tap>
               );
@@ -144,6 +156,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  tag: { maxWidth: 110, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
   row: {
     flexDirection: "row",
     alignItems: "center",

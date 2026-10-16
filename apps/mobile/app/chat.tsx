@@ -75,11 +75,14 @@ export default function Chat() {
     ask,
     id,
     send: sendNow,
+    space,
   } = useLocalSearchParams<{
     card?: string;
     ask?: string;
     id?: string;
     send?: string;
+    /** Open the current chat of this space (decision 2026-10-16 "Spaces"). */
+    space?: string;
   }>();
   const [view, setView] = useState<ChatView | null>(null);
   // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
@@ -156,28 +159,34 @@ export default function Chat() {
     return collections.current;
   }, []);
 
-  const openChat = useCallback((which: string | null) => {
-    // Nothing can be sent until the chat is known (never to the one just left, never to "current").
-    setChatId(null);
-    setView(null);
-    setChanged([]);
-    openedAt.current = Date.now();
-    request<ChatView>("GET", `/api/chats/${which ?? "current"}`)
-      .then((v) => {
-        setChatId(v.id);
-        setView(v);
-        setNote("");
-      })
-      .catch((e: unknown) =>
-        setNote(
-          isOffline(e)
-            ? "Offline: messages wait and go when you're back."
-            : e instanceof Error
-              ? e.message
-              : String(e),
-        ),
-      );
-  }, []);
+  const openChat = useCallback(
+    (which: string | null) => {
+      // Nothing can be sent until the chat is known (never to the one just left, never to "current").
+      setChatId(null);
+      setView(null);
+      setChanged([]);
+      openedAt.current = Date.now();
+      const path = which
+        ? `/api/chats/${which}`
+        : `/api/chats/current${space ? `?space=${encodeURIComponent(space)}` : ""}`;
+      request<ChatView>("GET", path)
+        .then((v) => {
+          setChatId(v.id);
+          setView(v);
+          setNote("");
+        })
+        .catch((e: unknown) =>
+          setNote(
+            isOffline(e)
+              ? "Offline: messages wait and go when you're back."
+              : e instanceof Error
+                ? e.message
+                : String(e),
+          ),
+        );
+    },
+    [space],
+  );
   useEffect(() => openChat(id ?? null), [id, openChat]);
   useEffect(() => {
     request<ChatSummary[]>("GET", "/api/chats")
@@ -189,7 +198,12 @@ export default function Chat() {
     if (busy) return;
     try {
       // The id is made here, so a retry after a lost reply lands on the same chat (rule 8).
-      const v = await request<ChatView>("POST", "/api/chats", { id: ulid() });
+      // A new chat stays in the space of the one on screen (or the one asked for).
+      const inSpace = view?.space_id ?? space;
+      const v = await request<ChatView>("POST", "/api/chats", {
+        id: ulid(),
+        ...(inSpace ? { space: inSpace } : {}),
+      });
       setChatId(v.id);
       setView(v);
       setChanged([]);
@@ -287,6 +301,10 @@ export default function Chat() {
             {card ? (
               <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
                 about this card
+              </Text>
+            ) : view?.space_name ? (
+              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
+                in {view.space_name}
               </Text>
             ) : null}
           </View>

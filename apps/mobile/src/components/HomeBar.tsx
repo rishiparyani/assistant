@@ -19,16 +19,18 @@ export interface HomeBarProps {
   text: string;
   onChangeText: (t: string) => void;
   cards: HomeCard[];
-  lists: { id: string; name: string }[];
-  /** Send the words to the assistant (online, with the assistant). */
-  onAsk: (text: string) => void;
+  lists: { id: string; name: string; space?: string; space_name?: string }[];
+  /** The space whose page is showing (decision 2026-10-16 "Spaces"): asking goes to its chat. */
+  space?: { id: string; name: string };
+  /** Send the words to the assistant (online, with the assistant), in the page's space if any. */
+  onAsk: (text: string, space?: string) => void;
   onOpenCard: (card: HomeCard) => void;
-  onOpenList: (id: string) => void;
+  onOpenList: (id: string, space?: string) => void;
   onOpenHit: (hit: SearchResult, q: string) => void;
 }
 
 export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
-  { assistant, text, onChangeText, cards, lists, onAsk, onOpenCard, onOpenList, onOpenHit },
+  { assistant, text, onChangeText, cards, lists, space, onAsk, onOpenCard, onOpenList, onOpenHit },
   ref,
 ) {
   const { t } = useTheme();
@@ -43,7 +45,7 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
   const ask = () => {
     if (!canAsk || !q) return;
     onChangeText("");
-    onAsk(q);
+    onAsk(q, space?.id);
   };
   const pick = (go: () => void) => {
     onChangeText("");
@@ -62,13 +64,13 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
             {canAsk ? (
               <Tap
                 accessibilityRole="button"
-                accessibilityLabel={`Ask Gigspree: ${q}`}
+                accessibilityLabel={space ? `Ask in ${space.name}: ${q}` : `Ask Gigspree: ${q}`}
                 onPress={ask}
                 scale={0.985}
                 style={[s.hit, { backgroundColor: t.ink }]}
               >
                 <Text style={[type.body, { color: t.onInk, flex: 1 }]} numberOfLines={1}>
-                  Ask: “{q}”
+                  {space ? `Ask in ${space.name}: ` : "Ask: "}“{q}”
                 </Text>
                 <Text style={{ color: t.onInk, fontWeight: "800" }}>↑</Text>
               </Tap>
@@ -78,14 +80,16 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
                 key={`list:${l.id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`Open the list ${l.name}`}
-                onPress={() => pick(() => onOpenList(l.id))}
+                onPress={() => pick(() => onOpenList(l.id, l.space))}
                 scale={0.985}
                 style={[s.hit, { backgroundColor: t.fill }]}
               >
                 <Text style={[type.body, { color: t.fg, fontWeight: "700", flex: 1 }]} numberOfLines={1}>
                   {l.name}
                 </Text>
-                <Text style={[type.caption, { color: t.fg2 }]}>list ›</Text>
+                <Text style={[type.caption, { color: t.fg2 }]}>
+                  {l.space_name ? `in ${l.space_name} · list ›` : "list ›"}
+                </Text>
               </Tap>
             ))}
             {cards_.map(({ card, rows }) => (
@@ -144,7 +148,13 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
         <TextInput
           accessibilityLabel={assistant ? "Ask or search" : "Search your cards"}
           placeholder={
-            assistant ? (online ? "Ask, add or search…" : "Search (offline)") : "Search your cards"
+            assistant
+              ? online
+                ? space
+                  ? `Ask in ${space.name}, or search…`
+                  : "Ask, add or search…"
+                : "Search (offline)"
+              : "Search your cards"
           }
           placeholderTextColor={t.onInk + "99"}
           value={text}

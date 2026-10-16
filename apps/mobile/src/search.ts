@@ -59,7 +59,7 @@ export function cardHits(cards: HomeCard[], q: string, limit = 6): CardHit[] {
 }
 
 /** Lists whose name contains the words. */
-export function listHits(lists: { id: string; name: string }[], q: string, limit = 3) {
+export function listHits<L extends { id: string; name: string }>(lists: L[], q: string, limit = 3): L[] {
   const needle = q.trim().toLowerCase();
   if (needle.length < 2) return [];
   return lists.filter((l) => l.name.toLowerCase().includes(needle)).slice(0, limit);

@@ -22,6 +22,7 @@ import {
   formatDateIST,
   formatDateTimeIST,
   type CollectionView,
+  type GroupView,
   type LiveRef,
   type QueryResult,
   type FindResult,
@@ -30,6 +31,7 @@ import {
   type SavedView,
   type SharedOpened,
   type SharedWithMe,
+  type SpaceView,
   type StoredValue,
   type WaitingItem,
 } from "@assistant/shared";
@@ -45,6 +47,9 @@ export interface HomePage {
   cards: HomeCard[];
   /** The last page: every list the person has, each opening its whole list. */
   lists?: { id: string; name: string }[];
+  /** A page that is one of the person's spaces (decision 2026-10-16 "Spaces"): its cards
+   * and lists; the bar asks in that space's chat. Absent: Personal's pages. */
+  space?: { id: string; name: string };
 }
 
 // The device copy is per person: another account on the same device never sees it.
@@ -283,10 +288,40 @@ export async function loadSpaceCards(space: string): Promise<HomeCard[]> {
   return cardsFor(views, collections, space);
 }
 
+/**
+ * A page per space of the person's own (decision 2026-10-16 "Spaces"): not Personal (its
+ * pages are the home), not a chat's home (that lives on the chat's Home tab). A space that
+ * can't be read right now is left out rather than failing the home.
+ */
+async function loadSpacePages(spaces: SpaceView[], groups: GroupView[]): Promise<HomePage[]> {
+  const chatHomes = new Set(groups.map((g) => g.space_id).filter((x): x is string => !!x));
+  const own = spaces.filter((sp) => sp.kind !== "personal" && !chatHomes.has(sp.id)).slice(0, MAX_PAGES);
+  const pages = await Promise.all(
+    own.map(async (sp): Promise<HomePage | null> => {
+      try {
+        const q = `?space=${enc(sp.id)}`;
+        const [views, collections] = await Promise.all([
+          request<SavedView[]>("GET", `/api/views${q}`),
+          request<CollectionView[]>("GET", `/api/collections${q}`),
+        ]);
+        return {
+          name: sp.name,
+          space: { id: sp.id, name: sp.name },
+          cards: await cardsFor(views, collections, sp.id),
+          lists: collections.map((c) => ({ id: c.id, name: c.name })),
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return pages.filter((p): p is HomePage => !!p);
+}
+
 /** Loads the home from the server; falls back to the copy on the device. */
 export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
-    const [views, collections, waiting, shares, memories] = await Promise.all([
+    const [views, collections, waiting, shares, memories, spaces, groups] = await Promise.all([
       request<SavedView[]>("GET", "/api/views"),
       request<CollectionView[]>("GET", "/api/collections"),
       // What processes are waiting on (mine, and others' on me); the home works without it.
@@ -295,7 +330,11 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       request<SharedWithMe[]>("GET", "/api/cards").catch(() => [] as SharedWithMe[]),
       // What the assistant remembers (null: no assistant for this person, or offline).
       request<Memory[]>("GET", "/api/memories").catch(() => null),
+      // The person's spaces, and the chats whose homes are spaces (those have the Chats screen).
+      request<SpaceView[]>("GET", "/api/spaces").catch(() => [] as SpaceView[]),
+      request<GroupView[]>("GET", "/api/groups").catch(() => [] as GroupView[]),
     ]);
+    const spacePages = await loadSpacePages(spaces, groups);
     const cards = await cardsFor(views, collections);
     // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in
     // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My day")
@@ -315,6 +354,8 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       // A person with nothing of their own (a collaborator) has no page to arrange.
       ...(mine.length || !sharedCards.length ? [{ name: "My day", cards: mine }] : []),
       ...(sharedCards.length ? [{ name: "Shared with you", cards: sharedCards }] : []),
+      // A page for each space of the person's own (a band, a trip), after Personal's pages.
+      ...spacePages,
       // Every list, so one without a card is still a tap away (owner, 2026-10-13).
       ...(collections.length
         ? [
