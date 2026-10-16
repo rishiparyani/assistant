@@ -115,9 +115,9 @@ const OPENAI_SHAPED = {
     // Reasoning models take no temperature. On chat completions GPT-5.4 refuses function
     // tools together with any reasoning effort but "none" (a 400 naming reasoning_effort;
     // the Responses API would allow it), so these answer without thinking first.
-    // GPT-6.1 Sol refuses "none" and "low" as well (unsupported_value), and nothing at all:
-    // effort "high" sends "high" (a model that won't think less than a floor); "model" sends
-    // nothing and leaves it to the model's own default.
+    // GPT-6.1 Sol refuses "none", "low", "high" and nothing at all with tools here (it needs the
+    // Responses API, not built yet). Effort "high"/"max" sends "high", "model" sends nothing,
+    // anything else "none".
     body: (m: ModelEntry) => ({
       max_completion_tokens: m.maxOutput,
       ...(m.effort === "model"
