@@ -127,7 +127,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-16f";
+export const PROMPT_VERSION = "2026-10-16g";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -276,6 +276,8 @@ function systemPrompt(
     "- When they say they did something (bought, called, paid), first look for a matching reminder or to-do and tick it. If they also gave an amount, record that too (an expense or payment); otherwise add nothing new unless nothing matched. Never make up an amount: ask.",
     "- For any total, count, average, highest or lowest, or a breakdown (by category, by person, by month), call query: it works the numbers out exactly. Never add numbers up yourself. Its answer shows as a table they can pin to their home.",
     "- Records can be named by exact title; if several match you get candidates: ask which one. Never guess.",
+    "- A list, workflow or rule they name that isn't here may be in another of their spaces: look there (list_spaces, then pass that space) before saying it doesn't exist. Speech-to-text can misspell names; suggest the closest one you find.",
+    "- Never send them to a screen or button to do something; do it here (or hand over), or say plainly it can't be done yet.",
     "- Asked what you can do, or for examples: show, don't list. Do one or two real things with their own lists right away (a find, or a query for a total that comes back as a card), name two or three more in a line, and say Help › Ideas for cards shows every kind of card.",
     "- Short Markdown is fine (bold, a bulleted list); no headings, no tables.",
     "- Adding or changing money, deleting, and new setups are shown to the person as a card that runs only when they tap Confirm. Tell them to check the card; don't say it's done.",
@@ -300,7 +302,7 @@ function systemPrompt(
   ];
   if (level === 1)
     lines.push(
-      "- You can't create or change collections, fields or saved views, and you can't put a card on the home or change what's on it. For a new kind of list, tracking something new, changing fields, or a card on the home, call hand_over.",
+      "- You can't create or change collections, fields, saved views, workflows or rules, and you can't put a card on the home or change what's on it. For a new kind of list, tracking something new, changing fields, making, changing or deleting a workflow or rule, or a card on the home, call hand_over.",
     );
   else
     lines.push(

@@ -3,7 +3,7 @@
 // maps each weight to its face; the app loads the faces at start (apps/mobile/app/_layout.tsx)
 // and turns this on once they're in. Until then, and when a style names its own font, it's
 // the system font, so nothing ever shows blank.
-import { forwardRef } from "react";
+import { forwardRef, useLayoutEffect, useRef, useState } from "react";
 import {
   Text as RNText,
   TextInput as RNTextInput,
@@ -44,7 +44,54 @@ export const Text = forwardRef<RNText, TextProps>(function Text(props, ref) {
   return <RNText ref={ref} {...props} style={face ? [props.style, face] : props.style} />;
 });
 
-export const TextInput = forwardRef<RNTextInput, TextInputProps>(function TextInput(props, ref) {
+/**
+ * A text box in the app's typeface that keeps its own text (owner, 2026-10-16: iPhone
+ * dictation wrote the sentence twice). A "controlled" box (the app setting `value` back on
+ * every change) fights the keyboard while dictation is still adding words, so the words land
+ * twice. This one is given `value` like any box, but only changes the app makes on its own
+ * reach it: emptied after sending (cleared in place, the keyboard stays) or filled in (the
+ * box starts again with that text, focused if it was). What the person types or dictates,
+ * and the app's echo of it (even reshaped, like "a, b" kept as a list), never comes back.
+ */
+export const TextInput = forwardRef<RNTextInput, TextInputProps>(function TextInput(
+  { value, defaultValue, onChangeText, autoFocus, ...props },
+  ref,
+) {
   const face = faceOf(props.style);
-  return <RNTextInput ref={ref} {...props} style={face ? [props.style, face] : props.style} />;
+  const inner = useRef<RNTextInput | null>(null);
+  const [boot, setBoot] = useState({ key: 0, text: value ?? defaultValue ?? "", focus: !!autoFocus });
+  // What the box shows now, and whether a change came from it (this turn), not from the app.
+  const shown = useRef(boot.text);
+  const fromBox = useRef(false);
+  useLayoutEffect(() => {
+    if (value === undefined || value === shown.current) return;
+    if (fromBox.current) return;
+    shown.current = value;
+    if (value === "" && inner.current) inner.current.clear();
+    else setBoot((b) => ({ key: b.key + 1, text: value, focus: inner.current?.isFocused() ?? false }));
+  }, [value]);
+  return (
+    <RNTextInput
+      key={boot.key}
+      ref={(r) => {
+        inner.current = r;
+        if (typeof ref === "function") ref(r);
+        else if (ref) ref.current = r;
+      }}
+      {...props}
+      defaultValue={boot.text}
+      autoFocus={boot.focus}
+      onChangeText={(t) => {
+        shown.current = t;
+        fromBox.current = true;
+        // The app's answer to this change renders before a timer runs; after that, a new
+        // `value` is the app's own again.
+        setTimeout(() => {
+          fromBox.current = false;
+        }, 0);
+        onChangeText?.(t);
+      }}
+      style={face ? [props.style, face] : props.style}
+    />
+  );
 });

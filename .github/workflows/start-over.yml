@@ -113,9 +113,12 @@ jobs:
 
       - name: Back up to Google Drive first
         run: |
-          out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+          # A failed request (an error answer, no answer) is a failed backup too, and goes to
+          # the same choice below instead of stopping the step on its own.
+          out="$(curl -sS -X POST "$APP_URL/api/internal/reset" \
             -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
-            -d '{"words":"ERASE EVERYTHING","step":"backup"}')"
+            -d '{"words":"ERASE EVERYTHING","step":"backup"}' 2>/dev/null)" || out='{}'
+          jq -e . > /dev/null 2>&1 <<< "$out" || out='{}'
           if [ "$(jq -r .ok <<< "$out")" = "true" ]; then
             echo "Backup saved ($(jq -r .bytes <<< "$out") bytes)."
           elif [ "$WHERE" = "production" ] && [ "$BACKUP" != "skip if it fails" ]; then
