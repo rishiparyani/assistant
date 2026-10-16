@@ -1154,6 +1154,32 @@ export class SpaceObject extends DurableObject<Env> {
     this.canWrite(actor);
   }
 
+  // --- How the person wants things done here (decision 2026-10-16 "Spaces") ----------------
+
+  /** The space's instructions in the person's words (empty when none); anyone in it reads them. */
+  async instructions(actor: Actor): Promise<string> {
+    this.role(actor);
+    return getMeta(this.sql, "instructions") ?? "";
+  }
+
+  /** Sets them (whoever may arrange the space); audited, never the words in the change log. */
+  async setInstructions(actor: Actor, key: string | null, text: string): Promise<{ instructions: string }> {
+    this.canArrange(actor);
+    const clean = text.trim().slice(0, 1500);
+    return this.write(actor, key, ["set_instructions", clean], () => {
+      const before = getMeta(this.sql, "instructions") ?? "";
+      setMeta(this.sql, "instructions", clean);
+      audit(this.sql, actor, {
+        action: "set_instructions",
+        entityType: "space",
+        entityId: this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "",
+        before: { length: before.length },
+        after: { length: clean.length },
+      });
+      return { instructions: clean };
+    });
+  }
+
   // --- Writes: one helper for idempotency, audit and the change log -----------------------
 
   private async write<T>(
@@ -1599,7 +1625,38 @@ export class SpaceObject extends DurableObject<Env> {
     },
   ): Promise<SetupResult> {
     this.canArrange(actor);
-    return this.write(actor, key, ["make_setup", input], (ts) => {
+    return this.write(actor, key, ["make_setup", input], (ts) => this.applySetup(actor, input, ts));
+  }
+
+  /**
+   * The same setup, checked all the way through and then undone (decision 2026-10-16 "A setup
+   * card is checked when it's proposed"): every part is made inside a transaction that is
+   * rolled back at the end, so a view whose quick add can't work, a formula over a missing
+   * field or a bad link fails now, while the model can still fix it, not after the tap.
+   */
+  async checkSetup(actor: Actor, input: Parameters<SpaceObject["makeSetup"]>[2]): Promise<{ ok: true }> {
+    this.canArrange(actor);
+    const ROLLBACK = Symbol("rollback");
+    const queued = this.queued;
+    try {
+      this.queued = [];
+      this.ctx.storage.transactionSync(() => {
+        this.applySetup(actor, input, nowIso());
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) {
+        if (e instanceof ValueError) throw new ObjectError("validation_failed", e.message);
+        throw e;
+      }
+    } finally {
+      this.queued = queued;
+    }
+    return { ok: true };
+  }
+
+  private applySetup(actor: Actor, input: Parameters<SpaceObject["makeSetup"]>[2], ts: string): SetupResult {
+    {
       const isLink = (f: FieldSpec) => f.type === "link";
       const isRollup = (f: FieldSpec) => !isLink(f) && !!f.options?.rollup;
       const isFormula = (f: FieldSpec) => !isLink(f) && !f.options?.rollup && !!f.options?.formula;
@@ -1656,7 +1713,7 @@ export class SpaceObject extends DurableObject<Env> {
         rules,
         views,
       };
-    });
+    }
   }
 
   /**

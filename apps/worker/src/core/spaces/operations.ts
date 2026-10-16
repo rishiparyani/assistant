@@ -34,9 +34,11 @@ import {
   StartListInput,
   UpdateRecordsInput,
   QueryInput,
+  NewSpaceInput,
+  SpaceInstructionsInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
-import { mySpaces, spaceOf } from "./service.ts";
+import { mySpaces, newSpace, setSpaceInstructions, spaceOf, spaceSettings } from "./service.ts";
 
 export const spaceOperations = [
   defineOperation({
@@ -48,6 +50,36 @@ export const spaceOperations = [
     http: { method: "GET", path: "/spaces" },
     input: z.object({}),
     handler: (ctx) => mySpaces(ctx),
+  }),
+  defineOperation({
+    id: "core.space_new",
+    tool: "new_space",
+    description:
+      'A new space of the person\'s own for a separate part of life ("the band", "home", "the society gate"): its own lists, cards, chats, memory and instructions. Shown as a card; made when they tap Confirm.',
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/spaces", status: 201 },
+    input: NewSpaceInput,
+    handler: (ctx, i) => newSpace(ctx, i.name),
+  }),
+  defineOperation({
+    id: "core.space_settings",
+    tool: "space_settings",
+    description: "One of my spaces with how I want things done in it (its instructions).",
+    kind: "read",
+    http: { method: "GET", path: "/spaces/:space" },
+    input: SpaceRef,
+    handler: (ctx, i) => spaceSettings(ctx, i.space),
+  }),
+  defineOperation({
+    id: "core.space_instructions",
+    tool: "set_space_instructions",
+    description:
+      'When the person says how things should work in a space ("in the band space, money is always split four ways"), keep it here in their words; you read it in every chat of that space. Replaces what was there: include what should stay.',
+    kind: "write",
+    http: { method: "PUT", path: "/spaces/:space/instructions" },
+    input: SpaceInstructionsInput,
+    handler: (ctx, i) => setSpaceInstructions(ctx, i.space, i.text),
   }),
   defineOperation({
     id: "core.list_collections",

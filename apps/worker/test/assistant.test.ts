@@ -3,6 +3,8 @@
 // wait for a tap, level 1 hands setups over, and the budget keeps the cap. Fake data only.
 import { describe, expect, it } from "vitest";
 import { env, exports } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
+import type { SpaceObject } from "../src/core/spaces/space-object.ts";
 import type { ChatView, FindResult } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
@@ -120,6 +122,66 @@ describe("chat", () => {
     expect(again.status).toBe(409);
   });
 
+  it("checks a proposed setup all the way through and makes nothing (a quick add on a link fails now, not on Confirm)", async () => {
+    const me = await signUp("Test Owner");
+    const spaces = await json<{ id: string }[]>(await call("/api/spaces", { cookie: me.cookie }));
+    const stub = env.SPACES.getByName(`space:${spaces[0]!.id}`);
+    const actor = { userId: me.id, source: "web" as const };
+    const setup = (addFields: string[]) => ({
+      collections: [
+        {
+          id: null,
+          name: "Test flats",
+          description: null,
+          fields: [{ name: "Flat number", type: "text" as const }],
+        },
+        {
+          id: null,
+          name: "Test visitors",
+          description: null,
+          fields: [
+            { name: "Visitor name", type: "text" as const },
+            { name: "Flat", type: "link" as const, options: { target: "Test flats" } },
+            { name: "Phone", type: "text" as const },
+          ],
+        },
+      ],
+      rules: [],
+      views: [
+        { name: "Test guard quick entry", collection: "Test visitors", pinned: true, add_fields: addFields },
+      ],
+    });
+    // The owner's Visitor gate (2026-10-16): the quick add names a link. (Inside the object,
+    // so the refusal isn't an unhandled error crossing the test's object boundary.)
+    const refusal = await runInDurableObject(stub, async (raw) => {
+      const inst = raw as unknown as SpaceObject;
+      try {
+        await inst.checkSetup(actor, setup(["Visitor name", "Flat", "Phone"]));
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    });
+    expect(refusal).toContain("A quick add can't fill in Flat");
+    // Without the link it passes, and the check made nothing either way.
+    expect(await stub.checkSetup(actor, setup(["Visitor name", "Phone"]))).toEqual({ ok: true });
+    const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
+    expect(cols.map((c) => c.name)).not.toContain("Test visitors");
+    // The real thing still works after the dry runs.
+    const made = await json<{ collections: { name: string }[] }>(
+      await call("/api/setups", {
+        cookie: me.cookie,
+        // Over HTTP the schema takes no nulls: names and fields only.
+        body: {
+          name: "Test visitor gate",
+          ...setup(["Visitor name", "Phone"]),
+          collections: setup([]).collections.map((c) => ({ name: c.name, fields: c.fields })),
+        },
+      }),
+    );
+    expect(made.collections.map((c) => c.name)).toEqual(["Test flats", "Test visitors"]);
+  });
+
   it("lets a setup card be changed by hand before Confirm, never a money card", async () => {
     const me = await signUp("Test Owner");
     // A setup card in the chat (as the smart model, or a shared setup, would leave it).
@@ -192,10 +254,10 @@ describe("chat", () => {
     expect((await find(me, "Expenses")).items).toEqual([]);
   });
 
-  it("hands setups over, and says so when the smart model is off", async () => {
+  it("hands setups over, and says so when Careful is off", async () => {
     const me = await signUp("Test Owner");
     const view = await say(me, "Test: make a collection for fam jam sign-ups");
-    expect(view.items.at(-1)!.text).toMatch(/needs the smart model.*Your lists in the menu/);
+    expect(view.items.at(-1)!.text).toMatch(/needs Careful.*Your lists in the menu/);
     expect(view.setup_in_progress).toBe(false);
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");
@@ -290,7 +352,8 @@ describe("several chats and memory", () => {
     expect((await json<ChatView>(await call("/api/chat", { cookie: me.cookie }))).items).toEqual([]);
 
     const list = await json<{ id: string; title: string }[]>(await call("/api/chats", { cookie: me.cookie }));
-    expect(list.map((c) => c.id)).toEqual(["main", id]);
+    // Newest first; the first chat ("main", everything from before chats) last.
+    expect(list.map((c) => c.id)).toEqual([id, "main"]);
 
     const other = await signUp("Test Other");
     expect((await call(`/api/chats/${id}`, { cookie: other.cookie })).status).toBe(404);
@@ -304,6 +367,36 @@ describe("several chats and memory", () => {
     expect((await call(`/api/chats/${id}`, { cookie: me.cookie })).status).toBe(404);
     const after = await json<{ id: string }[]>(await call("/api/chats", { cookie: me.cookie }));
     expect(after.map((c) => c.id)).toEqual(["main"]);
+  });
+
+  it("opens on the current chat: the latest while it's fresh, else a new one", async () => {
+    const me = await signUp("Test Owner");
+    // Nothing yet: a new, empty chat, and the same one again (it's still empty).
+    const first = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    expect(first.items).toEqual([]);
+    expect(first.id).not.toBe("main");
+    const again = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    expect(again.id).toBe(first.id);
+    // Two apps asking at once (a double tap) get the same chat, never two empty ones.
+    const other = await signUp("Test Twice");
+    const [a, b] = await Promise.all([
+      call("/api/chats/current", { cookie: other.cookie }).then((r) => json<ChatView>(r)),
+      call("/api/chats/current", { cookie: other.cookie }).then((r) => json<ChatView>(r)),
+    ]);
+    expect(a.id).toBe(b.id);
+    // Used a moment ago: still the current one.
+    await call(`/api/chats/${first.id}`, {
+      cookie: me.cookie,
+      body: { text: "Test: note the PA needs two DI boxes" },
+    });
+    // The list follows by the chat's own outbox (an alarm): give it a beat.
+    await new Promise((r) => setTimeout(r, 300));
+    const still = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    expect(still.id).toBe(first.id);
+    expect(still.items.length).toBeGreaterThan(0);
+    // A new chat on purpose becomes the current one.
+    const fresh = await json<ChatView>(await call("/api/chats", { cookie: me.cookie, body: {} }));
+    expect((await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }))).id).toBe(fresh.id);
   });
 
   it("remembers what it's asked to, in every chat, until forgotten", async () => {

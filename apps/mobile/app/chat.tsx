@@ -2,8 +2,8 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
-import Animated, { FadeIn, FadeInUp } from "react-native-reanimated";
+import { FlatList, StyleSheet, View } from "react-native";
+import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import {
   Boundary,
   Markdown,
@@ -16,11 +16,20 @@ import {
 } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { ChatItem, ChatView, CollectionView, HistoryItem, LiveRef } from "@assistant/shared";
+import {
+  ulid,
+  type ChatItem,
+  type ChatSummary,
+  type ChatView,
+  type CollectionView,
+  type HistoryItem,
+  type LiveRef,
+} from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
+import { ChatsSheet } from "@/components/ChatsSheet";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { useLive } from "@/live-socket";
@@ -61,15 +70,37 @@ export default function Chat() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { card, ask } = useLocalSearchParams<{ card?: string; ask?: string }>();
+  const {
+    card,
+    ask,
+    id,
+    send: sendNow,
+    space,
+  } = useLocalSearchParams<{
+    card?: string;
+    ask?: string;
+    id?: string;
+    send?: string;
+    /** Open the current chat of this space (decision 2026-10-16 "Spaces"). */
+    space?: string;
+  }>();
   const [view, setView] = useState<ChatView | null>(null);
+  // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
+  // current one (the server picks: the latest if used in the last two hours, else a new one).
+  const [chatId, setChatId] = useState<string | null>(id ?? null);
+  const [showChats, setShowChats] = useState(false);
+  // The very first chat ever gets the "tell me about your week" opening; later new chats a line.
+  const [firstEver, setFirstEver] = useState<boolean | null>(null);
   // The newest answer gets 👍 / 👎 (not one waiting behind a newer message of mine).
   const lastReply = (() => {
     const items = view?.items ?? [];
     const at = items.findLastIndex((i) => i.role === "assistant" && !!i.text);
     return at >= 0 && !items.slice(at + 1).some((i) => i.role === "user") ? items[at]!.id : null;
   })();
-  const [text, setText] = useState(ask ?? "");
+  // From the home's bar with send=1, the words go the moment the chat is open (not just typed in).
+  const sendAtOnce = !!ask && sendNow === "1";
+  const sentAtOnce = useRef(false);
+  const [text, setText] = useState(sendAtOnce ? "" : (ask ?? ""));
   // The box's height follows what's typed (one line to about five), measured the same way on
   // every platform rather than left to the platform's own idea of a text area.
   const [typedHeight, setTypedHeight] = useState(0);
@@ -83,7 +114,7 @@ export default function Chat() {
   // words still move on their own.
   const [status, setStatus] = useState<string | null>(null);
   useLive((m) => {
-    if (m.type !== "assistant_progress" || m.chat !== MAIN) return;
+    if (m.type !== "assistant_progress" || m.chat !== chatId) return;
     setStatus(m.step === "done" ? null : typeof m.label === "string" ? m.label : "Thinking…");
   });
   useEffect(() => {
@@ -104,23 +135,15 @@ export default function Chat() {
   // A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix").
   const [editing, setEditing] = useState<ChatItem["card"] | null>(null);
   const list = useRef<FlatList<Shown>>(null);
-  // Scroll anchoring (decision 2026-10-15 "Feel: the ChatGPT bar"): the list follows new
-  // messages only while the person is at the bottom; reading older ones, it stays put. The
-  // first fill lands at the bottom without a scroll.
-  const atBottom = useRef(true);
-  const firstFill = useRef(true);
-  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
-    atBottom.current = contentOffset.y + layoutMeasurement.height >= contentSize.height - 80;
-  };
-  const follow = () => {
-    if (!atBottom.current) return;
-    list.current?.scrollToEnd({ animated: !firstFill.current });
-    firstFill.current = false;
-  };
+  // The list is upside down (the owner, 2026-10-16: "it opens at the middle", "it scrolled up
+  // and hid my message"): the newest message is the anchor, so it opens at the end by
+  // construction and a new message appears at the bottom without any scrolling code; reading
+  // older ones, the list stays put (maintainVisibleContentPosition), and when the person is
+  // near the bottom it follows.
   // Items from before this screen opened don't animate in; new ones rise into place.
   const openedAt = useRef(Date.now());
   const shownItems = useMemo(() => groupRecords(view?.items ?? []), [view]);
+  const newestFirst = useMemo(() => [...shownItems].reverse(), [shownItems]);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
   const room = useKeyboardRoom();
@@ -136,23 +159,65 @@ export default function Chat() {
     return collections.current;
   }, []);
 
+  const openChat = useCallback(
+    (which: string | null) => {
+      // Nothing can be sent until the chat is known (never to the one just left, never to "current").
+      setChatId(null);
+      setView(null);
+      setChanged([]);
+      openedAt.current = Date.now();
+      const path = which
+        ? `/api/chats/${which}`
+        : `/api/chats/current${space ? `?space=${encodeURIComponent(space)}` : ""}`;
+      request<ChatView>("GET", path)
+        .then((v) => {
+          setChatId(v.id);
+          setView(v);
+          setNote("");
+        })
+        .catch((e: unknown) =>
+          setNote(
+            isOffline(e)
+              ? "Offline: messages wait and go when you're back."
+              : e instanceof Error
+                ? e.message
+                : String(e),
+          ),
+        );
+    },
+    [space],
+  );
+  useEffect(() => openChat(id ?? null), [id, openChat]);
   useEffect(() => {
-    request<ChatView>("GET", `/api/chats/${MAIN}`)
-      .then(setView)
-      .catch((e: unknown) =>
-        setNote(
-          isOffline(e)
-            ? "Offline: messages wait and go when you're back."
-            : e instanceof Error
-              ? e.message
-              : String(e),
-        ),
-      );
+    request<ChatSummary[]>("GET", "/api/chats")
+      .then((l) => setFirstEver(l.filter((c) => c.id !== MAIN).length <= 1))
+      .catch(() => setFirstEver(false));
   }, []);
+  // online-only: a new chat is a row in the person's list on the server.
+  const newChat = async () => {
+    if (busy) return;
+    try {
+      // The id is made here, so a retry after a lost reply lands on the same chat (rule 8).
+      // A new chat stays in the space of the one on screen (or the one asked for).
+      const inSpace = view?.space_id ?? space;
+      const v = await request<ChatView>("POST", "/api/chats", {
+        id: ulid(),
+        ...(inSpace ? { space: inSpace } : {}),
+      });
+      setChatId(v.id);
+      setView(v);
+      setChanged([]);
+      setNote("");
+      setFirstEver(false);
+      openedAt.current = Date.now();
+    } catch (e) {
+      setNote(isOffline(e) ? "A new chat needs a connection." : e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const say = async (raw: string) => {
     const body = raw.trim();
-    if (!body || busy) return;
+    if (!body || busy || !chatId) return;
     const msg = card && !attached.current ? `About "${card}": ${body}` : body;
     attached.current = true;
     setText("");
@@ -163,16 +228,16 @@ export default function Chat() {
       created_at: new Date().toISOString(),
     };
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
-    atBottom.current = true;
+    // The person's own message is what they want to see: to the bottom whatever they were reading.
+    list.current?.scrollToOffset({ offset: 0, animated: true });
     setBusy(true);
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>("POST", `/api/chats/${MAIN}`, { text: msg });
+      const next = await request<ChatView>("POST", `/api/chats/${chatId}`, { text: msg });
       setView(next);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
-      atBottom.current = true;
-      setTimeout(() => list.current?.scrollToEnd({ animated: true }), 60);
+      setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
       // What this reply changed, from the audit log, with Undo.
       fetchChanges(5)
         // Only this person's changes since the message went (another person's work in the
@@ -184,7 +249,7 @@ export default function Chat() {
         send({
           kind: "assistant.message",
           method: "POST",
-          path: `/api/chats/${MAIN}`,
+          path: `/api/chats/${chatId}`,
           body: { text: msg },
           label: "Message to the assistant",
         });
@@ -195,6 +260,13 @@ export default function Chat() {
     }
   };
 
+  useEffect(() => {
+    if (!view || !sendAtOnce || sentAtOnce.current) return;
+    sentAtOnce.current = true;
+    // say is this render's; the send happens once, when the chat first shows.
+    void say(ask!);
+  }, [view, sendAtOnce]);
+
   // online-only: a confirm card runs (or drops) its action on the server, once; a setup card
   // may run with the person's own changes to it.
   const answer = async (actionId: string, what: "confirm" | "cancel", args?: Record<string, unknown>) => {
@@ -204,7 +276,7 @@ export default function Chat() {
       setView(
         await request<ChatView>(
           "POST",
-          `/api/chats/${MAIN}/actions/${enc(actionId)}/${what}`,
+          `/api/chats/${chatId ?? MAIN}/actions/${enc(actionId)}/${what}`,
           args ? { args } : {},
         ),
       );
@@ -224,11 +296,15 @@ export default function Chat() {
           {/* Between Changes and Done: a long card name is cut short, "about this card" under it. */}
           <View style={s.titleBox}>
             <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-              {card ? card : "Gigspree"}
+              {card ? card : view && view.id !== MAIN && view.title !== "New chat" ? view.title : "Gigspree"}
             </Text>
             {card ? (
               <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
                 about this card
+              </Text>
+            ) : view?.space_name ? (
+              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
+                in {view.space_name}
               </Text>
             ) : null}
           </View>
@@ -241,20 +317,49 @@ export default function Chat() {
           >
             <Text style={[type.label, { color: t.accent, fontWeight: "600" }]}>Changes</Text>
           </Tap>
+          <View style={s.tools}>
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Chats"
+              onPress={() => setShowChats(true)}
+              scale={0.9}
+              hitSlop={6}
+              style={[s.tool, { backgroundColor: t.cell, borderColor: t.hair }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 15, lineHeight: 17, fontWeight: "700" }}>☰</Text>
+            </Tap>
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="New chat"
+              onPress={() => void newChat()}
+              scale={0.9}
+              hitSlop={6}
+              haptic="selection"
+              style={[s.tool, { backgroundColor: t.cell, borderColor: t.hair }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 16, lineHeight: 18, fontWeight: "700" }}>✎</Text>
+            </Tap>
+          </View>
           <Tap accessibilityRole="button" onPress={() => router.back()} style={s.done} hitSlop={10}>
             <Text style={[type.label, { color: t.accent }]}>Done</Text>
           </Tap>
         </View>
+        <ChatsSheet
+          open={showChats}
+          current={chatId}
+          onClose={() => setShowChats(false)}
+          onOpen={(which) => openChat(which)}
+          onNew={() => void newChat()}
+        />
         <FlatList
           ref={list}
+          inverted={newestFirst.length > 0}
           extraData={[lastReply, busy]}
-          data={shownItems}
+          data={newestFirst}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, gap: 4 }}
-          onScroll={onScroll}
-          scrollEventThrottle={48}
-          onContentSizeChange={follow}
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          // Near the bottom, a new message pulls the list down to it; higher up, nothing moves.
+          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
@@ -271,15 +376,17 @@ export default function Chat() {
               />
             );
             const safe = <Boundary where="chat item">{bubble}</Boundary>;
+            // In the upside-down list a cell's "down" is up on screen: new messages rise in.
             return fresh ? (
-              <Animated.View entering={FadeInUp.duration(motion.enter).springify().damping(18)}>
+              <Animated.View entering={FadeInDown.duration(motion.enter).springify().damping(18)}>
                 {safe}
               </Animated.View>
             ) : (
               safe
             );
           }}
-          ListFooterComponent={
+          // Upside down, the header is the visual bottom: the thinking bubble sits under the newest message.
+          ListHeaderComponent={
             busy && view?.items.length ? (
               <Animated.View
                 entering={FadeIn.duration(motion.fade)}
@@ -301,13 +408,22 @@ export default function Chat() {
           }
           ListEmptyComponent={
             view && !note ? (
-              // The first run (home-first.md §2 point 15): a conversation about the week.
-              <View style={[s.bub, s.them, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 8 }]}>
-                <Text style={[s.bubText, { color: t.fg }]}>
-                  Hi! Tell me about your week: what you do, what you keep forgetting, what money moves. I'll
-                  start the lists you need, each with a card on your home.
-                </Text>
-              </View>
+              firstEver !== false ? (
+                // The first run (home-first.md §2 point 15): a conversation about the week.
+                <View style={[s.bub, s.them, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 8 }]}>
+                  <Text style={[s.bubText, { color: t.fg }]}>
+                    Hi! Tell me about your week: what you do, what you keep forgetting, what money moves. I'll
+                    start the lists you need, each with a card on your home.
+                  </Text>
+                </View>
+              ) : (
+                // A fresh chat (ChatGPT's way): one line, the ideas below, the box ready.
+                <Animated.View entering={FadeIn.duration(motion.enter)} style={s.fresh}>
+                  <Text style={[type.title, { color: t.fg, textAlign: "center" }]}>
+                    What can I help with?
+                  </Text>
+                </Animated.View>
+              )
             ) : (
               <Text style={[s.sys, { color: t.fg2 }]}>{note || "Loading…"}</Text>
             )
@@ -331,6 +447,7 @@ export default function Chat() {
               <Tap
                 accessibilityRole="button"
                 onPress={() => say(item)}
+                disabled={busy || !chatId}
                 haptic="selection"
                 style={[s.chip, { backgroundColor: t.cell, borderColor: t.sep }]}
               >
@@ -386,9 +503,9 @@ export default function Chat() {
           <Tap
             accessibilityRole="button"
             accessibilityLabel="Send"
-            accessibilityState={{ disabled: busy || !text.trim() }}
+            accessibilityState={{ disabled: busy || !chatId || !text.trim() }}
             onPress={() => say(text)}
-            disabled={busy || !text.trim()}
+            disabled={busy || !chatId || !text.trim()}
             scale={0.88}
             haptic="light"
             style={[s.send, { backgroundColor: t.accent }]}
@@ -543,19 +660,33 @@ function Bubble({
       <View style={[s.bub, s.them, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}>
         <Markdown text={item.text} style={[s.bubText, { color: t.fg }]} />
       </View>
+      {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
+      {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
       {rate ? <Rate id={item.id} /> : null}
     </>
   );
 }
 
 const s = StyleSheet.create({
+  careful: { marginLeft: 12, marginTop: -2, marginBottom: 2, fontWeight: "600", letterSpacing: 0.2 },
   root: { flex: 1 },
   head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
   // Clear of Changes (left) and Done (right).
-  titleBox: { flex: 1, alignItems: "center", paddingHorizontal: 100 },
+  // Clear of Changes (left) and the two tools + Done (right); a long title is cut short.
+  titleBox: { flex: 1, alignItems: "center", paddingLeft: 92, paddingRight: 152 },
   title: { ...type.heading, fontSize: 16 },
   ctx: { ...type.caption, marginTop: 1 },
   done: { position: "absolute", right: 16, height: 56, justifyContent: "center" },
+  tools: { position: "absolute", right: 64, height: 56, flexDirection: "row", alignItems: "center", gap: 6 },
+  tool: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fresh: { paddingTop: 120, paddingHorizontal: 24 },
   changes: { position: "absolute", left: 16, height: 56, justifyContent: "center" },
   bub: { maxWidth: "82%", paddingVertical: 9, paddingHorizontal: 13, borderRadius: 19 },
   me: { alignSelf: "flex-end", borderBottomRightRadius: 5 },

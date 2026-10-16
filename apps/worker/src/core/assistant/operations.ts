@@ -16,6 +16,7 @@ import {
   MemoryRef,
   NewChatInput,
   RememberInput,
+  SpaceRef,
 } from "@assistant/shared";
 import { defineOperation, type AnyOperation } from "../operations.ts";
 import { assistantAllowed, assistantPeople, setAssistantAccess } from "./access.ts";
@@ -29,6 +30,7 @@ import {
   showInChat,
   forgetMemory,
   listChats,
+  currentChat,
   listMemories,
   newChat,
   remember,
@@ -176,7 +178,19 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/chats", status: 201 },
       input: NewChatInput,
-      handler: (ctx, i) => newChat(ctx, i.id),
+      handler: (ctx, i) => newChat(ctx, i.id, i.space),
+    }),
+    defineOperation({
+      id: "core.chat_current",
+      tool: "current_chat",
+      description: "The chat to open: the latest if used in the last two hours, else a new one.",
+      // A read for the caller (no key: opening the app must never need one); the chat it
+      // may start is the one a later send would start anyway.
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/chats/current" },
+      input: SpaceRef,
+      handler: (ctx, i) => currentChat(ctx, i.space),
     }),
     defineOperation({
       id: "core.chat_open",
@@ -278,7 +292,7 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       kind: "write",
       http: { method: "POST", path: "/memories", status: 201 },
       input: RememberInput,
-      handler: (ctx, i) => remember(ctx, i.text),
+      handler: (ctx, i) => remember(ctx, i.text, i.space),
     }),
     defineOperation({
       id: "core.forget_memory",

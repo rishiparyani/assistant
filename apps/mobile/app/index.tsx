@@ -6,7 +6,6 @@ import {
   AppState,
   Linking,
   FlatList,
-  Image,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -15,20 +14,21 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Text } from "@assistant/cards/native";
-import { Boundary, Tap } from "@assistant/cards/native";
+import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextUp, type CardSize } from "@assistant/cards";
 import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
-import { SearchSheet } from "@/components/SearchSheet";
+import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
 import { API_URL } from "@/config";
 import {
   answerWaiting,
   loadHome,
+  savedHome,
   nudgeWaiting,
   rememberHome,
   replaceCard,
@@ -51,7 +51,6 @@ import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
-const logoDark = require("../assets/logo-dark.png");
 const SIDE = 16;
 /** From this width the home is one dashboard (four columns) instead of swipeable pages. */
 const WIDE = 900;
@@ -75,6 +74,8 @@ export default function Home() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [pages, setPages] = useState<HomePage[] | null>(null);
+  // True while what's on screen is the device's saved copy and the fresh one is on its way.
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(0);
@@ -86,11 +87,13 @@ export default function Home() {
   usePendingPath();
   // Guidance (decision 2026-10-13 "Guide people, no presets"): the first-run tour lights up
   // the real parts of the home; Help ("?") takes it again, and has ideas and "How do I…?".
+  // One bar asks and searches (decision 2026-10-16 "One bar"): both tour steps point at it.
+  const barRef = useRef<View>(null);
   const tourRefs = {
-    chat: useRef<View>(null),
+    chat: barRef,
     cards: useRef<View>(null),
     pages: useRef<View>(null),
-    search: useRef<View>(null),
+    search: barRef,
     help: useRef<View>(null),
   } satisfies TourRefs;
   const [touring, setTouring] = useState(false);
@@ -109,8 +112,10 @@ export default function Home() {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
       void refreshMe.current();
       setPages(await loadHome(userId));
+      setStale(false);
       setError("");
     } catch (e) {
+      setStale(false);
       setError(
         isOffline(e)
           ? "Offline, and nothing saved on this device yet."
@@ -120,8 +125,16 @@ export default function Home() {
       );
     }
   }, [userId]);
+  // The saved home shows in the first frame (the owner, 2026-10-16: "the upper screen is
+  // empty… a user might not know it's loading"); the fresh one replaces it when it arrives.
   useEffect(() => {
-    if (userId) void load();
+    if (!userId) return;
+    const saved = savedHome(userId);
+    if (saved) {
+      setPages((p) => p ?? saved);
+      setStale(true);
+    }
+    void load();
   }, [userId, load]);
   // The tour, once per person on this device, when the home has loaded.
   const homeReady = pages !== null;
@@ -180,7 +193,8 @@ export default function Home() {
 
   // Chats with something unread (the dot on the Chats button); refreshes on live pings.
   const unread = (useChats().chats ?? []).filter((c) => c.unread > 0).length;
-  const [search, setSearch] = useState(false);
+  // What's typed in the bar; while there's something, matches show above it over a scrim.
+  const [barText, setBarText] = useState("");
   const [busyCard, setBusyCard] = useState<string | null>(null);
 
   // No hook below this line (the signed-out home crashed on the phone and the web, 2026-10-15:
@@ -230,11 +244,22 @@ export default function Home() {
     // No assistant (a collaborator): a shared card opens on the website instead of in the chat.
     if (!assistant && card.shared) return openOnWeb(card);
     if (!assistant) return;
-    router.push({ pathname: "/chat", params: { card: card.spec.title, ...(prompt ? { ask: prompt } : {}) } });
+    // A space's card opens that space's chat (decision 2026-10-16 "Spaces").
+    router.push({
+      pathname: "/chat",
+      params: {
+        card: card.spec.title,
+        ...(prompt ? { ask: prompt } : {}),
+        ...(card.space ? { space: card.space } : {}),
+      },
+    });
   };
   /** A whole list, on its own screen (its saved view chosen when the card is one). */
-  const openList = (collection: string, view?: string) =>
-    router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } });
+  const openList = (collection: string, view?: string, space?: string) =>
+    router.push({
+      pathname: "/list",
+      params: { collection, ...(view ? { view } : {}), ...(space ? { space } : {}) },
+    });
   // Process cards: my answer, or a nudge; then the home reads again (the run went on).
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
     setBusyCard(card.id);
@@ -292,13 +317,20 @@ export default function Home() {
     (pages ?? []).flatMap((p) => p.cards),
     now,
   );
+  // Before anything has loaded: the greeting and the date (nothing to wait for) over soft
+  // placeholder cards, never a blank page.
+  const shownPages: HomePage[] = pages ?? [{ name: "Now", auto: true, cards: [] }];
+  const loading = pages === null;
   const renderPage = (item: HomePage, index: number) => (
-    <View key={item.name} style={{ gap: 12 }}>
+    <View key={item.space?.id ?? item.name} style={{ gap: 12 }}>
       {item.auto ? (
         // Now: today's date and a greeting, then what's next, big.
         <View style={s.greetRow}>
           <View style={s.greet}>
-            <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords(new Date(now))}</Text>
+            <Text style={[s.eyebrow, { color: t.fg2 }]}>
+              {todayWords(new Date(now))}
+              {stale ? "  ·  Updating…" : ""}
+            </Text>
             <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
           </View>
           {/* Chats with people (decision 2026-10-13 "Chats with people"), with a dot when
@@ -322,9 +354,15 @@ export default function Home() {
         </View>
       ) : (
         <View style={s.pageHead}>
-          <Text style={[s.h2, { color: t.fg }]}>{item.name}</Text>
+          <Text style={[s.h2, { color: t.fg, flexShrink: 1 }]} numberOfLines={1}>
+            {item.name}
+          </Text>
           <Text style={[s.metaText, { color: t.fg2 }]}>
-            {item.lists ? "every list, whole" : "hold a card to arrange"}
+            {item.space
+              ? "your space · ask below"
+              : item.lists
+                ? "every list, whole"
+                : "hold a card to arrange"}
           </Text>
         </View>
       )}
@@ -334,7 +372,7 @@ export default function Home() {
           <HeroCard next={next} now={now} onOpen={() => ask(next.card)} />
         </View>
       ) : null}
-      {item.lists ? (
+      {item.lists && !item.space ? (
         // All lists: a tile per list, each opening its whole list.
         <View style={s.lists}>
           {item.lists.map((l) => (
@@ -380,6 +418,8 @@ export default function Home() {
             <Text style={[s.listMeta, { color: t.fg3 }]}>Kept 30 days ›</Text>
           </Pressable>
         </View>
+      ) : loading ? (
+        <Skeleton />
       ) : item.cards.length ? (
         <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
           <CardGrid
@@ -397,7 +437,7 @@ export default function Home() {
                   onSet={onSet(card)}
                   onSeeAll={
                     card.collection && !card.shared && !card.waiting && !card.memory
-                      ? () => canOpen() && openList(card.collection!.id, card.view?.id)
+                      ? () => canOpen() && openList(card.collection!.id, card.view?.id, card.space)
                       : undefined
                   }
                   onOpen={() =>
@@ -431,6 +471,15 @@ export default function Home() {
             )}
           />
         </View>
+      ) : item.space ? (
+        <View style={[s.empty, { backgroundColor: t.cell, borderColor: t.hair }]}>
+          <Text style={[s.sub, { color: t.fg, fontWeight: "700", fontSize: 15 }]}>
+            Nothing pinned in {item.space.name} yet.
+          </Text>
+          <Text style={[s.sub, { color: t.fg2 }]}>
+            Ask below to start its lists; a card for each one lands here.
+          </Text>
+        </View>
       ) : (
         <Pressable
           accessibilityRole="button"
@@ -457,6 +506,34 @@ export default function Home() {
           ) : null}
         </Pressable>
       )}
+      {item.space && item.lists?.length ? (
+        // A space's lists under its cards, each opening whole (in that space).
+        <View style={s.lists}>
+          {item.lists.map((l) => (
+            <Pressable
+              key={l.id}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${l.name}`}
+              onPress={() => openList(l.id, undefined, item.space!.id)}
+              style={({ pressed }) => [
+                s.listTile,
+                {
+                  backgroundColor: t.cell,
+                  shadowColor: t.shadow,
+                  width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
+                },
+                pressed && { transform: [{ scale: 0.97 }] },
+              ]}
+            >
+              <View style={[s.listDot, { backgroundColor: colour(colourFor(l.name)) }]} />
+              <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
+                {l.name}
+              </Text>
+              <Text style={[s.listMeta, { color: t.fg2 }]}>See all ›</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
   return (
@@ -473,16 +550,20 @@ export default function Home() {
           }}
           refreshControl={refreshControl}
         >
-          {(pages ?? []).map(renderPage)}
+          {shownPages.map(renderPage)}
         </ScrollView>
       ) : (
         <FlatList
           ref={list}
-          data={pages ?? []}
+          data={shownPages}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
-          keyExtractor={(p) => p.name}
+          keyExtractor={(p) => p.space?.id ?? p.name}
+          // The dots and the bar follow the page as it moves (a trackpad on the web never
+          // sends a momentum end), settled again when the swipe ends.
+          scrollEventThrottle={100}
+          onScroll={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
           onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
           renderItem={({ item, index }) => (
             <ScrollView
@@ -501,6 +582,15 @@ export default function Home() {
         />
       )}
 
+      {barText.trim() ? (
+        // While searching from the bar: a tap anywhere on the page closes the matches.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close search"
+          onPress={() => setBarText("")}
+          style={[StyleSheet.absoluteFill, { backgroundColor: t.shadow }]}
+        />
+      ) : null}
       <View
         style={[s.bottom, { paddingBottom: insets.bottom + 10, backgroundColor: t.page }]}
         pointerEvents="box-none"
@@ -519,9 +609,9 @@ export default function Home() {
           </Pressable>
         ) : null}
         <View ref={tourRefs.pages} collapsable={false} style={s.dots}>
-          {(wide ? [] : (pages ?? [])).map((p, i) => (
+          {(wide ? [] : shownPages).map((p, i) => (
             <View
-              key={p.name}
+              key={p.space?.id ?? p.name}
               style={[s.dotI, { backgroundColor: i === page ? t.accent : t.fg3, width: i === page ? 18 : 7 }]}
             />
           ))}
@@ -537,35 +627,46 @@ export default function Home() {
           >
             <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
           </Tap>
-          {assistant ? (
-            <Tap
-              ref={tourRefs.search}
-              accessibilityRole="button"
-              accessibilityLabel="Search"
-              onPress={() => setSearch(true)}
-              scale={0.92}
-              style={[s.searchBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
-            >
-              <Text style={{ color: t.fg, fontSize: 20, fontWeight: "700", lineHeight: 22 }}>⌕</Text>
-            </Tap>
-          ) : null}
-          <Tap
-            ref={assistant ? tourRefs.chat : tourRefs.search}
-            accessibilityRole="button"
-            accessibilityLabel={assistant ? "Ask Gigspree" : "Search your cards"}
-            onPress={() => (assistant ? router.push("/chat") : setSearch(true))}
-            scale={0.98}
-            dim={0.08}
-            style={[s.bar, { backgroundColor: t.ink, shadowColor: t.shadow }]}
-          >
-            <Image source={logoDark} style={{ width: 26, height: 26 }} accessibilityIgnoresInvertColors />
-            <Text style={[s.barText, { color: t.onInk }]} numberOfLines={1}>
-              {assistant ? "Ask, add or arrange…" : "Search your cards"}
-            </Text>
-            <View style={[s.send, { backgroundColor: t.accent }]}>
-              <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
-            </View>
-          </Tap>
+          <HomeBar
+            ref={barRef}
+            assistant={!!assistant}
+            text={barText}
+            onChangeText={setBarText}
+            space={wide ? undefined : shownPages[page]?.space}
+            cards={(pages ?? []).flatMap((p) => p.cards)}
+            lists={(pages ?? []).flatMap((p) =>
+              (p.lists ?? []).map((l) => ({
+                ...l,
+                ...(p.space ? { space: p.space.id, space_name: p.space.name } : {}),
+              })),
+            )}
+            onAsk={(words, space) =>
+              router.push({
+                pathname: "/chat",
+                params: { ask: words, send: "1", ...(space ? { space } : {}) },
+              })
+            }
+            onOpenCard={(card) =>
+              card.collection && !card.shared
+                ? openList(card.collection.id, card.view?.id, card.space)
+                : assistant
+                  ? ask(card)
+                  : openOnWeb(card)
+            }
+            onOpenList={(id, space) => openList(id, undefined, space)}
+            onOpenHit={(hit, q) => {
+              if (hit.kind === "message") {
+                router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
+                return;
+              }
+              if (assistant)
+                router.push({
+                  pathname: "/chat",
+                  params: { ask: `About "${hit.title}" in ${hit.collection}: ` },
+                });
+              else openList(hit.collection_id);
+            }}
+          />
         </View>
       </View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
@@ -593,6 +694,15 @@ export default function Home() {
                   text: "Ask in the chat, in your own words",
                   go: () => router.push({ pathname: "/chat", params: { ask: "How do I " } }),
                 },
+                {
+                  title: "Quick and Careful",
+                  text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
+                  go: () =>
+                    router.push({
+                      pathname: "/chat",
+                      params: { ask: "What do you do as Quick, and what as Careful?", send: "1" },
+                    }),
+                },
               ]
             : []),
         ]}
@@ -619,34 +729,6 @@ export default function Home() {
           }
         />
       ) : null}
-      {search ? (
-        <SearchSheet
-          cards={pagesRef.current?.flatMap((p) => p.cards) ?? []}
-          lists={pagesRef.current?.find((p) => p.lists)?.lists ?? []}
-          onOpenList={(id) => {
-            setSearch(false);
-            openList(id);
-          }}
-          onClose={() => setSearch(false)}
-          onOpen={(card) => {
-            setSearch(false);
-            if (assistant) ask(card);
-            else openOnWeb(card);
-          }}
-          onOpenResult={(hit, q) => {
-            setSearch(false);
-            if (hit.kind === "message") {
-              router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
-              return;
-            }
-            if (assistant)
-              router.push({
-                pathname: "/chat",
-                params: { ask: `About "${hit.title}" in ${hit.collection}: ` },
-              });
-          }}
-        />
-      ) : null}
     </View>
   );
 }
@@ -657,6 +739,7 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "baseline",
     justifyContent: "space-between",
+    gap: 10,
     paddingHorizontal: 4,
   },
   h2: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },
@@ -727,22 +810,6 @@ const s = StyleSheet.create({
     elevation: 3,
   },
   barRow: { alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 8 },
-  bar: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingLeft: 14,
-    paddingRight: 9,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  barText: { flex: 1, fontSize: 15, fontWeight: "600", opacity: 0.75 },
-  send: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   failed: {
     alignSelf: "stretch",
     flexDirection: "row",

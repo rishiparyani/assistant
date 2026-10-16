@@ -107,6 +107,10 @@ const MIGRATIONS: Migrations = [
   );
   create index oauth_states_expires_idx on oauth_states (expires_at);
   `,
+  // Spaces (decision 2026-10-16): a chat belongs to a space (null: Personal), and a memory can
+  // be for one space only (null: everywhere).
+  `alter table chats add column space_id text;
+   alter table memories add column space_id text;`,
 ];
 
 export type ConnectorRow = {
@@ -122,6 +126,8 @@ export type MemoryRow = {
   text: string;
   source: string;
   created_at: string;
+  /** For one space only; null for everywhere. */
+  space_id: string | null;
 };
 
 export type ChatRow = {
@@ -129,6 +135,8 @@ export type ChatRow = {
   title: string;
   created_at: string;
   updated_at: string;
+  /** The space the chat is in; null for Personal. */
+  space_id: string | null;
 };
 
 const MAX_MEMORIES = 200;
@@ -210,25 +218,90 @@ export class ChatObject extends DurableObject<Env> {
     return rows.map((r) => this.itemOf(r));
   }
 
-  /** The recent conversation as the model sees it (whole turns only). */
-  async context(userId: string, limit = 24): Promise<ChatMessage[]> {
+  /**
+   * The conversation as the model sees it (decision 2026-10-16 "Chats like Claude"): the
+   * whole chat, never cut at a count. Once a chat is long, its older part lives on as a
+   * summary (`summary`, up to row `summary_upto`) and only what came after travels verbatim.
+   */
+  async context(userId: string): Promise<ChatMessage[]> {
     this.own(userId);
-    const rows = this.sql
-      .exec<MessageRow>(
-        `select * from messages where shown is null or shown in ('user', 'assistant', 'note')
-         order by rowid desc limit ?`,
-        limit,
-      )
-      .toArray()
-      .reverse();
+    const rows = this.contextRows();
     // Start at a person's message, so no tool result is left without its call.
     const start = rows.findIndex((r) => r.role === "user");
-    return (start < 0 ? [] : rows.slice(start)).map((r) => ({
-      role: r.role,
-      content: r.content,
-      ...(r.tool_calls_json ? { tool_calls: JSON.parse(r.tool_calls_json) as ToolCall[] } : {}),
-      ...(r.tool_call_id ? { tool_call_id: r.tool_call_id } : {}),
-    }));
+    const summary = getMeta(this.sql, "summary");
+    const earlier: ChatMessage[] = summary
+      ? [
+          { role: "user", content: `(Earlier in this conversation, summarised:\n${summary})` },
+          { role: "assistant", content: "Noted, I have the earlier part in mind." },
+        ]
+      : [];
+    return [
+      ...earlier,
+      ...(start < 0 ? [] : rows.slice(start)).map((r) => ({
+        role: r.role,
+        content: r.content,
+        ...(r.tool_calls_json ? { tool_calls: JSON.parse(r.tool_calls_json) as ToolCall[] } : {}),
+        ...(r.tool_call_id ? { tool_call_id: r.tool_call_id } : {}),
+      })),
+    ];
+  }
+
+  /** The model-facing rows after the summary cut, oldest first, with their row numbers. */
+  private contextRows(): (MessageRow & { n: number })[] {
+    const upto = Number(getMeta(this.sql, "summary_upto") ?? 0);
+    return this.sql
+      .exec<MessageRow & { n: number }>(
+        `select rowid as n, * from messages
+         where rowid > ? and (shown is null or shown in ('user', 'assistant', 'note'))
+         order by rowid`,
+        upto,
+      )
+      .toArray();
+  }
+
+  /** How much the model reads each time, in characters (the summary counts too). */
+  async contextSize(userId: string): Promise<number> {
+    this.own(userId);
+    const rows = this.contextRows();
+    return (
+      (getMeta(this.sql, "summary")?.length ?? 0) +
+      rows.reduce((n, r) => n + (r.content?.length ?? 0) + (r.tool_calls_json?.length ?? 0), 0)
+    );
+  }
+
+  /**
+   * The older part of the conversation, ready to summarise: every whole turn after the last
+   * cut except the newest `keepTurns`, as a plain transcript, and the row the cut would move
+   * to. Null when there's too little to fold away.
+   */
+  async olderTurns(
+    userId: string,
+    keepTurns: number,
+  ): Promise<{ transcript: string; upto: number; previous: string | null } | null> {
+    this.own(userId);
+    const rows = this.contextRows();
+    const starts = rows.map((r, i) => (r.role === "user" ? i : -1)).filter((i) => i >= 0);
+    if (starts.length <= keepTurns + 1) return null;
+    const cut = starts[starts.length - keepTurns]!;
+    const older = rows.slice(starts[0], cut);
+    const lines = older.map((r) => {
+      if (r.role === "tool") return `tool result: ${(r.content ?? "").slice(0, 300)}`;
+      if (r.tool_calls_json) {
+        const calls = JSON.parse(r.tool_calls_json) as ToolCall[];
+        return `assistant did: ${calls.map((c) => `${c.function.name}(${c.function.arguments.slice(0, 200)})`).join("; ")}`;
+      }
+      return `${r.role === "user" ? "person" : "assistant"}: ${r.content ?? ""}`;
+    });
+    return { transcript: lines.join("\n"), upto: older.at(-1)!.n, previous: getMeta(this.sql, "summary") };
+  }
+
+  /** The summary that stands for everything up to row `upto` from now on. */
+  async setSummary(userId: string, text: string, upto: number): Promise<void> {
+    this.own(userId);
+    this.ctx.storage.transactionSync(() => {
+      setMeta(this.sql, "summary", text);
+      setMeta(this.sql, "summary_upto", String(upto));
+    });
   }
 
   /**
@@ -475,13 +548,47 @@ export class ChatObject extends DurableObject<Env> {
     this.own(userId);
     return this.sql
       .exec<ChatRow>(
-        `select id, title, created_at, updated_at from chats where deleted_at is null order by updated_at desc limit ?`,
+        `select id, title, created_at, updated_at, space_id from chats where deleted_at is null order by updated_at desc limit ?`,
         MAX_CHATS,
       )
       .toArray();
   }
 
-  async addChat(userId: string, id: string): Promise<ChatRow> {
+  /**
+   * The chat to open: the newest if it was used within `gapMs` or is still empty, else a new
+   * one made here and now. One step inside this object, so two apps asking at once (a double
+   * tap, a retry) get the same chat, never two empty ones.
+   */
+  async currentChat(userId: string, gapMs: number, spaceId: string | null = null): Promise<string> {
+    this.own(userId);
+    const latest = this.sql
+      .exec<ChatRow>(
+        `select id, title, created_at, updated_at, space_id from chats
+         where deleted_at is null and space_id is ? order by updated_at desc limit 1`,
+        spaceId,
+      )
+      .toArray()[0];
+    if (latest && (latest.title === "New chat" || Date.now() - Date.parse(latest.updated_at) < gapMs))
+      return latest.id;
+    const id = ulid();
+    const now = nowIso();
+    this.sql.exec(
+      `insert into chats (id, title, created_at, updated_at, space_id) values (?, 'New chat', ?, ?, ?)`,
+      id,
+      now,
+      now,
+      spaceId,
+    );
+    return id;
+  }
+
+  /** The space a chat is in (null: Personal); not found when it isn't this person's. */
+  async chatSpace(userId: string, id: string): Promise<string | null> {
+    this.own(userId);
+    return this.chatRow(id).space_id;
+  }
+
+  async addChat(userId: string, id: string, spaceId: string | null = null): Promise<ChatRow> {
     this.own(userId);
     const n = this.sql
       .exec<{ n: number }>(`select count(*) as n from chats where deleted_at is null`)
@@ -490,10 +597,11 @@ export class ChatObject extends DurableObject<Env> {
       throw new ObjectError("conflict", `Up to ${MAX_CHATS} chats; delete an old one first`);
     const now = nowIso();
     this.sql.exec(
-      `insert into chats (id, title, created_at, updated_at) values (?, 'New chat', ?, ?) on conflict (id) do nothing`,
+      `insert into chats (id, title, created_at, updated_at, space_id) values (?, 'New chat', ?, ?, ?) on conflict (id) do nothing`,
       id,
       now,
       now,
+      spaceId,
     );
     return this.chatRow(id);
   }
@@ -606,7 +714,7 @@ export class ChatObject extends DurableObject<Env> {
 
   private chatRow(id: string): ChatRow {
     const r = this.sql
-      .exec<ChatRow>(`select id, title, created_at, updated_at from chats where id = ?`, id)
+      .exec<ChatRow>(`select id, title, created_at, updated_at, space_id from chats where id = ?`, id)
       .toArray()[0];
     if (!r) throw new ObjectError("not_found", "Chat not found");
     return r;
@@ -697,12 +805,20 @@ export class ChatObject extends DurableObject<Env> {
 
   // --- What the assistant remembers (main chat only) --------------------------------------
 
-  async memories(userId: string): Promise<MemoryRow[]> {
+  /**
+   * What it remembers: everything kept for everywhere, plus what's kept for `spaceId` when
+   * one is given (null: the Personal space's chats see only the everywhere ones). With
+   * `all`, every memory whatever its space (the memory screen).
+   */
+  async memories(userId: string, spaceId: string | null = null, all = false): Promise<MemoryRow[]> {
     this.own(userId);
     return this.sql
       .exec<MemoryRow>(
-        `select id, text, source, created_at from memories where deleted_at is null order by created_at desc limit ?`,
-        MAX_MEMORIES,
+        all
+          ? `select id, text, source, created_at, space_id from memories where deleted_at is null order by created_at desc limit ?`
+          : `select id, text, source, created_at, space_id from memories
+             where deleted_at is null and (space_id is null or space_id is ?) order by created_at desc limit ?`,
+        ...(all ? [MAX_MEMORIES] : [spaceId, MAX_MEMORIES]),
       )
       .toArray();
   }
@@ -712,18 +828,21 @@ export class ChatObject extends DurableObject<Env> {
     key: string | null,
     text: string,
     source: string,
+    spaceId: string | null = null,
   ): Promise<MemoryRow> {
     this.own(actor.userId);
     const clean = text.trim().replace(/\s+/g, " ");
-    const hash = await hashOf(["remember", clean]);
-    return idempotent(this.ctx.storage, key, hash, () => this.rememberNow(actor, clean, source));
+    const hash = await hashOf(["remember", clean, spaceId]);
+    return idempotent(this.ctx.storage, key, hash, () => this.rememberNow(actor, clean, source, spaceId));
   }
 
-  private rememberNow(actor: Actor, clean: string, source: string): MemoryRow {
+  private rememberNow(actor: Actor, clean: string, source: string, spaceId: string | null): MemoryRow {
     const same = this.sql
       .exec<MemoryRow>(
-        `select id, text, source, created_at from memories where deleted_at is null and lower(text) = lower(?)`,
+        `select id, text, source, created_at, space_id from memories
+         where deleted_at is null and lower(text) = lower(?) and space_id is ?`,
         clean,
+        spaceId,
       )
       .toArray()[0];
     if (same) return same;
@@ -732,13 +851,14 @@ export class ChatObject extends DurableObject<Env> {
       .one().n;
     if (n >= MAX_MEMORIES)
       throw new ObjectError("conflict", `It remembers up to ${MAX_MEMORIES} things; forget something first`);
-    const row: MemoryRow = { id: ulid(), text: clean, source, created_at: nowIso() };
+    const row: MemoryRow = { id: ulid(), text: clean, source, created_at: nowIso(), space_id: spaceId };
     this.sql.exec(
-      `insert into memories (id, text, source, created_at) values (?, ?, ?, ?)`,
+      `insert into memories (id, text, source, created_at, space_id) values (?, ?, ?, ?, ?)`,
       row.id,
       row.text,
       row.source,
       row.created_at,
+      row.space_id,
     );
     audit(this.sql, actor, { action: "remember", entityType: "memory", entityId: row.id, after: row });
     return row;
@@ -750,7 +870,7 @@ export class ChatObject extends DurableObject<Env> {
     return idempotent(this.ctx.storage, key, hash, () => {
       const r = this.sql
         .exec<MemoryRow>(
-          `select id, text, source, created_at from memories where id = ? and deleted_at is null`,
+          `select id, text, source, created_at, space_id from memories where id = ? and deleted_at is null`,
           id,
         )
         .toArray()[0];
@@ -767,6 +887,8 @@ export class ChatObject extends DurableObject<Env> {
       this.sql.exec(`delete from messages`);
       this.sql.exec(`update actions set status = 'cancelled' where status = 'waiting'`);
       setMeta(this.sql, "setup", "0");
+      setMeta(this.sql, "summary", "");
+      setMeta(this.sql, "summary_upto", "0");
     });
   }
 

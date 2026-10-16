@@ -11,5 +11,6 @@ export * from "./press.tsx";
 export * from "./thinking.tsx";
 export * from "./markdown.tsx";
 export * from "./boundary.tsx";
+export * from "./skeleton.tsx";
 export { act, ACTION_WORDS, highlightColour, highlightOf, shown, tint } from "./rows.tsx";
 export { EditableGrid, gridEditable } from "./Grid.tsx";

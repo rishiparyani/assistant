@@ -101,12 +101,15 @@ export function LiveRecords({
   const { t } = useTheme();
   const [items, setItems] = useState<RecordItem[] | null>(null);
   const [error, setError] = useState("");
+  // Reload only when the records it points at change, not on every re-render of the chat
+  // (each send used to put a spinner on every widget in the list).
   const key = JSON.stringify(refs);
   useEffect(() => {
     let gone = false;
     setItems(null);
     setError("");
-    Promise.all(refs.map((r) => loadLive(r, collections)))
+    const wanted = JSON.parse(key) as LiveRef[];
+    Promise.all(wanted.map((r) => loadLive(r, collections)))
       .then((all) => {
         if (gone) return;
         const got = all.filter((d): d is Extract<LiveData, { kind: "record" }> => d.kind === "record");
@@ -123,7 +126,7 @@ export function LiveRecords({
     return () => {
       gone = true;
     };
-  }, [key, refs, collections]);
+  }, [key, collections]);
   if (error)
     return (
       <View style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}>
