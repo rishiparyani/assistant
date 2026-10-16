@@ -75,6 +75,11 @@ import {
   type RuleView,
   ruleWords,
   type WorkflowDetail,
+  type Rehearsal,
+  type RehearsalAnswer,
+  type PracticeView,
+  type PracticeAsView,
+  type PracticePerson,
   type WorkflowEvent,
   type WaitingItem,
   type WorkflowRun,
@@ -541,6 +546,17 @@ const MIGRATIONS: Migrations = [
     created_by text,
     created_at text not null
   );
+  `,
+  // Practice copies (decision 2026-10-16 "Rehearse a workflow", second part): what a workflow
+  // would have told or asked people, kept here instead of being sent.
+  `
+  create table practice_log (
+    id text primary key,
+    at text not null,
+    user_id text not null,
+    note_json text not null
+  );
+  create index practice_log_at on practice_log (at);
   `,
 ];
 
@@ -1032,6 +1048,289 @@ export class SpaceObject extends DurableObject<Env> {
 
   // --- Space and members ---------------------------------------------------------------
 
+  // --- Practice copies (decision 2026-10-16 "Rehearse a workflow", second part) ----------
+  //
+  // A copy of a space to try its workflows for real: records added, people asked, answers
+  // given (by the owner, as each person), messages sent. Nothing leaves it: notifications go to
+  // its practice log instead of anyone's inbox, cards can't be shared, questions don't show
+  // under anyone's "Shared with you", and it isn't searched. Ending it erases it.
+
+  private practiceCache: boolean | null = null;
+  /** Whether this space is a practice copy. */
+  private get practice(): boolean {
+    this.practiceCache ??= getMeta(this.sql, "practice_of") !== null;
+    return this.practiceCache;
+  }
+  private notInPractice(what: string) {
+    if (this.practice)
+      throw new ObjectError(
+        "validation_failed",
+        `${what} is off in a practice copy: nothing in it reaches anyone`,
+      );
+  }
+
+  /** What a practice copy starts from: this whole space. Arrangers only; never a copy of a copy. */
+  async practiceSource(actor: Actor): Promise<{ name: string; dump: ObjectDump }> {
+    this.canArrange(actor);
+    if (this.practice) throw new ObjectError("validation_failed", "This is already a practice copy");
+    const space = this.sql.exec<{ name: string }>(`select name from space`).toArray()[0];
+    if (!space) throw new ObjectError("not_found", "Space not found");
+    return { name: space.name, dump: exportTables(this.sql, backupTables(this.sql)) };
+  }
+
+  /**
+   * Becomes a practice copy of another space (once; repeats change nothing): its lists,
+   * records, views, rules, workflows and what's shared with whom, with the caller as the only
+   * member. What was asked or run there is left behind, and every workflow is on, so adding a
+   * record runs them.
+   */
+  async startPractice(
+    init: { id: string; name: string; owner: { user_id: string; name: string }; sourceId: string },
+    dump: ObjectDump,
+  ): Promise<void> {
+    if (this.sql.exec(`select 1 from space`).toArray().length) return;
+    importTables(this.ctx.storage, dump, Object.keys(dump.tables), MIGRATIONS);
+    const ts = nowIso();
+    this.ctx.storage.transactionSync(() => {
+      this.sql.exec(
+        `update space set id = ?, name = ?, kind = 'shared', owner_user_id = ?, group_id = null`,
+        init.id,
+        init.name,
+        init.owner.user_id,
+      );
+      // The space's other members are played, not let in: only the person practising is in it.
+      const others = this.sql
+        .exec<{ user_id: string; name: string }>(
+          `select user_id, name from members where user_id != ?`,
+          init.owner.user_id,
+        )
+        .toArray();
+      setMeta(this.sql, "practice_members", JSON.stringify(others));
+      this.sql.exec(`delete from members`);
+      this.sql.exec(
+        `insert into members (user_id, name, role, added_at) values (?, ?, 'owner', ?)`,
+        init.owner.user_id,
+        init.owner.name,
+        ts,
+      );
+      // What's shared stays as it is set up (who sees which records and fields), so each
+      // person's view can be rehearsed; nobody outside can open it (its links aren't in D1).
+      // Questions in flight, runs and their messages are left behind.
+      for (const t of ["share_people", "share_counts", "share_rules"])
+        this.sql.exec(`delete from ${t} where share_id in (select id from shares where kind = 'question')`);
+      this.sql.exec(`delete from shares where kind = 'question'`);
+      for (const t of [
+        "questions",
+        "question_answers",
+        "workflow_waits",
+        "workflow_jobs",
+        "workflow_jobs_next",
+        "workflow_notes",
+        "workflow_runs",
+        "followups",
+        "undone",
+      ])
+        if (
+          this.sql.exec(`select 1 from sqlite_master where type = 'table' and name = ?`, t).toArray().length
+        )
+          this.sql.exec(`delete from ${t}`);
+      setMeta(this.sql, "practice_of", init.sourceId);
+      this.sql.exec(
+        `update workflows set enabled = 1, run_count = 0, last_run_at = null where deleted_at is null`,
+      );
+      for (const w of this.sql
+        .exec<WorkflowRow>(`select * from workflows where deleted_at is null`)
+        .toArray())
+        this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
+      this.logChange("space", init.id, "upsert", ts);
+    });
+    this.practiceCache = true;
+    await this.wakeForJobs();
+  }
+
+  /**
+   * The owner answers a question as one of the people it went to (practice copies only), as
+   * if that person had: the answer is kept and the run goes on.
+   */
+  async practiceAnswer(
+    actor: Actor,
+    waitId: string,
+    asUserId: string,
+    answer: string,
+  ): Promise<PracticeView> {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const wait = this.sql.exec<WaitRow>(`select * from workflow_waits where id = ?`, waitId).toArray()[0];
+    const q = wait ? this.liveQuestion(wait.question_id) : undefined;
+    if (!wait || !q) throw new ObjectError("not_found", "Nothing is waiting there now");
+    const asked = this.sql
+      .exec(`select 1 from share_people where share_id = ? and user_id = ?`, q.share_id, asUserId)
+      .toArray().length;
+    if (!asked) throw new ObjectError("validation_failed", "That person wasn't asked this");
+    await this.answerQuestion({ userId: asUserId, source: actor.source }, null, q.share_id, answer);
+    return this.practiceView(actor);
+  }
+
+  /** The space's other members when the copy was made (played in the rehearsal, never let in). */
+  private practiceMembers(): { user_id: string; name: string }[] {
+    return JSON.parse(getMeta(this.sql, "practice_members") ?? "[]") as { user_id: string; name: string }[];
+  }
+
+  /** Everyone a rehearsal plays: the space's other members, and everyone something is shared with. */
+  private practicePeople(): PracticePerson[] {
+    const owner = this.sql
+      .exec<{ user_id: string }>(`select user_id from members where role = 'owner'`)
+      .toArray();
+    const skip = new Set(owner.map((o) => o.user_id));
+    const people = new Map<string, PracticePerson>();
+    for (const m of this.practiceMembers())
+      if (!skip.has(m.user_id))
+        people.set(m.user_id, { user_id: m.user_id, name: m.name, role: "member", waiting: 0, got: 0 });
+    for (const p of this.sql
+      .exec<{ user_id: string; name: string }>(
+        `select p.user_id, min(p.name) as name from share_people p join shares s on s.id = p.share_id
+         where p.user_id is not null and s.revoked_at is null group by p.user_id`,
+      )
+      .toArray())
+      if (!skip.has(p.user_id) && !people.has(p.user_id))
+        people.set(p.user_id, { user_id: p.user_id, name: p.name, role: "shared", waiting: 0, got: 0 });
+    for (const r of this.sql
+      .exec<{ user_id: string; n: number }>(
+        `select user_id, count(*) as n from practice_log group by user_id`,
+      )
+      .toArray()) {
+      const p = people.get(r.user_id);
+      if (p) p.got = r.n;
+    }
+    for (const r of this.sql
+      .exec<{ user_id: string; n: number }>(
+        `select p.user_id, count(*) as n from questions q
+         join workflow_waits w on w.question_id = q.id and (w.next_nudge_at is null or w.next_nudge_at != 'resumed')
+         join share_people p on p.share_id = q.share_id
+         left join question_answers a on a.question_id = q.id and a.user_id = p.user_id
+         where q.closed_at is null and a.answer is null group by p.user_id`,
+      )
+      .toArray()) {
+      const p = people.get(r.user_id);
+      if (p) p.waiting = r.n;
+    }
+    return [...people.values()].sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * The person a rehearsal plays (practice copies only, by the one practising): what they do
+   * runs as them, so it's checked exactly as it would be for them (their shares, their fields).
+   */
+  private practiceAs(actor: Actor, userId: string): { as: Actor; person: PracticePerson } {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const person = this.practicePeople().find((p) => p.user_id === userId);
+    if (!person) throw new ObjectError("not_found", "That person isn't in this rehearsal");
+    return { as: { userId, source: actor.source }, person };
+  }
+
+  /** What one person sees in a rehearsal: what's shared with them, and what they've had. */
+  async practiceAsView(actor: Actor, userId: string): Promise<PracticeAsView> {
+    const { as, person } = this.practiceAs(actor, userId);
+    return {
+      person,
+      cards: await this.sharesFor(as),
+      got: this.practiceLog(userId),
+    };
+  }
+
+  async practiceAsOpen(
+    actor: Actor,
+    userId: string,
+    shareId: string,
+    cursor?: string,
+  ): Promise<SharedOpened> {
+    return this.openShare(this.practiceAs(actor, userId).as, shareId, cursor);
+  }
+
+  async practiceAsUpdate(
+    actor: Actor,
+    key: string | null,
+    userId: string,
+    shareId: string,
+    recordId: string,
+    values: Record<string, unknown>,
+  ): Promise<SharedOpened> {
+    return this.updateSharedRecord(this.practiceAs(actor, userId).as, key, shareId, recordId, values);
+  }
+
+  async practiceAsAnswer(
+    actor: Actor,
+    key: string | null,
+    userId: string,
+    shareId: string,
+    answer: string,
+  ): Promise<SharedOpened> {
+    return this.answerQuestion(this.practiceAs(actor, userId).as, key, shareId, answer);
+  }
+
+  /** The practice log, newest first: everyone's, or one person's. */
+  private practiceLog(userId?: string): PracticeView["log"] {
+    return this.sql
+      .exec<{ id: string; at: string; user_id: string; note_json: string }>(
+        userId
+          ? `select id, at, user_id, note_json from practice_log where user_id = ? order by at desc, id desc limit 100`
+          : `select id, at, user_id, note_json from practice_log order by at desc, id desc limit 100`,
+        ...(userId ? [userId] : []),
+      )
+      .toArray()
+      .map((r) => {
+        const n = JSON.parse(r.note_json) as NewNotification;
+        return {
+          id: r.id,
+          at: r.at,
+          user_id: r.user_id,
+          name: this.personName(r.user_id),
+          kind: n.kind === "question" ? ("question" as const) : ("message" as const),
+          title: n.title,
+          body: n.body ?? null,
+        };
+      });
+  }
+
+  /** A practice copy: what reached (would have reached) people, and what's waiting on whom. */
+  async practiceView(actor: Actor): Promise<PracticeView> {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const space = this.sql.exec<{ id: string; name: string }>(`select id, name from space`).toArray()[0]!;
+    return {
+      space_id: space.id,
+      name: space.name,
+      of: getMeta(this.sql, "practice_of")!,
+      log: this.practiceLog(),
+      waiting: await this.listWaiting(actor),
+      people: this.practicePeople(),
+    };
+  }
+
+  /** A person's name as this space knows them (a member, or someone asked or told). */
+  private personName(userId: string): string {
+    return (
+      this.sql.exec<{ name: string }>(`select name from members where user_id = ?`, userId).toArray()[0]
+        ?.name ??
+      this.sql
+        .exec<{ name: string }>(`select name from share_people where user_id = ? limit 1`, userId)
+        .toArray()[0]?.name ??
+      this.practiceMembers().find((m) => m.user_id === userId)?.name ??
+      "Someone"
+    );
+  }
+
+  /** Ends a practice copy: everything in it is erased (only practice copies can be). */
+  async endPractice(actor: Actor): Promise<{ ended: string }> {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const space = this.sql.exec<{ id: string }>(`select id from space`).toArray()[0]!;
+    await wipeStorage(this.ctx);
+    this.practiceCache = null;
+    return { ended: space.id };
+  }
+
   /** Everything needed to restore this space (not idempotency records or the outbox). */
   async exportData(): Promise<ObjectDump | null> {
     if (!this.sql.exec(`select 1 from space`).toArray().length) return null;
@@ -1215,6 +1514,18 @@ export class SpaceObject extends DurableObject<Env> {
   // the live object of everyone in the space or in one of its shares. A ping carries no data
   // (their apps fetch again, so nobody sees more than they may), and repeats are harmless.
 
+  /**
+   * Set while a rehearsal runs (decision 2026-10-16 "Rehearse a workflow"): its run lines are
+   * kept here, an "ask" step takes a scripted answer (or stops), and everything is rolled back.
+   */
+  private rehearsal: {
+    answers: RehearsalAnswer[];
+    /** How many times the run reached each ask step (a "repeat" can go back to one). */
+    times: Map<number, number>;
+    lines: string[];
+    waiting: Rehearsal["waiting"];
+  } | null = null;
+
   private changed() {
     bumpAndNote(this.sql);
     // Bursts of writes (a few rows at once) become one ping.
@@ -1244,6 +1555,8 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** Pushes the records changed since the last push to every member's index; ms until the next try, or null. */
   private async syncSearch(): Promise<number | null> {
+    // A practice copy isn't searched (its records would show twice).
+    if (this.practice) return null;
     const from = Number(getMeta(this.sql, "search_seq") ?? "0");
     const rows = this.sql
       .exec<{ seq: number; kind: string; entity_id: string }>(
@@ -1549,9 +1862,12 @@ export class SpaceObject extends DurableObject<Env> {
     const note = outboxNote(this.sql);
     if (!note) return null;
     const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id;
+    // A practice copy reaches only the person practising: the people it plays aren't pinged.
     const people = this.sql
       .exec<{ user_id: string }>(
-        `select user_id from members union select user_id from share_people where user_id is not null
+        this.practice
+          ? `select user_id from members`
+          : `select user_id from members union select user_id from share_people where user_id is not null
          union select user_id from live_extra`,
       )
       .toArray()
@@ -3656,7 +3972,9 @@ export class SpaceObject extends DurableObject<Env> {
   private knownPerson(userId: string): boolean {
     return (
       this.sql.exec(`select 1 from members where user_id = ?`, userId).toArray().length > 0 ||
-      this.sql.exec(`select 1 from share_people where user_id = ? limit 1`, userId).toArray().length > 0
+      this.sql.exec(`select 1 from share_people where user_id = ? limit 1`, userId).toArray().length > 0 ||
+      // In a practice copy, the space's members are still people it knows (they're played).
+      (this.practice && this.practiceMembers().some((m) => m.user_id === userId))
     );
   }
 
@@ -5694,6 +6012,7 @@ export class SpaceObject extends DurableObject<Env> {
   ): Promise<{ share: ShareView; token_hash: string }> {
     const { tokenHash, ...request } = input;
     this.canArrange(actor);
+    this.notInPractice("Sharing");
     return this.write(actor, key, ["create_share", request], (ts) => {
       const { targetId, include, hidden, access } = this.planShare(input);
       // One share per record per chat: pinning it again finds the one it has.
@@ -6171,6 +6490,7 @@ export class SpaceObject extends DurableObject<Env> {
     shareId: string,
     people: Person[],
   ): Promise<ShareView> {
+    this.notInPractice("Sharing");
     return this.write(actor, key, ["add_share_people", shareId, people], (ts) => {
       const s = this.requireShare(shareId);
       if (!this.alive(s)) throw new ObjectError("not_found", "Share not found");
@@ -6503,6 +6823,80 @@ export class SpaceObject extends DurableObject<Env> {
       .exec<WorkflowRow>(`select * from workflows where deleted_at is null order by created_at`)
       .toArray()
       .map((w) => this.workflowView(w));
+  }
+
+  /**
+   * Rehearse a workflow (decision 2026-10-16 "Rehearse a workflow"): its steps run on one
+   * record inside a transaction that is rolled back, so nothing is kept, nobody is told and
+   * nothing is asked; what each step would do comes back in words. A workflow that's off can
+   * be rehearsed (that's the point: try it before turning it on).
+   */
+  async rehearseWorkflow(
+    actor: Actor,
+    id: string,
+    recordId: string | null,
+    answers: RehearsalAnswer[],
+  ): Promise<Rehearsal> {
+    this.canArrange(actor);
+    const w = this.requireWorkflow(id);
+    const def = JSON.parse(w.def_json) as WorkflowDef;
+    const scheduled = def.when.event === "schedule";
+    let record: RecordRow | null = null;
+    if (!scheduled) {
+      record = recordId
+        ? (this.liveRecord(recordId) ?? null)
+        : (this.sql
+            .exec<RecordRow>(
+              `select * from records where collection_id = ? and deleted_at is null order by created_at desc limit 1`,
+              w.collection_id,
+            )
+            .toArray()[0] ?? null);
+      if (!record || record.collection_id !== w.collection_id)
+        throw new ObjectError(
+          "validation_failed",
+          recordId ? "That record isn't in this workflow's list" : "Add a record to the list to rehearse on",
+        );
+    }
+    const out: Rehearsal = {
+      workflow: w.name,
+      record: record ? { id: record.id, title: this.requireRecord(record.id).title } : null,
+      lines: [],
+      waiting: null,
+      finished: false,
+    };
+    const actorW: Actor = { userId: w.created_by, source: "system" };
+    if (record && def.check.length) {
+      const c = this.requireCollection(w.collection_id);
+      if (!this.findRows(actorW, c, { filters: def.check, ids: [record.id], limit: 1 }).rows.length) {
+        out.lines = ["It wouldn't run: this record doesn't match the workflow's check"];
+        return out;
+      }
+    }
+    if (def.wait_minutes) out.lines.push(`It would wait ${def.wait_minutes} minutes first`);
+    const ROLLBACK = Symbol("rollback");
+    const queued = this.queued;
+    this.rehearsal = { answers, times: new Map(), lines: [], waiting: null };
+    try {
+      this.queued = [];
+      this.ctx.storage.transactionSync(() => {
+        this.wfDepth = 1;
+        this.runSteps(w, def, record, 0, {});
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) {
+        // A step that would fail says so, as the run's last line.
+        this.rehearsal.lines.push(`It would stop here: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } finally {
+      out.lines.push(...this.rehearsal.lines);
+      out.waiting = this.rehearsal.waiting;
+      this.rehearsal = null;
+      this.queued = queued;
+      this.wfDepth = 0;
+    }
+    out.finished = !out.waiting && !out.lines.some((l) => l.startsWith("It would stop here"));
+    return out;
   }
 
   async getWorkflow(actor: Actor, id: string): Promise<WorkflowDetail> {
@@ -7288,6 +7682,22 @@ export class SpaceObject extends DurableObject<Env> {
       )
       .toArray();
     const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
+    if (this.practice) {
+      // A practice copy tells nobody: each message is kept in its log instead.
+      for (const n of notes)
+        this.ctx.storage.transactionSync(() => {
+          this.sql.exec(
+            `insert into practice_log (id, at, user_id, note_json) values (?, ?, ?, ?)`,
+            n.id,
+            nowIso(),
+            n.user_id,
+            n.note_json,
+          );
+          this.sql.exec(`delete from workflow_notes where id = ?`, n.id);
+        });
+      if (notes.length) this.changed();
+      return;
+    }
     for (const n of notes) {
       try {
         const { share_id, ...note } = JSON.parse(n.note_json) as NewNotification & { share_id?: string };
@@ -7463,6 +7873,58 @@ export class SpaceObject extends DurableObject<Env> {
           did.push("Nobody to ask: the record names nobody in the space");
           continue;
         }
+        if (this.rehearsal) {
+          // A rehearsal asks nobody: each person's answer comes from the ones given for this
+          // step and time (the run may come back to it); it stops while one is missing.
+          const time = (this.rehearsal.times.get(i + 1) ?? 0) + 1;
+          this.rehearsal.times.set(i + 1, time);
+          const names = people.map((p) => p.name).sort((x, y) => x.localeCompare(y));
+          did.push(`Would ask ${names.join(", ")}: “${text}”`);
+          const given = this.rehearsal.answers.filter((g) => g.step === i + 1 && g.time === time);
+          const byName = new Map<string, string>();
+          const key = (n: string) => n.trim().toLowerCase();
+          for (const g of given) {
+            const who = g.person
+              ? names.find((n) => key(n) === key(g.person!))
+              : names.find((n) => !byName.has(n));
+            if (who && !byName.has(who)) byName.set(who, g.answer);
+          }
+          const answered = names
+            .filter((n) => byName.has(n))
+            .map((n) => ({ name: n, answer: byName.get(n)! }));
+          for (const x of answered)
+            did.push(`${x.name === "me" ? "You" : x.name} would answer “${x.answer}”`);
+          const done = a.until === "first" ? answered.length > 0 : answered.length === names.length;
+          if (!done) {
+            this.rehearsal.waiting = {
+              step: i + 1,
+              time,
+              question: text,
+              choices: a.choices,
+              people: names,
+              until: a.until,
+              answered,
+              next: names.find((n) => !byName.has(n))!,
+            };
+            this.noteRun(w.id, r.id, true, false, did);
+            return tell;
+          }
+          // As the real run keeps it: one answer, or "Priya: No · Rahul: Yes" from everyone.
+          const kept =
+            a.until === "first" || answered.length === 1
+              ? answered[0]!.answer
+              : answered.map((x) => `${x.name}: ${x.answer}`).join(" · ");
+          if (a.save_to)
+            this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.save_to]: kept } });
+          did.push(
+            a.save_to
+              ? `Kept “${kept}” in ${this.liveField(a.save_to)?.name ?? "a field"}`
+              : names.length > 1 && a.until === "all"
+                ? "Everyone has answered"
+                : "It goes on",
+          );
+          continue;
+        }
         const questionId = ulid();
         const shareId = ulid();
         // No link: the people asked are known by account, so nobody can join by a token.
@@ -7519,7 +7981,7 @@ export class SpaceObject extends DurableObject<Env> {
           });
         did.push(`Asked ${people.map((p) => p.name).join(", ")}: “${text}”`);
         // Waiting: the run goes on from the next step once they answer.
-        this.noteRun(w.id, r.id, true, from === 0, did.join(" · "));
+        this.noteRun(w.id, r.id, true, from === 0, did);
         this.changed();
         return tell;
       } else {
@@ -7541,7 +8003,7 @@ export class SpaceObject extends DurableObject<Env> {
         );
       }
     }
-    this.noteRun(w.id, r?.id ?? null, true, from === 0, did.length ? did.join(" · ") : "Done");
+    this.noteRun(w.id, r?.id ?? null, true, from === 0, did.length ? did : "Done");
     this.changed();
     return tell;
   }
@@ -7591,7 +8053,11 @@ export class SpaceObject extends DurableObject<Env> {
     }
     if (a.do === "set" && r) {
       this.changeRecord(actor, ts, this.requireRecord(r.id), { values: { [a.field_id]: a.value } });
-      return `Set ${this.liveField(a.field_id)?.name ?? "a field"}`;
+      // "Set Status to Confirmed": the value as people see it, when there's one to show.
+      const f = this.liveField(a.field_id);
+      const shown = f ? displayValue(f.type, a.value as StoredValue) : "";
+      const value = Array.isArray(shown) ? shown.join(", ") : shown;
+      return `Set ${f?.name ?? "a field"}${value ? ` to ${value}` : ""}`;
     }
     if (a.do !== "add") return "";
     const t = this.requireCollection(a.collection_id);
@@ -7880,8 +8346,11 @@ export class SpaceObject extends DurableObject<Env> {
     recordId: string | null,
     ok: boolean,
     counted: boolean,
-    detail: string,
+    /** The run's lines (kept joined by " · "), or one line. */
+    lines: string | string[],
   ) {
+    if (this.rehearsal) this.rehearsal.lines.push(...(typeof lines === "string" ? [lines] : lines));
+    const detail = typeof lines === "string" ? lines : lines.join(" · ");
     const at = nowIso();
     this.sql.exec(
       `insert into workflow_runs (id, workflow_id, record_id, at, ok, counted, detail) values (?, ?, ?, ?, ?, ?, ?)`,

@@ -9,7 +9,7 @@
 // answer on the record, and only then goes on; a "repeat" step loops back while a condition
 // holds. Same engine, plus "who" and "waiting on".
 import { z } from "zod";
-import { FilterInput, SpaceRef, type FilterOp } from "./spaces.ts";
+import { FilterInput, SpaceRef, type FilterOp, type SharedWithMe } from "./spaces.ts";
 
 export const WORKFLOW_EVENTS = ["added", "changed", "date", "schedule"] as const;
 export type WorkflowEvent = (typeof WORKFLOW_EVENTS)[number];
@@ -382,6 +382,26 @@ export interface WorkflowDetail {
   waiting: WaitingItem[];
 }
 
+/** Someone in a rehearsal: who they are to the space, and what's in their hands right now. */
+export interface PracticePerson {
+  user_id: string;
+  name: string;
+  /** "member": in the space (sees all of it); "shared": sees only what's shared with them. */
+  role: "member" | "shared";
+  /** Questions waiting on them now. */
+  waiting: number;
+  /** Messages and questions they've had in this rehearsal. */
+  got: number;
+}
+
+/** What one person sees in a rehearsal: what's shared with them, and what they've had. */
+export interface PracticeAsView {
+  person: PracticePerson;
+  cards: SharedWithMe[];
+  /** Newest first. */
+  got: PracticeView["log"];
+}
+
 export const WaitRef = SpaceRef.extend({ wait_id: z.string().trim().min(1).max(40) });
 
 const OP_WORDS: Record<FilterOp, string> = {
@@ -551,3 +571,104 @@ export function nextScheduleTime(s: WorkflowSchedule, after: number): number {
   }
   return after + 86_400_000;
 }
+
+/**
+ * Rehearse a workflow (decision 2026-10-16 "Rehearse a workflow"): run it on one record with
+ * nothing kept and nobody told, to see each step in plain words. At a question it stops,
+ * showing what would be asked; give each person's answer for that step (1-based; `time` is
+ * which time the run reaches it, when a "repeat" goes back) and it goes on as if they had.
+ */
+export const RehearseWorkflowInput = WorkflowRef.extend({
+  /** The record to try it on (an id); left out, the list's newest. */
+  record_id: z.string().trim().min(1).max(40).optional(),
+  answers: z
+    .array(
+      z.object({
+        step: z.number().int().min(1).max(50),
+        /** Which time the run reaches this step (a "repeat" can go back to it). */
+        time: z.number().int().min(1).max(20).default(1),
+        /** Who answers, by name; left out, the next person not yet answered. */
+        person: z.string().trim().min(1).max(80).optional(),
+        answer: z.string().trim().min(1).max(200),
+      }),
+    )
+    .max(50)
+    .default([]),
+});
+
+/** One person's answer in a rehearsal (RehearseWorkflowInput's answers, once read). */
+export interface RehearsalAnswer {
+  step: number;
+  time: number;
+  person?: string | undefined;
+  answer: string;
+}
+
+export interface Rehearsal {
+  workflow: string;
+  /** The record it was tried on (null for a scheduled workflow). */
+  record: { id: string; title: string } | null;
+  /** What each step would do, in order ("Told Asha: “…”", "Set Status"). */
+  lines: string[];
+  /** Where it stopped for a question; answer it (by step, time and person) to go on. */
+  waiting: {
+    step: number;
+    time: number;
+    question: string;
+    choices: string[] | null;
+    people: string[];
+    /** "all": it goes on once everyone has answered; "first": with the first answer. */
+    until: "all" | "first";
+    /** The answers given so far, and who to answer as next. */
+    answered: { name: string; answer: string }[];
+    next: string;
+  } | null;
+  /** True when it ran to the end. */
+  finished: boolean;
+}
+
+/**
+ * A practice copy of a space (decision 2026-10-16 "Rehearse a workflow", second part): its
+ * workflows run for real, but what they'd tell or ask people is kept in this log instead of
+ * reaching anyone, and the owner answers questions as each person.
+ */
+export interface PracticeView {
+  space_id: string;
+  name: string;
+  /** The space it's a copy of. */
+  of: string;
+  /** Newest first: what each person would have got. */
+  log: {
+    id: string;
+    at: string;
+    user_id: string;
+    name: string;
+    kind: "message" | "question";
+    title: string;
+    body: string | null;
+  }[];
+  waiting: WaitingItem[];
+  /** The people this space plays with: its other members and everyone something is shared with. */
+  people: PracticePerson[];
+}
+
+export const PracticeStartInput = SpaceRef;
+/** A rehearsal, as one of its people. */
+export const PracticeAsInput = SpaceRef.extend({ user_id: z.string().trim().min(1).max(64) });
+export const PracticeAsShareInput = PracticeAsInput.extend({
+  share_id: z.string().trim().min(1).max(40),
+  cursor: z.string().max(200).optional(),
+});
+export const PracticeAsUpdateInput = PracticeAsShareInput.extend({
+  record_id: z.string().trim().min(1).max(40),
+  values: z.record(z.string(), z.unknown()),
+});
+export const PracticeAsAnswerInput = PracticeAsShareInput.extend({
+  answer: z.string().trim().min(1).max(200),
+});
+export const PracticeAnswerInput = SpaceRef.extend({
+  wait_id: z.string().trim().min(1).max(40),
+  /** The person to answer as (one of those asked). */
+  as_user_id: z.string().trim().min(1).max(64),
+  answer: z.string().trim().min(1).max(200),
+});

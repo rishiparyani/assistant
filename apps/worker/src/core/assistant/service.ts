@@ -83,6 +83,13 @@ const EVERYDAY = [
   "get_question",
   "list_workflows",
   "get_workflow",
+  // Rehearse (decision 2026-10-16): a workflow tried out in words, nothing kept or sent; a
+  // practice copy of a space to try it with people, nothing reaching anyone.
+  "rehearse_workflow",
+  "start_practice",
+  "practice_log",
+  "practice_answer",
+  "end_practice",
   "set_workflow_enabled",
   // Processes (home-first.md §2 point 9): what's waiting on whom, and a nudge.
   "whats_waiting",
@@ -120,7 +127,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-16c";
+export const PROMPT_VERSION = "2026-10-16f";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -446,7 +453,11 @@ function describe(
                     : simple(a),
         ),
       });
-      return { title: `Make a workflow “${String(args.name ?? "")}” (saved off)`, details: words };
+      return {
+        title: `Make a workflow “${String(args.name ?? "")}” (saved off)`,
+        // Rehearse before it's on (decision 2026-10-16 "Rehearse a workflow").
+        details: [...words, "Saved off: say “rehearse it” to try it on a record first, nothing kept or sent"],
+      };
     }
     case "ask_people":
       return {
@@ -478,6 +489,19 @@ function describe(
         ],
       };
     }
+    case "start_practice":
+      return {
+        title: `Make a practice copy of “${String(args.space ?? "this space")}”`,
+        details: [
+          "Its lists, records, rules and workflows, every workflow on. Try things there: nothing in it reaches anyone.",
+          "What people would be told or asked shows in its practice log; you answer as each of them.",
+        ],
+      };
+    case "end_practice":
+      return {
+        title: `End the practice “${String(args.space ?? "")}”`,
+        details: ["It's erased, with everything in it. The real space isn't touched."],
+      };
     case "new_space":
       return {
         title: `Make a space “${String(args.name ?? "")}”`,

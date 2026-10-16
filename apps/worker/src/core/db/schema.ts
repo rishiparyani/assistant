@@ -138,6 +138,8 @@ export const spaces = sqliteTable(
       .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at"),
     deletedAt: text("deleted_at"),
+    /** A practice copy of this space (decision 2026-10-16 "Rehearse a workflow"); null otherwise. */
+    practiceOf: text("practice_of"),
   },
   (t) => [
     index("spaces_owner_idx").on(t.ownerUserId),

@@ -31,7 +31,10 @@ function files(path: string): string[] {
 function shownText(line: string): string[] {
   const code = line.replace(/\/\/.*$/, "");
   if (/^\s*(\*|\/\*)/.test(code)) return [];
-  const literals = [...code.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2] ?? "");
+  // In a template, the `${…}` parts are code (names like a variable), not words people see.
+  const literals = [...code.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`]*)`/g)].map((m) =>
+    (m[1] ?? m[2] ?? "").replace(/\$\{[^}]*\}/g, " "),
+  );
   const jsx = [...code.matchAll(/>([^<>{}]+)</g)].map((m) => m[1]!);
   const bare = /^\s+[A-Z][^=;(){}<>]*[.?!:]?\s*$/.test(code) ? [code] : [];
   return [...literals, ...jsx, ...bare];

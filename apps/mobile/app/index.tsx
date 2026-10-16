@@ -365,14 +365,34 @@ export default function Home() {
             {item.name}
           </Text>
           <Text style={[s.metaText, { color: t.fg2 }]}>
-            {item.space
-              ? "your space · ask below"
-              : item.lists
-                ? "every list, whole"
-                : "hold a card to arrange"}
+            {item.space?.practice
+              ? "practice run"
+              : item.space
+                ? "your space · ask below"
+                : item.lists
+                  ? "every list, whole"
+                  : "hold a card to arrange"}
           </Text>
         </View>
       )}
+      {item.space?.practice ? (
+        // A practice copy (decision 2026-10-16 "Rehearse a workflow"): what people would get.
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to the practice run"
+          onPress={() => router.push({ pathname: "/practice", params: { space: item.space!.id } })}
+          style={({ pressed }) => [
+            s.practice,
+            { backgroundColor: t.accentSoft, borderColor: t.hair },
+            pressed && { transform: [{ scale: 0.98 }] },
+          ]}
+        >
+          <Text style={[s.listName, { color: t.fg, fontSize: 15 }]}>
+            Practice run · nothing reaches anyone
+          </Text>
+          <Text style={[s.listMeta, { color: t.accent }]}>Switch between people, see their apps ›</Text>
+        </Pressable>
+      ) : null}
       {item.auto && next ? (
         // On a laptop it keeps a phone card's width, so its buttons stay buttons.
         <View style={wide ? s.heroWide : undefined}>
@@ -774,6 +794,13 @@ const s = StyleSheet.create({
   unreadText: { fontSize: 10, fontWeight: "800" },
   heroWide: { maxWidth: 560 },
   lists: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  practice: {
+    borderRadius: radius.card,
+    padding: 14,
+    gap: 4,
+    borderWidth: StyleSheet.hairlineWidth,
+    minHeight: 44,
+  },
   listTile: {
     minHeight: 104,
     borderRadius: radius.card,

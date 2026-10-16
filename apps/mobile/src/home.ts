@@ -49,7 +49,7 @@ export interface HomePage {
   lists?: { id: string; name: string }[];
   /** A page that is one of the person's spaces (decision 2026-10-16 "Spaces"): its cards
    * and lists; the bar asks in that space's chat. Absent: Personal's pages. */
-  space?: { id: string; name: string };
+  space?: { id: string; name: string; practice?: boolean };
 }
 
 // The device copy is per person: another account on the same device never sees it.
@@ -306,7 +306,7 @@ async function loadSpacePages(spaces: SpaceView[], groups: GroupView[]): Promise
         ]);
         return {
           name: sp.name,
-          space: { id: sp.id, name: sp.name },
+          space: { id: sp.id, name: sp.name, practice: !!sp.practice_of },
           cards: await cardsFor(views, collections, sp.id),
           lists: collections.map((c) => ({ id: c.id, name: c.name })),
         };
@@ -418,7 +418,7 @@ async function loadShared(shares: SharedWithMe[], waiting: WaitingItem[]): Promi
 }
 
 /** One shared thing as a card, or null when it has nothing to show on the home. */
-function sharedCard(share: SharedWithMe, o: SharedOpened, waiting: WaitingItem[]): HomeCard | null {
+export function sharedCard(share: SharedWithMe, o: SharedOpened, waiting: WaitingItem[]): HomeCard | null {
   const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
   const base = { share_id: share.share_id, kind: share.kind, access: share.access, owner: share.owner };
   if (o.share.kind === "view" && "records" in o) {
