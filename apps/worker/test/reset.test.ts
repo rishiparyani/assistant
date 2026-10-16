@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import type { FindResult } from "@assistant/shared";
-import { RESET_WORDS, resetRoutes } from "../src/core/reset/service.ts";
+import { RESET_WORDS, errorKind, resetRoutes } from "../src/core/reset/service.ts";
 import { createApp } from "../src/core/app.ts";
 import { spaceName } from "../src/core/spaces/service.ts";
 import { modules } from "../src/modules/index.ts";
@@ -103,5 +103,16 @@ describe("start over", () => {
       during,
     );
     expect(ready.status).toBe(400); // open, and "ready" is not a step: the job's probe
+  });
+
+  it("says why an erase failed in fixed words, never an error's own message", () => {
+    expect(errorKind(new Error("Durable Object reset because its code was updated."))).toBe(
+      "Error: the object was reset",
+    );
+    expect(errorKind(new TypeError("Invalid Durable Object ID"))).toBe("TypeError: an id not of this kind");
+    // A message with someone's words in it shows only its category.
+    expect(errorKind(new Error('More than one space called "Asha\'s secret plans"'))).toBe(
+      "Error: something else",
+    );
   });
 });
