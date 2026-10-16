@@ -178,6 +178,10 @@ jobs:
             # The first signed-in launch of a fresh install is slow on the runner: more time.
             go "$dev" "/" 24
             shot "$dev" "$label-light-1-home"
+            # The home's bar with the keyboard up (the owner, 2026-10-16: "the keyboard covers
+            # it"): the bar and its matches must sit above the keyboard, the small phone too.
+            go "$dev" "/?q=Te" 12
+            shot "$dev" "$label-light-1b-home-search"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
             go "$dev" "/chat"
             shot "$dev" "$label-light-2-chat"
@@ -231,7 +235,7 @@ jobs:
       - name: Screenshots in the log
         if: always()
         run: |
-          for f in "$RUNNER_TEMP"/screens/phone-*.png; do
+          for f in "$RUNNER_TEMP"/screens/phone-*.png "$RUNNER_TEMP"/screens/small-light-1b-home-search.png; do
             [ -e "$f" ] || continue
             n=$(basename "$f" .png)
             sips -Z 720 -s format jpeg -s formatOptions 55 "$f" --out "$RUNNER_TEMP/$n.jpg" > /dev/null
@@ -243,7 +247,8 @@ jobs:
           done
 
       # Last, so the end of the job log (what an agent can read) has them: the app's and the
-      # server's words, any crash reason, and the two list screenshots once more.
+      # server's words, any crash reason, the two list screenshots and the bar over the keyboard
+      # (both phone sizes) once more.
       - name: Logs and the lists, last
         if: always()
         run: |
@@ -252,7 +257,7 @@ jobs:
           echo "::group::server log"
           tail -60 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token" || true
           echo "::endgroup::"
-          for n in phone-light-4b-list-expenses phone-light-4c-list-notes; do
+          for n in phone-light-4b-list-expenses phone-light-4c-list-notes phone-light-1b-home-search small-light-1b-home-search; do
             [ -e "$RUNNER_TEMP/$n.jpg" ] || continue
             echo "::group::$n (again)"
             echo "-----BEGIN $n-----"

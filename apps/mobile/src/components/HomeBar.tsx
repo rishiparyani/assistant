@@ -3,19 +3,23 @@
 // press send to ask the assistant instead. Offline it is a search bar and nothing else:
 // the send button becomes a magnifier and nothing is queued as a message.
 import { forwardRef } from "react";
-import { Image, Platform, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Platform, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
 import { useNetworkState } from "expo-network";
 import { Tap, Text, TextInput, motion, type } from "@assistant/cards/native";
 import type { HomeCard } from "@/home";
 import { cardHits, listHits, useRemoteHits, type SearchResult } from "@/search";
 import { radius, useTheme } from "@/theme";
+import { useKeyboardRoom } from "@/keyboard";
 
 const logoDark = require("../../assets/logo-dark.png");
 
 export interface HomeBarProps {
   /** This person has the assistant (else the bar searches only). */
   assistant: boolean;
+  /** Focus the box when the home opens (the keyboard comes up). */
+  autoFocus?: boolean;
   text: string;
   onChangeText: (t: string) => void;
   cards: HomeCard[];
@@ -30,10 +34,15 @@ export interface HomeBarProps {
 }
 
 export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
-  { assistant, text, onChangeText, cards, lists, space, onAsk, onOpenCard, onOpenList, onOpenHit },
+  { assistant, autoFocus, text, onChangeText, cards, lists, space, onAsk, onOpenCard, onOpenList, onOpenHit },
   ref,
 ) {
   const { t } = useTheme();
+  // The matches fit between the top of the screen and the bar, wherever the keyboard put it.
+  const { height } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const keyboard = useKeyboardRoom();
+  const panelMax = Math.max(160, Math.min(340, height - (keyboard || insets.bottom) - insets.top - 110));
   const net = useNetworkState();
   const online = net.isConnected !== false && net.isInternetReachable !== false;
   const canAsk = assistant && online;
@@ -58,7 +67,10 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
         <Animated.View
           entering={FadeInDown.duration(motion.enter)}
           exiting={FadeOut.duration(motion.fade)}
-          style={[s.panel, { backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow }]}
+          style={[
+            s.panel,
+            { maxHeight: panelMax, backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow },
+          ]}
         >
           <ScrollView keyboardShouldPersistTaps="handled" style={s.scroll} contentContainerStyle={s.results}>
             {canAsk ? (
@@ -161,6 +173,7 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
           onChangeText={onChangeText}
           onSubmitEditing={ask}
           returnKeyType={canAsk ? "send" : "search"}
+          autoFocus={autoFocus}
           blurOnSubmit={!canAsk}
           autoCorrect={false}
           style={[s.input, type.body, { color: t.onInk }]}
@@ -229,7 +242,6 @@ const s = StyleSheet.create({
     bottom: 60,
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
-    maxHeight: 340,
     shadowOpacity: 1,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: 10 },

@@ -15,7 +15,7 @@ import {
 } from "react-native";
 import { Text } from "@assistant/cards/native";
 import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextUp, type CardSize } from "@assistant/cards";
 import type { StoredValue } from "@assistant/shared";
@@ -46,6 +46,7 @@ import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { useChats } from "@/chats";
 import { useLive } from "@/live-socket";
+import { useKeyboardRoom } from "@/keyboard";
 import { colourFor, radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
 import { usePendingPath } from "@/intents";
@@ -71,6 +72,8 @@ export default function Home() {
     return () => clearTimeout(id);
   }, []);
   const insets = useSafeAreaInsets();
+  // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it").
+  const keyboard = useKeyboardRoom();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [pages, setPages] = useState<HomePage[] | null>(null);
@@ -194,7 +197,10 @@ export default function Home() {
   // Chats with something unread (the dot on the Chats button); refreshes on live pings.
   const unread = (useChats().chats ?? []).filter((c) => c.unread > 0).length;
   // What's typed in the bar; while there's something, matches show above it over a scrim.
-  const [barText, setBarText] = useState("");
+  // `?q=` opens the home with the bar already searching, the keyboard up (a link from Siri or
+  // a shortcut; the simulator run checks the bar clears the keyboard this way).
+  const { q: startQuery } = useLocalSearchParams<{ q?: string }>();
+  const [barText, setBarText] = useState(startQuery ?? "");
   const [busyCard, setBusyCard] = useState<string | null>(null);
 
   // No hook below this line (the signed-out home crashed on the phone and the web, 2026-10-15:
@@ -592,7 +598,7 @@ export default function Home() {
         />
       ) : null}
       <View
-        style={[s.bottom, { paddingBottom: insets.bottom + 10, backgroundColor: t.page }]}
+        style={[s.bottom, { paddingBottom: (keyboard || insets.bottom) + 10, backgroundColor: t.page }]}
         pointerEvents="box-none"
       >
         {failed[0] ? (
@@ -631,6 +637,7 @@ export default function Home() {
             ref={barRef}
             assistant={!!assistant}
             text={barText}
+            autoFocus={!!startQuery}
             onChangeText={setBarText}
             space={wide ? undefined : shownPages[page]?.space}
             cards={(pages ?? []).flatMap((p) => p.cards)}
