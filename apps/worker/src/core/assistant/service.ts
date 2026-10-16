@@ -120,7 +120,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-16b";
+export const PROMPT_VERSION = "2026-10-16c";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -256,7 +256,7 @@ function systemPrompt(
     "Reply in the person's language (English or Hinglish), briefly and plainly.",
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
     space && !space.personal
-      ? `You're in their space "${space.name}" (one of several: the band, home…; each has its own lists, chats and memory). Tools work in this space unless you pass another. Its collections:`
+      ? `You're in their space "${space.name}" (one of several, like a home, a trip or a team; each has its own lists, chats and memory). Tools work in this space unless you pass another. Its collections:`
       : "Their collections:",
     setupSummary(cols) || "(none yet)",
     ...(apps.length ? ["Apps they have:", ...apps] : []),
@@ -267,7 +267,7 @@ function systemPrompt(
     '- Money in rupees ("450" or "₹450"). Dates as YYYY-MM-DD; date and time as YYYY-MM-DDTHH:MM in India time.',
     "- Times in tool results are India time (+05:30). Write times the same way, or as YYYY-MM-DDTHH:MM in India time.",
     "- When they say they did something (bought, called, paid), first look for a matching reminder or to-do and tick it. If they also gave an amount, record that too (an expense or payment); otherwise add nothing new unless nothing matched. Never make up an amount: ask.",
-    "- For any total, count, average, highest or lowest, or a breakdown (by venue, by month), call query: it works the numbers out exactly. Never add numbers up yourself. Its answer shows as a table they can pin to their home.",
+    "- For any total, count, average, highest or lowest, or a breakdown (by category, by person, by month), call query: it works the numbers out exactly. Never add numbers up yourself. Its answer shows as a table they can pin to their home.",
     "- Records can be named by exact title; if several match you get candidates: ask which one. Never guess.",
     "- Asked what you can do, or for examples: show, don't list. Do one or two real things with their own lists right away (a find, or a query for a total that comes back as a card), name two or three more in a line, and say Help › Ideas for cards shows every kind of card.",
     "- Short Markdown is fine (bold, a bulleted list); no headings, no tables.",

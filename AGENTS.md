@@ -104,6 +104,7 @@ Mobile-first and polished (owner's priority): build screens from `apps/web/src/c
 
 - **Read or show people's data** (decision 2026-10-14 "We don't read people's data"): no admin screen, tool, log, report, monitoring or support process may show or keep anyone's lists, records, chats, assistant conversations or memories; only counts and structure (which tools, fields, errors, timings, costs). Debug with test accounts and made-up data. AI Gateway logging stays off (`collectLog: false`). `admin.test.ts` checks the admin endpoints.
 - Put the owner's name in the app; it says "the app team".
+- Write band, gig or music words in what people see (messages, examples, placeholders, the assistant's instructions): the app is for anything; examples come from everyday life. `apps/web/test/neutral-words.test.ts` checks it (decision 2026-10-16 "No band or gig words").
 - Put business logic in routes, MCP tools, or the web app.
 - Give any AI raw SQL, code execution or unchecked writes. The in-app assistant (allowed since 2026-10-09) goes through the model router, uses only structured tools from the operation registry, and every action is checked by the app; deletes, money changes and new setups need the user's confirmation.
 - Parse users' messages with patterns or rules to decide what they mean (the owner's rule): understanding is the model's job; the router decides only facts (level, budget, errors).

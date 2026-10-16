@@ -41,11 +41,11 @@ const COLLECTION: CollectionView = {
 };
 
 const ROWS: [string, boolean, number, number][] = [
-  ["Test strings for the Strat", true, -2, 45_000],
-  ["Test rehearsal room", false, 1, 120_000],
-  ["Test invoice to the café", false, 3, 1_500_000],
-  ["Test cab to the gig", true, 6, 80_000],
-  ["Test new capo", false, 12, 60_000],
+  ["Test electricity bill", true, -2, 45_000],
+  ["Test plumber visit", false, 1, 120_000],
+  ["Test invoice to the client", false, 3, 1_500_000],
+  ["Test cab to the airport", true, 6, 80_000],
+  ["Test new phone cover", false, 12, 60_000],
 ];
 const RECORDS: RecordView[] = ROWS.map(([title, done, offset, paise], i) => ({
   id: `r${i}`,
@@ -66,31 +66,31 @@ const RECORDS: RecordView[] = ROWS.map(([title, done, offset, paise], i) => ({
 
 const COLOURS: CollectionColour[] = ["time", "money", "people", "music", "flow", "home", "neutral"];
 
-/** A worked-out answer (earnings by venue), as the space returns it. */
+/** A worked-out answer (spending by category), as the space returns it. */
 const SAMPLE_ANSWER: QueryResult = {
-  title: "Earnings by venue",
+  title: "Spending by category",
   collection_id: COLLECTION.id,
   collection: COLLECTION.name,
   columns: [
-    { name: "Venue", kind: "group", type: "text" },
-    { name: "Earned", kind: "measure", type: "money" },
-    { name: "Gigs", kind: "measure", type: "number" },
+    { name: "Category", kind: "group", type: "text" },
+    { name: "Spent", kind: "measure", type: "money" },
+    { name: "Items", kind: "measure", type: "number" },
   ],
   rows: (
     [
-      ["Test Lawns", 9_500_000, 3],
-      ["Test Club", 6_200_000, 5],
-      ["Test Café", 2_400_000, 4],
-      ["Test Hall", 1_800_000, 1],
-      ["Test Rooftop", 900_000, 1],
+      ["Test Rent", 9_500_000, 1],
+      ["Test Groceries", 6_200_000, 14],
+      ["Test Travel", 2_400_000, 4],
+      ["Test Eating out", 1_800_000, 6],
+      ["Test Gifts", 900_000, 2],
     ] as const
-  ).map(([venue, paise, gigs]) => ({
-    cells: [venue, paise, gigs],
-    shown: [venue, `₹${(paise / 100).toLocaleString("en-IN")}`, String(gigs)],
+  ).map(([category, paise, items]) => ({
+    cells: [category, paise, items],
+    shown: [category, `₹${(paise / 100).toLocaleString("en-IN")}`, String(items)],
   })),
   more: 0,
   scanned: 14,
-  words: "Test Gigs where Date is in this year, by Venue: Earned (total Fee), Gigs (count)",
+  words: "Test Expenses where Date is in this year, by Category: Spent (total Amount), Items (count)",
 };
 
 /** What the gallery shows: the arrangements the app draws (not the ones still to come). */
@@ -130,18 +130,18 @@ export function sampleCard(arrangement: Arrangement, size: CardSize): HomeCard {
   if (arrangement === "table" || arrangement === "bars") card.answer = SAMPLE_ANSWER;
   if (arrangement === "memory")
     card.memory = [
-      { id: "m1", text: "Usual rate for a solo gig: ₹15,000 (test)", source: "From a chat" },
-      { id: "m2", text: "Test Café pays by UPI, a week after", source: "From a chat" },
+      { id: "m1", text: "The usual electrician charge is ₹500 (test)", source: "From a chat" },
+      { id: "m2", text: "Test landlord takes rent by UPI on the 1st", source: "From a chat" },
     ] as HomeCard["memory"];
   if (arrangement === "process")
     card.waiting = {
       id: "w1",
       space_id: "sample",
       workflow_id: "wf1",
-      workflow: "Confirm the lineup",
+      workflow: "Confirm the dinner",
       record_id: "r1",
-      record: "Test wedding, Saturday",
-      text: "Can you play the Test wedding on Saturday?",
+      record: "Test dinner, Saturday",
+      text: "Can you come to the Test dinner on Saturday?",
       choices: ["Yes", "No"],
       on: [
         { user_id: "u1", name: "Test Rahul", answer: "Yes" },
@@ -156,32 +156,32 @@ export function sampleCard(arrangement: Arrangement, size: CardSize): HomeCard {
   return card;
 }
 
-const SONGS: CollectionView = {
-  id: "songs",
-  name: "Test setlist",
+const WORKOUTS: CollectionView = {
+  id: "workouts",
+  name: "Test workouts",
   description: null,
   title_field_id: "s_title",
   fields: [
-    field("s_title", "Song", "text"),
-    field("s_ready", "Ready", "boolean"),
-    { ...field("s_status", "Status", "choice"), options: { choices: ["Learning", "Ready", "Stage"] } },
-    field("s_runs", "Run-throughs", "number"),
+    field("s_title", "Workout", "text"),
+    field("s_ready", "Done", "boolean"),
+    { ...field("s_status", "Status", "choice"), options: { choices: ["Easy", "Steady", "Hard"] } },
+    field("s_runs", "Rounds", "number"),
     field("s_rating", "Feel", "number"),
-    field("s_volume", "Volume", "number"),
-    field("s_paid", "Paid", "boolean"),
+    field("s_volume", "Effort", "number"),
+    field("s_paid", "Logged", "boolean"),
   ],
   linked_from: [],
   updated_at: NOW,
 };
-const SONG_ROWS: [string, boolean, string, number, number, number][] = [
-  ["Test Wonderwall", true, "Stage", 12, 5, 70],
-  ["Test Tum Hi Ho", false, "Learning", 3, 3, 40],
-  ["Test Hotel California", true, "Ready", 8, 4, 55],
-  ["Test Kun Faya Kun", false, "Learning", 1, 2, 30],
+const WORKOUT_ROWS: [string, boolean, string, number, number, number][] = [
+  ["Test morning run", true, "Hard", 12, 5, 70],
+  ["Test yoga", false, "Easy", 3, 3, 40],
+  ["Test cycling", true, "Steady", 8, 4, 55],
+  ["Test swim", false, "Easy", 1, 2, 30],
 ];
-const SONG_RECORDS: RecordView[] = SONG_ROWS.map(([title, ready, status, runs, feel, vol], i) => ({
+const WORKOUT_RECORDS: RecordView[] = WORKOUT_ROWS.map(([title, ready, status, runs, feel, vol], i) => ({
   id: `s${i}`,
-  collection_id: SONGS.id,
+  collection_id: WORKOUTS.id,
   title,
   values: {
     s_title: title,
@@ -192,14 +192,14 @@ const SONG_RECORDS: RecordView[] = SONG_ROWS.map(([title, ready, status, runs, f
     s_volume: vol,
     s_paid: i === 0,
   },
-  named: { Song: title },
+  named: { Workout: title },
   links: {},
   created_at: NOW,
   updated_at: NOW,
   version: 1,
 }));
 
-/** Cards with controls on their rows: every kind of control, on made-up songs. */
+/** Cards with controls on their rows: every kind of control, on made-up workouts. */
 export function controlCards(): HomeCard[] {
   const make = (
     id: string,
@@ -214,12 +214,12 @@ export function controlCards(): HomeCard[] {
       title,
       arrangement: "list-plain",
       size,
-      sources: [{ collection: SONGS.id }],
+      sources: [{ collection: WORKOUTS.id }],
       controls,
     },
-    collection: SONGS,
-    colour: "music",
-    records: SONG_RECORDS,
+    collection: WORKOUTS,
+    colour: "flow",
+    records: WORKOUT_RECORDS,
     total: null,
   });
   return [
@@ -230,7 +230,7 @@ export function controlCards(): HomeCard[] {
     make("chips", "Chips", "m", [{ field: "s_status", as: "chips" }]),
     make("stars-button", "Stars + button", "m", [
       { field: "s_rating", as: "stars", min: 0, max: 5 },
-      { field: "s_paid", as: "button", label: "Paid", value: true },
+      { field: "s_paid", as: "button", label: "Logged", value: true },
     ]),
     make("slider-tick", "Slider + tick", "l", [
       { field: "s_ready", as: "tick" },
@@ -239,16 +239,16 @@ export function controlCards(): HomeCard[] {
   ];
 }
 
-const GIGS: CollectionView = {
-  id: "gigs",
-  name: "Test gigs",
+const APPOINTMENTS: CollectionView = {
+  id: "appointments",
+  name: "Test appointments",
   description: null,
   title_field_id: "g_title",
   fields: [
-    field("g_title", "Venue", "text"),
+    field("g_title", "Place", "text"),
     field("g_when", "Starts", "datetime"),
-    { ...field("g_band", "Band", "choice"), options: { choices: ["Test Trio", "Test Quartet", "Solo"] } },
-    field("g_fee", "Fee", "money"),
+    { ...field("g_with", "With", "choice"), options: { choices: ["Test Asha", "Test Dev", "Just me"] } },
+    field("g_fee", "Cost", "money"),
     field("g_todo", "To do", "long_text"),
     field("g_addr", "Address", "text"),
     field("g_paid", "Paid", "boolean"),
@@ -259,38 +259,33 @@ const GIGS: CollectionView = {
 /** A date-time `offset` days from today at an India-time hour. */
 const at = (offset: number, hour: number, min = 0) =>
   new Date(Date.parse(`${day(offset)}T00:00:00Z`) + (hour * 60 + min - 330) * 60_000).toISOString();
-const GIG_ROWS: [string, string, string, number, string | null, boolean][] = [
-  [
-    "Test Rooftop",
-    at(0, 18),
-    "Test Trio",
-    500_000,
-    "Remind Test Bharat to post a picture and add the band as collaborators",
-    false,
-  ],
-  ["Test Café, Kalyani Nagar", at(1, 12, 30), "Test Quartet", 500_000, null, false],
-  ["Test Hall", at(4, 20), "Solo", 1_200_000, null, true],
-  ["Test Wedding Lawn", at(9, 19), "Test Trio", 2_500_000, "Check the generator", false],
+const APPOINTMENT_ROWS: [string, string, string, number, string | null, boolean][] = [
+  ["Test Dental Clinic", at(0, 18), "Just me", 150_000, "Take the old X-rays and the insurance card", false],
+  ["Test Café, Kalyani Nagar", at(1, 12, 30), "Test Asha", 120_000, null, false],
+  ["Test Car Service", at(4, 10), "Test Dev", 650_000, null, true],
+  ["Test Wedding Lawn", at(9, 19), "Test Asha", 500_000, "Pick up the gift on the way", false],
 ];
-const GIG_RECORDS: RecordView[] = GIG_ROWS.map(([title, when, band, fee, todo, paid], i) => ({
-  id: `g${i}`,
-  collection_id: GIGS.id,
-  title,
-  values: {
-    g_title: title,
-    g_when: when,
-    g_band: band,
-    g_fee: fee,
-    g_todo: todo,
-    g_addr: `${title}, Pune`,
-    g_paid: paid,
-  },
-  named: { Venue: title, Band: band },
-  links: {},
-  created_at: NOW,
-  updated_at: NOW,
-  version: 1,
-}));
+const APPOINTMENT_RECORDS: RecordView[] = APPOINTMENT_ROWS.map(
+  ([title, when, withWho, fee, todo, paid], i) => ({
+    id: `g${i}`,
+    collection_id: APPOINTMENTS.id,
+    title,
+    values: {
+      g_title: title,
+      g_when: when,
+      g_with: withWho,
+      g_fee: fee,
+      g_todo: todo,
+      g_addr: `${title}, Pune`,
+      g_paid: paid,
+    },
+    named: { Place: title, With: withWho },
+    links: {},
+    created_at: NOW,
+    updated_at: NOW,
+    version: 1,
+  }),
+);
 
 /** Cards with rich rows: date tiles, details with colour dots, pills, a callout and a button. */
 export function richCards(): HomeCard[] {
@@ -310,39 +305,39 @@ export function richCards(): HomeCard[] {
       size,
       sources: [
         {
-          collection: GIGS.id,
+          collection: APPOINTMENTS.id,
           date_field: "g_when",
           answer_field: arrangement === "list-ticks" ? "g_paid" : null,
         },
       ],
       row,
     },
-    collection: GIGS,
+    collection: APPOINTMENTS,
     colour: "time",
-    records: GIG_RECORDS,
+    records: APPOINTMENT_RECORDS,
     total: null,
   });
   const full = {
     date: "g_when",
-    details: ["g_when", "g_band"],
+    details: ["g_when", "g_with"],
     pills: ["g_fee"],
     callout: { field: "g_todo", label: "To do" },
     action: { field: "g_addr", as: "directions" as const },
   };
   return [
-    make("gigs-l", "Coming up", "l", full),
+    make("appointments-l", "Coming up", "l", full),
     {
-      // Chips on a rich row: the band, changeable from the card.
-      ...make("gigs-m", "Next gigs", "m", { ...full, callout: null, pills: [] }),
+      // Chips on a rich row: who it's with, changeable from the card.
+      ...make("appointments-m", "Next appointments", "m", { ...full, callout: null, pills: [] }),
       spec: {
-        ...make("gigs-m", "Next gigs", "m", { ...full, callout: null, pills: [] }).spec,
-        controls: [{ field: "g_band", as: "chips" as const }],
+        ...make("appointments-m", "Next appointments", "m", { ...full, callout: null, pills: [] }).spec,
+        controls: [{ field: "g_with", as: "chips" as const }],
       },
     },
     make("paid", "Paid yet?", "m", { ...full, callout: null, action: null, pills: ["g_fee"] }, "list-ticks"),
-    make("gig-s", "Next gig", "s", {
+    make("appointment-s", "Next one", "s", {
       date: "g_when",
-      details: ["g_band"],
+      details: ["g_with"],
       pills: ["g_fee"],
       callout: null,
       action: null,

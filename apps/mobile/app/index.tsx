@@ -60,7 +60,7 @@ const DASH_MAX = 1180;
 
 export default function Home() {
   const { me, loaded, refresh } = useSession();
-  const { t, colour } = useTheme();
+  const { t, colour, cardTint } = useTheme();
   // The clock the greeting, the date and Next up read: moves on at every minute.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -391,18 +391,18 @@ export default function Home() {
               style={({ pressed }) => [
                 s.listTile,
                 {
-                  backgroundColor: t.cell,
+                  // The list's soft colour fills the tile (decision 2026-10-16 "Soft coloured cards").
+                  backgroundColor: cardTint(colourFor(l.name)),
                   shadowColor: t.shadow,
                   width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
                 },
                 pressed && { transform: [{ scale: 0.97 }] },
               ]}
             >
-              <View style={[s.listDot, { backgroundColor: colour(colourFor(l.name)) }]} />
               <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
                 {l.name}
               </Text>
-              <Text style={[s.listMeta, { color: t.fg2 }]}>See all ›</Text>
+              <Text style={[s.listMeta, { color: colour(colourFor(l.name)) }]}>See all ›</Text>
             </Pressable>
           ))}
           <Pressable
@@ -525,18 +525,18 @@ export default function Home() {
               style={({ pressed }) => [
                 s.listTile,
                 {
-                  backgroundColor: t.cell,
+                  // The list's soft colour fills the tile (decision 2026-10-16 "Soft coloured cards").
+                  backgroundColor: cardTint(colourFor(l.name)),
                   shadowColor: t.shadow,
                   width: wide ? (gridWidth - 30) / 4 : (gridWidth - 10) / 2,
                 },
                 pressed && { transform: [{ scale: 0.97 }] },
               ]}
             >
-              <View style={[s.listDot, { backgroundColor: colour(colourFor(l.name)) }]} />
               <Text style={[s.listName, { color: t.fg }]} numberOfLines={2}>
                 {l.name}
               </Text>
-              <Text style={[s.listMeta, { color: t.fg2 }]}>See all ›</Text>
+              <Text style={[s.listMeta, { color: colour(colourFor(l.name)) }]}>See all ›</Text>
             </Pressable>
           ))}
         </View>
@@ -785,7 +785,6 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 5 },
     elevation: 2,
   },
-  listDot: { width: 12, height: 12, borderRadius: 4 },
   listName: { fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
   listMeta: { fontSize: 12.5, fontWeight: "700" },
   eyebrow: { fontSize: 13, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },

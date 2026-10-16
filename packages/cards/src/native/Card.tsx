@@ -38,7 +38,7 @@ export function Card({
   onNudge?: () => void;
   busy?: boolean;
 }) {
-  const { t, dark, colour } = useTheme();
+  const { t, dark, colour, cardTint } = useTheme();
   const c = colour(card.colour);
   const size = card.spec.size;
   const field = card.spec.sources[0]?.answer_field;
@@ -454,7 +454,13 @@ export function Card({
       onPress={onOpen}
       style={({ pressed }) => [
         s.card,
-        { backgroundColor: t.cell, shadowColor: t.shadow, borderColor: t.hair },
+        // The whole card in a soft wash of its list's colour (decision 2026-10-16 "Soft coloured
+        // cards"); the edge is the same colour, a little stronger.
+        {
+          backgroundColor: cardTint(card.colour),
+          shadowColor: t.shadow,
+          borderColor: c + (dark ? "33" : "26"),
+        },
         pressed && { transform: [{ scale: 0.97 }] },
       ]}
     >
@@ -503,7 +509,7 @@ function figureOf(card: HomeCard): { big: string; small: string; ratio: number |
 }
 
 function Compact({ card, onOpen, onSeeAll }: { card: HomeCard; onOpen?: () => void; onSeeAll?: () => void }) {
-  const { t, colour } = useTheme();
+  const { t, dark, colour, cardTint } = useTheme();
   const c = colour(card.colour);
   const wide = card.spec.size === "bar";
   const f = figureOf(card);
@@ -523,7 +529,11 @@ function Compact({ card, onOpen, onSeeAll }: { card: HomeCard; onOpen?: () => vo
         s.card,
         s.compact,
         wide && s.compactWide,
-        { backgroundColor: t.cell, shadowColor: t.shadow, borderColor: t.hair },
+        {
+          backgroundColor: cardTint(card.colour),
+          shadowColor: t.shadow,
+          borderColor: c + (dark ? "33" : "26"),
+        },
         pressed && { transform: [{ scale: 0.97 }] },
       ]}
     >
