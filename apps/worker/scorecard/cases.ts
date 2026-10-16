@@ -45,7 +45,7 @@ export interface Case {
   id: string;
   /** What it tests, in a few words (shown in the scorecard). */
   about: string;
-  /** 1: everyday (free model); 2: setups (smart model, only with AI credit). */
+  /** 1: everyday (free model); 2: setups (Careful, only with AI credit). */
   level: 1 | 2;
   /** Hinglish or English, for the scorecard's split. */
   lang: "en" | "hi-en";
@@ -78,7 +78,7 @@ const has = (s: string | null | undefined, ...parts: string[]) =>
 const titles = async (u: User, c: string) => (await find(u, c)).items.map((r) => r.title);
 const show = (x: unknown) => JSON.stringify(x).slice(0, 160);
 const handedOver = (o: Outcome) =>
-  o.turn.some((i) => i.role === "note" && has(i.text, "smart model")) ||
+  o.turn.some((i) => i.role === "note" && has(i.text, "Careful")) ||
   has(o.reply, "needs the smart model");
 const add = (u: User, collection: string, values: Record<string, unknown>) =>
   api(u)(`/collections/${collection}/records`, { body: { values } });

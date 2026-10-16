@@ -625,6 +625,15 @@ export default function Home() {
                   text: "Ask in the chat, in your own words",
                   go: () => router.push({ pathname: "/chat", params: { ask: "How do I " } }),
                 },
+                {
+                  title: "Quick and Careful",
+                  text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
+                  go: () =>
+                    router.push({
+                      pathname: "/chat",
+                      params: { ask: "What do you do as Quick, and what as Careful?", send: "1" },
+                    }),
+                },
               ]
             : []),
         ]}

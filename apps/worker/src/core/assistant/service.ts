@@ -114,14 +114,14 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-15c";
+export const PROMPT_VERSION = "2026-10-16a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
   function: {
     name: "hand_over",
     description:
-      "Hand this request to the smart model. Use it for anything that needs a new or changed setup (a new collection, new fields, saved views, a card on the home) or that you can't do with your tools.",
+      "Hand this request to Careful, the setups model. Use it for anything that needs a new or changed setup (a new collection, new fields, saved views, a card on the home) or that you can't do with your tools.",
     parameters: {
       type: "object",
       properties: { reason: { type: "string", description: "One short sentence" } },
@@ -245,6 +245,7 @@ function systemPrompt(
   );
   const lines = [
     `You are the assistant in Gigspree, a personal assistant app. You're talking with ${ctx.user.name}.`,
+    `People know your two minds as Quick (everyday things, in a second) and Careful (setups and harder questions); right now you are ${level === 1 ? "Quick" : "Careful"}. Never name the companies or models behind them.`,
     "Reply in the person's language (English or Hinglish), briefly and plainly.",
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
     "Their collections:",
@@ -733,7 +734,7 @@ const PROGRESS_WORDS: Record<string, (col: string | null) => string> = {
   save_view: () => "Saving the view…",
   update_view: () => "Changing the view…",
   remember: () => "Remembering…",
-  hand_over: () => "Handing to the smart model…",
+  hand_over: () => "Handing to Careful…",
 };
 
 /** The progress line for a tool call: the tool's words with the list it names, if any. */
@@ -811,7 +812,7 @@ async function answerMessage(
       reply(
         level === 1
           ? "I can't answer right now (the free daily allowance may be used up). Everything still works by tapping."
-          : "The smart model isn't available right now. You can still do this by tapping.",
+          : "Careful isn't available right now. You can still do this by tapping.",
       );
       break;
     }
@@ -844,14 +845,14 @@ async function answerMessage(
         if (!modelsFor(2, s).length) {
           outcome = "handover_blocked";
           reply(
-            "Setting this up needs the smart model, which switches on once AI credit is added. Until then, your existing lists work by tapping: Your lists in the menu, or + by the message box.",
+            "Setting this up needs Careful, which switches on once AI credit is added. Until then, your existing lists work by tapping: Your lists in the menu, or + by the message box.",
           );
           break steps;
         }
         await chat.setupInProgress(uid, true);
         rows.push({
           role: "assistant",
-          content: "Handing this to the smart model…",
+          content: "Handing this to Careful…",
           shown: "note",
           level: 2,
         });

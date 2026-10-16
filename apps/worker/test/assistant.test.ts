@@ -254,10 +254,10 @@ describe("chat", () => {
     expect((await find(me, "Expenses")).items).toEqual([]);
   });
 
-  it("hands setups over, and says so when the smart model is off", async () => {
+  it("hands setups over, and says so when Careful is off", async () => {
     const me = await signUp("Test Owner");
     const view = await say(me, "Test: make a collection for fam jam sign-ups");
-    expect(view.items.at(-1)!.text).toMatch(/needs the smart model.*Your lists in the menu/);
+    expect(view.items.at(-1)!.text).toMatch(/needs Careful.*Your lists in the menu/);
     expect(view.setup_in_progress).toBe(false);
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");

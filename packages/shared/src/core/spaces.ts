@@ -763,7 +763,7 @@ const cardSize = z
   .enum(CARD_SIZE_VALUES)
   .nullish()
   .describe(
-    "Size of its card on the home: xs (half width, half height: one number), s (half width), bar (full width, half height), m (full width), l (tall)",
+    "Size of its card on the home: xs (half width, half height: one number), s (half width), bar (full width, half height), m (full width), l (tall). Leave it out and the app picks by content (a number half width, a list full width, a table tall); set it only when the person asks for a size",
   );
 
 const cardControl = z.object({

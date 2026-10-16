@@ -642,12 +642,15 @@ function Bubble({
       <View style={[s.bub, s.them, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}>
         <Markdown text={item.text} style={[s.bubText, { color: t.fg }]} />
       </View>
+      {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
+      {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
       {rate ? <Rate id={item.id} /> : null}
     </>
   );
 }
 
 const s = StyleSheet.create({
+  careful: { marginLeft: 12, marginTop: -2, marginBottom: 2, fontWeight: "600", letterSpacing: 0.2 },
   root: { flex: 1 },
   head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
   // Clear of Changes (left) and Done (right).

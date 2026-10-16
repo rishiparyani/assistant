@@ -907,6 +907,16 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Why tokens and two primitives before anything visual:** polish is consistency; a hundred separate tweaks wouldn't add up to it. With `type`, `motion`, `Tap` and `Sheet` in place, every screen that moves onto them gets the same feel for free, and the remaining bare sizes can be swept screen by screen.
 - **Next slices, in order:** 2 streaming (the Worker streams the answer and the card skeleton as the tool call arrives; the chat draws them as they come); 3 the home and list screens onto the type scale, press feedback on cards and rows, the long-press menu scaling from the card; 4 the composer and keyboard on the group chats; 5 performance (memoised rows, `getItemLayout`, measured on the iPhone 16 Pro through the simulator job); 6 the card catalogue's visuals one by one.
 
+## 2026-10-16: Quick and Careful (owner: "we'll name it something else according to us… right now I have no clue what is going on")
+
+- **The two minds have names of their own:** **Quick** answers everyday things in a second (today Claude Haiku 5.5, with GLM behind it); **Careful** builds setups and takes harder questions (today Claude Sonnet 5.5). The names say what each does, never which company or model, so a vendor can change without the app's words changing. The system prompt tells the model which one it is and forbids naming the models behind the names.
+- **Shown only when it's the exception:** nothing on a Quick reply (it's the default; a label would be noise); a small "Careful" caption under a reply Careful gave; "Handing this to Careful…" while a setup is handed over; "Careful isn't available right now" when it isn't. Help gets a "Quick and Careful" line that asks the assistant to explain itself.
+
+## 2026-10-16: Sizes by content (owner: "we created cards of different sizes… it seems like it's not being used")
+
+- **The home picks a card's size from what it shows** when nobody chose one (`DEFAULT_CARD_SIZE` in `packages/cards/src/spec.ts`): a number or a countdown is a half-width tile so two sit side by side, a list is full width, a table, bars or a grid is tall, "next" is a full-width strip. Before, every chosen arrangement got its smallest size and every default list got medium, so a home came out one flat size.
+- **The assistant is told to leave the size out** unless the person asks for one, so the content rule is the normal path and a spoken size the exception. A person's own size (hold a card, resize) still wins.
+
 ## 2026-10-16: A setup card is checked when it's proposed (owner's screenshot: "Failed. A quick add can't fill in Flat; ask the assistant instead", after Confirm)
 
 - **What was wrong:** the assistant's setup card (a visitor gate for a housing society: Flats, Visitors, a guard's quick add) was only checked when the person tapped Confirm. The check refused the quick add because Flat is a link, and the person got a failure on a card the assistant itself had written, with "ask the assistant instead" as the advice.

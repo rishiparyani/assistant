@@ -49,6 +49,31 @@ export const ARRANGEMENT_SIZES: Record<Arrangement, readonly CardSize[]> = {
   grid: ["m", "l"],
 };
 
+/**
+ * The size a card gets when nobody chose one (decision 2026-10-16 "Sizes by content"): a
+ * number or a countdown is a half-width tile, so two sit side by side; a list is full width;
+ * a table or a grid is tall; "next" is a full-width strip.
+ */
+export const DEFAULT_CARD_SIZE: Record<Arrangement, CardSize> = {
+  number: "s",
+  "number-chart": "m",
+  "two-numbers": "s",
+  "two-numbers-list": "m",
+  "list-ticks": "m",
+  "list-plain": "m",
+  "list-counter": "m",
+  next: "bar",
+  countdown: "s",
+  question: "m",
+  "quick-add": "m",
+  process: "m",
+  memory: "s",
+  progress: "s",
+  table: "l",
+  bars: "l",
+  grid: "l",
+};
+
 /** What a card reads: a collection, optionally filtered and sorted (like a saved view). */
 export const CardSource = z.object({
   collection: z.string().trim().min(1).max(80).describe("Collection id or name"),

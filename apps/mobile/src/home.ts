@@ -12,6 +12,7 @@ import {
   type Arrangement,
   type CardSignals,
   type CardSize,
+  DEFAULT_CARD_SIZE,
 } from "@assistant/cards";
 import { colourFor, type HomeCard } from "@assistant/cards/native";
 import {
@@ -112,9 +113,13 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
   if (v.card?.controls.length) out.controls = v.card.controls;
   if (v.card?.row) out.row = v.card.row;
   if (v.card?.grid) out.grid = v.card.grid;
-  // The person's size wins when the arrangement can be drawn at it.
+  // The person's size wins when the arrangement can be drawn at it; else the size that fits
+  // the content (a number half width, a list full, a table tall), never one flat default.
   if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;
-  else if (!sizesFor(out).includes(out.size)) out.size = sizesFor(out)[0]!;
+  else
+    out.size = sizesFor(out).includes(DEFAULT_CARD_SIZE[out.arrangement])
+      ? DEFAULT_CARD_SIZE[out.arrangement]
+      : sizesFor(out)[0]!;
   return out;
 }
 
