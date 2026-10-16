@@ -15,7 +15,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Text } from "@assistant/cards/native";
-import { Boundary, Tap } from "@assistant/cards/native";
+import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
 import { Redirect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextUp, type CardSize } from "@assistant/cards";
@@ -29,6 +29,7 @@ import { API_URL } from "@/config";
 import {
   answerWaiting,
   loadHome,
+  savedHome,
   nudgeWaiting,
   rememberHome,
   replaceCard,
@@ -75,6 +76,8 @@ export default function Home() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [pages, setPages] = useState<HomePage[] | null>(null);
+  // True while what's on screen is the device's saved copy and the fresh one is on its way.
+  const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(0);
@@ -109,8 +112,10 @@ export default function Home() {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
       void refreshMe.current();
       setPages(await loadHome(userId));
+      setStale(false);
       setError("");
     } catch (e) {
+      setStale(false);
       setError(
         isOffline(e)
           ? "Offline, and nothing saved on this device yet."
@@ -120,8 +125,16 @@ export default function Home() {
       );
     }
   }, [userId]);
+  // The saved home shows in the first frame (the owner, 2026-10-16: "the upper screen is
+  // empty… a user might not know it's loading"); the fresh one replaces it when it arrives.
   useEffect(() => {
-    if (userId) void load();
+    if (!userId) return;
+    const saved = savedHome(userId);
+    if (saved) {
+      setPages((p) => p ?? saved);
+      setStale(true);
+    }
+    void load();
   }, [userId, load]);
   // The tour, once per person on this device, when the home has loaded.
   const homeReady = pages !== null;
@@ -292,13 +305,20 @@ export default function Home() {
     (pages ?? []).flatMap((p) => p.cards),
     now,
   );
+  // Before anything has loaded: the greeting and the date (nothing to wait for) over soft
+  // placeholder cards, never a blank page.
+  const shownPages: HomePage[] = pages ?? [{ name: "Now", auto: true, cards: [] }];
+  const loading = pages === null;
   const renderPage = (item: HomePage, index: number) => (
     <View key={item.name} style={{ gap: 12 }}>
       {item.auto ? (
         // Now: today's date and a greeting, then what's next, big.
         <View style={s.greetRow}>
           <View style={s.greet}>
-            <Text style={[s.eyebrow, { color: t.fg2 }]}>{todayWords(new Date(now))}</Text>
+            <Text style={[s.eyebrow, { color: t.fg2 }]}>
+              {todayWords(new Date(now))}
+              {stale ? "  ·  Updating…" : ""}
+            </Text>
             <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
           </View>
           {/* Chats with people (decision 2026-10-13 "Chats with people"), with a dot when
@@ -380,6 +400,8 @@ export default function Home() {
             <Text style={[s.listMeta, { color: t.fg3 }]}>Kept 30 days ›</Text>
           </Pressable>
         </View>
+      ) : loading ? (
+        <Skeleton />
       ) : item.cards.length ? (
         <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
           <CardGrid
@@ -473,12 +495,12 @@ export default function Home() {
           }}
           refreshControl={refreshControl}
         >
-          {(pages ?? []).map(renderPage)}
+          {shownPages.map(renderPage)}
         </ScrollView>
       ) : (
         <FlatList
           ref={list}
-          data={pages ?? []}
+          data={shownPages}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -519,7 +541,7 @@ export default function Home() {
           </Pressable>
         ) : null}
         <View ref={tourRefs.pages} collapsable={false} style={s.dots}>
-          {(wide ? [] : (pages ?? [])).map((p, i) => (
+          {(wide ? [] : shownPages).map((p, i) => (
             <View
               key={p.name}
               style={[s.dotI, { backgroundColor: i === page ? t.accent : t.fg3, width: i === page ? 18 : 7 }]}

@@ -290,7 +290,8 @@ describe("several chats and memory", () => {
     expect((await json<ChatView>(await call("/api/chat", { cookie: me.cookie }))).items).toEqual([]);
 
     const list = await json<{ id: string; title: string }[]>(await call("/api/chats", { cookie: me.cookie }));
-    expect(list.map((c) => c.id)).toEqual(["main", id]);
+    // Newest first; the first chat ("main", everything from before chats) last.
+    expect(list.map((c) => c.id)).toEqual([id, "main"]);
 
     const other = await signUp("Test Other");
     expect((await call(`/api/chats/${id}`, { cookie: other.cookie })).status).toBe(404);
@@ -304,6 +305,29 @@ describe("several chats and memory", () => {
     expect((await call(`/api/chats/${id}`, { cookie: me.cookie })).status).toBe(404);
     const after = await json<{ id: string }[]>(await call("/api/chats", { cookie: me.cookie }));
     expect(after.map((c) => c.id)).toEqual(["main"]);
+  });
+
+  it("opens on the current chat: the latest while it's fresh, else a new one", async () => {
+    const me = await signUp("Test Owner");
+    // Nothing yet: a new, empty chat, and the same one again (it's still empty).
+    const first = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    expect(first.items).toEqual([]);
+    expect(first.id).not.toBe("main");
+    const again = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    expect(again.id).toBe(first.id);
+    // Used a moment ago: still the current one.
+    await call(`/api/chats/${first.id}`, {
+      cookie: me.cookie,
+      body: { text: "Test: note the PA needs two DI boxes" },
+    });
+    // The list follows by the chat's own outbox (an alarm): give it a beat.
+    await new Promise((r) => setTimeout(r, 300));
+    const still = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    expect(still.id).toBe(first.id);
+    expect(still.items.length).toBeGreaterThan(0);
+    // A new chat on purpose becomes the current one.
+    const fresh = await json<ChatView>(await call("/api/chats", { cookie: me.cookie, body: {} }));
+    expect((await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }))).id).toBe(fresh.id);
   });
 
   it("remembers what it's asked to, in every chat, until forgotten", async () => {

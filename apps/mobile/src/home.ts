@@ -699,6 +699,11 @@ export function nudgeWaiting(w: WaitingItem): Promise<WaitingItem> {
 }
 
 /** Keeps the device copy in step with what the screen shows after a change. */
+/** The home as it was last shown on this device (offline-first rule 17: shown first, refreshed after). */
+export function savedHome(userId: string): HomePage[] | null {
+  return readJson<HomePage[]>(keyFor(userId));
+}
+
 export function rememberHome(userId: string, pages: HomePage[]) {
   writeJson(keyFor(userId), pages);
 }

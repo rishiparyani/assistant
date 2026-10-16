@@ -210,25 +210,90 @@ export class ChatObject extends DurableObject<Env> {
     return rows.map((r) => this.itemOf(r));
   }
 
-  /** The recent conversation as the model sees it (whole turns only). */
-  async context(userId: string, limit = 24): Promise<ChatMessage[]> {
+  /**
+   * The conversation as the model sees it (decision 2026-10-16 "Chats like Claude"): the
+   * whole chat, never cut at a count. Once a chat is long, its older part lives on as a
+   * summary (`summary`, up to row `summary_upto`) and only what came after travels verbatim.
+   */
+  async context(userId: string): Promise<ChatMessage[]> {
     this.own(userId);
-    const rows = this.sql
-      .exec<MessageRow>(
-        `select * from messages where shown is null or shown in ('user', 'assistant', 'note')
-         order by rowid desc limit ?`,
-        limit,
-      )
-      .toArray()
-      .reverse();
+    const rows = this.contextRows();
     // Start at a person's message, so no tool result is left without its call.
     const start = rows.findIndex((r) => r.role === "user");
-    return (start < 0 ? [] : rows.slice(start)).map((r) => ({
-      role: r.role,
-      content: r.content,
-      ...(r.tool_calls_json ? { tool_calls: JSON.parse(r.tool_calls_json) as ToolCall[] } : {}),
-      ...(r.tool_call_id ? { tool_call_id: r.tool_call_id } : {}),
-    }));
+    const summary = getMeta(this.sql, "summary");
+    const earlier: ChatMessage[] = summary
+      ? [
+          { role: "user", content: `(Earlier in this conversation, summarised:\n${summary})` },
+          { role: "assistant", content: "Noted, I have the earlier part in mind." },
+        ]
+      : [];
+    return [
+      ...earlier,
+      ...(start < 0 ? [] : rows.slice(start)).map((r) => ({
+        role: r.role,
+        content: r.content,
+        ...(r.tool_calls_json ? { tool_calls: JSON.parse(r.tool_calls_json) as ToolCall[] } : {}),
+        ...(r.tool_call_id ? { tool_call_id: r.tool_call_id } : {}),
+      })),
+    ];
+  }
+
+  /** The model-facing rows after the summary cut, oldest first, with their row numbers. */
+  private contextRows(): (MessageRow & { n: number })[] {
+    const upto = Number(getMeta(this.sql, "summary_upto") ?? 0);
+    return this.sql
+      .exec<MessageRow & { n: number }>(
+        `select rowid as n, * from messages
+         where rowid > ? and (shown is null or shown in ('user', 'assistant', 'note'))
+         order by rowid`,
+        upto,
+      )
+      .toArray();
+  }
+
+  /** How much the model reads each time, in characters (the summary counts too). */
+  async contextSize(userId: string): Promise<number> {
+    this.own(userId);
+    const rows = this.contextRows();
+    return (
+      (getMeta(this.sql, "summary")?.length ?? 0) +
+      rows.reduce((n, r) => n + (r.content?.length ?? 0) + (r.tool_calls_json?.length ?? 0), 0)
+    );
+  }
+
+  /**
+   * The older part of the conversation, ready to summarise: every whole turn after the last
+   * cut except the newest `keepTurns`, as a plain transcript, and the row the cut would move
+   * to. Null when there's too little to fold away.
+   */
+  async olderTurns(
+    userId: string,
+    keepTurns: number,
+  ): Promise<{ transcript: string; upto: number; previous: string | null } | null> {
+    this.own(userId);
+    const rows = this.contextRows();
+    const starts = rows.map((r, i) => (r.role === "user" ? i : -1)).filter((i) => i >= 0);
+    if (starts.length <= keepTurns + 1) return null;
+    const cut = starts[starts.length - keepTurns]!;
+    const older = rows.slice(starts[0], cut);
+    const lines = older.map((r) => {
+      if (r.role === "tool") return `tool result: ${(r.content ?? "").slice(0, 300)}`;
+      if (r.tool_calls_json) {
+        const calls = JSON.parse(r.tool_calls_json) as ToolCall[];
+        return `assistant did: ${calls.map((c) => `${c.function.name}(${c.function.arguments.slice(0, 200)})`).join("; ")}`;
+      }
+      return `${r.role === "user" ? "person" : "assistant"}: ${r.content ?? ""}`;
+    });
+    return { transcript: lines.join("\n"), upto: older.at(-1)!.n, previous: getMeta(this.sql, "summary") };
+  }
+
+  /** The summary that stands for everything up to row `upto` from now on. */
+  async setSummary(userId: string, text: string, upto: number): Promise<void> {
+    this.own(userId);
+    this.ctx.storage.transactionSync(() => {
+      setMeta(this.sql, "summary", text);
+      setMeta(this.sql, "summary_upto", String(upto));
+    });
   }
 
   /**
@@ -767,6 +832,8 @@ export class ChatObject extends DurableObject<Env> {
       this.sql.exec(`delete from messages`);
       this.sql.exec(`update actions set status = 'cancelled' where status = 'waiting'`);
       setMeta(this.sql, "setup", "0");
+      setMeta(this.sql, "summary", "");
+      setMeta(this.sql, "summary_upto", "0");
     });
   }
 

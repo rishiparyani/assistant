@@ -29,6 +29,7 @@ import {
   showInChat,
   forgetMemory,
   listChats,
+  currentChat,
   listMemories,
   newChat,
   remember,
@@ -177,6 +178,18 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       http: { method: "POST", path: "/chats", status: 201 },
       input: NewChatInput,
       handler: (ctx, i) => newChat(ctx, i.id),
+    }),
+    defineOperation({
+      id: "core.chat_current",
+      tool: "current_chat",
+      description: "The chat to open: the latest if used in the last two hours, else a new one.",
+      // A read for the caller (no key: opening the app must never need one); the chat it
+      // may start is the one a later send would start anyway.
+      kind: "read",
+      sessionOnly: true,
+      http: { method: "GET", path: "/chats/current" },
+      input: z.object({}),
+      handler: (ctx) => currentChat(ctx),
     }),
     defineOperation({
       id: "core.chat_open",

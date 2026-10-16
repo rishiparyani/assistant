@@ -16,11 +16,19 @@ import {
 } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { ChatItem, ChatView, CollectionView, HistoryItem, LiveRef } from "@assistant/shared";
+import type {
+  ChatItem,
+  ChatSummary,
+  ChatView,
+  CollectionView,
+  HistoryItem,
+  LiveRef,
+} from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
+import { ChatsSheet } from "@/components/ChatsSheet";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { useLive } from "@/live-socket";
@@ -61,8 +69,15 @@ export default function Chat() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { card, ask } = useLocalSearchParams<{ card?: string; ask?: string }>();
+  const { card, ask, id } = useLocalSearchParams<{ card?: string; ask?: string; id?: string }>();
   const [view, setView] = useState<ChatView | null>(null);
+  // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
+  // current one (the server picks: the latest if used in the last two hours, else a new one).
+  const [chatId, setChatId] = useState<string | null>(id ?? null);
+  const chatPath = `/api/chats/${chatId ?? "current"}`;
+  const [showChats, setShowChats] = useState(false);
+  // The very first chat ever gets the "tell me about your week" opening; later new chats a line.
+  const [firstEver, setFirstEver] = useState<boolean | null>(null);
   // The newest answer gets 👍 / 👎 (not one waiting behind a newer message of mine).
   const lastReply = (() => {
     const items = view?.items ?? [];
@@ -83,7 +98,7 @@ export default function Chat() {
   // words still move on their own.
   const [status, setStatus] = useState<string | null>(null);
   useLive((m) => {
-    if (m.type !== "assistant_progress" || m.chat !== MAIN) return;
+    if (m.type !== "assistant_progress" || m.chat !== chatId) return;
     setStatus(m.step === "done" ? null : typeof m.label === "string" ? m.label : "Thinking…");
   });
   useEffect(() => {
@@ -136,9 +151,18 @@ export default function Chat() {
     return collections.current;
   }, []);
 
-  useEffect(() => {
-    request<ChatView>("GET", `/api/chats/${MAIN}`)
-      .then(setView)
+  const openChat = useCallback((which: string | null) => {
+    setView(null);
+    setChanged([]);
+    firstFill.current = true;
+    atBottom.current = true;
+    openedAt.current = Date.now();
+    request<ChatView>("GET", `/api/chats/${which ?? "current"}`)
+      .then((v) => {
+        setChatId(v.id);
+        setView(v);
+        setNote("");
+      })
       .catch((e: unknown) =>
         setNote(
           isOffline(e)
@@ -149,6 +173,28 @@ export default function Chat() {
         ),
       );
   }, []);
+  useEffect(() => openChat(id ?? null), [id, openChat]);
+  useEffect(() => {
+    request<ChatSummary[]>("GET", "/api/chats")
+      .then((l) => setFirstEver(l.filter((c) => c.id !== MAIN).length <= 1))
+      .catch(() => setFirstEver(false));
+  }, []);
+  // online-only: a new chat is a row in the person's list on the server.
+  const newChat = async () => {
+    if (busy) return;
+    try {
+      const v = await request<ChatView>("POST", "/api/chats", {});
+      setChatId(v.id);
+      setView(v);
+      setChanged([]);
+      setNote("");
+      setFirstEver(false);
+      firstFill.current = true;
+      openedAt.current = Date.now();
+    } catch (e) {
+      setNote(isOffline(e) ? "A new chat needs a connection." : e instanceof Error ? e.message : String(e));
+    }
+  };
 
   const say = async (raw: string) => {
     const body = raw.trim();
@@ -167,7 +213,8 @@ export default function Chat() {
     setBusy(true);
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>("POST", `/api/chats/${MAIN}`, { text: msg });
+      const next = await request<ChatView>("POST", chatPath, { text: msg });
+      setChatId(next.id);
       setView(next);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
@@ -184,7 +231,7 @@ export default function Chat() {
         send({
           kind: "assistant.message",
           method: "POST",
-          path: `/api/chats/${MAIN}`,
+          path: `/api/chats/${chatId ?? MAIN}`,
           body: { text: msg },
           label: "Message to the assistant",
         });
@@ -204,7 +251,7 @@ export default function Chat() {
       setView(
         await request<ChatView>(
           "POST",
-          `/api/chats/${MAIN}/actions/${enc(actionId)}/${what}`,
+          `/api/chats/${chatId ?? MAIN}/actions/${enc(actionId)}/${what}`,
           args ? { args } : {},
         ),
       );
@@ -224,7 +271,7 @@ export default function Chat() {
           {/* Between Changes and Done: a long card name is cut short, "about this card" under it. */}
           <View style={s.titleBox}>
             <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-              {card ? card : "Gigspree"}
+              {card ? card : view && view.id !== MAIN && view.title !== "New chat" ? view.title : "Gigspree"}
             </Text>
             {card ? (
               <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
@@ -241,10 +288,40 @@ export default function Chat() {
           >
             <Text style={[type.label, { color: t.accent, fontWeight: "600" }]}>Changes</Text>
           </Tap>
+          <View style={s.tools}>
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Chats"
+              onPress={() => setShowChats(true)}
+              scale={0.9}
+              hitSlop={6}
+              style={[s.tool, { backgroundColor: t.cell, borderColor: t.hair }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 15, lineHeight: 17, fontWeight: "700" }}>☰</Text>
+            </Tap>
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="New chat"
+              onPress={() => void newChat()}
+              scale={0.9}
+              hitSlop={6}
+              haptic="selection"
+              style={[s.tool, { backgroundColor: t.cell, borderColor: t.hair }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 16, lineHeight: 18, fontWeight: "700" }}>✎</Text>
+            </Tap>
+          </View>
           <Tap accessibilityRole="button" onPress={() => router.back()} style={s.done} hitSlop={10}>
             <Text style={[type.label, { color: t.accent }]}>Done</Text>
           </Tap>
         </View>
+        <ChatsSheet
+          open={showChats}
+          current={chatId}
+          onClose={() => setShowChats(false)}
+          onOpen={(which) => openChat(which)}
+          onNew={() => void newChat()}
+        />
         <FlatList
           ref={list}
           extraData={[lastReply, busy]}
@@ -301,13 +378,22 @@ export default function Chat() {
           }
           ListEmptyComponent={
             view && !note ? (
-              // The first run (home-first.md §2 point 15): a conversation about the week.
-              <View style={[s.bub, s.them, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 8 }]}>
-                <Text style={[s.bubText, { color: t.fg }]}>
-                  Hi! Tell me about your week: what you do, what you keep forgetting, what money moves. I'll
-                  start the lists you need, each with a card on your home.
-                </Text>
-              </View>
+              firstEver !== false ? (
+                // The first run (home-first.md §2 point 15): a conversation about the week.
+                <View style={[s.bub, s.them, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 8 }]}>
+                  <Text style={[s.bubText, { color: t.fg }]}>
+                    Hi! Tell me about your week: what you do, what you keep forgetting, what money moves. I'll
+                    start the lists you need, each with a card on your home.
+                  </Text>
+                </View>
+              ) : (
+                // A fresh chat (ChatGPT's way): one line, the ideas below, the box ready.
+                <Animated.View entering={FadeIn.duration(motion.enter)} style={s.fresh}>
+                  <Text style={[type.title, { color: t.fg, textAlign: "center" }]}>
+                    What can I help with?
+                  </Text>
+                </Animated.View>
+              )
             ) : (
               <Text style={[s.sys, { color: t.fg2 }]}>{note || "Loading…"}</Text>
             )
@@ -552,10 +638,21 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
   // Clear of Changes (left) and Done (right).
-  titleBox: { flex: 1, alignItems: "center", paddingHorizontal: 100 },
+  // Clear of Changes (left) and the two tools + Done (right); a long title is cut short.
+  titleBox: { flex: 1, alignItems: "center", paddingLeft: 92, paddingRight: 152 },
   title: { ...type.heading, fontSize: 16 },
   ctx: { ...type.caption, marginTop: 1 },
   done: { position: "absolute", right: 16, height: 56, justifyContent: "center" },
+  tools: { position: "absolute", right: 64, height: 56, flexDirection: "row", alignItems: "center", gap: 6 },
+  tool: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fresh: { paddingTop: 120, paddingHorizontal: 24 },
   changes: { position: "absolute", left: 16, height: 56, justifyContent: "center" },
   bub: { maxWidth: "82%", paddingVertical: 9, paddingHorizontal: 13, borderRadius: 19 },
   me: { alignSelf: "flex-end", borderBottomRightRadius: 5 },

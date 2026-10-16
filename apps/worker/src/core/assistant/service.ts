@@ -694,6 +694,7 @@ export async function sendMessage(
     // can fail the send after it's answered).
     if (chatId !== MAIN) await chat.touched(uid, input.text);
     await chat.release(uid, key, true);
+    await quietly(summariseIfLong(ctx, chatId));
     return chatView(ctx, chatId);
   } catch (e) {
     await chat.release(uid, key, false);
@@ -1212,9 +1213,54 @@ export async function clearChat(ctx: OpUserCtx): Promise<ChatView> {
 export async function listChats(ctx: OpUserCtx): Promise<ChatSummary[]> {
   const others = await chatOf(ctx).chats(ctx.user.id);
   return [
-    { id: MAIN, title: MAIN_TITLE, updated_at: null },
     ...others.map((c) => ({ id: c.id, title: c.title, updated_at: c.updated_at })),
+    // The first chat (everything before chats were cut by conversation) stays reachable, last.
+    { id: MAIN, title: MAIN_TITLE, updated_at: null },
   ];
+}
+
+/** A chat is "current" this long after its last message; then the next message starts a new one. */
+const CURRENT_CHAT_MS = 2 * 3600_000;
+
+/**
+ * The chat the app opens on (decision 2026-10-16 "Chats like Claude"): the newest one if it
+ * was used in the last two hours or is still empty, else a fresh one. Old chats stay in the
+ * list and can be continued from there, whatever their age.
+ */
+export async function currentChat(ctx: OpUserCtx): Promise<ChatView> {
+  const latest = (await chatOf(ctx).chats(ctx.user.id))[0];
+  if (latest && (latest.title === "New chat" || Date.now() - Date.parse(latest.updated_at) < CURRENT_CHAT_MS))
+    return chatView(ctx, latest.id);
+  return newChat(ctx);
+}
+
+// A long chat keeps its whole meaning, not its last N messages: past this much text the
+// older turns are folded into a summary the model reads first (the newest turns stay as
+// they were). About 12,000 tokens; the fold costs one everyday call now and then.
+const SUMMARISE_AT_CHARS = 48_000;
+const KEEP_TURNS = 6;
+const SUMMARY_PROMPT = `You keep notes for an assistant app that helps a person with their lists, reminders, money and plans. Summarise the older part of their conversation for the assistant's own later use, in plain text, at most 400 words: facts the person stated, decisions, names, amounts, dates and times, what was done (records added, changed, deleted; lists or cards set up), and anything still open. Keep the person's own wording for names and titles. No preamble, no headings.`;
+
+async function summariseIfLong(ctx: OpUserCtx, chatId: string): Promise<void> {
+  const chat = chatOf(ctx, chatId);
+  const uid = ctx.user.id;
+  if ((await chat.contextSize(uid)) < SUMMARISE_AT_CHARS) return;
+  const older = await chat.olderTurns(uid, KEEP_TURNS);
+  if (!older) return;
+  progress(ctx, chatId, "tool", "Tidying up the conversation…");
+  const messages: ChatMessage[] = [
+    { role: "system", content: SUMMARY_PROMPT },
+    {
+      role: "user",
+      content:
+        (older.previous ? `Notes so far:\n${older.previous}\n\nThe conversation since then:\n` : "") +
+        older.transcript,
+    },
+  ];
+  const answer = await ask(ctx, 1, messages, []);
+  const text = answer?.answer.content?.trim();
+  if (text) await chat.setSummary(uid, text, older.upto);
+  progress(ctx, chatId, "done");
 }
 
 /** A new, empty chat (the id can come from the device, so a retry makes one chat). */
