@@ -21,12 +21,12 @@ export const ARRANGEMENT_INFO: Record<Arrangement, ArrangementInfo> = {
   number: {
     shows: "one big number: a count, or a total of a number or money field",
     needs: "sum_field to add up (none = count the records)",
-    use: "spent this month, guests in, gigs this year",
+    use: "spent this month, guests in, visits this year",
   },
   "number-chart": {
     shows: "a big number with a small bar chart of it over time",
     needs: "sum_field, and a date field on the collection",
-    use: "spending by week, gigs per month",
+    use: "spending by week, workouts per month",
     later: true,
   },
   "two-numbers": {
@@ -49,23 +49,23 @@ export const ARRANGEMENT_INFO: Record<Arrangement, ArrangementInfo> = {
   "list-plain": {
     shows: "a plain list of titles with one detail each",
     needs: "nothing more",
-    use: "notes, songs, anything to glance at",
+    use: "notes, recipes, anything to glance at",
   },
   "list-counter": {
     shows: "a list with a + button on each row",
     needs: "answer_field: the number field + adds 1 to",
-    use: "practice counts, guests arriving in parts",
+    use: "glasses of water, guests arriving in parts",
     later: true,
   },
   next: {
     shows: "the next few items by date, soonest first",
     needs: "date_field",
-    use: "coming up, next gigs, upcoming bills",
+    use: "coming up, next appointments, upcoming bills",
   },
   countdown: {
     shows: "days left until the next item",
     needs: "date_field",
-    use: "days to the wedding gig, to the rent",
+    use: "days to the wedding, to the rent",
   },
   question: {
     shows: "a question with answer buttons",
@@ -94,17 +94,17 @@ export const ARRANGEMENT_INFO: Record<Arrangement, ArrangementInfo> = {
   progress: {
     shows: "a bar: how many items are done out of all",
     needs: "answer_field: the yes/no field that means done",
-    use: "songs ready for the gig, tasks done this week",
+    use: "bags packed for the trip, tasks done this week",
   },
   table: {
     shows: "an answer as a small table: a row per group, a column per total or count, kept live",
     needs: "card.question (group_by, measures, as for the query tool); the view's filters narrow it",
-    use: "earnings by venue this year, spending by category this month",
+    use: "income by client this year, spending by category this month",
   },
   bars: {
     shows: "an answer as bars: one bar per group, sized by the first column, kept live",
     needs: "card.question with one group_by and a total or count first",
-    use: "spending by category, gigs per month",
+    use: "spending by category, visits per month",
   },
   grid: {
     shows: "the list as a sheet: a column per field, cells typed over in place",

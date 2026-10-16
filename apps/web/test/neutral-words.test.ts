@@ -8,7 +8,13 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOT = join(import.meta.dirname, "../../..");
-const SCANNED = ["apps/mobile/app", "apps/mobile/src", "apps/worker/src/core/assistant/service.ts"];
+const SCANNED = [
+  "apps/mobile/app",
+  "apps/mobile/src",
+  "apps/worker/src/core/assistant/service.ts",
+  // The cards' drawing and their sample gallery (Help → card gallery).
+  "packages/cards/src",
+];
 const MUSIC = /\b(band|bands|bandmates?|gigs?|venues?|rehearsals?|setlists?|guitar|soundcheck|musicians?)\b/i;
 
 function files(path: string): string[] {
@@ -16,7 +22,8 @@ function files(path: string): string[] {
   return readdirSync(path).flatMap((name) => {
     const p = join(path, name);
     if (statSync(p).isDirectory()) return files(p);
-    return /\.(ts|tsx)$/.test(name) ? [p] : [];
+    // Tests are never shown to anyone.
+    return /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name) ? [p] : [];
   });
 }
 
