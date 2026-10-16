@@ -181,7 +181,10 @@ export default function Home() {
   // Chats with something unread (the dot on the Chats button); refreshes on live pings.
   const unread = (useChats().chats ?? []).filter((c) => c.unread > 0).length;
   const [search, setSearch] = useState(false);
+  const [busyCard, setBusyCard] = useState<string | null>(null);
 
+  // No hook below this line (the signed-out home crashed on the phone and the web, 2026-10-15:
+  // a useState after this return made the first render one hook longer than the next).
   if (loaded && !me) return <Redirect href="/login" />;
 
   const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) => {
@@ -233,7 +236,6 @@ export default function Home() {
   const openList = (collection: string, view?: string) =>
     router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } });
   // Process cards: my answer, or a nudge; then the home reads again (the run went on).
-  const [busyCard, setBusyCard] = useState<string | null>(null);
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
     setBusyCard(card.id);
     try {
