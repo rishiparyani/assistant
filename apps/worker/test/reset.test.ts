@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import type { FindResult } from "@assistant/shared";
 import { RESET_WORDS, resetRoutes } from "../src/core/reset/service.ts";
+import { createApp } from "../src/core/app.ts";
 import { spaceName } from "../src/core/spaces/service.ts";
 import { modules } from "../src/modules/index.ts";
 import { call, json, signUp } from "./http.ts";
@@ -77,5 +78,30 @@ describe("start over", () => {
     // The erased space's object is empty: opening it again starts from nothing.
     const old = await env.SPACES.getByName(spaceName(space)).exportData();
     expect(old).toBeNull();
+  });
+
+  it("closes the app while a reset runs: everything else is a 503", async () => {
+    const app = createApp({ modules });
+    const during = { ...env, RESET_TOKEN: TOKEN };
+    const me = await app.request("/api/me", {}, during);
+    expect(me.status).toBe(503);
+    const signIn = await app.request(
+      "/auth/sign-in/email",
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+      during,
+    );
+    expect(signIn.status).toBe(503);
+    // The reset path and the health check still answer.
+    expect((await app.request("/api/health", {}, during)).status).toBe(200);
+    const ready = await app.request(
+      "/api/internal/reset",
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        body: JSON.stringify({ words: RESET_WORDS, step: "ready" }),
+      },
+      during,
+    );
+    expect(ready.status).toBe(400); // open, and "ready" is not a step: the job's probe
   });
 });

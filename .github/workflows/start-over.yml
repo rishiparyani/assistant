@@ -6,6 +6,8 @@
 # How it can't happen by mistake: nothing in the app can start it; it runs only from the
 # Actions tab, by hand, with the words ERASE EVERYTHING and today's date (India time) typed in;
 # the Worker's reset path exists only during this run (a one-time secret, deleted at the end).
+# While the secret is set the app is closed (503), queued changes are dropped and scheduled
+# jobs skip, so nothing new is written between the backup and the last erase.
 #
 # DELETE THIS FILE BEFORE GOING LIVE (tasks/STATUS.md "Before going live").
 #
@@ -129,39 +131,44 @@ jobs:
             [SpaceObject]=SPACES [ChatObject]=CHATS [LiveObject]=LIVE
             [GroupObject]=GROUPS [SearchObject]=SEARCH
           )
-          total=0; failed=0
-          echo "| Kind | Erased | Failed |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
-          for cls in "${!binding[@]}"; do
-            ns="$(jq -r --arg s "$WORKER_NAME" --arg c "$cls" \
-              '.result[] | select(.script == $s and .class == $c) | .id' <<< "$namespaces" | head -1)"
-            [ -z "$ns" ] && continue
-            ids=(); cursor=""
-            while :; do
-              page="$(curl -fsS "${auth[@]}" "$api/$ns/objects?limit=1000${cursor:+&cursor=$cursor}")"
-              mapfile -t more < <(jq -r '.result[] | select(.hasStoredData) | .id' <<< "$page")
-              ids+=("${more[@]}")
-              cursor="$(jq -r '.result_info.cursor // empty' <<< "$page")"
-              [ -z "$cursor" ] && break
+          declare -A erased=()
+          # The app is closed while the path is open, but an object's own alarm may still write
+          # to another one: scan again after each pass, and go on only once a pass finds nothing.
+          for pass in 1 2 3 4 5; do
+            found=0; failed=0
+            for cls in "${!binding[@]}"; do
+              ns="$(jq -r --arg s "$WORKER_NAME" --arg c "$cls" \
+                '.result[] | select(.script == $s and .class == $c) | .id' <<< "$namespaces" | head -1)"
+              [ -z "$ns" ] && continue
+              ids=(); cursor=""
+              while :; do
+                page="$(curl -fsS "${auth[@]}" "$api/$ns/objects?limit=1000${cursor:+&cursor=$cursor}")"
+                mapfile -t more < <(jq -r '.result[] | select(.hasStoredData) | .id' <<< "$page")
+                ids+=("${more[@]}")
+                cursor="$(jq -r '.result_info.cursor // empty' <<< "$page")"
+                [ -z "$cursor" ] && break
+              done
+              found=$((found + ${#ids[@]}))
+              for ((i = 0; i < ${#ids[@]}; i += 50)); do
+                batch="$(printf '%s\n' "${ids[@]:i:50}" | jq -R . | jq -s -c .)"
+                out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+                  -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
+                  -d "{\"words\":\"ERASE EVERYTHING\",\"step\":\"objects\",\"binding\":\"${binding[$cls]}\",\"ids\":$batch}")"
+                erased[$cls]=$(( ${erased[$cls]:-0} + $(jq -r .wiped <<< "$out") ))
+                failed=$((failed + $(jq -r .failed <<< "$out")))
+              done
             done
-            done_n=0; fail_n=0
-            for ((i = 0; i < ${#ids[@]}; i += 50)); do
-              batch="$(printf '%s\n' "${ids[@]:i:50}" | jq -R . | jq -s -c .)"
-              out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
-                -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
-                -d "{\"words\":\"ERASE EVERYTHING\",\"step\":\"objects\",\"binding\":\"${binding[$cls]}\",\"ids\":$batch}")"
-              done_n=$((done_n + $(jq -r .wiped <<< "$out")))
-              fail_n=$((fail_n + $(jq -r .failed <<< "$out")))
-            done
-            echo "$cls: $done_n erased, $fail_n failed"
-            echo "| $cls | $done_n | $fail_n |" >> "$GITHUB_STEP_SUMMARY"
-            total=$((total + done_n)); failed=$((failed + fail_n))
+            echo "Pass $pass: $found objects with data, $failed failed to erase."
+            if [ "$found" -eq 0 ]; then
+              echo "| Kind | Erased |" >> "$GITHUB_STEP_SUMMARY"
+              echo "| --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+              for cls in "${!erased[@]}"; do echo "| $cls | ${erased[$cls]} |" >> "$GITHUB_STEP_SUMMARY"; done
+              exit 0
+            fi
+            sleep 10
           done
-          echo "Objects erased: $total, failed: $failed."
-          if [ "$failed" -gt 0 ]; then
-            echo "::error::Some objects didn't erase; run the job again (it carries on where it stopped). The accounts are still there."
-            exit 1
-          fi
+          echo "::error::Objects still hold data after five passes; the accounts were not erased. Run the job again."
+          exit 1
 
       - name: Erase accounts and the database's rows
         run: |

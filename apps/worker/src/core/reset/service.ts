@@ -11,6 +11,13 @@ import { runBackup } from "../backup/service.ts";
 
 export type ResetEnv = Env & { RESET_TOKEN?: string };
 
+/**
+ * Whether a reset is under way (the job's secret is set). The app is then closed: every other
+ * request gets a 503, queued changes are dropped and scheduled jobs skip, so nothing is written
+ * between the backup and the last erase (people's data can't land after its kind was listed).
+ */
+export const resetting = (env: Env) => !!(env as ResetEnv).RESET_TOKEN;
+
 /** D1 tables a reset keeps (settings and bookkeeping, no one's data). */
 export const KEEP_TABLES = new Set(["d1_migrations", "app_settings", "alert_state"]);
 

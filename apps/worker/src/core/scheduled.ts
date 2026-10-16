@@ -2,6 +2,7 @@
 // alerts every run, plus jobs that modules or core schedule for certain hours.
 import type { ModuleDefinition } from "./module.ts";
 import { runAlerts } from "./alerts/service.ts";
+import { resetting } from "./reset/service.ts";
 
 export type ScheduledJob = {
   id: string;
@@ -12,6 +13,8 @@ export type ScheduledJob = {
 
 export function scheduledHandler(modules: readonly ModuleDefinition[], jobs: readonly ScheduledJob[] = []) {
   return async (controller: ScheduledController, env: Env, ctx: ExecutionContext) => {
+    // Nothing runs while a reset is erasing everything (no backup, alert or proposal mid-way).
+    if (resetting(env)) return;
     const now = new Date(controller.scheduledTime);
     ctx.waitUntil(runAlerts(env, modules, now).catch((err) => console.error("alerts: run failed", err)));
     for (const job of jobs) {

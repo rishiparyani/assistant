@@ -27,7 +27,7 @@ import { PublicShareInput } from "@assistant/shared";
 import { assistantOperations } from "./assistant/operations.ts";
 import { groupOperations } from "./groups/operations.ts";
 import { calendarFeed } from "./calendar/service.ts";
-import { resetRoutes } from "./reset/service.ts";
+import { resetRoutes, resetting } from "./reset/service.ts";
 
 /** The iPhone app (apps/ios/capacitor.config.ts `appId`). */
 const IOS_BUNDLE_ID = "in.gigspree.assistant";
@@ -77,6 +77,17 @@ export function createApp({ modules }: AppOptions) {
     c.set("moduleIds", ids);
     c.set("userCreated", userCreated);
     c.set("moduleSchemas", moduleSchemas);
+    await next();
+  });
+
+  // While the "Start over" job runs, the app is closed (see `resetting`): only the reset path
+  // and the health check answer.
+  app.use(async (c, next) => {
+    if (resetting(c.env) && !c.req.path.startsWith("/api/internal/reset") && c.req.path !== "/api/health")
+      return c.json(
+        { error: { code: "unavailable", message: "The app is being reset. Try again in a few minutes." } },
+        503,
+      );
     await next();
   });
 
