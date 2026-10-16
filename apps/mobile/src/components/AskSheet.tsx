@@ -2,17 +2,8 @@
 // the mock-up): a dark panel over the chat that only I see, as many messages as I like. It never
 // reads the chat. "Share to chat" puts one of its answers in the chat for everyone, once.
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { SAVE_TURN_PREFIX, type ChatItem, type ChatView, type CollectionView } from "@assistant/shared";
 import { Text, TextInput } from "@assistant/cards/native";
 import { isOffline, request } from "../api.ts";
@@ -39,7 +30,6 @@ export function AskSheet({
   onShared: () => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<ChatItem[] | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -123,150 +113,145 @@ export function AskSheet({
   const ink = { color: t.onInk };
   const soft = { color: t.onInk, opacity: 0.6 };
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <View style={[s.panel, { backgroundColor: t.ink, paddingBottom: insets.bottom + 12 }]}>
-          <View style={[s.grab, { backgroundColor: t.onInk }]} />
-          <View style={s.head}>
-            <Text style={[s.title, ink]}>Assistant · only you see this</Text>
-            <Text style={[s.about, soft]} numberOfLines={1}>
-              about {chatName}
-            </Text>
-          </View>
-          <ScrollView
-            ref={scroll}
-            style={s.list}
-            contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
-            onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
-            keyboardShouldPersistTaps="handled"
-          >
-            {items === null ? <ActivityIndicator color={t.onInk} /> : null}
-            {items?.length === 0 && !error ? (
-              <Text style={[s.small, soft]}>
-                Ask anything about your lists while you chat: dates, money, what you said yes to. Only you see
-                this; share an answer if the chat should.
+    <Sheet
+      open={open}
+      onClose={onClose}
+      tone="ink"
+      keyboard
+      padding={14}
+      gap={10}
+      accessibilityLabel="Ask the assistant"
+    >
+      <View style={s.head}>
+        <Text style={[s.title, ink]}>Assistant · only you see this</Text>
+        <Text style={[s.about, soft]} numberOfLines={1}>
+          about {chatName}
+        </Text>
+      </View>
+      <ScrollView
+        ref={scroll}
+        style={s.list}
+        contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
+        onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })}
+        keyboardShouldPersistTaps="handled"
+      >
+        {items === null ? <ActivityIndicator color={t.onInk} /> : null}
+        {items?.length === 0 && !error ? (
+          <Text style={[s.small, soft]}>
+            Ask anything about your lists while you chat: dates, money, what you said yes to. Only you see
+            this; share an answer if the chat should.
+          </Text>
+        ) : null}
+        {(items ?? []).map((item) => {
+          // A Save turn (hold a message → Save) shows as a short note, not its instructions.
+          if (item.role === "user" && item.text.startsWith(SAVE_TURN_PREFIX))
+            return (
+              <Text key={item.id} style={[s.small, soft]}>
+                You asked where to save a message.
               </Text>
-            ) : null}
-            {(items ?? []).map((item) => {
-              // A Save turn (hold a message → Save) shows as a short note, not its instructions.
-              if (item.role === "user" && item.text.startsWith(SAVE_TURN_PREFIX))
-                return (
-                  <Text key={item.id} style={[s.small, soft]}>
-                    You asked where to save a message.
+            );
+          if (item.role === "user")
+            return (
+              <View key={item.id} style={[s.bubble, s.mine, { backgroundColor: t.accent }]}>
+                <Text style={[s.text, { color: t.onAccent }]}>{item.text}</Text>
+              </View>
+            );
+          if (item.role === "live" && item.live)
+            return (
+              <View key={item.id} style={s.live}>
+                <LiveCard live={item.live} collections={getCollections} />
+              </View>
+            );
+          if (item.role === "card" && item.card)
+            return (
+              <View key={item.id} style={[s.card, { backgroundColor: t.cell }]}>
+                <Text style={[s.cardTitle, { color: t.accent }]}>{item.card.title}</Text>
+                {item.card.details.map((d) => (
+                  <Text key={d} style={[s.text, { color: t.fg }]}>
+                    {d}
                   </Text>
-                );
-              if (item.role === "user")
-                return (
-                  <View key={item.id} style={[s.bubble, s.mine, { backgroundColor: t.accent }]}>
-                    <Text style={[s.text, { color: t.onAccent }]}>{item.text}</Text>
+                ))}
+                {item.card.status === "waiting" ? (
+                  <View style={s.row}>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy}
+                      onPress={() => void answer(item.card!.action_id, "confirm")}
+                      style={[s.btn, s.grow, { backgroundColor: t.accent }]}
+                    >
+                      <Text style={[s.btnText, { color: t.onAccent }]}>Confirm</Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy}
+                      onPress={() => void answer(item.card!.action_id, "cancel")}
+                      style={[s.btn, { backgroundColor: t.fill }]}
+                    >
+                      <Text style={[s.btnText, { color: t.fg }]}>Not now</Text>
+                    </Pressable>
                   </View>
-                );
-              if (item.role === "live" && item.live)
-                return (
-                  <View key={item.id} style={s.live}>
-                    <LiveCard live={item.live} collections={getCollections} />
-                  </View>
-                );
-              if (item.role === "card" && item.card)
-                return (
-                  <View key={item.id} style={[s.card, { backgroundColor: t.cell }]}>
-                    <Text style={[s.cardTitle, { color: t.accent }]}>{item.card.title}</Text>
-                    {item.card.details.map((d) => (
-                      <Text key={d} style={[s.text, { color: t.fg }]}>
-                        {d}
-                      </Text>
-                    ))}
-                    {item.card.status === "waiting" ? (
-                      <View style={s.row}>
-                        <Pressable
-                          accessibilityRole="button"
-                          disabled={busy}
-                          onPress={() => void answer(item.card!.action_id, "confirm")}
-                          style={[s.btn, s.grow, { backgroundColor: t.accent }]}
-                        >
-                          <Text style={[s.btnText, { color: t.onAccent }]}>Confirm</Text>
-                        </Pressable>
-                        <Pressable
-                          accessibilityRole="button"
-                          disabled={busy}
-                          onPress={() => void answer(item.card!.action_id, "cancel")}
-                          style={[s.btn, { backgroundColor: t.fill }]}
-                        >
-                          <Text style={[s.btnText, { color: t.fg }]}>Not now</Text>
-                        </Pressable>
-                      </View>
-                    ) : (
-                      <Text style={[s.small, { color: t.fg2 }]}>
-                        {item.card.status === "done" ? "Done." : "Not done."}
-                        {item.card.result ? ` ${item.card.result}` : ""}
-                      </Text>
-                    )}
-                  </View>
-                );
-              if (item.role === "note")
-                return (
-                  <Text key={item.id} style={[s.small, soft]}>
-                    {item.text}
+                ) : (
+                  <Text style={[s.small, { color: t.fg2 }]}>
+                    {item.card.status === "done" ? "Done." : "Not done."}
+                    {item.card.result ? ` ${item.card.result}` : ""}
                   </Text>
-                );
-              const done = shared.has(item.id) || sharedAnswers.includes(item.id);
-              return (
-                <View key={item.id} style={s.answer}>
-                  <View style={[s.bubble, s.them, { backgroundColor: t.onInk }]}>
-                    <Text style={[s.text, { color: t.ink }]}>{item.text}</Text>
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={busy || done}
-                    onPress={() => void share(item)}
-                    hitSlop={8}
-                    style={[s.share, { borderColor: t.onInk, opacity: done ? 0.6 : 1 }]}
-                  >
-                    <Text style={[s.shareText, ink]}>{done ? "Shared ✓" : "Share to chat"}</Text>
-                  </Pressable>
-                </View>
-              );
-            })}
-            {busy && !shared.size ? <Text style={[s.small, soft]}>Thinking…</Text> : null}
-          </ScrollView>
-          {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
-          <View style={[s.box, { borderColor: t.onInk }]}>
-            <TextInput
-              value={text}
-              onChangeText={setText}
-              placeholder="Ask about your lists…"
-              placeholderTextColor={t.fg3}
-              multiline
-              maxLength={2000}
-              accessibilityLabel="Ask your assistant"
-              style={[s.input, ink]}
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Ask"
-              disabled={!text.trim() || busy}
-              onPress={() => void ask()}
-              hitSlop={6}
-              style={[s.send, { backgroundColor: t.accent, opacity: text.trim() && !busy ? 1 : 0.4 }]}
-            >
-              <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
-            </Pressable>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+                )}
+              </View>
+            );
+          if (item.role === "note")
+            return (
+              <Text key={item.id} style={[s.small, soft]}>
+                {item.text}
+              </Text>
+            );
+          const done = shared.has(item.id) || sharedAnswers.includes(item.id);
+          return (
+            <View key={item.id} style={s.answer}>
+              <View style={[s.bubble, s.them, { backgroundColor: t.onInk }]}>
+                <Text style={[s.text, { color: t.ink }]}>{item.text}</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                disabled={busy || done}
+                onPress={() => void share(item)}
+                hitSlop={8}
+                style={[s.share, { borderColor: t.onInk, opacity: done ? 0.6 : 1 }]}
+              >
+                <Text style={[s.shareText, ink]}>{done ? "Shared ✓" : "Share to chat"}</Text>
+              </Pressable>
+            </View>
+          );
+        })}
+        {busy && !shared.size ? <Text style={[s.small, soft]}>Thinking…</Text> : null}
+      </ScrollView>
+      {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
+      <View style={[s.box, { borderColor: t.onInk }]}>
+        <TextInput
+          value={text}
+          onChangeText={setText}
+          placeholder="Ask about your lists…"
+          placeholderTextColor={t.fg3}
+          multiline
+          maxLength={2000}
+          accessibilityLabel="Ask your assistant"
+          style={[s.input, ink]}
+        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Ask"
+          disabled={!text.trim() || busy}
+          onPress={() => void ask()}
+          hitSlop={6}
+          style={[s.send, { backgroundColor: t.accent, opacity: text.trim() && !busy ? 1 : 0.4 }]}
+        >
+          <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
+        </Pressable>
+      </View>
+    </Sheet>
   );
 }
 
 const s = StyleSheet.create({
-  scrim: { flex: 1, opacity: 0.6 },
-  panel: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 14, gap: 10, maxHeight: 640 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3, opacity: 0.3 },
   head: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },
   title: { fontSize: 15, fontWeight: "800" },
   about: { flexShrink: 1, fontSize: 12, fontWeight: "700" },

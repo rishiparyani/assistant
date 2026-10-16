@@ -1,8 +1,8 @@
 // Who's in a chat, and who its admins are (decision 2026-10-14 "A home for each chat", the
 // mock-up's chat settings): admins can make others admins, or members again; a chat keeps one.
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import type { GroupView } from "@assistant/shared";
 import { Text } from "@assistant/cards/native";
 import { isOffline, request } from "../api.ts";
@@ -22,7 +22,6 @@ export function PeopleSheet({
   onChanged: () => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const admin = chat.members.some((m) => m.user_id === myId && m.role === "owner");
@@ -46,72 +45,56 @@ export function PeopleSheet({
   };
 
   return (
-    <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 16 }]}>
-        <View style={[s.grab, { backgroundColor: t.fill2 }]} />
-        <View style={s.headRow}>
-          <Text style={[s.title, { color: t.fg }]}>{chat.name}</Text>
-          <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
-            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
-          </Pressable>
-        </View>
-        <Text style={[s.label, { color: t.fg2 }]}>PEOPLE</Text>
-        <ScrollView style={{ maxHeight: 420 }}>
-          <View style={[s.list, { backgroundColor: t.cell }]}>
-            {chat.members.map((m, i) => {
-              const isAdmin = m.role === "owner";
-              return (
-                <View
-                  key={m.user_id}
-                  style={[
-                    s.row,
-                    i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
-                  ]}
-                >
-                  <Text style={[s.name, { color: t.fg }]} numberOfLines={1}>
-                    {m.user_id === myId ? "You" : m.name}
-                  </Text>
-                  {isAdmin ? (
-                    <Text style={[s.badge, { backgroundColor: t.accentSoft, color: t.accent }]}>Admin</Text>
-                  ) : null}
-                  {admin && !chat.direct ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={isAdmin ? `Make ${m.name} a member` : `Make ${m.name} an admin`}
-                      disabled={busy !== null}
-                      onPress={() => void setRole(m.user_id, isAdmin ? "member" : "admin")}
-                      style={[s.btn, { backgroundColor: t.fill, opacity: busy === m.user_id ? 0.5 : 1 }]}
-                    >
-                      <Text style={[s.btnText, { color: t.fg }]}>
-                        {isAdmin ? "Make member" : "Make admin"}
-                      </Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
-        {note ? <Text style={[s.small, { color: t.danger }]}>{note}</Text> : null}
-        <Text style={[s.small, { color: t.fg2 }]}>
-          {chat.direct
-            ? "A chat for two has no admins: you both arrange its home."
-            : "Admins set up the chat’s home and its workflows, add people and make others admins. Everyone chats, answers, ticks and adds."}
-        </Text>
+    <Sheet open={open} onClose={onClose} accessibilityLabel="People in this chat">
+      <View style={s.headRow}>
+        <Text style={[s.title, { color: t.fg }]}>{chat.name}</Text>
+        <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
+          <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
+        </Pressable>
       </View>
-    </Modal>
+      <Text style={[s.label, { color: t.fg2 }]}>PEOPLE</Text>
+      <ScrollView style={{ maxHeight: 420 }}>
+        <View style={[s.list, { backgroundColor: t.cell }]}>
+          {chat.members.map((m, i) => {
+            const isAdmin = m.role === "owner";
+            return (
+              <View
+                key={m.user_id}
+                style={[s.row, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep }]}
+              >
+                <Text style={[s.name, { color: t.fg }]} numberOfLines={1}>
+                  {m.user_id === myId ? "You" : m.name}
+                </Text>
+                {isAdmin ? (
+                  <Text style={[s.badge, { backgroundColor: t.accentSoft, color: t.accent }]}>Admin</Text>
+                ) : null}
+                {admin && !chat.direct ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={isAdmin ? `Make ${m.name} a member` : `Make ${m.name} an admin`}
+                    disabled={busy !== null}
+                    onPress={() => void setRole(m.user_id, isAdmin ? "member" : "admin")}
+                    style={[s.btn, { backgroundColor: t.fill, opacity: busy === m.user_id ? 0.5 : 1 }]}
+                  >
+                    <Text style={[s.btnText, { color: t.fg }]}>{isAdmin ? "Make member" : "Make admin"}</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+      {note ? <Text style={[s.small, { color: t.danger }]}>{note}</Text> : null}
+      <Text style={[s.small, { color: t.fg2 }]}>
+        {chat.direct
+          ? "A chat for two has no admins: you both arrange its home."
+          : "Admins set up the chat’s home and its workflows, add people and make others admins. Everyone chats, answers, ticks and adds."}
+      </Text>
+    </Sheet>
   );
 }
 
 const s = StyleSheet.create({
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 12 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   headRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4, flexShrink: 1 },
   label: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8, paddingLeft: 4 },

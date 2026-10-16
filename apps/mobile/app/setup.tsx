@@ -5,7 +5,8 @@
 // through the same operations the assistant uses.
 // online-only: a setup lives on the server; nothing here is queued.
 import { useCallback, useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -281,172 +282,172 @@ export default function Setup() {
         </ScrollView>
       </View>
 
-      <Modal visible={!!editing} transparent animationType="slide" onRequestClose={() => setEditing(null)}>
-        <Pressable
-          style={[s.scrim, { backgroundColor: t.shadow }]}
-          onPress={() => setEditing(null)}
-          accessibilityLabel="Close"
+      <Sheet
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        tone="cell"
+        keyboard
+        gap={10}
+        accessibilityLabel="Field"
+      >
+        <Text style={[s.label, { color: t.fg2 }]}>
+          {editing === "new" ? "New field" : "Change the field"}
+        </Text>
+        <TextInput
+          accessibilityLabel="Field name"
+          placeholder="Field name"
+          placeholderTextColor={t.fg2}
+          value={draft.name}
+          onChangeText={(name) => setDraft((d) => ({ ...d, name }))}
+          style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
         />
-        <View style={[s.sheet, { backgroundColor: t.cell, paddingBottom: insets.bottom + 12 }]}>
-          <View style={[s.grab, { backgroundColor: t.fill2 }]} />
-          <Text style={[s.label, { color: t.fg2 }]}>
-            {editing === "new" ? "New field" : "Change the field"}
+        {editing === "new" ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Type: ${TYPE_WORDS[draft.type]}`}
+            onPress={() => setPicking(true)}
+            style={[s.input, s.typeRow, { backgroundColor: t.fill, borderColor: t.sep }]}
+          >
+            <Text style={{ color: t.fg, fontSize: 16 }}>{TYPE_WORDS[draft.type]}</Text>
+            <Text style={{ color: t.accent, fontWeight: "700" }}>Change ▾</Text>
+          </Pressable>
+        ) : (
+          <Text style={[s.rowSub, { color: t.fg2 }]}>
+            {TYPE_WORDS[draft.type]} · a field keeps its kind; ask the chat to change it
           </Text>
+        )}
+        {draft.type === "choice" || draft.type === "multi_choice" ? (
           <TextInput
-            accessibilityLabel="Field name"
-            placeholder="Field name"
+            accessibilityLabel="Choices, separated by commas"
+            placeholder="Choices, separated by commas"
             placeholderTextColor={t.fg2}
-            value={draft.name}
-            onChangeText={(name) => setDraft((d) => ({ ...d, name }))}
+            value={draft.choices}
+            onChangeText={(choices) => setDraft((d) => ({ ...d, choices }))}
             style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
           />
-          {editing === "new" ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Type: ${TYPE_WORDS[draft.type]}`}
-              onPress={() => setPicking(true)}
-              style={[s.input, s.typeRow, { backgroundColor: t.fill, borderColor: t.sep }]}
-            >
-              <Text style={{ color: t.fg, fontSize: 16 }}>{TYPE_WORDS[draft.type]}</Text>
-              <Text style={{ color: t.accent, fontWeight: "700" }}>Change ▾</Text>
-            </Pressable>
-          ) : (
-            <Text style={[s.rowSub, { color: t.fg2 }]}>
-              {TYPE_WORDS[draft.type]} · a field keeps its kind; ask the chat to change it
-            </Text>
-          )}
-          {draft.type === "choice" || draft.type === "multi_choice" ? (
-            <TextInput
-              accessibilityLabel="Choices, separated by commas"
-              placeholder="Choices, separated by commas"
-              placeholderTextColor={t.fg2}
-              value={draft.choices}
-              onChangeText={(choices) => setDraft((d) => ({ ...d, choices }))}
-              style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
-            />
-          ) : null}
-          {draft.type === "link" && editing === "new" ? (
-            <TextInput
-              accessibilityLabel="Links to which list"
-              placeholder="Links to which list (name)"
-              placeholderTextColor={t.fg2}
-              value={draft.target}
-              onChangeText={(target) => setDraft((d) => ({ ...d, target }))}
-              style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
-            />
-          ) : null}
-          {["number", "money", "date", "text", "boolean"].includes(draft.type) ? (
-            <TextInput
-              accessibilityLabel="Formula (optional)"
-              placeholder="Formula, e.g. {Fee} - {Paid} (optional)"
-              placeholderTextColor={t.fg2}
-              value={draft.formula}
-              onChangeText={(formula) => setDraft((d) => ({ ...d, formula }))}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
-            />
-          ) : null}
-          <View style={s.typeRow}>
-            <Text style={[s.rowSub, { color: t.fg }]}>Required</Text>
-            <Switch
-              accessibilityLabel="Required"
-              value={draft.required}
-              onValueChange={(required) => setDraft((d) => ({ ...d, required }))}
-              trackColor={{ true: t.accent, false: t.fill2 }}
-            />
-          </View>
-          <View style={s.actions}>
-            {editing && editing !== "new" && c && !isTitle(editing) ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  const f = editing;
-                  setEditing(null);
-                  setConfirmRemove({
-                    what: `the field “${f.name}” (its values go with it; undoable from Recently deleted is not; the chat can undo)`,
-                    run: async () => {
-                      await run(
-                        () => request("DELETE", `/api/collections/${enc(c.id)}/fields/${enc(f.id)}`),
-                        `${f.name} removed.`,
-                      );
-                    },
-                  });
-                }}
-                style={[s.secondary, { borderColor: t.sep }]}
-              >
-                <Text style={[s.btnText, { color: t.danger }]}>Remove</Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy || !draft.name.trim()}
-              onPress={() => void saveField()}
-              style={[
-                s.primary,
-                s.grow,
-                { backgroundColor: t.accent, opacity: busy || !draft.name.trim() ? 0.5 : 1 },
-              ]}
-            >
-              <Text style={[s.btnText, { color: t.onAccent }]}>{editing === "new" ? "Add" : "Save"}</Text>
-            </Pressable>
-          </View>
+        ) : null}
+        {draft.type === "link" && editing === "new" ? (
+          <TextInput
+            accessibilityLabel="Links to which list"
+            placeholder="Links to which list (name)"
+            placeholderTextColor={t.fg2}
+            value={draft.target}
+            onChangeText={(target) => setDraft((d) => ({ ...d, target }))}
+            style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
+          />
+        ) : null}
+        {["number", "money", "date", "text", "boolean"].includes(draft.type) ? (
+          <TextInput
+            accessibilityLabel="Formula (optional)"
+            placeholder="Formula, e.g. {Fee} - {Paid} (optional)"
+            placeholderTextColor={t.fg2}
+            value={draft.formula}
+            onChangeText={(formula) => setDraft((d) => ({ ...d, formula }))}
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={[s.input, { backgroundColor: t.fill, color: t.fg, borderColor: t.sep }]}
+          />
+        ) : null}
+        <View style={s.typeRow}>
+          <Text style={[s.rowSub, { color: t.fg }]}>Required</Text>
+          <Switch
+            accessibilityLabel="Required"
+            value={draft.required}
+            onValueChange={(required) => setDraft((d) => ({ ...d, required }))}
+            trackColor={{ true: t.accent, false: t.fill2 }}
+          />
         </View>
-        <Modal visible={picking} transparent animationType="fade" onRequestClose={() => setPicking(false)}>
-          <Pressable style={[s.scrim, { backgroundColor: t.shadow }]} onPress={() => setPicking(false)} />
-          <View style={[s.picker, { backgroundColor: t.cell }]}>
-            {FIELD_TYPES.map((type) => (
-              <Pressable
-                key={type}
-                accessibilityRole="button"
-                accessibilityState={{ selected: draft.type === type }}
-                onPress={() => {
-                  setDraft((d) => ({ ...d, type }));
-                  setPicking(false);
-                }}
-                style={[s.choice, draft.type === type ? { backgroundColor: t.fill } : null]}
-              >
-                <Text style={{ color: t.fg, fontSize: 16, fontWeight: draft.type === type ? "800" : "500" }}>
-                  {TYPE_WORDS[type]}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </Modal>
-      </Modal>
-
-      <Modal
-        visible={!!confirmRemove}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setConfirmRemove(null)}
-      >
-        <Pressable style={[s.scrim, { backgroundColor: t.shadow }]} onPress={() => setConfirmRemove(null)} />
-        <View style={[s.picker, { backgroundColor: t.cell, gap: 10 }]}>
-          <Text style={[s.rowTitle, { color: t.fg }]}>Remove {confirmRemove?.what}?</Text>
-          <View style={s.actions}>
+        <View style={s.actions}>
+          {editing && editing !== "new" && c && !isTitle(editing) ? (
             <Pressable
               accessibilityRole="button"
-              onPress={() => setConfirmRemove(null)}
+              onPress={() => {
+                const f = editing;
+                setEditing(null);
+                setConfirmRemove({
+                  what: `the field “${f.name}” (its values go with it; undoable from Recently deleted is not; the chat can undo)`,
+                  run: async () => {
+                    await run(
+                      () => request("DELETE", `/api/collections/${enc(c.id)}/fields/${enc(f.id)}`),
+                      `${f.name} removed.`,
+                    );
+                  },
+                });
+              }}
               style={[s.secondary, { borderColor: t.sep }]}
             >
-              <Text style={[s.btnText, { color: t.fg }]}>Keep</Text>
+              <Text style={[s.btnText, { color: t.danger }]}>Remove</Text>
             </Pressable>
-            <Pressable
-              accessibilityRole="button"
-              disabled={busy}
-              onPress={() => {
-                const r = confirmRemove;
-                setConfirmRemove(null);
-                void r?.run();
-              }}
-              style={[s.primary, s.grow, { backgroundColor: t.danger }]}
-            >
-              <Text style={[s.btnText, { color: t.onAccent }]}>Remove</Text>
-            </Pressable>
-          </View>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy || !draft.name.trim()}
+            onPress={() => void saveField()}
+            style={[
+              s.primary,
+              s.grow,
+              { backgroundColor: t.accent, opacity: busy || !draft.name.trim() ? 0.5 : 1 },
+            ]}
+          >
+            <Text style={[s.btnText, { color: t.onAccent }]}>{editing === "new" ? "Add" : "Save"}</Text>
+          </Pressable>
         </View>
-      </Modal>
+      </Sheet>
+      <Sheet
+        open={picking}
+        onClose={() => setPicking(false)}
+        tone="cell"
+        gap={4}
+        accessibilityLabel="Kind of field"
+      >
+        {FIELD_TYPES.map((type) => (
+          <Pressable
+            key={type}
+            accessibilityRole="button"
+            accessibilityState={{ selected: draft.type === type }}
+            onPress={() => {
+              setDraft((d) => ({ ...d, type }));
+              setPicking(false);
+            }}
+            style={[s.choice, draft.type === type ? { backgroundColor: t.fill } : null]}
+          >
+            <Text style={{ color: t.fg, fontSize: 16, fontWeight: draft.type === type ? "800" : "500" }}>
+              {TYPE_WORDS[type]}
+            </Text>
+          </Pressable>
+        ))}
+      </Sheet>
+
+      <Sheet
+        open={!!confirmRemove}
+        onClose={() => setConfirmRemove(null)}
+        tone="cell"
+        gap={10}
+        accessibilityLabel="Remove?"
+      >
+        <Text style={[s.rowTitle, { color: t.fg }]}>Remove {confirmRemove?.what}?</Text>
+        <View style={s.actions}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setConfirmRemove(null)}
+            style={[s.secondary, { borderColor: t.sep }]}
+          >
+            <Text style={[s.btnText, { color: t.fg }]}>Keep</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => {
+              const r = confirmRemove;
+              setConfirmRemove(null);
+              void r?.run();
+            }}
+            style={[s.primary, s.grow, { backgroundColor: t.danger }]}
+          >
+            <Text style={[s.btnText, { color: t.onAccent }]}>Remove</Text>
+          </Pressable>
+        </View>
+      </Sheet>
     </View>
   );
 }
@@ -489,9 +490,6 @@ const s = StyleSheet.create({
   grow: { flex: 1, minWidth: 0 },
   rowTitle: { fontSize: 16, fontWeight: "700" },
   rowSub: { fontSize: 13.5, lineHeight: 19 },
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 10 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   label: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
   input: {
     minHeight: 44,

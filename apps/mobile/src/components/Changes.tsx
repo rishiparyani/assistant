@@ -3,9 +3,10 @@
 // (inline: just what that reply did) or as a sheet with the recent list.
 // online-only: the log and Undo live on the server.
 import { useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Text } from "@assistant/cards/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
+import { Sheet } from "@/components/Sheet";
+import { Tap, Text, motion } from "@assistant/cards/native";
 import type { HistoryItem } from "@assistant/shared";
 import { ApiError, isOffline, request } from "../api.ts";
 import { radius, useTheme } from "../theme.ts";
@@ -31,7 +32,6 @@ export function Changes({
   onClose?: () => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<HistoryItem[]>(given ?? []);
   const [note, setNote] = useState(given ? "" : "Loading…");
   const [busy, setBusy] = useState<string | null>(null);
@@ -221,32 +221,48 @@ export function Changes({
     </View>
   ));
 
+  // Under a reply: rises in, and goes with a tap on × (or on its own with the next message).
   if (inline)
     return (
-      <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
-        <Text style={[s.title, { color: t.accent }]}>What changed</Text>
+      <Animated.View
+        entering={FadeInDown.duration(motion.enter).springify().damping(18)}
+        exiting={FadeOutDown.duration(motion.fade)}
+        style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}
+      >
+        <View style={s.inlineHead}>
+          <Text style={[s.title, { color: t.accent }]}>What changed</Text>
+          {onClose ? (
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Hide"
+              onPress={onClose}
+              hitSlop={10}
+              scale={0.85}
+              style={s.hide}
+            >
+              <Text style={{ color: t.fg2, fontSize: 16, lineHeight: 18, fontWeight: "700" }}>×</Text>
+            </Tap>
+          ) : null}
+        </View>
         {rows}
         {note ? <Text style={[s.line, { color: t.danger }]}>{note}</Text> : null}
-      </View>
+      </Animated.View>
     );
   return (
-    <Modal transparent animationType="slide" visible onRequestClose={onClose}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={s.backdrop} />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 }]}>
-        <View style={s.sheetHead}>
-          <Text style={[s.sheetTitle, { color: t.fg }]}>What changed</Text>
-          <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
-            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
-          </Pressable>
-        </View>
-        <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ paddingBottom: 8 }}>
-          <View style={[s.list, { backgroundColor: t.cell, borderColor: t.hair }]}>{rows}</View>
-          {note ? (
-            <Text style={[s.line, { color: t.fg2, textAlign: "center", padding: 12 }]}>{note}</Text>
-          ) : null}
-        </ScrollView>
+    <Sheet open onClose={onClose ?? (() => undefined)} gap={10} accessibilityLabel="What changed">
+      <View style={s.sheetHead}>
+        <Text style={[s.sheetTitle, { color: t.fg }]}>What changed</Text>
+        <Pressable accessibilityRole="button" onPress={onClose} hitSlop={10}>
+          <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
+        </Pressable>
       </View>
-    </Modal>
+      <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ paddingBottom: 8 }}>
+        <View style={[s.list, { backgroundColor: t.cell, borderColor: t.hair }]}>{rows}</View>
+        {note ? (
+          <Text style={[s.line, { color: t.fg2, textAlign: "center", padding: 12 }]}>{note}</Text>
+        ) : null}
+      </ScrollView>
+    </Sheet>
   );
 }
 
@@ -277,6 +293,15 @@ const s = StyleSheet.create({
     paddingVertical: 10,
   },
   title: { fontSize: 12, fontWeight: "700", marginBottom: 4 },
+  inlineHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  hide: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: -6,
+    marginRight: -6,
+  },
   item: { paddingVertical: 8, gap: 8, borderTopWidth: StyleSheet.hairlineWidth },
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   ask: { borderRadius: 16, padding: 12, gap: 8 },

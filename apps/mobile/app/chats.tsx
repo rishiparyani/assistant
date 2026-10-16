@@ -6,13 +6,13 @@ import { useRouter } from "expo-router";
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   View,
 } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { isOffline } from "@/api";
@@ -180,7 +180,6 @@ function NewChat({
   onMade: (id: string) => void;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [people, setPeople] = useState<ChatPerson[] | null>(null);
   const [picked, setPicked] = useState<string[]>([]);
   const [name, setName] = useState("");
@@ -220,87 +219,79 @@ function NewChat({
   };
 
   return (
-    <Modal visible={open} animationType="slide" transparent onShow={load} onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <View style={[s.sheet, { backgroundColor: t.page, paddingBottom: insets.bottom + 16 }]}>
-        <View style={[s.grab, { backgroundColor: t.fill2 }]} />
-        <Text style={[s.sheetTitle, { color: t.fg }]}>New chat</Text>
-        <Text style={[s.emptyText, { color: t.fg2 }]}>
-          With people you know here: people you share with, who share with you, or who are in your groups.
-        </Text>
-        <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: 6 }}>
-          {people === null ? <ActivityIndicator color={t.fg3} /> : null}
-          {people?.length === 0 && !error ? (
-            <Text style={[s.emptyText, { color: t.fg2 }]}>
-              Nobody yet. Share a card with someone first (from the home: hold a card, then Share); once they
-              join, you can chat with them.
-            </Text>
-          ) : null}
-          {people?.map((p) => {
-            const on = picked.includes(p.user_id);
-            return (
-              <Pressable
-                key={p.user_id}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: on }}
-                onPress={() => setPicked((x) => (on ? x.filter((y) => y !== p.user_id) : [...x, p.user_id]))}
-                style={[s.person, { backgroundColor: on ? t.accentSoft : t.cell }]}
-              >
-                <Avatar name={p.name} size={36} />
-                <Text style={[s.personName, { color: t.fg }]} numberOfLines={1}>
-                  {p.name}
-                </Text>
-                <View
-                  style={[
-                    s.check,
-                    { borderColor: on ? t.accent : t.fill2, backgroundColor: on ? t.accent : t.cell },
-                  ]}
-                >
-                  {on ? <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 13 }}>✓</Text> : null}
-                </View>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-        {group ? (
-          <TextInput
-            value={name}
-            onChangeText={setName}
-            placeholder="Group name, e.g. Band"
-            placeholderTextColor={t.fg3}
-            maxLength={60}
-            style={[s.input, { backgroundColor: t.cell, color: t.fg }]}
-          />
-        ) : null}
-        {error ? <Text style={[s.emptyText, { color: t.danger }]}>{error}</Text> : null}
-        <Pressable
-          accessibilityRole="button"
-          disabled={busy || !picked.length || (group && !name.trim())}
-          onPress={() => void go()}
-          style={[
-            s.go,
-            {
-              backgroundColor: t.accent,
-              opacity: busy || !picked.length || (group && !name.trim()) ? 0.5 : 1,
-            },
-          ]}
-        >
-          <Text style={[s.goText, { color: t.onAccent }]}>
-            {busy
-              ? "Starting…"
-              : group
-                ? `Make the group (${picked.length + 1} people)`
-                : picked.length
-                  ? `Chat with ${names.get(picked[0]!) ?? ""}`
-                  : "Pick someone"}
+    <Sheet open={open} onClose={onClose} onShow={load} accessibilityLabel="New chat">
+      <Text style={[s.sheetTitle, { color: t.fg }]}>New chat</Text>
+      <Text style={[s.emptyText, { color: t.fg2 }]}>
+        With people you know here: people you share with, who share with you, or who are in your groups.
+      </Text>
+      <ScrollView style={{ maxHeight: 320 }} contentContainerStyle={{ gap: 6 }}>
+        {people === null ? <ActivityIndicator color={t.fg3} /> : null}
+        {people?.length === 0 && !error ? (
+          <Text style={[s.emptyText, { color: t.fg2 }]}>
+            Nobody yet. Share a card with someone first (from the home: hold a card, then Share); once they
+            join, you can chat with them.
           </Text>
-        </Pressable>
-      </View>
-    </Modal>
+        ) : null}
+        {people?.map((p) => {
+          const on = picked.includes(p.user_id);
+          return (
+            <Pressable
+              key={p.user_id}
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: on }}
+              onPress={() => setPicked((x) => (on ? x.filter((y) => y !== p.user_id) : [...x, p.user_id]))}
+              style={[s.person, { backgroundColor: on ? t.accentSoft : t.cell }]}
+            >
+              <Avatar name={p.name} size={36} />
+              <Text style={[s.personName, { color: t.fg }]} numberOfLines={1}>
+                {p.name}
+              </Text>
+              <View
+                style={[
+                  s.check,
+                  { borderColor: on ? t.accent : t.fill2, backgroundColor: on ? t.accent : t.cell },
+                ]}
+              >
+                {on ? <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 13 }}>✓</Text> : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+      {group ? (
+        <TextInput
+          value={name}
+          onChangeText={setName}
+          placeholder="Group name, e.g. Band"
+          placeholderTextColor={t.fg3}
+          maxLength={60}
+          style={[s.input, { backgroundColor: t.cell, color: t.fg }]}
+        />
+      ) : null}
+      {error ? <Text style={[s.emptyText, { color: t.danger }]}>{error}</Text> : null}
+      <Pressable
+        accessibilityRole="button"
+        disabled={busy || !picked.length || (group && !name.trim())}
+        onPress={() => void go()}
+        style={[
+          s.go,
+          {
+            backgroundColor: t.accent,
+            opacity: busy || !picked.length || (group && !name.trim()) ? 0.5 : 1,
+          },
+        ]}
+      >
+        <Text style={[s.goText, { color: t.onAccent }]}>
+          {busy
+            ? "Starting…"
+            : group
+              ? `Make the group (${picked.length + 1} people)`
+              : picked.length
+                ? `Chat with ${names.get(picked[0]!) ?? ""}`
+                : "Pick someone"}
+        </Text>
+      </Pressable>
+    </Sheet>
   );
 }
 
@@ -352,9 +343,6 @@ const s = StyleSheet.create({
   empty: { borderRadius: radius.card, padding: 18, gap: 6, marginTop: 4 },
   emptyTitle: { fontSize: 17, fontWeight: "800" },
   emptyText: { fontSize: 14, lineHeight: 20 },
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 12 },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   sheetTitle: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
   person: {
     flexDirection: "row",

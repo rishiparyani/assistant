@@ -10,10 +10,12 @@ The comparison the owner asked for (decision 2026-10-15 "Try the small frontier 
 | GPT-5.4 mini                              | 57/60     | 94/102     | 27/33     | 2.4 s  | 7.9 s   | ≈ ₹0.22              | none³    |
 | GPT-5.4 nano                              | 50/60     | 94/102     | 28/33     | 2.7 s  | 8.2 s   | ≈ ₹0.08              | none³    |
 | Gemini 3.1 Flash-Lite (free tier)⁴        | 45/60     | 64/102     | 21/33     | 5.6 s  | 38.4 s  | ≈ ₹0.15 (paid rates) | low      |
+| GPT-6 Luna (later the same day)⁵          | 58/60     | 103/105    | 33/33     | 4.7 s  | 11.9 s  | ≈ ₹0.57              | low      |
 
 ¹ A message is 2 to 3 model calls; costs at the makers' list prices with their cache rates, from the runs' own token counts. Haiku's two runs were priced before the cache fix (₹5.38 and ₹9.13 a run printed; about ₹3.5 and ₹6 at the cache rates); nano ₹2.20 and ₹4.06 a run; mini ₹5.94 and ₹9.10.
 ² GLM's hard run hit the free allowance halfway; those are not the model's misses.
 ³ On `/v1/chat/completions` OpenAI refuses function tools together with any `reasoning_effort` but `none` (a 400 naming `reasoning_effort`), so both GPT models answered without thinking first. Their Responses API would allow it; not tried.
+⁵ Run against the 35-case hard suite (one case more than the others); `docs/scorecard/2026-10-15-gpt6.md`. GPT-6.1 Sol (setups level) could not run: a 400 on `reasoning_effort` with every value and with none.
 ⁴ Gemini ran on the free tier (no billing on the project yet), which rate-limits at about ten calls a minute: even paced, some calls were refused and count as misses, and one case took 38 s waiting. Its numbers are a floor, not a measure; and the free tier can't be used for real people's messages (Google may train on them).
 
 ## What each got wrong (three runs each)

@@ -8,10 +8,23 @@ export function ulid(now: number = Date.now()): string {
     throw new RangeError(`Invalid ULID time: ${now}`);
   let time = "";
   for (let t = now, i = 0; i < 10; i++, t = Math.floor(t / 32)) time = ALPHABET[t % 32] + time;
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
   let random = "";
-  for (const b of bytes) random += ALPHABET[b % 32];
+  for (const b of randomBytes(16)) random += ALPHABET[b % 32];
   return time + random;
+}
+
+/**
+ * 16 random bytes. The Web Crypto API where there is one (browsers, Workers, Node); the phone's
+ * JavaScript engine (Hermes) has no `crypto` global, and an id made on the device only needs to
+ * be unique, not secret, so Math.random stands in there (the phone's Expenses list crashed on
+ * this, 2026-10-15: "Property 'crypto' doesn't exist").
+ */
+function randomBytes(n: number): Uint8Array {
+  const out = new Uint8Array(n);
+  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+  if (c?.getRandomValues) return c.getRandomValues(out);
+  for (let i = 0; i < n; i++) out[i] = Math.floor(Math.random() * 256);
+  return out;
 }
 
 export function isUlid(value: unknown): value is string {

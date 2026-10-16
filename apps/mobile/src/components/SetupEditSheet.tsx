@@ -3,8 +3,8 @@
 // retyped, choices fixed, a field added or dropped, then Confirm runs the changed version.
 // The form lives inside the chat's flow, so there's no builder in the main screens.
 import { useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Sheet } from "@/components/Sheet";
 import { FIELD_TYPES, type FieldType } from "@assistant/shared";
 import { Text, TextInput } from "@assistant/cards/native";
 import { useTheme } from "../theme.ts";
@@ -86,7 +86,6 @@ export function SetupEditSheet({
   busy: boolean;
 }) {
   const { t } = useTheme();
-  const insets = useSafeAreaInsets();
   const [lists, setLists] = useState<DraftList[]>(() => (args ? (draftOf(tool, args) ?? []) : []));
   const [picking, setPicking] = useState<{ list: number; field: number } | null>(null);
   if (!args) return null;
@@ -101,14 +100,8 @@ export function SetupEditSheet({
   const oneField = tool === "add_field";
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable
-        style={[s.scrim, { backgroundColor: t.shadow }]}
-        onPress={onClose}
-        accessibilityLabel="Close"
-      />
-      <View style={[s.sheet, { backgroundColor: t.cell, paddingBottom: insets.bottom + 12 }]}>
-        <View style={[s.grab, { backgroundColor: t.fill2 }]} />
+    <>
+      <Sheet open onClose={onClose} tone="cell" keyboard gap={10} accessibilityLabel="Change the setup">
         <Text style={[s.label, { color: t.fg2 }]}>Change it, then confirm</Text>
         <ScrollView style={s.scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={s.body}>
           {lists.map((c, i) => (
@@ -243,39 +236,39 @@ export function SetupEditSheet({
             <Text style={[s.primaryText, { color: t.onAccent }]}>Confirm with changes</Text>
           </Pressable>
         </View>
-      </View>
-      <Modal visible={!!picking} transparent animationType="fade" onRequestClose={() => setPicking(null)}>
-        <Pressable style={[s.scrim, { backgroundColor: t.shadow }]} onPress={() => setPicking(null)} />
-        <View style={[s.picker, { backgroundColor: t.cell }]}>
-          {FIELD_TYPES.map((type) => {
-            const on = picking ? lists[picking.list]?.fields[picking.field]?.type === type : false;
-            return (
-              <Pressable
-                key={type}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                onPress={() => {
-                  if (picking) setField(picking.list, picking.field, { type });
-                  setPicking(null);
-                }}
-                style={[s.choice, on ? { backgroundColor: t.fill } : null]}
-              >
-                <Text style={{ color: t.fg, fontSize: 16, fontWeight: on ? "800" : "500" }}>
-                  {TYPE_WORDS[type]}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      </Modal>
-    </Modal>
+      </Sheet>
+      <Sheet
+        open={!!picking}
+        onClose={() => setPicking(null)}
+        tone="cell"
+        gap={4}
+        accessibilityLabel="Kind of field"
+      >
+        {FIELD_TYPES.map((type) => {
+          const on = picking ? lists[picking.list]?.fields[picking.field]?.type === type : false;
+          return (
+            <Pressable
+              key={type}
+              accessibilityRole="button"
+              accessibilityState={{ selected: on }}
+              onPress={() => {
+                if (picking) setField(picking.list, picking.field, { type });
+                setPicking(null);
+              }}
+              style={[s.choice, on ? { backgroundColor: t.fill } : null]}
+            >
+              <Text style={{ color: t.fg, fontSize: 16, fontWeight: on ? "800" : "500" }}>
+                {TYPE_WORDS[type]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </Sheet>
+    </>
   );
 }
 
 const s = StyleSheet.create({
-  scrim: { flex: 1, opacity: 0.6 },
-  sheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 16, gap: 10, maxHeight: "88%" },
-  grab: { alignSelf: "center", width: 40, height: 5, borderRadius: 3 },
   label: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
   scroll: { flexGrow: 0 },
   body: { gap: 12, paddingBottom: 8 },

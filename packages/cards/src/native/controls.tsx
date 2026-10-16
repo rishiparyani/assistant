@@ -4,6 +4,7 @@
 // goes through the outbox, so it works offline.
 import { useState } from "react";
 import { Pressable, Switch, View, StyleSheet, type LayoutChangeEvent } from "react-native";
+import { Tap } from "./press.tsx";
 import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { FieldView, StoredValue } from "@assistant/shared";
@@ -98,12 +99,13 @@ function Chips({ value, field, colour, onSet, label }: ControlProps) {
       {choices.slice(0, 6).map((c) => {
         const on = value === c;
         return (
-          <Pressable
+          <Tap
             key={c}
             accessibilityRole="radio"
             accessibilityState={{ selected: on }}
             accessibilityLabel={`${label}: ${c}`}
             hitSlop={SLOP}
+            scale={0.94}
             onPress={() => {
               tap();
               onSet(on ? null : c);
@@ -113,7 +115,7 @@ function Chips({ value, field, colour, onSet, label }: ControlProps) {
             <Text style={[s.chipText, { color: on ? t.onAccent : t.fg }]} numberOfLines={1}>
               {c}
             </Text>
-          </Pressable>
+          </Tap>
         );
       })}
     </View>
@@ -132,27 +134,29 @@ function Stepper({ value, control, colour, onSet, label }: ControlProps) {
   };
   return (
     <View style={[s.stepper, { backgroundColor: t.fill }]}>
-      <Pressable
+      <Tap
         accessibilityRole="button"
         accessibilityLabel={`${label}: less`}
         hitSlop={SLOP}
+        scale={0.85}
         onPress={go(-step)}
         style={s.stepBtn}
       >
         <Text style={[s.stepSign, { color: colour }]}>−</Text>
-      </Pressable>
+      </Tap>
       <Text style={[s.stepValue, { color: t.fg }]} accessibilityLabel={`${label}: ${n}`}>
         {n}
       </Text>
-      <Pressable
+      <Tap
         accessibilityRole="button"
         accessibilityLabel={`${label}: more`}
         hitSlop={SLOP}
+        scale={0.85}
         onPress={go(step)}
         style={s.stepBtn}
       >
         <Text style={[s.stepSign, { color: colour }]}>+</Text>
-      </Pressable>
+      </Tap>
     </View>
   );
 }
@@ -224,11 +228,12 @@ function Button({ value, control, colour, onSet, label }: ControlProps) {
   const { t } = useTheme();
   const done = value === control.value;
   return (
-    <Pressable
+    <Tap
       accessibilityRole="button"
       accessibilityLabel={`${control.label}: ${label}`}
       accessibilityState={{ selected: done }}
       hitSlop={SLOP}
+      scale={0.94}
       onPress={() => {
         tap();
         onSet(control.value ?? null);
@@ -238,7 +243,7 @@ function Button({ value, control, colour, onSet, label }: ControlProps) {
       <Text style={[s.buttonText, { color: done ? t.fg2 : t.onAccent }]} numberOfLines={1}>
         {done ? `✓ ${control.label}` : control.label}
       </Text>
-    </Pressable>
+    </Tap>
   );
 }
 

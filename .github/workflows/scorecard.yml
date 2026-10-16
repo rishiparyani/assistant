@@ -28,11 +28,11 @@ on:
         required: false
         default: "1"
       model:
-        description: "Everyday model to try instead of the live one (an id from core/assistant/models.ts, e.g. @cf/zai-org/glm-4.7-flash, gpt-oss-120b, gpt-5.4-nano, gemini-3.1-flash-lite; empty: the live one, claude-haiku-5-5)"
+        description: "Everyday model to try instead of the live one (an id from core/assistant/models.ts, e.g. @cf/zai-org/glm-4.7-flash, gpt-oss-120b, gpt-6-luna, gpt-5.4-nano, gemini-3.1-flash-lite; empty: the live one, claude-haiku-5-5)"
         required: false
         default: ""
       setup_model:
-        description: "Setups model to try (level 2; an id from models.ts, e.g. gpt-5.4, gemini-3.1-pro-preview, gemini-3.6-flash; @cf/moonshotai/kimi-k2.6 needs paid_gateway; empty: the live one, claude-sonnet-5-5)"
+        description: "Setups model to try (level 2; an id from models.ts, e.g. gpt-6.1-sol, gpt-5.4, gemini-3.1-pro-preview, gemini-3.6-flash; @cf/moonshotai/kimi-k2.6 needs paid_gateway; empty: the live one, claude-sonnet-5-5)"
         required: false
         default: ""
 

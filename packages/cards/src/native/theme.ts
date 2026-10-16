@@ -1,6 +1,6 @@
 // Design tokens (docs/design/home-first.md §3). Light and dark are both first class; every
 // colour in the app comes from here. Collection colours are picked when a collection is made.
-import { useColorScheme } from "react-native";
+import { useColorScheme, type TextStyle } from "react-native";
 
 export const light = {
   // A warm off-white ground (decision 2026-10-13 "A warmer home"), white cards on it.
@@ -106,5 +106,57 @@ export function colourFor(name: string): CollectionColour {
   return "neutral";
 }
 
-export const radius = { card: 22, sheet: 16, control: 12, pill: 999 };
+export const radius = { card: 22, sheet: 26, control: 12, pill: 999 };
 export const space = (n: number) => n * 4;
+
+/**
+ * Type scale (decision 2026-10-15 "Feel: the ChatGPT bar"): one set of sizes, weights and line
+ * heights for the whole app and every card. Screens and cards name a step, never a size.
+ */
+export const type = {
+  /** The one big title of a screen ("My day"). */
+  display: { fontSize: 30, lineHeight: 34, fontWeight: "800", letterSpacing: -0.8 },
+  /** A sheet's or page's title. */
+  title: { fontSize: 22, lineHeight: 26, fontWeight: "800", letterSpacing: -0.5 },
+  /** A card's or section's heading. */
+  heading: { fontSize: 17, lineHeight: 22, fontWeight: "700", letterSpacing: -0.2 },
+  /** Messages, rows, inputs: the reading size (never under 16 in an input). */
+  body: { fontSize: 16, lineHeight: 22, fontWeight: "400" },
+  /** Dense rows and secondary lines. */
+  small: { fontSize: 15, lineHeight: 20, fontWeight: "400" },
+  /** Buttons, chips, tabs. */
+  label: { fontSize: 15, lineHeight: 18, fontWeight: "700" },
+  /** Captions, times, counts. */
+  caption: { fontSize: 12.5, lineHeight: 16, fontWeight: "600" },
+  /** A tiny uppercase label over a section. */
+  eyebrow: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+  },
+  /** Figures: tight, tabular, so columns line up. */
+  num: { fontWeight: "800", letterSpacing: -0.6, fontVariant: ["tabular-nums"] },
+} as const satisfies Record<string, TextStyle>;
+
+/**
+ * Motion tokens: springs, not durations, for anything a finger moves (home-first.md §3); short
+ * timings for fades. Reanimated turns all of them off under Reduce Motion by itself.
+ */
+export const motion = {
+  spring: {
+    /** Press feedback, toggles: fast, no overshoot. */
+    press: { damping: 24, stiffness: 420, mass: 0.6 },
+    /** Sheets and menus coming up. */
+    sheet: { damping: 26, stiffness: 260, mass: 0.9 },
+    /** Something settling into place (a reorder, a count). */
+    settle: { damping: 18, stiffness: 220 },
+  },
+  /** A fade or a colour change. */
+  fade: 160,
+  /** Content appearing (a message, a row). */
+  enter: 220,
+  /** Press feedback: how far a tapped thing shrinks. */
+  pressScale: 0.97,
+} as const;
