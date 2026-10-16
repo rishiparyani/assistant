@@ -119,9 +119,17 @@ jobs:
         run: |
           # A failed request (an error answer, no answer) is a failed backup too, and goes to
           # the same choice below instead of stopping the step on its own.
-          out="$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -X POST "$APP_URL/api/internal/reset" \
-            -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
-            -d '{"words":"ERASE EVERYTHING","step":"backup"}' 2>/dev/null)" || out='{}'
+          # Tried again only on a 404 (a copy without the secret yet: nothing ran). A backup that
+          # may have run is never sent twice, since each one is a new file in Drive.
+          for i in 1 2 3 4 5 6; do
+            out="$(curl -sS -w '\n%{http_code}' -X POST "$APP_URL/api/internal/reset" \
+              -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
+              -d '{"words":"ERASE EVERYTHING","step":"backup"}' 2>/dev/null)" || out=$'{}\n000'
+            [ "${out##*$'\n'}" = "404" ] || break
+            sleep 5
+          done
+          code="${out##*$'\n'}"; out="${out%$'\n'*}"
+          [ "$code" = "200" ] || out='{}'
           jq -e . > /dev/null 2>&1 <<< "$out" || out='{}'
           if [ "$(jq -r .ok <<< "$out")" = "true" ]; then
             echo "Backup saved ($(jq -r .bytes <<< "$out") bytes)."
