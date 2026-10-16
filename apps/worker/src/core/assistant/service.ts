@@ -1245,10 +1245,9 @@ const CURRENT_CHAT_MS = 2 * 3600_000;
  * list and can be continued from there, whatever their age.
  */
 export async function currentChat(ctx: OpUserCtx): Promise<ChatView> {
-  const latest = (await chatOf(ctx).chats(ctx.user.id))[0];
-  if (latest && (latest.title === "New chat" || Date.now() - Date.parse(latest.updated_at) < CURRENT_CHAT_MS))
-    return chatView(ctx, latest.id);
-  return newChat(ctx);
+  // Decided and, if need be, made inside the person's main chat object in one step.
+  const id = await chatOf(ctx).currentChat(ctx.user.id, CURRENT_CHAT_MS);
+  return chatView(ctx, id);
 }
 
 // A long chat keeps its whole meaning, not its last N messages: past this much text the

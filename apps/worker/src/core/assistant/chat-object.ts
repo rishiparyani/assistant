@@ -546,6 +546,31 @@ export class ChatObject extends DurableObject<Env> {
       .toArray();
   }
 
+  /**
+   * The chat to open: the newest if it was used within `gapMs` or is still empty, else a new
+   * one made here and now. One step inside this object, so two apps asking at once (a double
+   * tap, a retry) get the same chat, never two empty ones.
+   */
+  async currentChat(userId: string, gapMs: number): Promise<string> {
+    this.own(userId);
+    const latest = this.sql
+      .exec<ChatRow>(
+        `select id, title, created_at, updated_at from chats where deleted_at is null order by updated_at desc limit 1`,
+      )
+      .toArray()[0];
+    if (latest && (latest.title === "New chat" || Date.now() - Date.parse(latest.updated_at) < gapMs))
+      return latest.id;
+    const id = ulid();
+    const now = nowIso();
+    this.sql.exec(
+      `insert into chats (id, title, created_at, updated_at) values (?, 'New chat', ?, ?)`,
+      id,
+      now,
+      now,
+    );
+    return id;
+  }
+
   async addChat(userId: string, id: string): Promise<ChatRow> {
     this.own(userId);
     const n = this.sql

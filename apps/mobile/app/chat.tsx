@@ -16,13 +16,14 @@ import {
 } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type {
-  ChatItem,
-  ChatSummary,
-  ChatView,
-  CollectionView,
-  HistoryItem,
-  LiveRef,
+import {
+  ulid,
+  type ChatItem,
+  type ChatSummary,
+  type ChatView,
+  type CollectionView,
+  type HistoryItem,
+  type LiveRef,
 } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
@@ -84,7 +85,6 @@ export default function Chat() {
   // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
   // current one (the server picks: the latest if used in the last two hours, else a new one).
   const [chatId, setChatId] = useState<string | null>(id ?? null);
-  const chatPath = `/api/chats/${chatId ?? "current"}`;
   const [showChats, setShowChats] = useState(false);
   // The very first chat ever gets the "tell me about your week" opening; later new chats a line.
   const [firstEver, setFirstEver] = useState<boolean | null>(null);
@@ -157,6 +157,8 @@ export default function Chat() {
   }, []);
 
   const openChat = useCallback((which: string | null) => {
+    // Nothing can be sent until the chat is known (never to the one just left, never to "current").
+    setChatId(null);
     setView(null);
     setChanged([]);
     openedAt.current = Date.now();
@@ -186,7 +188,8 @@ export default function Chat() {
   const newChat = async () => {
     if (busy) return;
     try {
-      const v = await request<ChatView>("POST", "/api/chats", {});
+      // The id is made here, so a retry after a lost reply lands on the same chat (rule 8).
+      const v = await request<ChatView>("POST", "/api/chats", { id: ulid() });
       setChatId(v.id);
       setView(v);
       setChanged([]);
@@ -200,7 +203,7 @@ export default function Chat() {
 
   const say = async (raw: string) => {
     const body = raw.trim();
-    if (!body || busy) return;
+    if (!body || busy || !chatId) return;
     const msg = card && !attached.current ? `About "${card}": ${body}` : body;
     attached.current = true;
     setText("");
@@ -216,8 +219,7 @@ export default function Chat() {
     setBusy(true);
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>("POST", chatPath, { text: msg });
-      setChatId(next.id);
+      const next = await request<ChatView>("POST", `/api/chats/${chatId}`, { text: msg });
       setView(next);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
@@ -233,7 +235,7 @@ export default function Chat() {
         send({
           kind: "assistant.message",
           method: "POST",
-          path: `/api/chats/${chatId ?? MAIN}`,
+          path: `/api/chats/${chatId}`,
           body: { text: msg },
           label: "Message to the assistant",
         });
@@ -427,6 +429,7 @@ export default function Chat() {
               <Tap
                 accessibilityRole="button"
                 onPress={() => say(item)}
+                disabled={busy || !chatId}
                 haptic="selection"
                 style={[s.chip, { backgroundColor: t.cell, borderColor: t.sep }]}
               >
@@ -482,9 +485,9 @@ export default function Chat() {
           <Tap
             accessibilityRole="button"
             accessibilityLabel="Send"
-            accessibilityState={{ disabled: busy || !text.trim() }}
+            accessibilityState={{ disabled: busy || !chatId || !text.trim() }}
             onPress={() => say(text)}
-            disabled={busy || !text.trim()}
+            disabled={busy || !chatId || !text.trim()}
             scale={0.88}
             haptic="light"
             style={[s.send, { backgroundColor: t.accent }]}

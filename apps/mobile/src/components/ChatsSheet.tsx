@@ -2,7 +2,7 @@
 // first, grouped by day, one tap to continue any of them. "Earlier conversations" is the
 // first chat, everything from before chats were cut by conversation.
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import type { ChatSummary } from "@assistant/shared";
 import { Sheet } from "@/components/Sheet";
 import { Tap, Text, type as typo } from "@assistant/cards/native";
@@ -62,33 +62,37 @@ export function ChatsSheet({
           Each conversation is its own chat here; a new one starts after a couple of hours away.
         </Text>
       ) : null}
-      {groups.map((g) => (
-        <View key={g.name} style={{ gap: 6 }}>
-          <Text style={[typo.eyebrow, { color: t.fg2, paddingHorizontal: 4, paddingTop: 6 }]}>{g.name}</Text>
-          {g.chats.map((c) => {
-            const mine = c.id === current;
-            return (
-              <Tap
-                key={c.id}
-                accessibilityRole="button"
-                accessibilityLabel={titleOf(c)}
-                accessibilityState={{ selected: mine }}
-                onPress={() => {
-                  onClose();
-                  if (!mine) onOpen(c.id);
-                }}
-                scale={0.985}
-                style={[s.row, { backgroundColor: t.cell, borderColor: mine ? t.accent : t.hair }]}
-              >
-                <Text style={[typo.body, { color: t.fg, flex: 1 }]} numberOfLines={1}>
-                  {titleOf(c)}
-                </Text>
-                <Text style={[typo.caption, { color: t.fg2 }]}>{whenOf(c)}</Text>
-              </Tap>
-            );
-          })}
-        </View>
-      ))}
+      <ScrollView style={s.scroll} contentContainerStyle={{ gap: 8 }} keyboardShouldPersistTaps="handled">
+        {groups.map((g) => (
+          <View key={g.name} style={{ gap: 6 }}>
+            <Text style={[typo.eyebrow, { color: t.fg2, paddingHorizontal: 4, paddingTop: 6 }]}>
+              {g.name}
+            </Text>
+            {g.chats.map((c) => {
+              const mine = c.id === current;
+              return (
+                <Tap
+                  key={c.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={titleOf(c)}
+                  accessibilityState={{ selected: mine }}
+                  onPress={() => {
+                    onClose();
+                    if (!mine) onOpen(c.id);
+                  }}
+                  scale={0.985}
+                  style={[s.row, { backgroundColor: t.cell, borderColor: mine ? t.accent : t.hair }]}
+                >
+                  <Text style={[typo.body, { color: t.fg, flex: 1 }]} numberOfLines={1}>
+                    {titleOf(c)}
+                  </Text>
+                  <Text style={[typo.caption, { color: t.fg2 }]}>{whenOf(c)}</Text>
+                </Tap>
+              );
+            })}
+          </View>
+        ))}
+      </ScrollView>
     </Sheet>
   );
 }
@@ -124,6 +128,8 @@ function groupByDay(chats: ChatSummary[]): { name: string; chats: ChatSummary[] 
 }
 
 const s = StyleSheet.create({
+  // Many chats: the list scrolls inside the sheet (up to 200 come back).
+  scroll: { flexShrink: 1 },
   headRow: {
     flexDirection: "row",
     alignItems: "center",

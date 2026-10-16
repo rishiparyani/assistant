@@ -377,6 +377,13 @@ describe("several chats and memory", () => {
     expect(first.id).not.toBe("main");
     const again = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
     expect(again.id).toBe(first.id);
+    // Two apps asking at once (a double tap) get the same chat, never two empty ones.
+    const other = await signUp("Test Twice");
+    const [a, b] = await Promise.all([
+      call("/api/chats/current", { cookie: other.cookie }).then((r) => json<ChatView>(r)),
+      call("/api/chats/current", { cookie: other.cookie }).then((r) => json<ChatView>(r)),
+    ]);
+    expect(a.id).toBe(b.id);
     // Used a moment ago: still the current one.
     await call(`/api/chats/${first.id}`, {
       cookie: me.cookie,
