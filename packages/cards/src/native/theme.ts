@@ -150,7 +150,7 @@ export const space = (n: number) => n * 4;
  * heights for the whole app and every card. Screens and cards name a step, never a size.
  */
 export const type = {
-  /** The one big title of a screen ("My day"). */
+  /** The one big title of a screen ("My cards"). */
   display: { fontSize: 30, lineHeight: 34, fontWeight: "800", letterSpacing: -0.8 },
   /** A sheet's or page's title. */
   title: { fontSize: 22, lineHeight: 26, fontWeight: "800", letterSpacing: -0.5 },

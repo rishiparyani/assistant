@@ -1,5 +1,5 @@
 // The home (docs/design/home-first.md §2): pages of cards, the chat bar under them. Two pages
-// for now: Now (arranged by the assistant) and My day (the person's: hold and move to arrange,
+// for now: Now (arranged by the assistant) and My cards (the person's: hold and move to arrange,
 // hold for the card's menu). Ticks work offline; the chat is one tap away.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {

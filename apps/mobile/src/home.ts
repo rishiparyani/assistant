@@ -337,7 +337,7 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
     const spacePages = await loadSpacePages(spaces, groups);
     const cards = await cardsFor(views, collections);
     // Page 1 ("Now") is arranged by the assistant: the cards with something going on, in
-    // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My day")
+    // order of urgency (nowScore); the person's first cards when nothing is. Page 2 ("My cards")
     // is the person's: every pinned card, in the order they keep.
     const sharedCards = await loadShared(shares, waiting);
     const scored = [...waiting.map(processCard), ...cards, ...sharedCards]
@@ -346,13 +346,13 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
       .sort((a, b) => b.score - a.score)
       .map((x) => x.c);
     const now = (scored.length ? scored : [...cards, ...sharedCards]).slice(0, 4);
-    // Memory is visible (home-first.md §2 point 16): its card ends My day for anyone with the
+    // Memory is visible (home-first.md §2 point 16): its card ends My cards for anyone with the
     // assistant; it never competes for Now.
     const mine = memories ? [...cards, memoryCard(memories)] : cards;
     const pages: HomePage[] = [
       { name: "Now", auto: true, cards: now },
       // A person with nothing of their own (a collaborator) has no page to arrange.
-      ...(mine.length || !sharedCards.length ? [{ name: "My day", cards: mine }] : []),
+      ...(mine.length || !sharedCards.length ? [{ name: "My cards", cards: mine }] : []),
       ...(sharedCards.length ? [{ name: "Shared with you", cards: sharedCards }] : []),
       // A page for each space of the person's own (a band, a trip), after Personal's pages.
       ...spacePages,
@@ -863,7 +863,7 @@ export function saveOrder(cards: HomeCard[]): HomeCard[] {
   });
 }
 
-/** The same card on every page it appears on (Now shows some of My day's cards). */
+/** The same card on every page it appears on (Now shows some of My cards' cards). */
 export function replaceCard(pages: HomePage[], next: HomeCard): HomePage[] {
   return pages.map((p) => ({ ...p, cards: p.cards.map((c) => (c.id === next.id ? next : c)) }));
 }

@@ -955,6 +955,10 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Now:** everyday words ("Talk to the people you share things with", "e.g. Flatmates", "pay the electricity bill", "a home, a trip or a team", "by category, by person"). `PROMPT_VERSION 2026-10-16c`.
 - **So it stays fixed:** `apps/web/test/neutral-words.test.ts` reads the text people see in the phone app (`apps/mobile/app`, `apps/mobile/src`), the cards package (`packages/cards/src`: the assistant's card catalogue and the gallery's samples, reachable from Help) and the assistant's instructions (`core/assistant/service.ts`), tests aside, and fails on band, gig, venue, rehearsal, setlist, guitar, soundcheck or musician, comments and the scripted test sentences aside. AGENTS.md's "Don't" list says the same. The old gig and music modules keep their own words until they are replaced.
 
+## 2026-10-16: "My day" is now "My cards" (owner: "rename my day")
+
+- The home's second page, the person's own pinned cards in the order they keep (Now is the assistant's), was called "My day", which read as if it were about today. It's now **My cards**. Nothing else about the page changes; a home saved on the device shows the new name on its next refresh.
+
 ## 2026-10-16: Start over from a GitHub job, never from the app (owner: "having the clearing the data option in the admin panel will be very unsafe… I could clear it by mistake"; scope: "everyone's data and mine also… individual accounts also… only while I'm testing")
 
 - **What it erases:** every account (yours too: everyone signs up again), every space, list, record, card, rule, workflow, chat, memory, group chat, share, search index and inbox, in the dev app or the real one. **What it keeps:** the app's settings (the Google Drive link, alert settings, push keys), the monitoring state, the AI budget (this month's spend still counts against the cap, so a reset can't reopen spending) and the database's migrations. The owner stays the owner (the `ADMIN_EMAILS` secret, not a row).
