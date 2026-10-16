@@ -40,7 +40,7 @@ export type WipedBinding = (typeof WIPED_BINDINGS)[number];
 /** The words the job sends with every step, so a stray call with the token alone does nothing. */
 export const RESET_WORDS = "ERASE EVERYTHING";
 
-type Wipeable = { wipe(): Promise<void> };
+type Wipeable = { wipe(): Promise<boolean> };
 
 /** Why an erase failed, in fixed words: the error's class and a category from its message. */
 export function errorKind(err: unknown): string {
@@ -68,9 +68,11 @@ export async function wipeObjects(
   env: ResetEnv,
   binding: WipedBinding,
   ids: readonly string[],
-): Promise<{ wiped: number; failed: number; errors: string[] }> {
+): Promise<{ wiped: number; held: number; failed: number; errors: string[] }> {
   const ns = env[binding] as unknown as DurableObjectNamespace;
   let wiped = 0;
+  // How many held anything when erased: the job is done once a pass erases only empty ones.
+  let held = 0;
   let failed = 0;
   // What went wrong, by kind: the error's name and a fixed category, never its message (the
   // job's log is public, and a message can carry someone's words).
@@ -78,7 +80,7 @@ export async function wipeObjects(
   for (const id of ids) {
     try {
       const stub = ns.get(ns.idFromString(id)) as unknown as Wipeable;
-      await stub.wipe();
+      if (await stub.wipe()) held++;
       wiped++;
     } catch (err) {
       const e = errorKind(err);
@@ -87,7 +89,7 @@ export async function wipeObjects(
       failed++;
     }
   }
-  return { wiped, failed, errors: [...errors] };
+  return { wiped, held, failed, errors: [...errors] };
 }
 
 /** Every table that holds people's rows: everything but the kept ones and the engine's own. */
