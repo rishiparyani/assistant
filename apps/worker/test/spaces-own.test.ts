@@ -99,4 +99,31 @@ describe("spaces of one's own", () => {
         .sort(),
     ).toEqual([band.id, null].sort());
   });
+
+  it("is made and told how things go there from the chat", async () => {
+    const me = await signUp("Test Owner");
+    const main = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    // Making a space is a card to tap, never done on the model's word alone.
+    const asked = await sayIn(me, main.id, "Test: make a band space");
+    const card = asked.items.find((i) => i.role === "card")!;
+    expect(card.card!.title).toBe("Make a space “Test band”");
+    expect((await json<SpaceView[]>(await call("/api/spaces", { cookie: me.cookie }))).length).toBe(1);
+    await call(`/api/chats/${main.id}/actions/${card.card!.action_id}/confirm`, {
+      cookie: me.cookie,
+      body: {},
+    });
+    const band = (await json<SpaceView[]>(await call("/api/spaces", { cookie: me.cookie }))).find(
+      (s) => s.name === "Test band",
+    )!;
+    expect(band).toBeDefined();
+    // In the band's chat, its instructions are set in words, for that space only.
+    const inBand = await json<ChatView>(
+      await call(`/api/chats/current?space=${band.id}`, { cookie: me.cookie }),
+    );
+    await sayIn(me, inBand.id, "Test: in the band money is split four ways");
+    const got = await json<SpaceSettings>(await call(`/api/spaces/${band.id}`, { cookie: me.cookie }));
+    expect(got.instructions).toBe("Test: money is always split four ways.");
+    const personal = await json<SpaceSettings>(await call("/api/spaces/Personal", { cookie: me.cookie }));
+    expect(personal.instructions).toBe("");
+  });
 });

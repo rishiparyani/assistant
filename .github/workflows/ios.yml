@@ -180,7 +180,7 @@ jobs:
             shot "$dev" "$label-light-1-home"
             # The home's bar with the keyboard up (the owner, 2026-10-16: "the keyboard covers
             # it"): the bar and its matches must sit above the keyboard, the small phone too.
-            go "$dev" "/?q=Te" 12
+            go "$dev" "/?q=Te" 20
             shot "$dev" "$label-light-1b-home-search"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
             go "$dev" "/chat"
