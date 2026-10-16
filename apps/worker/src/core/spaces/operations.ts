@@ -5,6 +5,10 @@ import { z } from "zod";
 import {
   AddCommentInput,
   PracticeAnswerInput,
+  PracticeAsAnswerInput,
+  PracticeAsInput,
+  PracticeAsShareInput,
+  PracticeAsUpdateInput,
   PracticeStartInput,
   AddFieldInput,
   CommentRef,
@@ -45,6 +49,7 @@ import {
   mySpaces,
   newSpace,
   practiceAnswer,
+  practiceOf,
   practiceView,
   setSpaceInstructions,
   spaceOf,
@@ -105,6 +110,58 @@ export const spaceOperations = [
     http: { method: "POST", path: "/spaces/:space/practice/answer" },
     input: PracticeAnswerInput,
     handler: (ctx, i) => practiceAnswer(ctx, i.space ?? "", i),
+  }),
+  // A rehearsal as one of its people (decision 2026-10-16 "Rehearse as each person"): what
+  // they see and do, run as them inside the copy, so their access is checked as theirs.
+  defineOperation({
+    id: "core.practice_as_view",
+    tool: "practice_as_view",
+    description:
+      "In a practice copy: what one person sees (the cards shared with them) and what they've been told or asked, by their user id from practice_log's people.",
+    kind: "read",
+    http: { method: "GET", path: "/spaces/:space/practice/as/:user_id" },
+    input: PracticeAsInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await practiceOf(ctx, i.space ?? "");
+      return stub.practiceAsView(actor, i.user_id);
+    },
+  }),
+  defineOperation({
+    id: "core.practice_as_open",
+    tool: "practice_as_open",
+    description: "In a practice copy: open one card shared with a person, as they would see it.",
+    kind: "read",
+    http: { method: "GET", path: "/spaces/:space/practice/as/:user_id/cards/:share_id" },
+    input: PracticeAsShareInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await practiceOf(ctx, i.space ?? "");
+      return stub.practiceAsOpen(actor, i.user_id, i.share_id, i.cursor);
+    },
+  }),
+  defineOperation({
+    id: "core.practice_as_update",
+    tool: "practice_as_update",
+    description:
+      "In a practice copy: change values on a card shared with a person, as that person (only what they may change).",
+    kind: "write",
+    http: { method: "PATCH", path: "/spaces/:space/practice/as/:user_id/cards/:share_id/records/:record_id" },
+    input: PracticeAsUpdateInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await practiceOf(ctx, i.space ?? "");
+      return stub.practiceAsUpdate(actor, ctx.idempotencyKey, i.user_id, i.share_id, i.record_id, i.values);
+    },
+  }),
+  defineOperation({
+    id: "core.practice_as_answer",
+    tool: "practice_as_answer",
+    description: "In a practice copy: answer a question shared with a person, as that person.",
+    kind: "write",
+    http: { method: "POST", path: "/spaces/:space/practice/as/:user_id/cards/:share_id/answer" },
+    input: PracticeAsAnswerInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await practiceOf(ctx, i.space ?? "");
+      return stub.practiceAsAnswer(actor, ctx.idempotencyKey, i.user_id, i.share_id, i.answer);
+    },
   }),
   defineOperation({
     id: "core.practice_end",

@@ -78,6 +78,8 @@ import {
   type Rehearsal,
   type RehearsalAnswer,
   type PracticeView,
+  type PracticeAsView,
+  type PracticePerson,
   type WorkflowEvent,
   type WaitingItem,
   type WorkflowRun,
@@ -1078,9 +1080,9 @@ export class SpaceObject extends DurableObject<Env> {
 
   /**
    * Becomes a practice copy of another space (once; repeats change nothing): its lists,
-   * records, views, rules and workflows, with the caller as the only member. What was asked,
-   * answered, shared or run there is left behind, and every workflow is on, so adding a record
-   * runs them.
+   * records, views, rules, workflows and what's shared with whom, with the caller as the only
+   * member. What was asked or run there is left behind, and every workflow is on, so adding a
+   * record runs them.
    */
   async startPractice(
     init: { id: string; name: string; owner: { user_id: string; name: string }; sourceId: string },
@@ -1096,6 +1098,14 @@ export class SpaceObject extends DurableObject<Env> {
         init.name,
         init.owner.user_id,
       );
+      // The space's other members are played, not let in: only the person practising is in it.
+      const others = this.sql
+        .exec<{ user_id: string; name: string }>(
+          `select user_id, name from members where user_id != ?`,
+          init.owner.user_id,
+        )
+        .toArray();
+      setMeta(this.sql, "practice_members", JSON.stringify(others));
       this.sql.exec(`delete from members`);
       this.sql.exec(
         `insert into members (user_id, name, role, added_at) values (?, ?, 'owner', ?)`,
@@ -1103,13 +1113,13 @@ export class SpaceObject extends DurableObject<Env> {
         init.owner.name,
         ts,
       );
+      // What's shared stays as it is set up (who sees which records and fields), so each
+      // person's view can be rehearsed; nobody outside can open it (its links aren't in D1).
+      // Questions in flight, runs and their messages are left behind.
+      for (const t of ["share_people", "share_counts", "share_rules"])
+        this.sql.exec(`delete from ${t} where share_id in (select id from shares where kind = 'question')`);
+      this.sql.exec(`delete from shares where kind = 'question'`);
       for (const t of [
-        "shares",
-        "share_people",
-        "share_counts",
-        "share_rules",
-        "answers",
-        "comments",
         "questions",
         "question_answers",
         "workflow_waits",
@@ -1161,14 +1171,112 @@ export class SpaceObject extends DurableObject<Env> {
     return this.practiceView(actor);
   }
 
-  /** A practice copy: what reached (would have reached) people, and what's waiting on whom. */
-  async practiceView(actor: Actor): Promise<PracticeView> {
+  /** The space's other members when the copy was made (played in the rehearsal, never let in). */
+  private practiceMembers(): { user_id: string; name: string }[] {
+    return JSON.parse(getMeta(this.sql, "practice_members") ?? "[]") as { user_id: string; name: string }[];
+  }
+
+  /** Everyone a rehearsal plays: the space's other members, and everyone something is shared with. */
+  private practicePeople(): PracticePerson[] {
+    const owner = this.sql
+      .exec<{ user_id: string }>(`select user_id from members where role = 'owner'`)
+      .toArray();
+    const skip = new Set(owner.map((o) => o.user_id));
+    const people = new Map<string, PracticePerson>();
+    for (const m of this.practiceMembers())
+      if (!skip.has(m.user_id))
+        people.set(m.user_id, { user_id: m.user_id, name: m.name, role: "member", waiting: 0, got: 0 });
+    for (const p of this.sql
+      .exec<{ user_id: string; name: string }>(
+        `select p.user_id, min(p.name) as name from share_people p join shares s on s.id = p.share_id
+         where p.user_id is not null and s.revoked_at is null group by p.user_id`,
+      )
+      .toArray())
+      if (!skip.has(p.user_id) && !people.has(p.user_id))
+        people.set(p.user_id, { user_id: p.user_id, name: p.name, role: "shared", waiting: 0, got: 0 });
+    for (const r of this.sql
+      .exec<{ user_id: string; n: number }>(
+        `select user_id, count(*) as n from practice_log group by user_id`,
+      )
+      .toArray()) {
+      const p = people.get(r.user_id);
+      if (p) p.got = r.n;
+    }
+    for (const r of this.sql
+      .exec<{ user_id: string; n: number }>(
+        `select p.user_id, count(*) as n from questions q
+         join workflow_waits w on w.question_id = q.id and (w.next_nudge_at is null or w.next_nudge_at != 'resumed')
+         join share_people p on p.share_id = q.share_id
+         left join question_answers a on a.question_id = q.id and a.user_id = p.user_id
+         where q.closed_at is null and a.answer is null group by p.user_id`,
+      )
+      .toArray()) {
+      const p = people.get(r.user_id);
+      if (p) p.waiting = r.n;
+    }
+    return [...people.values()].sort((a, b) => b.waiting - a.waiting || a.name.localeCompare(b.name));
+  }
+
+  /**
+   * The person a rehearsal plays (practice copies only, by the one practising): what they do
+   * runs as them, so it's checked exactly as it would be for them (their shares, their fields).
+   */
+  private practiceAs(actor: Actor, userId: string): { as: Actor; person: PracticePerson } {
     this.canArrange(actor);
     if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
-    const space = this.sql.exec<{ id: string; name: string }>(`select id, name from space`).toArray()[0]!;
-    const log = this.sql
+    const person = this.practicePeople().find((p) => p.user_id === userId);
+    if (!person) throw new ObjectError("not_found", "That person isn't in this rehearsal");
+    return { as: { userId, source: actor.source }, person };
+  }
+
+  /** What one person sees in a rehearsal: what's shared with them, and what they've had. */
+  async practiceAsView(actor: Actor, userId: string): Promise<PracticeAsView> {
+    const { as, person } = this.practiceAs(actor, userId);
+    return {
+      person,
+      cards: await this.sharesFor(as),
+      got: this.practiceLog(userId),
+    };
+  }
+
+  async practiceAsOpen(
+    actor: Actor,
+    userId: string,
+    shareId: string,
+    cursor?: string,
+  ): Promise<SharedOpened> {
+    return this.openShare(this.practiceAs(actor, userId).as, shareId, cursor);
+  }
+
+  async practiceAsUpdate(
+    actor: Actor,
+    key: string | null,
+    userId: string,
+    shareId: string,
+    recordId: string,
+    values: Record<string, unknown>,
+  ): Promise<SharedOpened> {
+    return this.updateSharedRecord(this.practiceAs(actor, userId).as, key, shareId, recordId, values);
+  }
+
+  async practiceAsAnswer(
+    actor: Actor,
+    key: string | null,
+    userId: string,
+    shareId: string,
+    answer: string,
+  ): Promise<SharedOpened> {
+    return this.answerQuestion(this.practiceAs(actor, userId).as, key, shareId, answer);
+  }
+
+  /** The practice log, newest first: everyone's, or one person's. */
+  private practiceLog(userId?: string): PracticeView["log"] {
+    return this.sql
       .exec<{ id: string; at: string; user_id: string; note_json: string }>(
-        `select id, at, user_id, note_json from practice_log order by at desc, id desc limit 100`,
+        userId
+          ? `select id, at, user_id, note_json from practice_log where user_id = ? order by at desc, id desc limit 100`
+          : `select id, at, user_id, note_json from practice_log order by at desc, id desc limit 100`,
+        ...(userId ? [userId] : []),
       )
       .toArray()
       .map((r) => {
@@ -1183,12 +1291,20 @@ export class SpaceObject extends DurableObject<Env> {
           body: n.body ?? null,
         };
       });
+  }
+
+  /** A practice copy: what reached (would have reached) people, and what's waiting on whom. */
+  async practiceView(actor: Actor): Promise<PracticeView> {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const space = this.sql.exec<{ id: string; name: string }>(`select id, name from space`).toArray()[0]!;
     return {
       space_id: space.id,
       name: space.name,
       of: getMeta(this.sql, "practice_of")!,
-      log,
+      log: this.practiceLog(),
       waiting: await this.listWaiting(actor),
+      people: this.practicePeople(),
     };
   }
 
@@ -1200,6 +1316,7 @@ export class SpaceObject extends DurableObject<Env> {
       this.sql
         .exec<{ name: string }>(`select name from share_people where user_id = ? limit 1`, userId)
         .toArray()[0]?.name ??
+      this.practiceMembers().find((m) => m.user_id === userId)?.name ??
       "Someone"
     );
   }
@@ -1745,9 +1862,12 @@ export class SpaceObject extends DurableObject<Env> {
     const note = outboxNote(this.sql);
     if (!note) return null;
     const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id;
+    // A practice copy reaches only the person practising: the people it plays aren't pinged.
     const people = this.sql
       .exec<{ user_id: string }>(
-        `select user_id from members union select user_id from share_people where user_id is not null
+        this.practice
+          ? `select user_id from members`
+          : `select user_id from members union select user_id from share_people where user_id is not null
          union select user_id from live_extra`,
       )
       .toArray()
@@ -3852,7 +3972,9 @@ export class SpaceObject extends DurableObject<Env> {
   private knownPerson(userId: string): boolean {
     return (
       this.sql.exec(`select 1 from members where user_id = ?`, userId).toArray().length > 0 ||
-      this.sql.exec(`select 1 from share_people where user_id = ? limit 1`, userId).toArray().length > 0
+      this.sql.exec(`select 1 from share_people where user_id = ? limit 1`, userId).toArray().length > 0 ||
+      // In a practice copy, the space's members are still people it knows (they're played).
+      (this.practice && this.practiceMembers().some((m) => m.user_id === userId))
     );
   }
 

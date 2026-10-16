@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import type {
   CreatedShare,
+  PracticeAsView,
   PracticeView,
+  SharedOpened,
   RecordView,
   SpaceView,
   WorkflowDetail,
@@ -142,5 +144,114 @@ describe("practice copies", () => {
     expect((await json<SpaceView[]>(await api(owner)("/spaces"))).some((s) => s.id === practice.id)).toBe(
       false,
     );
+  });
+
+  it("plays each person: what's shared with them, their questions in turn, and only what they may do", async () => {
+    const owner = await signUp("Test Owner");
+    const note = await json<RecordView>(
+      await api(owner)("/collections/Notes/records", { body: { values: { Title: "Test plan" } } }),
+    );
+    const { link } = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { record_id: note.id, access: "view" } }),
+    );
+    const rahul = await signUp("Rahul Test");
+    const priya = await signUp("Priya Test");
+    for (const u of [rahul, priya])
+      await api(u)("/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    await api(owner)("/collections", {
+      body: {
+        name: "Dinners",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Reply", type: "text" },
+        ],
+      },
+    });
+    await api(owner)("/workflows", {
+      body: {
+        name: "One then the other",
+        when: { event: "added", collection: "Dinners" },
+        then: [
+          { do: "ask", who: ["Rahul"], text: "Book {Title}?", choices: ["Yes", "No"], save_to: "Reply" },
+          { do: "ask", who: ["Priya"], text: "Rahul said {Reply}. Bring dessert?", choices: ["Yes", "No"] },
+        ],
+        enabled: false,
+      },
+    });
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    const view = async () => json<PracticeView>(await api(owner)(base));
+
+    // The people it plays: the two the note is shared with (not the owner), nothing waiting yet.
+    const v = await view();
+    expect(v.people.map((p) => [p.name, p.role, p.waiting])).toEqual([
+      ["Priya Test", "shared", 0],
+      ["Rahul Test", "shared", 0],
+    ]);
+    const id = (name: string) => v.people.find((p) => p.name === name)!.user_id;
+    const [rahulId, priyaId] = [id("Rahul Test"), id("Priya Test")];
+    const as = async (who: string) => json<PracticeAsView>(await api(owner)(`${base}/as/${who}`));
+
+    // Each sees what's shared with them, as they would: the note, opened through their share.
+    expect((await as(priyaId)).cards.map((c) => [c.kind, c.title])).toEqual([["card", "Test plan"]]);
+    const noteShare = (await as(priyaId)).cards[0]!.share_id;
+    const opened = await json<SharedOpened>(await api(owner)(`${base}/as/${priyaId}/cards/${noteShare}`));
+    expect("record" in opened && opened.record.title).toBe("Test plan");
+    // A view-only share stays view-only when played.
+    expect(
+      (
+        await api(owner)(`${base}/as/${priyaId}/cards/${noteShare}/records/${note.id}`, {
+          method: "PATCH",
+          body: { values: { Title: "Changed" } },
+        })
+      ).status,
+    ).toBe(403);
+
+    // Step 1 is Rahul's turn: his question is among his cards, not Priya's.
+    await api(owner)("/collections/Dinners/records", {
+      body: { space: practice.id, values: { Title: "Test Friday" } },
+    });
+    expect(
+      await until(async () => (await view()).people.find((p) => p.name === "Rahul Test")!.waiting === 1),
+    ).toBe(true);
+    const question = (await as(rahulId)).cards.find((c) => c.kind === "question")!;
+    expect(question.title).toBe("Book Test Friday?");
+    expect((await as(priyaId)).cards.some((c) => c.kind === "question")).toBe(false);
+    expect((await as(rahulId)).got.map((g) => g.body)).toEqual(["Book Test Friday?"]);
+    // Priya can't answer Rahul's question.
+    expect(
+      (
+        await api(owner)(`${base}/as/${priyaId}/cards/${question.share_id}/answer`, {
+          body: { answer: "Yes" },
+        })
+      ).status,
+    ).toBe(404);
+
+    // Rahul answers: then it's Priya's turn, with what he said.
+    expect(
+      (
+        await api(owner)(`${base}/as/${rahulId}/cards/${question.share_id}/answer`, {
+          body: { answer: "Yes" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      await until(async () => (await view()).people.find((p) => p.name === "Priya Test")!.waiting === 1),
+    ).toBe(true);
+    expect((await as(priyaId)).cards.find((c) => c.kind === "question")?.title).toBe(
+      "Rahul said Yes. Bring dessert?",
+    );
+
+    // None of it reached the real people, and they can't play the rehearsal themselves.
+    for (const u of [rahul, priya]) {
+      expect(
+        (await inbox(u)).some((n) => n.body?.includes("Test Friday") || n.body?.includes("dessert")),
+      ).toBe(false);
+      const theirs = await json<{ kind: string }[]>(await api(u)("/cards"));
+      expect(theirs.some((c) => c.kind === "question")).toBe(false);
+    }
+    expect((await api(rahul)(`${base}/as/${rahulId}`)).status).toBe(404);
+    // Someone the space doesn't know can't be played.
+    expect((await api(owner)(`${base}/as/someone-else`)).status).toBe(404);
   });
 });

@@ -366,7 +366,7 @@ export default function Home() {
           </Text>
           <Text style={[s.metaText, { color: t.fg2 }]}>
             {item.space?.practice
-              ? "practice copy"
+              ? "practice run"
               : item.space
                 ? "your space · ask below"
                 : item.lists
@@ -379,7 +379,7 @@ export default function Home() {
         // A practice copy (decision 2026-10-16 "Rehearse a workflow"): what people would get.
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Practice: what people would get"
+          accessibilityLabel="Back to the practice run"
           onPress={() => router.push({ pathname: "/practice", params: { space: item.space!.id } })}
           style={({ pressed }) => [
             s.practice,
@@ -388,9 +388,9 @@ export default function Home() {
           ]}
         >
           <Text style={[s.listName, { color: t.fg, fontSize: 15 }]}>
-            Practice copy · nothing reaches anyone
+            Practice run · nothing reaches anyone
           </Text>
-          <Text style={[s.listMeta, { color: t.accent }]}>What people would get, answer for them ›</Text>
+          <Text style={[s.listMeta, { color: t.accent }]}>Switch between people, see their apps ›</Text>
         </Pressable>
       ) : null}
       {item.auto && next ? (

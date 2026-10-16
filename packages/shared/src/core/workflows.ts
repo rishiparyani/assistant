@@ -9,7 +9,7 @@
 // answer on the record, and only then goes on; a "repeat" step loops back while a condition
 // holds. Same engine, plus "who" and "waiting on".
 import { z } from "zod";
-import { FilterInput, SpaceRef, type FilterOp } from "./spaces.ts";
+import { FilterInput, SpaceRef, type FilterOp, type SharedWithMe } from "./spaces.ts";
 
 export const WORKFLOW_EVENTS = ["added", "changed", "date", "schedule"] as const;
 export type WorkflowEvent = (typeof WORKFLOW_EVENTS)[number];
@@ -382,6 +382,26 @@ export interface WorkflowDetail {
   waiting: WaitingItem[];
 }
 
+/** Someone in a rehearsal: who they are to the space, and what's in their hands right now. */
+export interface PracticePerson {
+  user_id: string;
+  name: string;
+  /** "member": in the space (sees all of it); "shared": sees only what's shared with them. */
+  role: "member" | "shared";
+  /** Questions waiting on them now. */
+  waiting: number;
+  /** Messages and questions they've had in this rehearsal. */
+  got: number;
+}
+
+/** What one person sees in a rehearsal: what's shared with them, and what they've had. */
+export interface PracticeAsView {
+  person: PracticePerson;
+  cards: SharedWithMe[];
+  /** Newest first. */
+  got: PracticeView["log"];
+}
+
 export const WaitRef = SpaceRef.extend({ wait_id: z.string().trim().min(1).max(40) });
 
 const OP_WORDS: Record<FilterOp, string> = {
@@ -628,9 +648,24 @@ export interface PracticeView {
     body: string | null;
   }[];
   waiting: WaitingItem[];
+  /** The people this space plays with: its other members and everyone something is shared with. */
+  people: PracticePerson[];
 }
 
 export const PracticeStartInput = SpaceRef;
+/** A rehearsal, as one of its people. */
+export const PracticeAsInput = SpaceRef.extend({ user_id: z.string().trim().min(1).max(64) });
+export const PracticeAsShareInput = PracticeAsInput.extend({
+  share_id: z.string().trim().min(1).max(40),
+  cursor: z.string().max(200).optional(),
+});
+export const PracticeAsUpdateInput = PracticeAsShareInput.extend({
+  record_id: z.string().trim().min(1).max(40),
+  values: z.record(z.string(), z.unknown()),
+});
+export const PracticeAsAnswerInput = PracticeAsShareInput.extend({
+  answer: z.string().trim().min(1).max(200),
+});
 export const PracticeAnswerInput = SpaceRef.extend({
   wait_id: z.string().trim().min(1).max(40),
   /** The person to answer as (one of those asked). */

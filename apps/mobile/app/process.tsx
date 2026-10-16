@@ -220,32 +220,29 @@ export default function Process() {
               ) : (
                 <>
                   <Text style={[s.label, { color: t.fg2 }]}>
-                    Try it on the newest record: every step in words, with nothing kept and nobody told or
-                    asked. It works while the workflow is off.
-                  </Text>
-                  <Text style={[s.label, { color: t.fg2 }]}>
-                    Or practise with people: a copy of this space where the workflows really run and you
-                    answer as each person, with nothing reaching anyone.
+                    Play it through as it will really happen: a copy of this space where the workflows run for
+                    real. You set it off, then switch to each person to see their app (only what they may see)
+                    and do their part. Nothing reaches anyone.
                   </Text>
                   <View style={s.row}>
                     <Pressable
                       accessibilityRole="button"
                       disabled={busy !== null}
-                      onPress={() => void rehearse([])}
+                      onPress={() => void practise()}
                       style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
                     >
                       <Text style={[s.btnText, { color: t.onAccent }]}>
-                        {busy === "rehearse" ? "Rehearsing…" : "Rehearse"}
+                        {busy === "practice" ? "Setting it up…" : "Rehearse with everyone"}
                       </Text>
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
                       disabled={busy !== null}
-                      onPress={() => void practise()}
+                      onPress={() => void rehearse([])}
                       style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
                     >
                       <Text style={[s.btnText, { color: t.accent }]}>
-                        {busy === "practice" ? "Copying…" : "Practise with people"}
+                        {busy === "rehearse" ? "Running…" : "Quick run in words"}
                       </Text>
                     </Pressable>
                   </View>

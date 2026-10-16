@@ -131,7 +131,7 @@ export async function startPractice(ctx: OpUserCtx, ref?: string): Promise<Space
 }
 
 /** A practice copy only: the space's object refuses any other. */
-async function practiceOf(ctx: OpUserCtx, ref: string) {
+export async function practiceOf(ctx: OpUserCtx, ref: string) {
   const found = await spaceOf(ctx, ref);
   if (!found.space.practice_of) throw new ObjectError("not_found", "Not a practice copy");
   return found;
