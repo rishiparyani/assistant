@@ -8,6 +8,7 @@ import type {
   OpenedView,
   QueryResult,
   RecordView,
+  WorkflowDetail,
 } from "@assistant/shared";
 import { request } from "./api.ts";
 import { answerCard, cardFor, findAll, type HomeCard } from "./home.ts";
@@ -20,7 +21,9 @@ export type LiveData =
   | { kind: "card"; card: HomeCard; more: boolean }
   /** An answer worked out by the space; it can be pinned to the home. */
   | { kind: "answer"; card: HomeCard; ref: Extract<LiveRef, { kind: "query" }> }
-  | { kind: "plain"; title: string; subtitle: string | null };
+  | { kind: "plain"; title: string; subtitle: string | null }
+  /** A workflow in words; it opens on its own screen (to rehearse it, turn it on, see runs). */
+  | { kind: "workflow"; id: string; name: string; enabled: boolean; words: string[] };
 
 export async function loadLive(
   ref: LiveRef,
@@ -90,8 +93,11 @@ export async function loadLive(
         title: "A question to people",
         subtitle: "Answers show on the website for now.",
       };
-    case "workflow":
-      return { kind: "plain", title: "A workflow", subtitle: "Its diagram shows on the website for now." };
+    case "workflow": {
+      const d = await request<WorkflowDetail>("GET", `/api/workflows/${enc(ref.workflow_id)}`);
+      const w = d.workflow;
+      return { kind: "workflow", id: w.id, name: w.name, enabled: w.enabled, words: w.words };
+    }
     case "app":
       return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null };
   }

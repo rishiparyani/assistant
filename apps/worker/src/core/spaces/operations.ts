@@ -4,6 +4,8 @@
 import { z } from "zod";
 import {
   AddCommentInput,
+  PracticeAnswerInput,
+  PracticeStartInput,
   AddFieldInput,
   CommentRef,
   AddRecordInput,
@@ -38,7 +40,17 @@ import {
   SpaceInstructionsInput,
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
-import { mySpaces, newSpace, setSpaceInstructions, spaceOf, spaceSettings } from "./service.ts";
+import {
+  endPractice,
+  mySpaces,
+  newSpace,
+  practiceAnswer,
+  practiceView,
+  setSpaceInstructions,
+  spaceOf,
+  spaceSettings,
+  startPractice,
+} from "./service.ts";
 
 export const spaceOperations = [
   defineOperation({
@@ -61,6 +73,48 @@ export const spaceOperations = [
     http: { method: "POST", path: "/spaces", status: 201 },
     input: NewSpaceInput,
     handler: (ctx, i) => newSpace(ctx, i.name),
+  }),
+  // Practice copies (decision 2026-10-16 "Rehearse a workflow", second part).
+  defineOperation({
+    id: "core.practice_start",
+    tool: "start_practice",
+    description:
+      'Make a practice copy of a space (its lists, records, rules and workflows, all workflows on) to try workflows for real: add records, see who would be asked or told, answer as each person. Nothing in it reaches anyone; messages and questions go to its practice log. It\'s a space called "Practice: …". Use it when someone wants to try a workflow with people, or see what each person would get.',
+    kind: "write",
+    confirm: true,
+    http: { method: "POST", path: "/spaces/:space/practice", status: 201 },
+    input: PracticeStartInput,
+    handler: (ctx, i) => startPractice(ctx, i.space),
+  }),
+  defineOperation({
+    id: "core.practice_view",
+    tool: "practice_log",
+    description:
+      "In a practice copy: what each person would have been told or asked (newest first), and what's waiting on whom.",
+    kind: "read",
+    http: { method: "GET", path: "/spaces/:space/practice" },
+    input: PracticeStartInput,
+    handler: (ctx, i) => practiceView(ctx, i.space ?? ""),
+  }),
+  defineOperation({
+    id: "core.practice_answer",
+    tool: "practice_answer",
+    description:
+      "In a practice copy: answer a waiting question as one of the people it went to (by their user id from practice_log), so the workflow goes on as if they had.",
+    kind: "write",
+    http: { method: "POST", path: "/spaces/:space/practice/answer" },
+    input: PracticeAnswerInput,
+    handler: (ctx, i) => practiceAnswer(ctx, i.space ?? "", i),
+  }),
+  defineOperation({
+    id: "core.practice_end",
+    tool: "end_practice",
+    description: "End a practice copy: it's erased, with everything in it. The real space isn't touched.",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/spaces/:space/practice" },
+    input: PracticeStartInput,
+    handler: (ctx, i) => endPractice(ctx, i.space ?? ""),
   }),
   defineOperation({
     id: "core.space_settings",

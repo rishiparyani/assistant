@@ -1,0 +1,1 @@
+ALTER TABLE `spaces` ADD `practice_of` text;

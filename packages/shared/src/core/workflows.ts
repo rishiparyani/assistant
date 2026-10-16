@@ -555,17 +555,34 @@ export function nextScheduleTime(s: WorkflowSchedule, after: number): number {
 /**
  * Rehearse a workflow (decision 2026-10-16 "Rehearse a workflow"): run it on one record with
  * nothing kept and nobody told, to see each step in plain words. At a question it stops,
- * showing what would be asked; give an answer for that step (1-based) and it goes on as if
- * the person had answered.
+ * showing what would be asked; give each person's answer for that step (1-based; `time` is
+ * which time the run reaches it, when a "repeat" goes back) and it goes on as if they had.
  */
 export const RehearseWorkflowInput = WorkflowRef.extend({
   /** The record to try it on (an id); left out, the list's newest. */
   record_id: z.string().trim().min(1).max(40).optional(),
   answers: z
-    .array(z.object({ step: z.number().int().min(1).max(50), answer: z.string().trim().min(1).max(200) }))
-    .max(20)
+    .array(
+      z.object({
+        step: z.number().int().min(1).max(50),
+        /** Which time the run reaches this step (a "repeat" can go back to it). */
+        time: z.number().int().min(1).max(20).default(1),
+        /** Who answers, by name; left out, the next person not yet answered. */
+        person: z.string().trim().min(1).max(80).optional(),
+        answer: z.string().trim().min(1).max(200),
+      }),
+    )
+    .max(50)
     .default([]),
 });
+
+/** One person's answer in a rehearsal (RehearseWorkflowInput's answers, once read). */
+export interface RehearsalAnswer {
+  step: number;
+  time: number;
+  person?: string | undefined;
+  answer: string;
+}
 
 export interface Rehearsal {
   workflow: string;
@@ -573,8 +590,50 @@ export interface Rehearsal {
   record: { id: string; title: string } | null;
   /** What each step would do, in order ("Told Asha: “…”", "Set Status"). */
   lines: string[];
-  /** Where it stopped for a question; answer it (by step) to go on. */
-  waiting: { step: number; question: string; choices: string[] | null; people: string[] } | null;
+  /** Where it stopped for a question; answer it (by step, time and person) to go on. */
+  waiting: {
+    step: number;
+    time: number;
+    question: string;
+    choices: string[] | null;
+    people: string[];
+    /** "all": it goes on once everyone has answered; "first": with the first answer. */
+    until: "all" | "first";
+    /** The answers given so far, and who to answer as next. */
+    answered: { name: string; answer: string }[];
+    next: string;
+  } | null;
   /** True when it ran to the end. */
   finished: boolean;
 }
+
+/**
+ * A practice copy of a space (decision 2026-10-16 "Rehearse a workflow", second part): its
+ * workflows run for real, but what they'd tell or ask people is kept in this log instead of
+ * reaching anyone, and the owner answers questions as each person.
+ */
+export interface PracticeView {
+  space_id: string;
+  name: string;
+  /** The space it's a copy of. */
+  of: string;
+  /** Newest first: what each person would have got. */
+  log: {
+    id: string;
+    at: string;
+    user_id: string;
+    name: string;
+    kind: "message" | "question";
+    title: string;
+    body: string | null;
+  }[];
+  waiting: WaitingItem[];
+}
+
+export const PracticeStartInput = SpaceRef;
+export const PracticeAnswerInput = SpaceRef.extend({
+  wait_id: z.string().trim().min(1).max(40),
+  /** The person to answer as (one of those asked). */
+  as_user_id: z.string().trim().min(1).max(64),
+  answer: z.string().trim().min(1).max(200),
+});

@@ -49,7 +49,7 @@ export interface HomePage {
   lists?: { id: string; name: string }[];
   /** A page that is one of the person's spaces (decision 2026-10-16 "Spaces"): its cards
    * and lists; the bar asks in that space's chat. Absent: Personal's pages. */
-  space?: { id: string; name: string };
+  space?: { id: string; name: string; practice?: boolean };
 }
 
 // The device copy is per person: another account on the same device never sees it.
@@ -306,7 +306,7 @@ async function loadSpacePages(spaces: SpaceView[], groups: GroupView[]): Promise
         ]);
         return {
           name: sp.name,
-          space: { id: sp.id, name: sp.name },
+          space: { id: sp.id, name: sp.name, practice: !!sp.practice_of },
           cards: await cardsFor(views, collections, sp.id),
           lists: collections.map((c) => ({ id: c.id, name: c.name })),
         };

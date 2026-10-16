@@ -75,6 +75,7 @@ export function LiveCard({
         {data.subtitle ? <Text style={[s.sub, { color: t.fg2 }]}>{data.subtitle}</Text> : null}
       </View>
     );
+  if (data.kind === "workflow") return <WorkflowCard data={data} />;
   if (data.kind === "record")
     return <RecordsWidget items={[{ record: data.record, collection: data.collection }]} onAsk={onAsk} />;
   if (data.kind === "answer") return <AnswerCard data={data} onAsk={onAsk} />;
@@ -340,6 +341,43 @@ function OpenList({ collection, view, more }: { collection: string; view?: strin
     >
       <Text style={[s.openListText, { color: t.accent }]}>{more ? "See all ›" : "Open list ›"}</Text>
     </Pressable>
+  );
+}
+
+/**
+ * A workflow in the chat: what it does in words and whether it's on; tap opens its screen,
+ * where it can be rehearsed before it's turned on (a new one is saved off).
+ */
+function WorkflowCard({ data }: { data: Extract<LiveData, { kind: "workflow" }> }) {
+  const { t } = useTheme();
+  const router = useRouter();
+  return (
+    <Tap
+      accessibilityRole="link"
+      accessibilityLabel={`Open ${data.name}`}
+      accessibilityHint="Shows the workflow, to rehearse it or turn it on"
+      onPress={() => router.push({ pathname: "/process", params: { id: data.id } })}
+      scale={0.99}
+      style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}
+    >
+      <View style={s.head}>
+        <Text style={[s.kicker, { color: data.enabled ? t.accent : t.fg3 }]}>
+          {data.enabled ? "Workflow · on" : "Workflow · off"}
+        </Text>
+      </View>
+      <Text style={[s.title, { color: t.fg }]}>{data.name}</Text>
+      {data.words.slice(0, 4).map((w, i) => (
+        <Text key={i} style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
+          {w}
+        </Text>
+      ))}
+      {data.words.length > 4 ? (
+        <Text style={[s.sub, { color: t.fg3 }]}>and {data.words.length - 4} more</Text>
+      ) : null}
+      <Text style={[s.openListText, { color: t.accent }]}>
+        {data.enabled ? "Open ›" : "Rehearse or turn on ›"}
+      </Text>
+    </Tap>
   );
 }
 

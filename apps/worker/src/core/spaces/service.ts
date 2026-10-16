@@ -8,12 +8,18 @@ import { ObjectError } from "../objects/errors.ts";
 export const spaceName = (id: string) => `space:${id}`;
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 
-type SpaceRow = { id: string; name: string; kind: "personal" | "shared"; role: SpaceView["role"] };
+type SpaceRow = {
+  id: string;
+  name: string;
+  kind: "personal" | "shared";
+  role: SpaceView["role"];
+  practice_of: string | null;
+};
 
 async function rows(ctx: OpUserCtx): Promise<SpaceRow[]> {
   const res = await ctx.d1
     .prepare(
-      `select s.id, s.name, s.kind, m.role from space_members m join spaces s on s.id = m.space_id
+      `select s.id, s.name, s.kind, m.role, s.practice_of from space_members m join spaces s on s.id = m.space_id
        where m.user_id = ? and s.deleted_at is null
        order by case when s.kind = 'personal' then 0 else 1 end, s.name`,
     )
@@ -89,6 +95,71 @@ export async function newSpace(ctx: OpUserCtx, name: string, id = ulid()): Promi
     starter: false,
   });
   return { id, name: clean, kind: "shared", role: "owner" };
+}
+
+/**
+ * A practice copy of a space (decision 2026-10-16 "Rehearse a workflow", second part): its
+ * lists, records, rules and workflows (all on), with nothing in it reaching anyone. It's a
+ * space of the person's own ("Practice: Home"), so it counts toward their 20.
+ */
+export async function startPractice(ctx: OpUserCtx, ref?: string): Promise<SpaceView> {
+  const { space, stub, actor } = await spaceOf(ctx, ref);
+  if (space.practice_of) throw new ObjectError("validation_failed", "This is already a practice copy");
+  const source = await stub.practiceSource(actor);
+  const mine = await mySpaces(ctx);
+  if (mine.length >= 20)
+    throw new ObjectError("conflict", "Up to 20 spaces; end a practice or remove a space first");
+  let name = `Practice: ${source.name}`;
+  for (let n = 2; mine.some((s) => nameKey(s.name) === nameKey(name)); n++)
+    name = `Practice ${n}: ${source.name}`;
+  const id = ulid();
+  await ctx.d1.batch([
+    ctx.d1
+      .prepare(
+        `insert into spaces (id, name, kind, owner_user_id, practice_of) values (?, ?, 'shared', ?, ?)`,
+      )
+      .bind(id, name, ctx.user.id, space.id),
+    ctx.d1
+      .prepare(`insert into space_members (space_id, user_id, role) values (?, ?, 'owner')`)
+      .bind(id, ctx.user.id),
+  ]);
+  await ctx.objects.SPACES.getByName(spaceName(id)).startPractice(
+    { id, name, owner: { user_id: ctx.user.id, name: ctx.user.name }, sourceId: space.id },
+    source.dump,
+  );
+  return { id, name, kind: "shared", role: "owner", practice_of: space.id };
+}
+
+/** A practice copy only: the space's object refuses any other. */
+async function practiceOf(ctx: OpUserCtx, ref: string) {
+  const found = await spaceOf(ctx, ref);
+  if (!found.space.practice_of) throw new ObjectError("not_found", "Not a practice copy");
+  return found;
+}
+
+export async function practiceView(ctx: OpUserCtx, ref: string) {
+  const { stub, actor } = await practiceOf(ctx, ref);
+  return stub.practiceView(actor);
+}
+
+export async function practiceAnswer(
+  ctx: OpUserCtx,
+  ref: string,
+  i: { wait_id: string; as_user_id: string; answer: string },
+) {
+  const { stub, actor } = await practiceOf(ctx, ref);
+  return stub.practiceAnswer(actor, i.wait_id, i.as_user_id, i.answer);
+}
+
+/** Ends a practice copy: it's erased and leaves the person's spaces. */
+export async function endPractice(ctx: OpUserCtx, ref: string): Promise<{ ended: string }> {
+  const { space, stub, actor } = await practiceOf(ctx, ref);
+  await stub.endPractice(actor);
+  await ctx.d1.batch([
+    ctx.d1.prepare(`update spaces set deleted_at = ? where id = ?`).bind(new Date().toISOString(), space.id),
+    ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(space.id),
+  ]);
+  return { ended: space.id };
 }
 
 /** One space with its instructions. */

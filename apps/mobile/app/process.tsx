@@ -7,7 +7,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { Rehearsal, WaitingItem, WorkflowDetail } from "@assistant/shared";
+import type { Rehearsal, RehearsalAnswer, WaitingItem, WorkflowDetail } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { answerWaiting, nudgeWaiting } from "@/home";
 import { radius, useTheme } from "@/theme";
@@ -27,7 +27,7 @@ export default function Process() {
   // Rehearse (decision 2026-10-16 "Rehearse a workflow"): the run in words, nothing kept or
   // sent; each answer given to a question is kept here and sent again to go further.
   const [rehearsal, setRehearsal] = useState<Rehearsal | null>(null);
-  const [answers, setAnswers] = useState<{ step: number; answer: string }[]>([]);
+  const [answers, setAnswers] = useState<RehearsalAnswer[]>([]);
   const [typed, setTyped] = useState("");
 
   const space = fromCard?.space_id;
@@ -64,7 +64,7 @@ export default function Process() {
     }
   };
 
-  const rehearse = async (given: { step: number; answer: string }[]) => {
+  const rehearse = async (given: RehearsalAnswer[]) => {
     if (!id) return;
     setBusy("rehearse");
     try {
@@ -83,8 +83,29 @@ export default function Process() {
       setBusy(null);
     }
   };
-  const answer = (a: string) =>
-    rehearsal?.waiting && void rehearse([...answers, { step: rehearsal.waiting.step, answer: a }]);
+  // A practice copy of the whole space, to try it with people (nothing reaches them).
+  const practise = async () => {
+    setBusy("practice");
+    try {
+      const made = await request<{ id: string }>(
+        "POST",
+        `/api/spaces/${encodeURIComponent(space ?? "Personal")}/practice`,
+        {},
+      );
+      router.push({ pathname: "/practice", params: { space: made.id } });
+    } catch (e) {
+      setNote(
+        isOffline(e) ? "A practice copy needs a connection." : e instanceof Error ? e.message : String(e),
+      );
+    } finally {
+      setBusy(null);
+    }
+  };
+  // Each person asked answers in turn (as the real run waits for everyone, or the first).
+  const answer = (a: string) => {
+    const w = rehearsal?.waiting;
+    if (w) void rehearse([...answers, { step: w.step, time: w.time, person: w.next, answer: a }]);
+  };
 
   const waiting: WaitingItem[] = detail?.waiting ?? (mine ? [mine] : []);
   const title = detail?.workflow.name ?? mine?.workflow ?? fromCard?.workflow ?? "Process";
@@ -134,7 +155,13 @@ export default function Process() {
                   {rehearsal.waiting ? (
                     <>
                       <Text style={[s.label, { color: t.fg2 }]}>
-                        Answer as {rehearsal.waiting.people.join(" or ")} to go on:
+                        {rehearsal.waiting.people.length > 1
+                          ? rehearsal.waiting.until === "first"
+                            ? `The first answer goes on. Answer as ${rehearsal.waiting.next}:`
+                            : `It goes on once all ${rehearsal.waiting.people.length} have answered. Answer as ${rehearsal.waiting.next}:`
+                          : rehearsal.waiting.next === "me"
+                            ? "Answer to go on:"
+                            : `Answer as ${rehearsal.waiting.next} to go on:`}
                       </Text>
                       {rehearsal.waiting.choices ? (
                         <View style={s.row}>
@@ -196,6 +223,10 @@ export default function Process() {
                     Try it on the newest record: every step in words, with nothing kept and nobody told or
                     asked. It works while the workflow is off.
                   </Text>
+                  <Text style={[s.label, { color: t.fg2 }]}>
+                    Or practise with people: a copy of this space where the workflows really run and you
+                    answer as each person, with nothing reaching anyone.
+                  </Text>
                   <View style={s.row}>
                     <Pressable
                       accessibilityRole="button"
@@ -205,6 +236,16 @@ export default function Process() {
                     >
                       <Text style={[s.btnText, { color: t.onAccent }]}>
                         {busy === "rehearse" ? "Rehearsing…" : "Rehearse"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy !== null}
+                      onPress={() => void practise()}
+                      style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+                    >
+                      <Text style={[s.btnText, { color: t.accent }]}>
+                        {busy === "practice" ? "Copying…" : "Practise with people"}
                       </Text>
                     </Pressable>
                   </View>

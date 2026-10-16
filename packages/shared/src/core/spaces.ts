@@ -106,6 +106,8 @@ export interface SpaceView {
   name: string;
   kind: "personal" | "shared";
   role: "owner" | "editor" | "viewer";
+  /** A practice copy of that space (decision 2026-10-16 "Rehearse a workflow"). */
+  practice_of?: string | null;
 }
 
 /** One space with how the person wants things done in it (decision 2026-10-16 "Spaces"). */
