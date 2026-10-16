@@ -78,8 +78,7 @@ const has = (s: string | null | undefined, ...parts: string[]) =>
 const titles = async (u: User, c: string) => (await find(u, c)).items.map((r) => r.title);
 const show = (x: unknown) => JSON.stringify(x).slice(0, 160);
 const handedOver = (o: Outcome) =>
-  o.turn.some((i) => i.role === "note" && has(i.text, "Careful")) ||
-  has(o.reply, "needs the smart model");
+  o.turn.some((i) => i.role === "note" && has(i.text, "Careful")) || has(o.reply, "needs the smart model");
 const add = (u: User, collection: string, values: Record<string, unknown>) =>
   api(u)(`/collections/${collection}/records`, { body: { values } });
 const remember = (u: User, text: string) => api(u)("/memories", { body: { text } });
