@@ -1193,7 +1193,18 @@ export class SpaceObject extends DurableObject<Env> {
       )
       .toArray())
       if (!skip.has(p.user_id) && !people.has(p.user_id))
-        people.set(p.user_id, { user_id: p.user_id, name: p.name, role: "shared", waiting: 0, got: 0 });
+        people.set(p.user_id, {
+          user_id: p.user_id,
+          name: p.name,
+          role: p.user_id.startsWith("standin:") ? "standin" : "shared",
+          waiting: 0,
+          got: 0,
+        });
+    // Stand-ins only told something (no question shared with them) are played too.
+    for (const [id, name] of Object.entries(
+      JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>,
+    ))
+      if (!people.has(id)) people.set(id, { user_id: id, name, role: "standin", waiting: 0, got: 0 });
     for (const r of this.sql
       .exec<{ user_id: string; n: number }>(
         `select user_id, count(*) as n from practice_log group by user_id`,
@@ -1227,6 +1238,92 @@ export class SpaceObject extends DurableObject<Env> {
     const person = this.practicePeople().find((p) => p.user_id === userId);
     if (!person) throw new ObjectError("not_found", "That person isn't in this rehearsal");
     return { as: { userId, source: actor.source }, person };
+  }
+
+  /** A made-up person who plays a role in a practice copy ("Resident (stand-in)"), by role. */
+  private standIn(role: string): Person {
+    const id = `standin:${
+      nameKey(role)
+        .replace(/[^a-z0-9]+/g, "-")
+        .slice(0, 40) || "someone"
+    }`;
+    const name = `${role} (stand-in)`;
+    const known = JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>;
+    if (known[id] !== name) setMeta(this.sql, "practice_standins", JSON.stringify({ ...known, [id]: name }));
+    return { user_id: id, name };
+  }
+
+  /**
+   * Starts a workflow in a practice copy, as it would start for real: a sample record added to
+   * its list (made-up values) when it runs on new records, otherwise a run now (on the list's
+   * newest record, or as a scheduled run).
+   */
+  async practiceRun(
+    actor: Actor,
+    workflowId: string,
+  ): Promise<{ record: { id: string; title: string } | null }> {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const w = this.requireWorkflow(workflowId);
+    const def = JSON.parse(w.def_json) as WorkflowDef;
+    if (!w.enabled) throw new ObjectError("validation_failed", "This workflow is off in the practice copy");
+    if (def.when.event === "added") {
+      const c = this.requireCollection(w.collection_id);
+      const r = await this.addRecord(actor, null, c.id, { values: this.sampleValues(c) });
+      return { record: { id: r.id, title: r.title } };
+    }
+    let record: { id: string; title: string } | null = null;
+    this.ctx.storage.transactionSync(() => {
+      if (def.when.event === "schedule") {
+        this.sql.exec(`delete from workflow_jobs where workflow_id = ? and kind = 'schedule'`, w.id);
+        this.addJob(w.id, "", "schedule", Date.now());
+        return;
+      }
+      const newest = this.sql
+        .exec<{ id: string; title: string }>(
+          `select id, title from records where collection_id = ? and deleted_at is null order by created_at desc limit 1`,
+          w.collection_id,
+        )
+        .toArray()[0];
+      if (!newest) throw new ObjectError("validation_failed", "Add a record to its list first");
+      record = newest;
+      this.addJob(w.id, newest.id, "event", Date.now());
+    });
+    await this.wakeForJobs();
+    return { record };
+  }
+
+  /** Made-up values for a sample record: every field it can fill, links to a first record. */
+  private sampleValues(c: CollectionRow): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    const now = Date.now();
+    const day = new Date(todayIST(now)).toISOString().slice(0, 10);
+    const inAnHour = new Date(now + 330 * 60_000 + 3_600_000).toISOString().slice(0, 16);
+    for (const row of this.fieldRows(c.id)) {
+      const f = toField(row);
+      const o = f.options;
+      if (o.formula || o.rollup || o.personal) continue;
+      if (f.type === "text" || f.type === "long_text") out[f.id] = `Sample ${f.name.toLowerCase()}`;
+      else if (f.type === "number") out[f.id] = 1;
+      else if (f.type === "money") out[f.id] = 100;
+      else if (f.type === "date") out[f.id] = day;
+      else if (f.type === "datetime") out[f.id] = inAnHour;
+      else if (f.type === "boolean") out[f.id] = false;
+      else if (f.type === "choice" && o.choices?.length) out[f.id] = o.choices[0];
+      else if (f.type === "multi_choice" && o.choices?.length) out[f.id] = [o.choices[0]];
+      else if (f.type === "link") {
+        const first = this.sql
+          .exec<{ id: string }>(
+            o.target
+              ? `select id from records where collection_id = ? and deleted_at is null order by created_at limit 1`
+              : `select id from records where deleted_at is null and collection_id != ? order by created_at limit 1`,
+            o.target ?? c.id,
+          )
+          .toArray()[0];
+        if (first) out[f.id] = [first.id];
+      }
+    }
+    return out;
   }
 
   /** What one person sees in a rehearsal: what's shared with them, and what they've had. */
@@ -1317,6 +1414,7 @@ export class SpaceObject extends DurableObject<Env> {
         .exec<{ name: string }>(`select name from share_people where user_id = ? limit 1`, userId)
         .toArray()[0]?.name ??
       this.practiceMembers().find((m) => m.user_id === userId)?.name ??
+      (JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>)[userId] ??
       "Someone"
     );
   }
@@ -7790,17 +7888,27 @@ export class SpaceObject extends DurableObject<Env> {
     r: RecordRow,
   ): Person[] {
     const current = this.requireRecord(r.id);
+    // In a practice copy, a role nobody the space knows fills (an empty Resident) is played
+    // by a stand-in, so the run can be rehearsed all the way through.
+    const orStandIn = (got: Person[], fieldId: string): Person[] =>
+      got.length || !this.practice ? got : [this.standIn(this.liveField(fieldId)?.name ?? "Someone")];
     const named = (a.to_fields ?? []).flatMap((fid) => {
       const v = (JSON.parse(current.values_json) as Record<string, StoredValue>)[fid];
       const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
-      return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
+      return orStandIn(
+        p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [],
+        fid,
+      );
     });
     const linked = (a.to_linked ?? []).flatMap((l) =>
-      this.linkedIds(l.field_id, l.dir, r.id).flatMap((id) => {
-        const v = this.currentValues(id)[l.person_field_id];
-        const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
-        return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
-      }),
+      orStandIn(
+        this.linkedIds(l.field_id, l.dir, r.id).flatMap((id) => {
+          const v = this.currentValues(id)[l.person_field_id];
+          const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
+          return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
+        }),
+        l.person_field_id,
+      ),
     );
     return [...a.to, ...named, ...linked].filter(
       (p, i, all) => !p.user_id || all.findIndex((q) => q.user_id === p.user_id) === i,
@@ -8392,7 +8500,32 @@ export class SpaceObject extends DurableObject<Env> {
         return part === "total" ? got.shown : part === "count" ? String(got.count) : got.by || "nothing";
       }
       const f = fields.find((x) => x.name_key === nameKey(name));
-      if (!f) return all;
+      // A link shows the linked records' titles ({Flat} → "A-101"); links aren't in the values.
+      if (f?.type === "link" && r)
+        return this.linkedIds(f.id, "out", r.id)
+          .flatMap((id) => {
+            const t = this.liveRecord(id)?.title;
+            return t ? [t] : [];
+          })
+          .join(", ");
+      if (!f) {
+        // {Link.Field}: that field of the linked records ({Flat.Resident} → "Asha").
+        const dot = name.indexOf(".");
+        const link = dot > 0 ? fields.find((x) => x.name_key === nameKey(name.slice(0, dot))) : undefined;
+        if (!link || link.type !== "link" || !r) return all;
+        const parts = this.linkedIds(link.id, "out", r.id).flatMap((id) => {
+          const lr = this.liveRecord(id);
+          if (!lr) return [];
+          const lf = this.fieldRows(lr.collection_id).find(
+            (x) => x.name_key === nameKey(name.slice(dot + 1)),
+          );
+          if (!lf) return [];
+          if (lf.id === this.requireCollection(lr.collection_id).title_field_id) return [lr.title];
+          const v = displayValue(lf.type, this.currentValues(id)[lf.id] ?? null);
+          return Array.isArray(v) ? v : v ? [v] : [];
+        });
+        return parts.join(", ");
+      }
       const shown = displayValue(f.type, values[f.id] ?? null);
       return Array.isArray(shown) ? shown.join(", ") : (shown ?? "");
     });

@@ -386,8 +386,11 @@ export interface WorkflowDetail {
 export interface PracticePerson {
   user_id: string;
   name: string;
-  /** "member": in the space (sees all of it); "shared": sees only what's shared with them. */
-  role: "member" | "shared";
+  /**
+   * "member": in the space (sees all of it); "shared": sees only what's shared with them;
+   * "standin": made up for a role nobody fills (an empty Resident), played only here.
+   */
+  role: "member" | "shared" | "standin";
   /** Questions waiting on them now. */
   waiting: number;
   /** Messages and questions they've had in this rehearsal. */
@@ -653,6 +656,8 @@ export interface PracticeView {
 }
 
 export const PracticeStartInput = SpaceRef;
+/** Starts one workflow in a practice copy (a sample record, or a run now). */
+export const PracticeRunInput = SpaceRef.extend({ workflow_id: z.string().trim().min(1).max(40) });
 /** A rehearsal, as one of its people. */
 export const PracticeAsInput = SpaceRef.extend({ user_id: z.string().trim().min(1).max(64) });
 export const PracticeAsShareInput = PracticeAsInput.extend({

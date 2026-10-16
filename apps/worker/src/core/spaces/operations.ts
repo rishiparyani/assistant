@@ -9,6 +9,7 @@ import {
   PracticeAsInput,
   PracticeAsShareInput,
   PracticeAsUpdateInput,
+  PracticeRunInput,
   PracticeStartInput,
   AddFieldInput,
   CommentRef,
@@ -110,6 +111,19 @@ export const spaceOperations = [
     http: { method: "POST", path: "/spaces/:space/practice/answer" },
     input: PracticeAnswerInput,
     handler: (ctx, i) => practiceAnswer(ctx, i.space ?? "", i),
+  }),
+  defineOperation({
+    id: "core.practice_run",
+    tool: "practice_run",
+    description:
+      "In a practice copy: start one workflow as it would start for real (a sample record with made-up values added to its list, or a run now), to rehearse it.",
+    kind: "write",
+    http: { method: "POST", path: "/spaces/:space/practice/run" },
+    input: PracticeRunInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await practiceOf(ctx, i.space ?? "");
+      return stub.practiceRun(actor, i.workflow_id);
+    },
   }),
   // A rehearsal as one of its people (decision 2026-10-16 "Rehearse as each person"): what
   // they see and do, run as them inside the copy, so their access is checked as theirs.

@@ -16,6 +16,7 @@ import type {
   PracticeView,
   RecordView,
   SharedOpened,
+  WorkflowDetail,
   StoredValue,
 } from "@assistant/shared";
 import { isOffline, request } from "@/api";
@@ -32,7 +33,10 @@ export default function Practice() {
   const myId = useSession().me?.user.id ?? null;
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { space } = useLocalSearchParams<{ space?: string }>();
+  // The workflow being rehearsed (from its screen): its steps and a Start button lead the way.
+  const { space, workflow } = useLocalSearchParams<{ space?: string; workflow?: string }>();
+  const [flow, setFlow] = useState<WorkflowDetail | null>(null);
+  const [started, setStarted] = useState<string | null>(null);
   const [view, setView] = useState<PracticeView | null>(null);
   const [lists, setLists] = useState<CollectionView[]>([]);
   // Who is being played: "" is you (the one practising), otherwise a person's id.
@@ -52,6 +56,12 @@ export default function Practice() {
       ]);
       setView(v);
       setLists(cols);
+      if (workflow)
+        setFlow(
+          await request<WorkflowDetail>("GET", `/api/workflows/${enc(workflow)}?space=${enc(space)}`).catch(
+            () => null,
+          ),
+        );
       if (who) {
         const pv = await request<PracticeAsView>("GET", `${base}/as/${enc(who)}`);
         // Each card opened through their share, so it shows what they may see and nothing more.
@@ -68,7 +78,7 @@ export default function Practice() {
     } catch (e) {
       setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
     }
-  }, [space, base, who]);
+  }, [space, base, who, workflow]);
   useEffect(() => {
     void load();
     // Workflows run a moment after a change; without the live connection, read again now and then.
@@ -92,6 +102,23 @@ export default function Practice() {
       setBusy(null);
     }
   };
+  // Starts the workflow as it would start for real: a sample record, or a run now.
+  const start = () =>
+    flow &&
+    void act("start", async () => {
+      const r = await request<{ record: { id: string; title: string } | null }>("POST", `${base}/run`, {
+        workflow_id: flow.workflow.id,
+      });
+      setStarted(r.record ? r.record.title : flow.workflow.name);
+    });
+  const when = flow?.workflow.when;
+  const startLabel = !when
+    ? ""
+    : when.event === "added"
+      ? `Start: add a sample to ${when.collection}`
+      : when.event === "schedule"
+        ? "Start: run it now"
+        : `Start: run it on the newest in ${when.collection}`;
   const setAsThem = (card: HomeCard, record: RecordView, field: string, value: StoredValue) =>
     card.shared &&
     void act(card.id, () =>
@@ -213,6 +240,35 @@ export default function Practice() {
                 </Pressable>
               </View>
             </View>
+          ) : !turn && !mine.length && flow && !who ? (
+            // The workflow being rehearsed, step by step, and how to start it.
+            <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
+              <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
+                Rehearsing {flow.workflow.name}
+              </Text>
+              {flow.workflow.words.map((w, i) => (
+                <Text key={i} style={[s.label, { color: t.fg }]}>
+                  {i + 1}. {w}
+                </Text>
+              ))}
+              <Text style={[s.label, { color: t.fg2 }]}>
+                {started
+                  ? `Started with “${started}”. See what happened below, or start again.`
+                  : "Tap Start to set it off with made-up details. You play whoever adds it; then a card shows whose turn it is, and you switch to them to see their app and answer."}
+              </Text>
+              <View style={s.row}>
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy !== null}
+                  onPress={start}
+                  style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                >
+                  <Text style={[s.btnText, { color: t.onAccent }]}>
+                    {busy === "start" ? "Starting…" : started ? "Start again" : startLabel}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
           ) : !turn && !mine.length ? (
             <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
               <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
@@ -246,7 +302,9 @@ export default function Practice() {
               <Text style={[s.label, { color: t.fg2 }]}>
                 {person.role === "member"
                   ? `${person.name} is in this space, so they see all its lists, as you do. Below: what they've been asked and told.`
-                  : `Only what's shared with ${person.name}, with the fields they may see. Everything else here stays hidden from them.`}
+                  : person.role === "standin"
+                    ? `Made up for this practice run: nobody fills this role yet. In real use, the person in that field gets exactly this.`
+                    : `Only what's shared with ${person.name}, with the fields they may see. Everything else here stays hidden from them.`}
               </Text>
             </View>
             {as ? (
@@ -327,27 +385,6 @@ export default function Practice() {
                 </View>
               </View>
             ))}
-            <Text style={[s.h2, { color: t.fg }]}>The lists in this copy</Text>
-            <View style={s.row}>
-              {lists.map((c) => {
-                const tint = colour(colourFor(c.name));
-                return (
-                  <Pressable
-                    key={c.id}
-                    accessibilityRole="link"
-                    onPress={() =>
-                      router.push({ pathname: "/list", params: { collection: c.id, space: space! } })
-                    }
-                    style={[s.list, { backgroundColor: t.cell, borderColor: tint }]}
-                  >
-                    <Text style={[s.line, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
-                      {c.name}
-                    </Text>
-                    <Text style={[s.label, { color: tint }]}>Open ›</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
             <Text style={[s.h2, { color: t.fg }]}>What happened</Text>
             {view.log.length ? (
               <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
@@ -374,6 +411,27 @@ export default function Practice() {
             ) : (
               <Text style={[s.label, { color: t.fg2 }]}>Nothing yet.</Text>
             )}
+            <Text style={[s.h2, { color: t.fg }]}>The lists in this copy</Text>
+            <View style={s.row}>
+              {lists.map((c) => {
+                const tint = colour(colourFor(c.name));
+                return (
+                  <Pressable
+                    key={c.id}
+                    accessibilityRole="link"
+                    onPress={() =>
+                      router.push({ pathname: "/list", params: { collection: c.id, space: space! } })
+                    }
+                    style={[s.list, { backgroundColor: t.cell, borderColor: tint }]}
+                  >
+                    <Text style={[s.line, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                    <Text style={[s.label, { color: tint }]}>Open ›</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </>
         ) : null}
 
