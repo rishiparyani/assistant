@@ -100,12 +100,16 @@ jobs:
           echo "RESET_TOKEN=$token" >> "$GITHUB_ENV"
           printf '%s' "$token" | pnpm exec wrangler secret put RESET_TOKEN --name "$WORKER_NAME" > /dev/null
           # A new secret takes a few seconds to reach every copy of the Worker.
-          for i in $(seq 1 36); do
+          # Six answers in a row, since one copy can have it before the others (the fourth run's
+          # backup and first erase got a 404 right after the path looked open).
+          ok=0
+          for i in $(seq 1 60); do
             code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/internal/reset" \
               -H "authorization: Bearer $token" -H 'content-type: application/json' \
               -d '{"words":"ERASE EVERYTHING","step":"ready"}')"
             # 400 "Unknown step": the path is open and the secret matches.
-            if [ "$code" = "400" ]; then echo "Reset path open."; exit 0; fi
+            if [ "$code" = "400" ]; then ok=$((ok + 1)); else ok=0; fi
+            if [ "$ok" -ge 6 ]; then echo "Reset path open."; exit 0; fi
             sleep 5
           done
           echo "::error::The reset path didn't open. Nothing was erased."
@@ -115,7 +119,7 @@ jobs:
         run: |
           # A failed request (an error answer, no answer) is a failed backup too, and goes to
           # the same choice below instead of stopping the step on its own.
-          out="$(curl -sS -X POST "$APP_URL/api/internal/reset" \
+          out="$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -X POST "$APP_URL/api/internal/reset" \
             -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
             -d '{"words":"ERASE EVERYTHING","step":"backup"}' 2>/dev/null)" || out='{}'
           jq -e . > /dev/null 2>&1 <<< "$out" || out='{}'
@@ -167,7 +171,7 @@ jobs:
               found=$((found + ${#ids[@]}))
               for ((i = 0; i < ${#ids[@]}; i += 50)); do
                 batch="$(printf '%s\n' "${ids[@]:i:50}" | jq -R . | jq -s -c .)"
-                out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+                out="$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -X POST "$APP_URL/api/internal/reset" \
                   -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
                   -d "{\"words\":\"ERASE EVERYTHING\",\"step\":\"objects\",\"binding\":\"${binding[$cls]}\",\"ids\":$batch}")"
                 erased[$cls]=$(( ${erased[$cls]:-0} + $(jq -r .wiped <<< "$out") ))
@@ -191,7 +195,7 @@ jobs:
 
       - name: Erase accounts and the database's rows
         run: |
-          out="$(curl -fsS -X POST "$APP_URL/api/internal/reset" \
+          out="$(curl -fsS --retry 5 --retry-delay 5 --retry-all-errors -X POST "$APP_URL/api/internal/reset" \
             -H "authorization: Bearer $RESET_TOKEN" -H 'content-type: application/json' \
             -d '{"words":"ERASE EVERYTHING","step":"database"}')"
           echo "Database: $(jq -r .rows <<< "$out") rows in $(jq -r .tables <<< "$out") tables erased."
@@ -205,12 +209,14 @@ jobs:
           if pnpm exec wrangler secret list --name "$WORKER_NAME" | grep -q RESET_TOKEN; then
             yes | pnpm exec wrangler secret delete RESET_TOKEN --name "$WORKER_NAME" > /dev/null
           fi
-          # Make sure it's gone: the path must answer 404 again.
+          # Make sure it's gone: the path must answer 404 again, six times in a row.
+          gone=0
           for i in $(seq 1 36); do
             code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/internal/reset" \
               -H "authorization: Bearer ${RESET_TOKEN:-none}" -H 'content-type: application/json' \
               -d '{"words":"ERASE EVERYTHING","step":"ready"}')"
-            if [ "$code" = "404" ]; then echo "Reset path closed."; exit 0; fi
+            if [ "$code" = "404" ]; then gone=$((gone + 1)); else gone=0; fi
+            if [ "$gone" -ge 6 ]; then echo "Reset path closed."; exit 0; fi
             sleep 5
           done
           echo "::error::The reset path still answers. Delete the RESET_TOKEN secret from the Worker in Cloudflare."
