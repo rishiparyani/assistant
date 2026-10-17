@@ -1,12 +1,23 @@
 // Search from the one bar (decision 2026-10-16 "One bar"): what the home holds, matched on
 // the device at once (lists, cards' titles and rows; works offline), and the person's own
-// index on the server (every record and chat message they can see) a moment later when
+// index on the server (every record and chat message they can see, and their conversations with
+// the assistant) a moment later when
 // there's a connection.
 import { useEffect, useState } from "react";
 import { request } from "./api.ts";
 import type { HomeCard } from "./home.ts";
 
-export type SearchResult = RecordHit | MessageHit;
+export type SearchResult = RecordHit | MessageHit | ConversationHit;
+
+/** Something said in one of my conversations with the assistant (only in my own index). */
+export interface ConversationHit {
+  kind: "conversation";
+  chat_id: string;
+  chat: string;
+  message_id: string;
+  snippet: string;
+  updated_at: string;
+}
 
 /** A piece of a chat I'm in. */
 export interface MessageHit {

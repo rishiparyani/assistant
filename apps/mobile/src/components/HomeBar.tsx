@@ -153,17 +153,27 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
             ))}
             {remote.map((h) => (
               <Tap
-                key={h.kind === "message" ? `${h.group_id}:${h.message_id}` : `${h.space_id}:${h.record_id}`}
+                key={
+                  h.kind === "message"
+                    ? `${h.group_id}:${h.message_id}`
+                    : h.kind === "conversation"
+                      ? `${h.chat_id}:${h.message_id}`
+                      : `${h.space_id}:${h.record_id}`
+                }
                 accessibilityRole="button"
                 onPress={() => pick(() => onOpenHit(h, q))}
                 scale={0.985}
                 style={[s.hit, s.hitCol, { backgroundColor: t.fill }]}
               >
                 <Text style={[type.body, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
-                  {h.kind === "message" ? `${h.chat} · chat` : h.title}
+                  {h.kind === "message"
+                    ? `${h.chat} · chat`
+                    : h.kind === "conversation"
+                      ? `${h.chat} · with the assistant`
+                      : h.title}
                 </Text>
                 <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={2}>
-                  {h.kind === "message"
+                  {h.kind === "message" || h.kind === "conversation"
                     ? h.snippet.replace(/[[\]]/g, "")
                     : h.collection +
                       (h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : "")}

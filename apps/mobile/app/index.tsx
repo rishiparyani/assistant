@@ -644,6 +644,10 @@ export default function Home() {
                 router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
                 return;
               }
+              if (hit.kind === "conversation") {
+                router.push({ pathname: "/chat", params: { id: hit.chat_id } });
+                return;
+              }
               if (assistant)
                 router.push({
                   pathname: "/chat",

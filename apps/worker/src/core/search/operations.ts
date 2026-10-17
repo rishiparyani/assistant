@@ -12,7 +12,18 @@ import { embed } from "./embed.ts";
 const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 const indexOf = (ctx: OpUserCtx) => ctx.objects.SEARCH.getByName(`search:${ctx.user.id}`);
 
-export type SearchResult = RecordResult | MessageResult;
+export type SearchResult = RecordResult | MessageResult | ConversationResult;
+
+/** Something said in one of my conversations with the assistant (only ever in my own index). */
+export interface ConversationResult {
+  kind: "conversation";
+  chat_id: string;
+  /** The conversation's title as my chat list shows it. */
+  chat: string;
+  message_id: string;
+  snippet: string;
+  updated_at: string;
+}
 
 /** A piece of a chat I'm in (decision 2026-10-13 "Saving chat messages, and searching chats"). */
 export interface MessageResult {
@@ -48,7 +59,7 @@ export const searchOperations = [
     id: "core.search",
     tool: "search",
     description:
-      "Search everything I can see (records in my spaces, and messages in my chats) by words and meaning; part of a word matches. Returns the best hits with a snippet.",
+      "Search everything I can see (records in my spaces, messages in my chats, and my conversations with you) by words and meaning; part of a word matches. Returns the best hits with a snippet.",
     kind: "read",
     http: { method: "GET", path: "/search" },
     input: SearchInput,
@@ -61,12 +72,35 @@ export const searchOperations = [
       const spaces = await mySpaces(ctx);
       const bySpace = new Map<string, SearchHit[]>();
       const byGroup = new Map<string, SearchHit[]>();
+      const said: SearchHit[] = [];
       for (const h of hits) {
+        if (h.space_id.startsWith("assistant:")) {
+          said.push(h);
+          continue;
+        }
         const into = h.space_id.startsWith("group:") ? byGroup : bySpace;
         const key = h.space_id.startsWith("group:") ? h.space_id.slice("group:".length) : h.space_id;
         into.set(key, [...(into.get(key) ?? []), h]);
       }
       const out: SearchResult[] = [];
+      // My conversations with the assistant: only ones still in my list, by their titles now.
+      if (said.length) {
+        const main = ctx.objects.CHATS.getByName(`chat:${ctx.user.id}`);
+        const titles = new Map((await main.chats(ctx.user.id)).map((c) => [c.id, c.title]));
+        for (const h of said) {
+          const chatId = h.space_id.slice("assistant:".length);
+          const title = chatId === "main" ? "Your main chat" : titles.get(chatId);
+          if (!title) continue;
+          out.push({
+            kind: "conversation",
+            chat_id: chatId,
+            chat: title,
+            message_id: h.record_id,
+            snippet: h.snippet || h.title,
+            updated_at: h.updated_at,
+          });
+        }
+      }
       // Chat hits: only from chats I'm still in (the chat itself says), named as I see them.
       await Promise.all(
         [...byGroup].map(async ([groupId, list]) => {
@@ -145,6 +179,13 @@ export const searchOperations = [
           indexed += await ctx.objects.GROUPS.getByName(`group:${g.group_id}`)
             .rebuildSearch(ctx.user.id)
             .catch(() => 0);
+        // My conversations with the assistant: they send their words again in the background.
+        const main = ctx.objects.CHATS.getByName(`chat:${ctx.user.id}`);
+        await main.reindex();
+        for (const c of await main.chats(ctx.user.id))
+          await ctx.objects.CHATS.getByName(`chat:${ctx.user.id}:${c.id}`)
+            .reindex()
+            .catch(() => {});
         if (key) await index.rebuildDone(key, { indexed });
         return { indexed };
       } catch (e) {
