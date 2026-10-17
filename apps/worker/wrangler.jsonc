@@ -115,9 +115,10 @@
     "ENVIRONMENT": "dev",
     "BASE_URL": "https://dev.gigspree.in",
     "AI_PAID_GATEWAY": "",
-    // The assistant's models (decision 2026-10-15 "Haiku for every day, Sonnet for setups"), on
-    // the Anthropic key's own prepaid credit; without the key GLM answers and setups wait.
-    "AI_EVERYDAY_MODEL": "claude-haiku-5-5",
+    // The assistant's models (decisions 2026-10-15 "Haiku for every day, Sonnet for setups" and
+    // 2026-10-17 "Sonnet for every day, for now"), on the Anthropic key's own prepaid credit;
+    // without the key GLM answers and setups wait.
+    "AI_EVERYDAY_MODEL": "claude-sonnet-5-5",
     "AI_SETUP_MODEL": "claude-sonnet-5-5",
     "AI_MONTHLY_CAP_INR": "2000",
     "AI_PERSON_CAP_INR": "2000",
@@ -215,7 +216,7 @@
         "ENVIRONMENT": "production",
         "BASE_URL": "https://gigspree.in",
         "AI_PAID_GATEWAY": "",
-        "AI_EVERYDAY_MODEL": "claude-haiku-5-5",
+        "AI_EVERYDAY_MODEL": "claude-sonnet-5-5",
         "AI_SETUP_MODEL": "claude-sonnet-5-5",
         "AI_MONTHLY_CAP_INR": "2000",
         "AI_PERSON_CAP_INR": "2000",

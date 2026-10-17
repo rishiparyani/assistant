@@ -56,6 +56,30 @@ describe("Claude models", () => {
     ]);
   });
 
+  it("lets Sonnet answer every day when it's the pick (2026-10-17)", () => {
+    const on = {
+      ...base,
+      anthropic: true,
+      everydayModel: "claude-sonnet-5-5",
+      setupModel: "claude-sonnet-5-5",
+    };
+    // Sonnet first; GLM and then Haiku behind it when it fails.
+    expect(ids(modelsFor(1, on))).toEqual([
+      "claude-sonnet-5-5",
+      "@cf/zai-org/glm-4.7-flash",
+      "claude-haiku-5-5",
+    ]);
+    expect(ids(modelsFor(2, on))).toEqual(["claude-sonnet-5-5"]);
+    // Never the other way: an everyday model named for setups isn't used for them.
+    expect(ids(modelsFor(2, { ...base, anthropic: true, setupModel: "claude-haiku-5-5" }))).toEqual([
+      "claude-sonnet-5-5",
+    ]);
+    // Without the key it isn't tried: GLM answers, as before.
+    expect(ids(modelsFor(1, { ...base, everydayModel: "claude-sonnet-5-5" }))).toEqual([
+      "@cf/zai-org/glm-4.7-flash",
+    ]);
+  });
+
   it("tries a scorecard candidate first, only at its level and only with its key", () => {
     expect(ids(modelsFor(2, { ...base, openai: true, setupModel: "gpt-5.4" }))).toEqual(["gpt-5.4"]);
     expect(ids(modelsFor(2, { ...base, setupModel: "gpt-5.4" }))).toEqual([]);
