@@ -1091,3 +1091,9 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **How it works:** an `ask_choices` tool at both levels (alongside hand_over / hand_back, not an operation: it changes nothing). Its arguments are checked (`ChoicesArgs`); the turn ends there (outcome "asked"), and a chat item `role: "choices"` with `choices` (`ChatChoices` in shared) is stored (`messages.choices_json`, a chat-object migration). Its `text` says the same in words, so an older app still shows it. The tap is simply the person's next message, so the model reads it like any answer.
 - **On the phone:** a card in the chat (`app/chat.tsx` Bubble): the question, a row per answer with its line, "Other…" (focuses the message box). Once answered (the person's next message), it's a record: the picked answer marked ✓, the rest faded, nothing to tap.
 - `PROMPT_VERSION 2026-10-17b`: the instructions say when to use it.
+
+## 2026-10-17: Sonnet for every day, for now (owner: "For now can we just enable Sonnet? Haiku is not doing very well. I want to try with Sonnet first and then if needed we'll move to Haiku")
+
+- **What:** `AI_EVERYDAY_MODEL` is `claude-sonnet-5-5` in both environments, so Claude Sonnet 5.5 answers everyday messages (Quick) as well as building setups (Careful). If Sonnet fails, GLM and then Haiku answer, as before.
+- **How:** `modelsFor` takes the picked model from either level (it took only the level's own before), so a stronger model can answer every day. The everyday level keeps its own tools and its hand-over to Careful.
+- **Cost:** Sonnet costs about 20 times Haiku per message ($2/$10 against $0.10/$0.50 per million tokens). The ₹2,000 monthly cap and the per-person cap are unchanged and still stop paid calls at 90%. Going back to Haiku is one line in `wrangler.jsonc`.
