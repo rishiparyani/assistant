@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline } from "@/api";
 import { arrange, homeChanged, loadCatalog, saveLayout, type CatalogEntry } from "@/home";
+import { Mark } from "@/components/Mark";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const PER_PAGE = 12;
@@ -23,17 +24,19 @@ const KIND: Record<CatalogEntry["kind"], string> = {
 };
 
 export default function Library() {
-  const { t, colour } = useTheme();
+  const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
   const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(null);
+  const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>([]);
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
     try {
       const cat = await loadCatalog();
       setEntries(cat.entries);
+      setEmptySpaces(cat.emptySpaces);
       setLayout(arrange(cat));
       setNote("");
     } catch (e) {
@@ -86,7 +89,6 @@ export default function Library() {
               <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
                 {list.map((e, i) => {
                   const at = pageOf(e.key);
-                  const tint = colour(colourFor(e.collection?.name ?? e.title));
                   const opens = e.collection ? e.collection.id : null;
                   return (
                     <View
@@ -96,7 +98,7 @@ export default function Library() {
                         i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
                       ]}
                     >
-                      <View style={[s.dot, { backgroundColor: tint }]} />
+                      <Mark name={e.title} tone={colourFor(e.collection?.name ?? e.title)} />
                       <Pressable
                         accessibilityRole={opens ? "link" : "text"}
                         disabled={!opens}
@@ -146,6 +148,36 @@ export default function Library() {
             </View>
           ))
         )}
+        {/* A space with no lists has no cards yet: shown here, with a way to start it. */}
+        {entries
+          ? emptySpaces.map((sp) => (
+              <View key={`space:${sp.id}`} style={{ gap: 8 }}>
+                <Text style={[s.h2, { color: t.fg }]}>{sp.name}</Text>
+                <View style={[s.card, s.row, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                  <Mark name={sp.name} />
+                  <View style={s.words}>
+                    <Text style={[s.name, { color: t.fg }]}>Nothing in it yet</Text>
+                    <Text style={[s.label, { color: t.fg2 }]} numberOfLines={2}>
+                      A space with no lists. Tell the chat what it's for.
+                    </Text>
+                  </View>
+                  <Tap
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start building ${sp.name}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/chat",
+                        params: { space: sp.id, ask: "Set up the lists for this space" },
+                      })
+                    }
+                    style={[s.btn, { backgroundColor: t.accent }]}
+                  >
+                    <Text style={[s.btnText, { color: t.onAccent }]}>Start</Text>
+                  </Tap>
+                </View>
+              </View>
+            ))
+          : null}
         {entries ? (
           <Pressable
             accessibilityRole="link"
@@ -168,7 +200,6 @@ const s = StyleSheet.create({
   h2: { fontSize: 15, fontWeight: "700" },
   card: { borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, minHeight: 60 },
-  dot: { width: 10, height: 10, borderRadius: 3 },
   words: { flex: 1, paddingVertical: 10, gap: 2 },
   name: { fontSize: 15, fontWeight: "700" },
   label: { fontSize: 13, lineHeight: 18 },

@@ -2,6 +2,7 @@
 // make a form or send on a schedule ("chat makes, screens use"), move it to another page, or
 // take it off the home (it stays in the library; decision 2026-10-16 "A home you arrange").
 import { StyleSheet, View } from "react-native";
+import { Mark } from "@/components/Mark";
 import { Sheet } from "@/components/Sheet";
 import { Text } from "@assistant/cards/native";
 import { Tap } from "@assistant/cards/native";
@@ -30,9 +31,8 @@ export function CardMenu({
   onClose: () => void;
   actions: MenuActions;
 }) {
-  const { t, colour } = useTheme();
+  const { t } = useTheme();
   if (!card) return null;
-  const c = colour(card.colour);
   const sizes = sizesFor(card.spec);
   const run = (fn: () => void) => () => {
     onClose();
@@ -70,7 +70,7 @@ export function CardMenu({
   return (
     <Sheet open onClose={onClose} accessibilityLabel={`${card.spec.title} card`}>
       <View style={s.head}>
-        <View style={[s.dot, { backgroundColor: c }]} />
+        <Mark name={card.spec.title} tone={card.colour} size={30} />
         <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
           {card.spec.title}
         </Text>
@@ -123,7 +123,6 @@ export function CardMenu({
 
 const s = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 4, minHeight: 28 },
-  dot: { width: 10, height: 10, borderRadius: 3 },
   title: { fontSize: 16, fontWeight: "700", flexShrink: 1 },
   sizes: { flexDirection: "row", borderRadius: 12, padding: 3, gap: 3 },
   size: { flex: 1, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },

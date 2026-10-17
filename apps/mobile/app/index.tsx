@@ -2,6 +2,7 @@
 // person's own pages of cards, nothing pre-built, the chat bar under them. Hold a card to move
 // it, remove it or open its menu; the library has every card. Empty: a blank canvas and "Start
 // building". Ticks work offline; the chat is one tap away.
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -47,7 +48,7 @@ import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { useChats } from "@/chats";
 import { useLive } from "@/live-socket";
-import { useKeyboardRoom } from "@/keyboard";
+import { useKeyboardHeight } from "@/keyboard";
 import { lastChat } from "@/last-chat";
 import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
@@ -74,8 +75,10 @@ export default function Home() {
     return () => clearTimeout(id);
   }, []);
   const insets = useSafeAreaInsets();
-  // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it").
-  const keyboard = useKeyboardRoom();
+  // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it"), moving
+  // with it as it slides, not ahead of it (2026-10-17).
+  const keyboard = useKeyboardHeight();
+  const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(keyboard.value, insets.bottom) + 10 }));
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [pages, setPages] = useState<HomePage[] | null>(null);
@@ -568,10 +571,15 @@ export default function Home() {
           style={[StyleSheet.absoluteFill, { backgroundColor: t.shadow }]}
         />
       ) : null}
-      <View
-        style={[s.bottom, { paddingBottom: (keyboard || insets.bottom) + 10, backgroundColor: t.page }]}
-        pointerEvents="box-none"
-      >
+      <Animated.View style={[s.bottom, { backgroundColor: t.canvas }, lift]} pointerEvents="box-none">
+        {/* A soft fade above the bar's area instead of a hard edge across what's above it
+            (owner, 2026-10-17: "the panel surrounding the search bar … it's not looking neat"):
+            thin strips of the page colour, clearer towards the top (no gradient library). */}
+        <View pointerEvents="none" style={s.fade}>
+          {FADE.map((o, i) => (
+            <View key={i} style={{ flex: 1, backgroundColor: t.canvas, opacity: o }} />
+          ))}
+        </View>
         {failed[0] ? (
           <Pressable
             accessibilityRole="button"
@@ -636,6 +644,22 @@ export default function Home() {
                 router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
                 return;
               }
+              if (hit.kind === "conversation") {
+                router.push({ pathname: "/chat", params: { id: hit.chat_id } });
+                return;
+              }
+              if (hit.kind === "item") {
+                const inSpace = hit.space_id ? { space: hit.space_id } : {};
+                if (hit.what === "list" || hit.what === "view")
+                  openList(hit.collection_id!, hit.what === "view" ? hit.id : undefined, hit.space_id);
+                else if (hit.what === "workflow")
+                  router.push({ pathname: "/process", params: { id: hit.id, ...inSpace } });
+                else if (hit.what === "space") router.push({ pathname: "/chat", params: inSpace });
+                else if (hit.what === "memory") router.push("/memory");
+                // Something shared with me opens as its shared page, like its card.
+                else void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(hit.id)}`);
+                return;
+              }
               if (assistant)
                 router.push({
                   pathname: "/chat",
@@ -645,7 +669,7 @@ export default function Home() {
             }}
           />
         </View>
-      </View>
+      </Animated.View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
       <HelpSheet
         open={help}
@@ -709,6 +733,10 @@ export default function Home() {
     </View>
   );
 }
+
+/** The fade above the bar's area: its height, and each strip's opacity from top to bottom. */
+const FADE_HEIGHT = 36;
+const FADE = Array.from({ length: 12 }, (_, i) => ((i + 1) / 12) ** 1.6);
 
 const s = StyleSheet.create({
   root: { flex: 1 },
@@ -798,6 +826,7 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   sub: { fontSize: 14, textAlign: "center" },
+  fade: { position: "absolute", left: 0, right: 0, top: -FADE_HEIGHT, height: FADE_HEIGHT },
   bottom: {
     position: "absolute",
     left: 0,

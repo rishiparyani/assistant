@@ -1716,7 +1716,10 @@ export class SpaceObject extends DurableObject<Env> {
     for (const r of rows)
       if (r.kind === "collection" && !reindex.some((x) => x.c === r.entity_id))
         reindex.push({ c: r.entity_id, after: "" });
-    const ids = [...new Set(rows.filter((r) => r.kind === "record").map((r) => r.entity_id))];
+    const commented = JSON.parse(getMeta(this.sql, "search_commented") ?? "[]") as string[];
+    const ids = [
+      ...new Set([...rows.filter((r) => r.kind === "record").map((r) => r.entity_id), ...commented]),
+    ];
     let page: { c: string; after: string } | null = null;
     let paged = false;
     if (!ids.length && reindex.length) {
@@ -1780,6 +1783,11 @@ export class SpaceObject extends DurableObject<Env> {
       // hit, and "rebuild search" fills their index again.
     }
     if (rows.length) setMeta(this.sql, "search_seq", String(rows[rows.length - 1]!.seq));
+    // Only the ones sent now: a comment that came in meanwhile stays queued.
+    if (commented.length) {
+      const now = JSON.parse(getMeta(this.sql, "search_commented") ?? "[]") as string[];
+      setMeta(this.sql, "search_commented", JSON.stringify(now.filter((x) => !commented.includes(x))));
+    }
     if (paged) {
       if (page) reindex[0] = page;
       else reindex.shift();
@@ -1787,6 +1795,17 @@ export class SpaceObject extends DurableObject<Env> {
     setMeta(this.sql, "search_reindex", JSON.stringify(reindex));
     setMeta(this.sql, "search_attempts", "0");
     return rows.length === 200 || reindex.length ? 50 : null;
+  }
+
+  /**
+   * A record's comments changed: its search entry is sent again (comments aren't in the change
+   * log, which devices sync from; this queue is for search only).
+   */
+  private commentedForSearch(recordId: string) {
+    const ids = JSON.parse(getMeta(this.sql, "search_commented") ?? "[]") as string[];
+    if (!ids.includes(recordId))
+      setMeta(this.sql, "search_commented", JSON.stringify([...ids, recordId].slice(-500)));
+    void this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
   }
 
   /** Workers AI for search by meaning; the stand-in with the scripted model. */
@@ -1805,6 +1824,14 @@ export class SpaceObject extends DurableObject<Env> {
       const text = Array.isArray(shown) ? shown.join(", ") : shown;
       if (text && text !== r.title) lines.push(`${f.name}: ${text}`);
     }
+    // Its comments too (everyone who sees the record sees them), the newest 20.
+    for (const c of this.sql
+      .exec<{ author_name: string; body: string }>(
+        `select author_name, body from comments where record_id = ? and deleted_at is null order by created_at desc limit 20`,
+        r.id,
+      )
+      .toArray())
+      lines.push(`Comment from ${c.author_name}: ${c.body}`);
     return {
       id: `${spaceId}:${r.id}`,
       space_id: spaceId,
@@ -1815,6 +1842,36 @@ export class SpaceObject extends DurableObject<Env> {
       body: lines.join("\n"),
       updated_at: r.updated_at,
     };
+  }
+
+  /**
+   * Lists, saved views and workflows whose names contain the words (search: "everything I'm
+   * in", owner 2026-10-17). Names only; a space holds a few dozen of these at most.
+   */
+  async searchNames(
+    actor: Actor,
+    q: string,
+    limit = 8,
+  ): Promise<{ what: "list" | "view" | "workflow"; id: string; name: string; collection_id: string }[]> {
+    this.role(actor);
+    if (this.practice) return [];
+    const like = `%${q.toLowerCase().replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const pick = (sql: string) =>
+      this.sql.exec<{ id: string; name: string; collection_id: string }>(sql, like, limit).toArray();
+    return [
+      ...pick(
+        `select id, name, id as collection_id from collections
+         where deleted_at is null and lower(name) like ? escape '\\' order by name limit ?`,
+      ).map((r) => ({ what: "list" as const, ...r })),
+      ...pick(
+        `select id, name, collection_id from views
+         where deleted_at is null and lower(name) like ? escape '\\' order by name limit ?`,
+      ).map((r) => ({ what: "view" as const, ...r })),
+      ...pick(
+        `select id, name, collection_id from workflows
+         where deleted_at is null and lower(name) like ? escape '\\' order by name limit ?`,
+      ).map((r) => ({ what: "workflow" as const, ...r })),
+    ];
   }
 
   /** Fills one member's index with every record of this space (after joining, or on request). */
@@ -9636,6 +9693,7 @@ export class SpaceObject extends DurableObject<Env> {
         if (c.author_id !== actor.userId && this.role(actor) !== "owner")
           throw new ObjectError("forbidden", "Only its writer or the space's owner can delete a comment");
         this.sql.exec(`update comments set deleted_at = ? where id = ?`, ts, c.id);
+        this.commentedForSearch(c.record_id);
         audit(this.sql, actor, {
           action: "delete_comment",
           entityType: "comment",
@@ -9691,6 +9749,7 @@ export class SpaceObject extends DurableObject<Env> {
       ["delete_shared_comment", shareId, commentId],
       (ts) => {
         this.sql.exec(`update comments set deleted_at = ? where id = ?`, ts, c.id);
+        this.commentedForSearch(c.record_id);
         audit(this.sql, actor, {
           action: "delete_comment",
           entityType: "comment",
@@ -9738,6 +9797,7 @@ export class SpaceObject extends DurableObject<Env> {
       entityId: id,
       after: { record_id: recordId },
     });
+    this.commentedForSearch(recordId);
     return this.commentView(
       this.sql.exec<CommentRow>(`select * from comments where id = ?`, id).toArray()[0]!,
       actor,

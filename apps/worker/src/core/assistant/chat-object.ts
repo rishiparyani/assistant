@@ -2,7 +2,7 @@
 // model sees (including tool calls and results), what the screen shows, confirm cards
 // waiting for a tap, and whether a setup is in progress. Only its owner can read it.
 import { DurableObject } from "cloudflare:workers";
-import { ulid, type ChatItem, type LiveRef } from "@assistant/shared";
+import { ulid, type ChatChoices, type ChatItem, type LiveRef } from "@assistant/shared";
 import {
   BASE_TABLES,
   audit,
@@ -27,6 +27,8 @@ import {
 } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import type { ChatMessage, ToolCall } from "./client.ts";
+import { embed } from "../search/embed.ts";
+import { searchOf, type SearchDoc } from "../search/search-object.ts";
 
 const MIGRATIONS: Migrations = [
   BASE_TABLES,
@@ -112,6 +114,8 @@ const MIGRATIONS: Migrations = [
   // be for one space only (null: everywhere).
   `alter table chats add column space_id text;
    alter table memories add column space_id text;`,
+  // A question with answers to tap (decision 2026-10-17 "Questions with answers to tap").
+  `alter table messages add column choices_json text;`,
 ];
 
 export type ConnectorRow = {
@@ -145,9 +149,10 @@ const MAX_CHATS = 200;
 
 export interface StoredMessage extends ChatMessage {
   /** Shown on screen as this role (null: for the model only). */
-  shown?: "user" | "assistant" | "card" | "note" | "live" | null;
+  shown?: "user" | "assistant" | "card" | "note" | "live" | "choices" | null;
   card_action_id?: string;
   live?: LiveRef;
+  choices?: ChatChoices;
   level?: number;
 }
 
@@ -175,6 +180,7 @@ type MessageRow = {
   card_action_id: string | null;
   level: number | null;
   live_json?: string | null;
+  choices_json?: string | null;
   created_at: string;
 };
 
@@ -205,7 +211,13 @@ export class ChatObject extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
-    ctx.blockConcurrencyWhile(async () => migrate(this.sql, MIGRATIONS));
+    ctx.blockConcurrencyWhile(async () => {
+      migrate(this.sql, MIGRATIONS);
+      // A chat from before its words went into search catches up once (nothing to do, and
+      // nothing written, for a chat with no messages).
+      if (getMeta(this.sql, "search_upto") === null && this.unindexed(1).length)
+        await ctx.storage.setAlarm(Date.now() + 1000);
+    });
   }
 
   /** The first caller owns the chat; anyone else gets "not found". */
@@ -392,7 +404,11 @@ export class ChatObject extends DurableObject<Env> {
 
   async append(userId: string, messages: StoredMessage[], key: string | null = null): Promise<ChatItem[]> {
     this.own(userId);
-    return this.ctx.storage.transactionSync(() => this.insert(messages, key));
+    const out = this.ctx.storage.transactionSync(() => this.insert(messages, key));
+    // The words go into the person's own search index after this answer (rule 16).
+    if (out.some((m) => m.role === "user" || m.role === "assistant" || m.role === "choices"))
+      await this.ctx.storage.setAlarm(Date.now() + 100);
+    return out;
   }
 
   /**
@@ -421,11 +437,12 @@ export class ChatObject extends DurableObject<Env> {
         card_action_id: m.card_action_id ?? null,
         level: m.level ?? null,
         live_json: m.live ? JSON.stringify(m.live) : null,
+        choices_json: m.choices ? JSON.stringify(m.choices) : null,
         created_at: nowIso(),
       };
       this.sql.exec(
-        `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, request_key, created_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, choices_json, request_key, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         row.id,
         row.role,
         row.content,
@@ -435,6 +452,7 @@ export class ChatObject extends DurableObject<Env> {
         row.card_action_id,
         row.level,
         row.live_json ?? null,
+        row.choices_json ?? null,
         key,
         row.created_at,
       );
@@ -699,8 +717,13 @@ export class ChatObject extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
-    const note = outboxNote(this.sql);
     const name = this.ctx.id.name ?? "";
+    const who = /^chat:([^:]+)(?::([^:]+))?$/.exec(name);
+    if (who && !(await this.syncSearch(who[1]!, who[2] ?? "main"))) {
+      await this.ctx.storage.setAlarm(Date.now() + 30_000);
+      return;
+    }
+    const note = outboxNote(this.sql);
     const m = /^chat:([^:]+):([^:]+)$/.exec(name);
     if (!note || !m) return;
     const [, userId, chatId] = m;
@@ -716,6 +739,78 @@ export class ChatObject extends DurableObject<Env> {
       return;
     }
     if (!clearOutbox(this.sql, note.seq)) await this.ctx.storage.setAlarm(Date.now() + 100);
+  }
+
+  // --- Search (owner, 2026-10-17: "one of my chats contains security … I can't see it") ------
+  // What the person and the assistant said goes into the person's own search index, never
+  // anyone else's. Tool calls, tool results and notes stay out.
+
+  /** Shown words not yet in the index, oldest first. */
+  private unindexed(limit: number) {
+    const upto = Number(getMeta(this.sql, "search_upto") ?? "0");
+    return this.sql
+      .exec<{ rowid: number; id: string; content: string; created_at: string }>(
+        `select rowid, id, content, created_at from messages
+         where rowid > ? and shown in ('user', 'assistant', 'choices') and content is not null and content != ''
+         order by rowid limit ?`,
+        upto,
+        limit,
+      )
+      .toArray();
+  }
+
+  /** Sends what's new to the person's index; false when that failed (tried again later). */
+  private async syncSearch(userId: string, chatId: string): Promise<boolean> {
+    // The main chat also wakes the person's other chats once, so older ones catch up too.
+    if (chatId === "main" && getMeta(this.sql, "search_upto") === null)
+      for (const id of await this.chatIds())
+        await this.env.CHATS.getByName(`chat:${userId}:${id}`)
+          .indexNow()
+          .catch(() => {});
+    for (;;) {
+      const rows = this.unindexed(50);
+      if (!rows.length) {
+        if (getMeta(this.sql, "search_upto") === null) setMeta(this.sql, "search_upto", "0");
+        return true;
+      }
+      const docs: SearchDoc[] = rows.map((r) => ({
+        id: `assistant:${chatId}:${r.id}`,
+        space_id: `assistant:${chatId}`,
+        collection_id: "assistant",
+        collection: "Chat",
+        record_id: r.id,
+        // Named when found (a chat's title can change); the words are what's searched.
+        title: "",
+        body: r.content.slice(0, 4000),
+        updated_at: r.created_at,
+      }));
+      try {
+        const index = searchOf(this.env, userId);
+        await index.upsert(docs);
+        // By meaning too when the model answers (best effort: words always work).
+        const vectors = await embed(
+          { ai: this.env.AI, fake: this.env.AI_FAKE === "1" },
+          docs.map((d) => d.body),
+        ).catch(() => null);
+        if (vectors?.length)
+          await index.upsertVectors(docs.map((d, i) => ({ doc_id: d.id, vec: vectors[i]! })));
+      } catch (e) {
+        console.warn("chat search sync failed", e instanceof Error ? e.name : "error");
+        return false;
+      }
+      setMeta(this.sql, "search_upto", String(rows.at(-1)!.rowid));
+    }
+  }
+
+  /** Index this chat's words now (the main chat's first catch-up, a rebuild). */
+  async indexNow(): Promise<void> {
+    if (this.unindexed(1).length) await this.ctx.storage.setAlarm(Date.now() + 100);
+  }
+
+  /** Index every word again from the start (a search rebuild). */
+  async reindex(): Promise<void> {
+    setMeta(this.sql, "search_upto", "0");
+    await this.indexNow();
   }
 
   private chatRow(id: string): ChatRow {
@@ -934,6 +1029,7 @@ export class ChatObject extends DurableObject<Env> {
       created_at: r.created_at,
       ...(r.level ? { level: r.level } : {}),
       ...(r.live_json ? { live: JSON.parse(r.live_json) as LiveRef } : {}),
+      ...(r.choices_json ? { choices: JSON.parse(r.choices_json) as ChatChoices } : {}),
     };
     if (r.card_action_id) {
       const a = this.action(r.card_action_id);

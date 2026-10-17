@@ -2,7 +2,7 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { FlatList, Platform, StyleSheet, View, type TextInput as RNTextInput } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import {
   Boundary,
@@ -152,6 +152,17 @@ export default function Chat() {
   const openedAt = useRef(Date.now());
   const shownItems = useMemo(() => groupRecords(view?.items ?? []), [view]);
   const newestFirst = useMemo(() => [...shownItems].reverse(), [shownItems]);
+  // A question with answers to tap: what was answered (the next thing the person said), if anything.
+  const answers = useMemo(() => {
+    const out = new Map<string, string | null>();
+    const all = view?.items ?? [];
+    all.forEach((it, i) => {
+      if (it.role !== "choices") return;
+      out.set(it.id, all.slice(i + 1).find((x) => x.role === "user")?.text ?? null);
+    });
+    return out;
+  }, [view]);
+  const box = useRef<RNTextInput>(null);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
   const room = useKeyboardRoom();
@@ -381,6 +392,9 @@ export default function Chat() {
                 busy={busy}
                 collections={getCollections}
                 onAsk={(title) => setText((t) => t || `About "${title}": `)}
+                answered={answers.get(item.id)}
+                onPick={(label) => void say(label)}
+                onOther={() => box.current?.focus()}
               />
             );
             const safe = <Boundary where="chat item">{bubble}</Boundary>;
@@ -494,6 +508,7 @@ export default function Chat() {
           </Tap>
           <View style={[s.inputBox, { backgroundColor: t.cell, borderColor: t.sep }]}>
             <TextInput
+              ref={box}
               autoFocus={!!ask}
               accessibilityLabel="Message Gigspree"
               placeholder={card ? `Ask about ${card}` : "Ask, add or arrange"}
@@ -504,8 +519,18 @@ export default function Chat() {
               returnKeyType="send"
               submitBehavior="submit"
               multiline
-              onContentSizeChange={(e) => setTypedHeight(e.nativeEvent.contentSize.height)}
-              style={[s.input, type.body, { color: t.fg, height: Math.min(110, Math.max(22, typedHeight)) }]}
+              // The phone sizes a growing box itself, up to maxHeight, then it scrolls inside (an
+              // explicit height from onContentSizeChange stayed one line on the iPhone, owner
+              // 2026-10-17); the web needs its height set.
+              onContentSizeChange={
+                Platform.OS === "web" ? (e) => setTypedHeight(e.nativeEvent.contentSize.height) : undefined
+              }
+              style={[
+                s.input,
+                type.body,
+                { color: t.fg },
+                Platform.OS === "web" ? { height: Math.min(110, Math.max(22, typedHeight)) } : null,
+              ]}
             />
           </View>
           <Tap
@@ -575,6 +600,9 @@ function Bubble({
   busy,
   collections,
   onAsk,
+  answered,
+  onPick,
+  onOther,
 }: {
   item: Shown;
   /** The newest answer: show 👍 / 👎 under it. */
@@ -585,8 +613,68 @@ function Bubble({
   busy: boolean;
   collections: () => Promise<CollectionView[]>;
   onAsk: (title: string) => void;
+  /** A question with answers to tap: what the person answered (undefined/null: not yet). */
+  answered?: string | null;
+  onPick?: (label: string) => void;
+  /** "Other…": type your own answer. */
+  onOther?: () => void;
 }) {
   const { t } = useTheme();
+  if (item.role === "choices" && item.choices) {
+    const open = answered == null;
+    return (
+      <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
+        <Text style={[s.choiceQ, { color: t.fg }]}>{item.choices.question}</Text>
+        {item.choices.options.map((o, i) => {
+          const picked = !open && answered === o.label;
+          const row = [
+            s.choice,
+            i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
+            !open && !picked && { opacity: 0.45 },
+          ];
+          const words = (
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[s.choiceLabel, { color: picked ? t.accent : t.fg }]}>{o.label}</Text>
+              {o.description ? <Text style={[type.caption, { color: t.fg2 }]}>{o.description}</Text> : null}
+            </View>
+          );
+          // Answered: a record of what was picked, nothing to tap (and nothing dimmed but the rest).
+          if (!open)
+            return (
+              <View key={o.label} style={row} accessibilityState={{ selected: picked }}>
+                {words}
+                {picked ? <Text style={{ color: t.accent, fontWeight: "800", fontSize: 16 }}>✓</Text> : null}
+              </View>
+            );
+          return (
+            <Tap
+              key={o.label}
+              accessibilityRole="button"
+              accessibilityLabel={o.description ? `${o.label}: ${o.description}` : o.label}
+              disabled={busy}
+              onPress={() => onPick?.(o.label)}
+              haptic="selection"
+              style={row}
+            >
+              {words}
+              <Text style={{ color: t.fg3, fontWeight: "700", fontSize: 16 }}>›</Text>
+            </Tap>
+          );
+        })}
+        {open ? (
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel="Answer in your own words"
+            disabled={busy}
+            onPress={() => onOther?.()}
+            style={[s.choice, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep }]}
+          >
+            <Text style={[s.choiceLabel, { color: t.fg2, fontWeight: "600" }]}>Other…</Text>
+          </Tap>
+        ) : null}
+      </View>
+    );
+  }
   if (item.role === "records")
     return (
       <View style={{ marginVertical: 6 }}>
@@ -677,6 +765,9 @@ function Bubble({
 
 const s = StyleSheet.create({
   careful: { marginLeft: 12, marginTop: -2, marginBottom: 2, fontWeight: "600", letterSpacing: 0.2 },
+  choiceQ: { fontSize: 17, fontWeight: "800", letterSpacing: -0.3, lineHeight: 23, marginBottom: 4 },
+  choice: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 52, paddingVertical: 10 },
+  choiceLabel: { fontSize: 16, fontWeight: "700" },
   root: { flex: 1 },
   head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
   // Clear of Changes (left) and Done (right).
@@ -749,7 +840,14 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     justifyContent: "center",
   },
-  input: { paddingVertical: 0, paddingTop: 0, paddingBottom: 0, outlineWidth: 0 },
+  input: {
+    minHeight: 22,
+    maxHeight: 110,
+    paddingVertical: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    outlineWidth: 0,
+  },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   attach: {
     width: 36,

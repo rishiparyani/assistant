@@ -1,7 +1,7 @@
 // TESTS ONLY (AI_FAKE=1 in the test config): a scripted stand-in for the models, so the
 // router, tools, confirmations and handovers can be tested without calling Workers AI.
 // It looks up the exact test sentences below; the real app never reads messages this way.
-import type { ChatMessage, ModelAnswer, ToolSpec } from "./client.ts";
+import { ModelError, type ChatMessage, type ModelAnswer, type ToolSpec } from "./client.ts";
 import type { ModelEntry } from "./models.ts";
 
 let n = 0;
@@ -33,6 +33,19 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     return say("Done.");
   }
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+  // "Test: fail": the provider refuses, with an error that echoes what was sent (it must
+  // never reach anyone: only its fixed category does).
+  // "Test: ask me": a question with answers to tap.
+  if (lastUser === "Test: ask me")
+    return call("ask_choices", {
+      question: "How often should the reminder come?",
+      options: [
+        { label: "Every week", description: "Each Monday morning" },
+        { label: "Every month", description: "On the 1st" },
+      ],
+    });
+  if (lastUser === "Test: fail")
+    throw new ModelError(`${model.label}: 429 Too Many Requests for "Test private words"`);
   const has = (name: string) => tools.some((t) => t.function.name === name);
   // "Test: delete record <id>": a delete card for that record.
   if (lastUser.startsWith("Test: delete record "))
