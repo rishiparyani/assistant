@@ -11,6 +11,7 @@ import {
   MakeSetupInput,
   nameKey,
   setupWords,
+  condWords,
   ulid,
   workflowWords,
   type FilterOp,
@@ -32,7 +33,7 @@ import { operationContext, type AnyOperation, type OpUserCtx } from "../operatio
 import { parse } from "../validation.ts";
 import { spaceOf } from "../spaces/service.ts";
 import { resolvePeople } from "../spaces/shares.ts";
-import { assistantAllowed, fasterAnswers, requireAssistant } from "./access.ts";
+import { assistantAllowed, fasterAnswers, isAdminCtx, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
 import { EDITABLE_CARDS, type MemoryRow, type StoredMessage } from "./chat-object.ts";
 import {
@@ -362,7 +363,7 @@ function systemPrompt(
 }
 
 /** What a confirm card says, from the tool and its arguments. */
-function describe(
+export function describe(
   tool: string,
   args: Record<string, unknown>,
   target: string | null = null,
@@ -563,16 +564,83 @@ function describe(
         details: fields.map((f) => `${f.name ?? "?"} (${f.type ?? "text"})`),
       };
     }
+    case "save_view":
+    case "update_view":
+      return {
+        title:
+          tool === "save_view"
+            ? `Save a view “${String(args.name ?? "")}”${col ? ` of ${col}` : ""}`
+            : `Change the view ${target ?? `“${String(args.view_id ?? "")}”`}`,
+        details: viewWords(args),
+      };
     default: {
+      // Plain words only: a setting with parts (a card's layout, filters) is named, never
+      // printed as data (owner, 2026-10-17: a card showed "[object Object]" and raw JSON).
       const rest = Object.entries(args)
-        .filter(([k]) => k !== "values")
-        .map(([k, v]) => `${k.replace(/_/g, " ")}: ${show(v)}`);
+        .filter(([k, v]) => k !== "values" && v !== undefined && v !== null)
+        .map(([k, v]) => {
+          const plain =
+            !(typeof v === "object") || (Array.isArray(v) && v.every((x) => typeof x !== "object"));
+          return plain ? `${k.replace(/_/g, " ")}: ${show(v)}` : `${k.replace(/_/g, " ")}: set`;
+        });
       return {
         title: tool.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()) + (target ? `: ${target}` : ""),
         details: [...rest, ...pairs],
       };
     }
   }
+}
+
+/** A saved view's settings in plain words, one line each, for its confirm card. */
+function viewWords(args: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const filters = Array.isArray(args.filters)
+    ? (args.filters as { field?: string; op?: FilterOp; value?: unknown }[])
+    : [];
+  if (Array.isArray(args.filters))
+    out.push(
+      filters.length
+        ? `Shows: ${filters.map((f) => condWords({ field: String(f.field ?? "?"), op: f.op ?? "eq", value: f.value })).join(" and ")}`
+        : "Shows every record",
+    );
+  const sort = args.sort as { field?: string; dir?: string } | undefined;
+  if (sort?.field)
+    out.push(`In order of ${sort.field}, ${sort.dir === "desc" ? "last to first" : "first to last"}`);
+  if (args.pinned === true) out.push("On your home");
+  if (args.pinned === false) out.push("Off your home");
+  if (Array.isArray(args.add_fields) && args.add_fields.length)
+    out.push(`Adding one asks for ${(args.add_fields as string[]).join(", ")}`);
+  if (typeof args.card_size === "string") out.push(`Card size: ${args.card_size}`);
+  const card = args.card as
+    | {
+        arrangement?: string;
+        controls?: { field?: string; as?: string; label?: string }[];
+        row?: {
+          date?: string;
+          details?: string[];
+          callout?: { field?: string };
+          highlights?: { label?: string; colour?: string }[];
+        };
+      }
+    | null
+    | undefined;
+  if (card === null) out.push("Card: back to the usual look");
+  else if (card) {
+    if (card.arrangement) out.push(`Card: ${card.arrangement.replace(/-/g, " ")}`);
+    for (const c of card.controls ?? [])
+      out.push(
+        c.as === "tick"
+          ? `Tick off by ${c.field}`
+          : `A “${c.label ?? c.field}” ${c.as ?? "control"} on each row`,
+      );
+    const r = card.row;
+    if (r?.date) out.push(`Each row shows its ${r.date}`);
+    if (r?.details?.length) out.push(`With ${r.details.join(", ")}`);
+    if (r?.callout?.field) out.push(`${r.callout.field} under each row`);
+    for (const h of r?.highlights ?? [])
+      if (h.label) out.push(`Marked “${h.label}”${h.colour ? ` in ${h.colour}` : ""} when it applies`);
+  }
+  return out;
 }
 
 /** “Test groceries” (Expenses), for a card; the tool's own check reports a bad id. */
@@ -933,7 +1001,8 @@ async function answerMessage(
       for (const w of why) bump(stats.errors, `model:${w}`);
       if (!why.length) bump(stats.errors, "model:none set up for this level");
       // The app's owner sees why under the message; everyone else gets the plain sentence.
-      const owner = ctx.owners.includes(ctx.user.email.toLowerCase());
+      // The app's owners and admins (the admin panel's list too, not only ADMIN_EMAILS).
+      const owner = await isAdminCtx(ctx);
       const reasons = why.length ? why.join("; ") : "no model is set up for this level";
       reply(
         (level === 1
@@ -941,7 +1010,7 @@ async function answerMessage(
           : // Setups are made only in the chat ("Chat makes, screens use"): say what happened,
             // and that what was already confirmed stays.
             "Careful isn't available right now, so nothing more was set up. Anything you already confirmed is kept; ask again in a while to finish it.") +
-          (owner ? `\n\nWhy (only the app's owner sees this): ${reasons}.` : ""),
+          (owner ? `\n\nWhy (only the app's owners and admins see this): ${reasons}.` : ""),
       );
       break;
     }
