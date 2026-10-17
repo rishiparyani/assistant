@@ -79,4 +79,42 @@ describe("search", () => {
     expect(await until(async () => (await search(me, "details:")).length === 1)).toBe(true);
     expect(await search(me, "body:")).toEqual([]);
   });
+
+  it("finds a record by its comments, and forgets a deleted comment", async () => {
+    const me = await signUp("Test Owner");
+    const note = await json<RecordView>(
+      await api(me)("/collections/Notes/records", { body: { values: { Title: "Test leaky tap" } } }),
+    );
+    const comment = await json<{ id: string }>(
+      await api(me)(`/records/${note.id}/comments`, { body: { body: "the plumbzorp washer is worn" } }),
+    );
+    expect(await until(async () => (await search(me, "plumbzorp")).length === 1)).toBe(true);
+    expect((await search(me, "plumbzorp"))[0]!.title).toBe("Test leaky tap");
+    expect((await api(me)(`/comments/${comment.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await until(async () => (await search(me, "plumbzorp")).length === 0)).toBe(true);
+  });
+
+  it("finds my spaces, lists and what it remembers by name, for me only", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/spaces", { method: "POST", body: { name: "Test Gatehouse" } });
+    await api(me)("/chat", { body: { text: "Test: remember weddings are 25000" } });
+    type Item = { kind: string; what?: string; title?: string };
+    const items = async (u: User, q: string) =>
+      (await json<Item[]>(await api(u)(`/search?q=${encodeURIComponent(q)}`))).filter(
+        (h) => h.kind === "item",
+      );
+    expect(await items(me, "gatehouse")).toContainEqual(
+      expect.objectContaining({ what: "space", title: "Test Gatehouse" }),
+    );
+    // A list in my own space, by part of its name.
+    expect(await items(me, "remind")).toContainEqual(
+      expect.objectContaining({ what: "list", title: "Reminders" }),
+    );
+    expect(await items(me, "weddings")).toContainEqual(expect.objectContaining({ what: "memory" }));
+    // One letter matches nothing; nobody else finds my things.
+    expect(await items(me, "g")).toEqual([]);
+    const other = await signUp("Test Other");
+    expect(await items(other, "gatehouse")).toEqual([]);
+    expect(await items(other, "weddings")).toEqual([]);
+  });
 });

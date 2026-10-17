@@ -151,35 +151,42 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
                 ))}
               </Tap>
             ))}
-            {remote.map((h) => (
-              <Tap
-                key={
-                  h.kind === "message"
-                    ? `${h.group_id}:${h.message_id}`
-                    : h.kind === "conversation"
-                      ? `${h.chat_id}:${h.message_id}`
-                      : `${h.space_id}:${h.record_id}`
-                }
-                accessibilityRole="button"
-                onPress={() => pick(() => onOpenHit(h, q))}
-                scale={0.985}
-                style={[s.hit, s.hitCol, { backgroundColor: t.fill }]}
-              >
-                <Text style={[type.body, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
-                  {h.kind === "message"
-                    ? `${h.chat} · chat`
-                    : h.kind === "conversation"
-                      ? `${h.chat} · with the assistant`
-                      : h.title}
-                </Text>
-                <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={2}>
-                  {h.kind === "message" || h.kind === "conversation"
-                    ? h.snippet.replace(/[[\]]/g, "")
-                    : h.collection +
-                      (h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : "")}
-                </Text>
-              </Tap>
-            ))}
+            {remote
+              // A list found on the phone already shows above (as "list ›").
+              .filter((h) => !(h.kind === "item" && h.what === "list" && lists_.some((l) => l.id === h.id)))
+              .map((h) => (
+                <Tap
+                  key={
+                    h.kind === "message"
+                      ? `${h.group_id}:${h.message_id}`
+                      : h.kind === "conversation"
+                        ? `${h.chat_id}:${h.message_id}`
+                        : h.kind === "item"
+                          ? `${h.what}:${h.id}`
+                          : `${h.space_id}:${h.record_id}`
+                  }
+                  accessibilityRole="button"
+                  onPress={() => pick(() => onOpenHit(h, q))}
+                  scale={0.985}
+                  style={[s.hit, s.hitCol, { backgroundColor: t.fill }]}
+                >
+                  <Text style={[type.body, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
+                    {h.kind === "message"
+                      ? `${h.chat} · chat`
+                      : h.kind === "conversation"
+                        ? `${h.chat} · with the assistant`
+                        : h.title}
+                  </Text>
+                  <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={2}>
+                    {h.kind === "item"
+                      ? h.detail
+                      : h.kind === "message" || h.kind === "conversation"
+                        ? h.snippet.replace(/[[\]]/g, "")
+                        : h.collection +
+                          (h.snippet && h.snippet !== h.title ? ` · ${h.snippet.replace(/[[\]]/g, "")}` : "")}
+                  </Text>
+                </Tap>
+              ))}
             {nothing ? (
               <Text style={[type.caption, { color: t.fg2, padding: 10 }]}>
                 {online ? "Nothing matches yet." : "Nothing on this phone matches."}

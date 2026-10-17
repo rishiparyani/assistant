@@ -16,7 +16,11 @@ export default function Process() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { id, waiting: given } = useLocalSearchParams<{ id?: string; waiting?: string }>();
+  const {
+    id,
+    waiting: given,
+    space: spaceParam,
+  } = useLocalSearchParams<{ id?: string; waiting?: string; space?: string }>();
   // The step waiting on me (from the card), shown even when the process itself is someone
   // else's (their space answers 404 to me). Parsed once; refreshed from /api/waiting after I act.
   const fromCard = useMemo(() => parseWaiting(given), [given]);
@@ -31,7 +35,8 @@ export default function Process() {
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
 
-  const space = fromCard?.space_id;
+  // The space it's in: from the card waiting on me, or given (a workflow found by search).
+  const space = fromCard?.space_id ?? spaceParam;
   const load = useCallback(async () => {
     if (!id) return;
     const where = space ? `?space=${encodeURIComponent(space)}` : "";

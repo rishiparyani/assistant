@@ -648,6 +648,18 @@ export default function Home() {
                 router.push({ pathname: "/chat", params: { id: hit.chat_id } });
                 return;
               }
+              if (hit.kind === "item") {
+                const inSpace = hit.space_id ? { space: hit.space_id } : {};
+                if (hit.what === "list" || hit.what === "view")
+                  openList(hit.collection_id!, hit.what === "view" ? hit.id : undefined, hit.space_id);
+                else if (hit.what === "workflow")
+                  router.push({ pathname: "/process", params: { id: hit.id, ...inSpace } });
+                else if (hit.what === "space") router.push({ pathname: "/chat", params: inSpace });
+                else if (hit.what === "memory") router.push("/memory");
+                // Something shared with me opens as its shared page, like its card.
+                else void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(hit.id)}`);
+                return;
+              }
               if (assistant)
                 router.push({
                   pathname: "/chat",

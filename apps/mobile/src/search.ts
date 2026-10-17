@@ -7,7 +7,18 @@ import { useEffect, useState } from "react";
 import { request } from "./api.ts";
 import type { HomeCard } from "./home.ts";
 
-export type SearchResult = RecordHit | MessageHit | ConversationHit;
+export type SearchResult = RecordHit | MessageHit | ConversationHit | ItemHit;
+
+/** Something I'm in, found by name: a space, list, saved view, workflow, share or memory. */
+export interface ItemHit {
+  kind: "item";
+  what: "space" | "list" | "view" | "workflow" | "shared" | "memory";
+  id: string;
+  title: string;
+  detail: string;
+  space_id?: string;
+  collection_id?: string;
+}
 
 /** Something said in one of my conversations with the assistant (only in my own index). */
 export interface ConversationHit {
