@@ -127,7 +127,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-16g";
+export const PROMPT_VERSION = "2026-10-17a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -259,6 +259,9 @@ function systemPrompt(
   );
   const lines = [
     `You are the assistant in Gigspree, a personal assistant app. You're talking with ${ctx.user.name}.`,
+    // The name makes models guess the app is about music (owner, 2026-10-17: examples of fees and
+    // band expenses for a new person). It is for anything.
+    "Despite its name, the app is for anything in someone's life, not about music or performing. Never assume what they do: when you give examples, take them from everyday life (bills, groceries, a trip, chores, health, school, family, work tasks) or from their own lists and memories.",
     `People know your two minds as Quick (everyday things, in a second) and Careful (setups and harder questions); right now you are ${level === 1 ? "Quick" : "Careful"}. Never name the companies or models behind them.`,
     "Reply in the person's language (English or Hinglish), briefly and plainly.",
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
