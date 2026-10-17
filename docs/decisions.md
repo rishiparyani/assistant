@@ -1095,5 +1095,5 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 ## 2026-10-17: Sonnet for every day, for now (owner: "For now can we just enable Sonnet? Haiku is not doing very well. I want to try with Sonnet first and then if needed we'll move to Haiku")
 
 - **What:** `AI_EVERYDAY_MODEL` is `claude-sonnet-5-5` in both environments, so Claude Sonnet 5.5 answers everyday messages (Quick) as well as building setups (Careful). If Sonnet fails, GLM and then Haiku answer, as before.
-- **How:** `modelsFor` takes the picked model from either level (it took only the level's own before), so a stronger model can answer every day. The everyday level keeps its own tools and its hand-over to Careful.
+- **How:** `modelsFor` takes the picked model from its own level or a higher one (it took only the level's own before), so a stronger model can answer every day; never a weaker one building setups. The everyday level keeps its own tools and its hand-over to Careful.
 - **Cost:** Sonnet costs about 20 times Haiku per message ($2/$10 against $0.10/$0.50 per million tokens). The ₹2,000 monthly cap and the per-person cap are unchanged and still stop paid calls at 90%. Going back to Haiku is one line in `wrangler.jsonc`.

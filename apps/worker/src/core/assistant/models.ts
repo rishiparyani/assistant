@@ -332,9 +332,10 @@ export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry
     const k = keyed(m);
     return m.route === "free" || (k ? s[k] : !!s.paidGateway);
   };
-  // A pick is taken from either level (owner, 2026-10-17: "can we just enable Sonnet? Haiku is
-  // not doing very well"): a stronger model can answer every day too; the tools stay the level's.
-  const picked = want ? MODELS.find((m) => m.id === want && funded(m)) : null;
+  // A pick may come from a higher level (owner, 2026-10-17: "can we just enable Sonnet? Haiku is
+  // not doing very well"): a stronger model can answer every day too, the tools staying the
+  // level's; never a weaker one building setups.
+  const picked = want ? MODELS.find((m) => m.id === want && m.level >= level && funded(m)) : null;
   // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
   // allowance); Cerebras and Anthropic have their own credit.
   const first =

@@ -70,6 +70,10 @@ describe("Claude models", () => {
       "claude-haiku-5-5",
     ]);
     expect(ids(modelsFor(2, on))).toEqual(["claude-sonnet-5-5"]);
+    // Never the other way: an everyday model named for setups isn't used for them.
+    expect(ids(modelsFor(2, { ...base, anthropic: true, setupModel: "claude-haiku-5-5" }))).toEqual([
+      "claude-sonnet-5-5",
+    ]);
     // Without the key it isn't tried: GLM answers, as before.
     expect(ids(modelsFor(1, { ...base, everydayModel: "claude-sonnet-5-5" }))).toEqual([
       "@cf/zai-org/glm-4.7-flash",
