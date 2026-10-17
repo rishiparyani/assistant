@@ -35,6 +35,15 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   // "Test: fail": the provider refuses, with an error that echoes what was sent (it must
   // never reach anyone: only its fixed category does).
+  // "Test: ask me": a question with answers to tap.
+  if (lastUser === "Test: ask me")
+    return call("ask_choices", {
+      question: "How often should the reminder come?",
+      options: [
+        { label: "Every week", description: "Each Monday morning" },
+        { label: "Every month", description: "On the 1st" },
+      ],
+    });
   if (lastUser === "Test: fail")
     throw new ModelError(`${model.label}: 429 Too Many Requests for "Test private words"`);
   const has = (name: string) => tools.some((t) => t.function.name === name);

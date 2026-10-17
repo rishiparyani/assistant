@@ -1215,11 +1215,23 @@ export type LiveRef =
   /** Something in an app (a Songbook song): what it was then, opening the app's own screen. */
   | { kind: "app"; app: string; title: string; subtitle?: string | null; href: string };
 
+/**
+ * A question the assistant asks with answers to tap (owner, 2026-10-17: "interactive
+ * follow-ups … like Claude"): 2 to 4 options, each a short label and a line saying what it
+ * means. The person can also type their own answer.
+ */
+export interface ChatChoices {
+  question: string;
+  options: { label: string; description?: string }[];
+}
+
 export interface ChatItem {
   id: string;
-  role: "user" | "assistant" | "card" | "note" | "live";
+  role: "user" | "assistant" | "card" | "note" | "live" | "choices";
   /** For role "live": what the card shows. */
   live?: LiveRef;
+  /** For role "choices": the question and its answers ("text" says the same in words). */
+  choices?: ChatChoices;
   text: string;
   /** A confirm card: what the assistant wants to do, waiting for a tap. */
   card?: {

@@ -2,7 +2,7 @@
 // model sees (including tool calls and results), what the screen shows, confirm cards
 // waiting for a tap, and whether a setup is in progress. Only its owner can read it.
 import { DurableObject } from "cloudflare:workers";
-import { ulid, type ChatItem, type LiveRef } from "@assistant/shared";
+import { ulid, type ChatChoices, type ChatItem, type LiveRef } from "@assistant/shared";
 import {
   BASE_TABLES,
   audit,
@@ -114,6 +114,8 @@ const MIGRATIONS: Migrations = [
   // be for one space only (null: everywhere).
   `alter table chats add column space_id text;
    alter table memories add column space_id text;`,
+  // A question with answers to tap (decision 2026-10-17 "Questions with answers to tap").
+  `alter table messages add column choices_json text;`,
 ];
 
 export type ConnectorRow = {
@@ -147,9 +149,10 @@ const MAX_CHATS = 200;
 
 export interface StoredMessage extends ChatMessage {
   /** Shown on screen as this role (null: for the model only). */
-  shown?: "user" | "assistant" | "card" | "note" | "live" | null;
+  shown?: "user" | "assistant" | "card" | "note" | "live" | "choices" | null;
   card_action_id?: string;
   live?: LiveRef;
+  choices?: ChatChoices;
   level?: number;
 }
 
@@ -177,6 +180,7 @@ type MessageRow = {
   card_action_id: string | null;
   level: number | null;
   live_json?: string | null;
+  choices_json?: string | null;
   created_at: string;
 };
 
@@ -402,7 +406,7 @@ export class ChatObject extends DurableObject<Env> {
     this.own(userId);
     const out = this.ctx.storage.transactionSync(() => this.insert(messages, key));
     // The words go into the person's own search index after this answer (rule 16).
-    if (out.some((m) => m.role === "user" || m.role === "assistant"))
+    if (out.some((m) => m.role === "user" || m.role === "assistant" || m.role === "choices"))
       await this.ctx.storage.setAlarm(Date.now() + 100);
     return out;
   }
@@ -433,11 +437,12 @@ export class ChatObject extends DurableObject<Env> {
         card_action_id: m.card_action_id ?? null,
         level: m.level ?? null,
         live_json: m.live ? JSON.stringify(m.live) : null,
+        choices_json: m.choices ? JSON.stringify(m.choices) : null,
         created_at: nowIso(),
       };
       this.sql.exec(
-        `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, request_key, created_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into messages (id, role, content, tool_calls_json, tool_call_id, shown, card_action_id, level, live_json, choices_json, request_key, created_at)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         row.id,
         row.role,
         row.content,
@@ -447,6 +452,7 @@ export class ChatObject extends DurableObject<Env> {
         row.card_action_id,
         row.level,
         row.live_json ?? null,
+        row.choices_json ?? null,
         key,
         row.created_at,
       );
@@ -745,7 +751,7 @@ export class ChatObject extends DurableObject<Env> {
     return this.sql
       .exec<{ rowid: number; id: string; content: string; created_at: string }>(
         `select rowid, id, content, created_at from messages
-         where rowid > ? and shown in ('user', 'assistant') and content is not null and content != ''
+         where rowid > ? and shown in ('user', 'assistant', 'choices') and content is not null and content != ''
          order by rowid limit ?`,
         upto,
         limit,
@@ -1023,6 +1029,7 @@ export class ChatObject extends DurableObject<Env> {
       created_at: r.created_at,
       ...(r.level ? { level: r.level } : {}),
       ...(r.live_json ? { live: JSON.parse(r.live_json) as LiveRef } : {}),
+      ...(r.choices_json ? { choices: JSON.parse(r.choices_json) as ChatChoices } : {}),
     };
     if (r.card_action_id) {
       const a = this.action(r.card_action_id);
