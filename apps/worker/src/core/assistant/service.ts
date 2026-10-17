@@ -894,7 +894,9 @@ async function answerMessage(
       reply(
         (level === 1
           ? "I can't answer right now (the free daily allowance may be used up). Everything still works by tapping."
-          : "Careful isn't available right now. You can still do this by tapping.") +
+          : // Setups are made only in the chat ("Chat makes, screens use"): say what happened,
+            // and that what was already confirmed stays.
+            "Careful isn't available right now, so nothing more was set up. Anything you already confirmed is kept; ask again in a while to finish it.") +
           (owner ? `\n\nWhy (only the app's owner sees this): ${reasons}.` : ""),
       );
       break;

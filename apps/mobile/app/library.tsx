@@ -28,12 +28,14 @@ export default function Library() {
   const router = useRouter();
   const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
   const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(null);
+  const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>([]);
   const [note, setNote] = useState("");
 
   const load = useCallback(async () => {
     try {
       const cat = await loadCatalog();
       setEntries(cat.entries);
+      setEmptySpaces(cat.emptySpaces);
       setLayout(arrange(cat));
       setNote("");
     } catch (e) {
@@ -146,6 +148,36 @@ export default function Library() {
             </View>
           ))
         )}
+        {/* A space with no lists has no cards yet: shown here, with a way to start it. */}
+        {entries
+          ? emptySpaces.map((sp) => (
+              <View key={`space:${sp.id}`} style={{ gap: 8 }}>
+                <Text style={[s.h2, { color: t.fg }]}>{sp.name}</Text>
+                <View style={[s.card, s.row, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                  <View style={[s.dot, { backgroundColor: colour(colourFor(sp.name)) }]} />
+                  <View style={s.words}>
+                    <Text style={[s.name, { color: t.fg }]}>Nothing in it yet</Text>
+                    <Text style={[s.label, { color: t.fg2 }]} numberOfLines={2}>
+                      A space with no lists. Tell the chat what it's for.
+                    </Text>
+                  </View>
+                  <Tap
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start building ${sp.name}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/chat",
+                        params: { space: sp.id, ask: "Set up the lists for this space" },
+                      })
+                    }
+                    style={[s.btn, { backgroundColor: t.accent }]}
+                  >
+                    <Text style={[s.btnText, { color: t.onAccent }]}>Start</Text>
+                  </Tap>
+                </View>
+              </View>
+            ))
+          : null}
         {entries ? (
           <Pressable
             accessibilityRole="link"

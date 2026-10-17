@@ -312,6 +312,11 @@ export interface Catalog {
   layout: { pages: string[][]; seen: string[] } | null;
   /** Everything answered: keys that are gone can be cleared from the pages. */
   complete: boolean;
+  /**
+   * The person's spaces with no lists yet: no card can show them, so the library lists them
+   * with a way to start (owner, 2026-10-17: a space was made but "I can't see anything").
+   */
+  emptySpaces: { id: string; name: string }[];
 }
 
 const PERSONAL = "p";
@@ -370,6 +375,7 @@ export async function loadCatalog(): Promise<Catalog> {
   // The person's other spaces (not a chat's home: that lives in the chat; not a practice run).
   const chatHomes = new Set(groups.map((g) => g.space_id).filter((x): x is string => !!x));
   const own = spaces.filter((sp) => sp.kind !== "personal" && !chatHomes.has(sp.id) && !sp.practice_of);
+  const emptySpaces: { id: string; name: string }[] = [];
   for (const sp of own.slice(0, MAX_PAGES)) {
     const q = `?space=${enc(sp.id)}`;
     const got = await Promise.all([
@@ -380,6 +386,7 @@ export async function loadCatalog(): Promise<Catalog> {
       return null;
     });
     if (got) add(got[0], got[1], sp.id, sp.name);
+    if (got && !got[1].length) emptySpaces.push({ id: sp.id, name: sp.name });
   }
   const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
   for (const sh of shares)
@@ -399,7 +406,7 @@ export async function loadCatalog(): Promise<Catalog> {
       kind: "wait",
       waiting: w,
     });
-  return { entries, waiting, memories, layout: waitingLayout() ?? saved, complete };
+  return { entries, waiting, memories, layout: waitingLayout() ?? saved, complete, emptySpaces };
 }
 
 /** A layout change made on this device and not sent yet wins over what the server has. */
