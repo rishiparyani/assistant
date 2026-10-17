@@ -126,7 +126,18 @@ export function Tour({
       }),
     [steps, refs, height],
   );
-  const go = useCallback((n: number) => void measure(n).then((r) => setAt({ i: n, hole: r })), [measure]);
+  // Only the latest request lands: a measurement still on its way when Next is pressed (or
+  // from a resize) can't take the tour back a step.
+  const latest = useRef(0);
+  const go = useCallback(
+    (n: number) => {
+      const mine = ++latest.current;
+      void measure(n).then((r) => {
+        if (mine === latest.current) setAt({ i: n, hole: r });
+      });
+    },
+    [measure],
+  );
   // Again when the screen turns or resizes (the target moved).
   const shown = useRef(0);
   shown.current = i;
