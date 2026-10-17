@@ -571,7 +571,15 @@ export default function Home() {
           style={[StyleSheet.absoluteFill, { backgroundColor: t.shadow }]}
         />
       ) : null}
-      <Animated.View style={[s.bottom, { backgroundColor: t.page }, lift]} pointerEvents="box-none">
+      <Animated.View style={[s.bottom, { backgroundColor: t.canvas }, lift]} pointerEvents="box-none">
+        {/* A soft fade above the bar's area instead of a hard edge across what's above it
+            (owner, 2026-10-17: "the panel surrounding the search bar … it's not looking neat"):
+            thin strips of the page colour, clearer towards the top (no gradient library). */}
+        <View pointerEvents="none" style={s.fade}>
+          {FADE.map((o, i) => (
+            <View key={i} style={{ flex: 1, backgroundColor: t.canvas, opacity: o }} />
+          ))}
+        </View>
         {failed[0] ? (
           <Pressable
             accessibilityRole="button"
@@ -710,6 +718,10 @@ export default function Home() {
   );
 }
 
+/** The fade above the bar's area: its height, and each strip's opacity from top to bottom. */
+const FADE_HEIGHT = 36;
+const FADE = Array.from({ length: 12 }, (_, i) => ((i + 1) / 12) ** 1.6);
+
 const s = StyleSheet.create({
   root: { flex: 1 },
   pageHead: {
@@ -798,6 +810,7 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   sub: { fontSize: 14, textAlign: "center" },
+  fade: { position: "absolute", left: 0, right: 0, top: -FADE_HEIGHT, height: FADE_HEIGHT },
   bottom: {
     position: "absolute",
     left: 0,
