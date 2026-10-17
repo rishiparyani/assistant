@@ -99,33 +99,43 @@ export function Tour({
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const [i, setI] = useState(0);
-  const [hole, setHole] = useState<Rect | null>(null);
+  // The step and its lit part change together: the next target is measured first, so the
+  // bubble opens next to it instead of in the middle and then moving (owner, 2026-10-17).
+  const [at, setAt] = useState<{ i: number; hole: Rect | null }>({ i: 0, hole: null });
+  const { i, hole } = at;
   const step = steps[i]!;
   const last = i === steps.length - 1;
   const root = useRef<View>(null);
 
-  // Measure the target in this overlay's own coordinates (the overlay covers the home).
-  const measure = useCallback(() => {
-    const target = step.target ? refs[step.target]?.current : null;
-    if (!target || !root.current) return setHole(null);
-    root.current.measureInWindow((ox, oy) => {
-      target.measureInWindow((x, y, w, h) => {
-        if (!w || !h) return setHole(null);
-        const pad = 6;
-        // A tall target (the cards) is lit to the first screenful only.
-        const hh = Math.min(h, height * 0.42);
-        setHole({ x: x - ox - pad, y: y - oy - pad, w: w + pad * 2, h: hh + pad * 2 });
-      });
-    });
-  }, [step.target, refs, height]);
+  // Where a step's target is, in this overlay's own coordinates (the overlay covers the home).
+  const measure = useCallback(
+    (n: number) =>
+      new Promise<Rect | null>((done) => {
+        const want = steps[n]?.target;
+        const target = want ? refs[want]?.current : null;
+        if (!target || !root.current) return done(null);
+        root.current.measureInWindow((ox, oy) => {
+          target.measureInWindow((x, y, w, h) => {
+            if (!w || !h) return done(null);
+            const pad = 6;
+            // A tall target (the cards) is lit to the first screenful only.
+            const hh = Math.min(h, height * 0.42);
+            done({ x: x - ox - pad, y: y - oy - pad, w: w + pad * 2, h: hh + pad * 2 });
+          });
+        });
+      }),
+    [steps, refs, height],
+  );
+  const go = useCallback((n: number) => void measure(n).then((r) => setAt({ i: n, hole: r })), [measure]);
+  // Again when the screen turns or resizes (the target moved).
+  const shown = useRef(0);
+  shown.current = i;
   useEffect(() => {
-    setHole(null);
-    const id = setTimeout(measure, 60);
+    const id = setTimeout(() => go(shown.current), 60);
     return () => clearTimeout(id);
-  }, [measure, width, height]);
+  }, [go, width]);
 
-  const next = () => (last ? onDone() : setI(i + 1));
+  const next = () => (last ? onDone() : go(i + 1));
   const dim = "rgba(8,9,14,0.62)";
   // The bubble sits under the lit part when it's in the top half, else above it.
   const below = hole ? hole.y + hole.h / 2 < height / 2 : false;
