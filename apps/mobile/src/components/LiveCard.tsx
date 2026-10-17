@@ -195,7 +195,7 @@ function RecordsWidget({ items, onAsk }: { items: RecordItem[]; onAsk?: (title: 
         scale={0.99}
         style={[s.strip, { backgroundColor: tint(c, dark ? 0.2 : 0.1) }]}
       >
-        <View style={[s.dot, { backgroundColor: c }]} />
+        {/* The strip is already in the card's colour: no mark needed. */}
         <Text style={[s.stripName, { color: t.fg }]} numberOfLines={1}>
           {collection.name}
         </Text>
@@ -490,7 +490,6 @@ const s = StyleSheet.create({
     gap: 6,
   },
   head: { flexDirection: "row", alignItems: "center", gap: 6 },
-  dot: { width: 9, height: 9, borderRadius: 3 },
   kicker: { fontSize: 12, fontWeight: "700" },
   title: { fontSize: 16, fontWeight: "700", letterSpacing: -0.2 },
   sub: { fontSize: 13 },

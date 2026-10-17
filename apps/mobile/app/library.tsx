@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline } from "@/api";
 import { arrange, homeChanged, loadCatalog, saveLayout, type CatalogEntry } from "@/home";
+import { Mark } from "@/components/Mark";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const PER_PAGE = 12;
@@ -23,7 +24,7 @@ const KIND: Record<CatalogEntry["kind"], string> = {
 };
 
 export default function Library() {
-  const { t, colour } = useTheme();
+  const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
@@ -88,7 +89,6 @@ export default function Library() {
               <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
                 {list.map((e, i) => {
                   const at = pageOf(e.key);
-                  const tint = colour(colourFor(e.collection?.name ?? e.title));
                   const opens = e.collection ? e.collection.id : null;
                   return (
                     <View
@@ -98,7 +98,7 @@ export default function Library() {
                         i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
                       ]}
                     >
-                      <View style={[s.dot, { backgroundColor: tint }]} />
+                      <Mark name={e.title} tone={colourFor(e.collection?.name ?? e.title)} />
                       <Pressable
                         accessibilityRole={opens ? "link" : "text"}
                         disabled={!opens}
@@ -154,7 +154,7 @@ export default function Library() {
               <View key={`space:${sp.id}`} style={{ gap: 8 }}>
                 <Text style={[s.h2, { color: t.fg }]}>{sp.name}</Text>
                 <View style={[s.card, s.row, { backgroundColor: t.cell, borderColor: t.hair }]}>
-                  <View style={[s.dot, { backgroundColor: colour(colourFor(sp.name)) }]} />
+                  <Mark name={sp.name} />
                   <View style={s.words}>
                     <Text style={[s.name, { color: t.fg }]}>Nothing in it yet</Text>
                     <Text style={[s.label, { color: t.fg2 }]} numberOfLines={2}>
@@ -200,7 +200,6 @@ const s = StyleSheet.create({
   h2: { fontSize: 15, fontWeight: "700" },
   card: { borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, overflow: "hidden" },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, minHeight: 60 },
-  dot: { width: 10, height: 10, borderRadius: 3 },
   words: { flex: 1, paddingVertical: 10, gap: 2 },
   name: { fontSize: 15, fontWeight: "700" },
   label: { fontSize: 13, lineHeight: 18 },
