@@ -551,7 +551,8 @@ function simpleWords(a: SimpleStepView): string {
       : ""
   }`;
 }
-const condWords = (f: { field: string; op: FilterOp; value: unknown; shown?: string }) =>
+/** One condition in plain words ("Due is in past", "Status isn't Done"). */
+export const condWords = (f: { field: string; op: FilterOp; value: unknown; shown?: string }) =>
   `${f.field} ${OP_WORDS[f.op] ?? f.op}${f.op === "empty" || f.op === "not_empty" ? "" : ` ${f.shown ?? show(f.value)}`}`;
 
 /** The next time (ms) a schedule runs after `after` (ms), India time. */

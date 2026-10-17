@@ -2,8 +2,9 @@
 // stopped it), everyone else the plain sentence, and nobody the provider's own message.
 // Owners come from ADMIN_EMAILS in vitest.config.ts. Fake data only.
 import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
 import type { ChatView } from "@assistant/shared";
-import { modelFailure } from "../src/core/assistant/service.ts";
+import { describe as cardWords, modelFailure } from "../src/core/assistant/service.ts";
 import { call, json, signUp } from "./http.ts";
 
 const lastReply = async (cookie: string) => {
@@ -16,7 +17,9 @@ describe("why the assistant couldn't answer", () => {
     const owner = await signUp("Test Owner", "owner.admin@example.com");
     const mine = await lastReply(owner.cookie);
     expect(mine).toMatch(/^I can't answer right now/);
-    expect(mine).toMatch(/Why \(only the app's owner sees this\): .+: rate limited by the provider/);
+    expect(mine).toMatch(
+      /Why \(only the app's owners and admins see this\): .+: rate limited by the provider/,
+    );
     expect(mine).not.toContain("Test private words");
 
     const someone = await signUp("Test Friend");
@@ -33,5 +36,58 @@ describe("why the assistant couldn't answer", () => {
     expect(kind("Claude: 529 overloaded")).toBe("the provider had an error");
     expect(kind("The operation was aborted due to timeout")).toBe("timed out");
     expect(kind('Something about "Asha\'s plans"')).toBe("the call failed");
+  });
+
+  it("is shown to an admin from the admin panel's list too", async () => {
+    const admin = await signUp("Test Admin", "panel.admin@example.com");
+    await env.DB.prepare(`insert into admins (email) values (?)`).bind("panel.admin@example.com").run();
+    expect(await lastReply(admin.cookie)).toMatch(/Why \(only the app's owners and admins see this\)/);
+  });
+
+  it("words a saved view's card in plain words, never as data", () => {
+    const card = cardWords("save_view", {
+      name: "To do",
+      collection: "Reminders",
+      filters: [{ field: "Done", op: "ne", value: true }],
+      sort: { field: "Due", dir: "asc" },
+      pinned: true,
+      add_fields: ["Title", "Due"],
+      card: {
+        arrangement: "list-ticks",
+        controls: [{ field: "Done", as: "tick" }],
+        row: {
+          date: "Due",
+          highlights: [
+            { when: [{ field: "Due", op: "period", value: "past" }], colour: "red", label: "Overdue" },
+          ],
+        },
+      },
+    });
+    expect(card.title).toBe("Save a view “To do” of Reminders");
+    expect(card.details).toEqual([
+      "Shows: Done isn't yes",
+      "In order of Due, first to last",
+      "On your home",
+      "Adding one asks for Title, Due",
+      "Card: list ticks",
+      "Tick off by Done",
+      "Each row shows its Due",
+      "Marked “Overdue” in red when it applies",
+    ]);
+    // Search words, and clearing settings, are said too.
+    expect(cardWords("save_view", { name: "Tax", collection: "Notes", search: "tax" }).details).toContain(
+      "Only ones with “tax”",
+    );
+    expect(
+      cardWords("update_view", { view_id: "Tax", search: null, sort: null, card_size: null }).details,
+    ).toEqual(["No word search", "In the list's usual order", "Card size: picked by the app"]);
+    // Any other tool: settings with parts are named, never printed as data.
+    const other = cardWords("some_tool", {
+      name: "X",
+      layout: { a: 1 },
+      parts: [{ b: 2 }],
+      tags: ["a", "b"],
+    });
+    expect(other.details).toEqual(["name: X", "layout: set", "parts: set", "tags: a, b"]);
   });
 });

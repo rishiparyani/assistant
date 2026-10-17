@@ -8,7 +8,8 @@ import { AppError } from "../errors.ts";
 import { knownPeople } from "../spaces/shares.ts";
 import { hashOf } from "../objects/storage.ts";
 
-async function isAdminCtx(ctx: OpUserCtx): Promise<boolean> {
+/** Whether this person is one of the app's owners (ADMIN_EMAILS) or admins (the admin panel). */
+export async function isAdminCtx(ctx: OpUserCtx): Promise<boolean> {
   const email = ctx.user.email.toLowerCase();
   if (ctx.owners.includes(email)) return true;
   return (await ctx.d1.prepare(`select 1 as ok from admins where email = ?`).bind(email).first()) !== null;
