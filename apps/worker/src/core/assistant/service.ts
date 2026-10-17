@@ -880,14 +880,22 @@ async function answerMessage(
       ...turn,
     ];
     progress(ctx, chatId, "thinking");
-    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast);
+    const why: string[] = [];
+    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast, why);
     stats.steps++;
     if (!answer) {
       outcome = "no_answer";
+      // Counted on the admin page's AI numbers (model names and fixed words only).
+      for (const w of why) bump(stats.errors, `model:${w}`);
+      if (!why.length) bump(stats.errors, "model:none set up for this level");
+      // The app's owner sees why under the message; everyone else gets the plain sentence.
+      const owner = ctx.owners.includes(ctx.user.email.toLowerCase());
+      const reasons = why.length ? why.join("; ") : "no model is set up for this level";
       reply(
-        level === 1
+        (level === 1
           ? "I can't answer right now (the free daily allowance may be used up). Everything still works by tapping."
-          : "Careful isn't available right now. You can still do this by tapping.",
+          : "Careful isn't available right now. You can still do this by tapping.") +
+          (owner ? `\n\nWhy (only the app's owner sees this): ${reasons}.` : ""),
       );
       break;
     }
@@ -1147,6 +1155,25 @@ async function runTool(
 }
 
 /** Calls the first model of the level that has budget and works; logs and settles the cost. */
+/**
+ * Why a model call failed, in fixed words: never the provider's own message, which can echo
+ * what was sent (decision 2026-10-14 "We don't read people's data").
+ */
+export function modelFailure(e: Error): string {
+  const m = e.message.toLowerCase();
+  if (/needs ai credit/.test(m)) return "needs AI credit (none on the account)";
+  if (/isn't set up|isn't available/.test(m)) return "not set up";
+  if (/declined/.test(m)) return "declined to answer";
+  if (/gave no answer/.test(m)) return "gave an empty answer";
+  if (/\b40[13]\b|unauthori[sz]ed|forbidden|invalid.{0,10}(api )?key|authentication/.test(m))
+    return "its key was refused";
+  if (/\b402\b|insufficient|credit|balance|billing|payment/.test(m)) return "out of credit with the provider";
+  if (/\b429\b|rate.?limit|too many|quota/.test(m)) return "rate limited by the provider";
+  if (/timed? ?out|timeout|deadline|abort/.test(m)) return "timed out";
+  if (/\b5\d\d\b|overloaded|unavailable|internal error/.test(m)) return "the provider had an error";
+  return "the call failed";
+}
+
 async function ask(
   ctx: OpUserCtx,
   level: Level,
@@ -1154,6 +1181,8 @@ async function ask(
   tools: ToolSpec[],
   affinity?: string,
   fast = false,
+  /** Filled with why each model wasn't used, in fixed words (see modelFailure). */
+  why: string[] = [],
 ): Promise<{ answer: Awaited<ReturnType<typeof callModel>>; level: Level } | null> {
   const s = ctx.ai.settings;
   const budget = budgetOf(ctx);
@@ -1162,14 +1191,24 @@ async function ask(
     let reservation: string | null = null;
     if (m.provider === "cerebras") {
       // Its own prepaid credit and limits, not the Cloudflare cap or the free allowance.
-      if (!ctx.ai.cerebrasKey || !(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute)))
+      if (!ctx.ai.cerebrasKey) {
+        why.push(`${m.label}: no key`);
         continue;
+      }
+      if (!(await budget.takeFastSlot(m.id, s.fastCallsPerDay, s.fastCallsPerMinute))) {
+        why.push(`${m.label}: its daily or per-minute limit is used`);
+        continue;
+      }
     } else if (keyed(m) && !ctx.ai.keys[keyed(m)!]) {
       // A maker called with its own key: nothing to try without it.
+      why.push(`${m.label}: no key`);
       continue;
     } else if (m.route === "free") {
       const used = await budget.neurons();
-      if (used + neuronsFor(m, size, m.maxOutput) > FREE_NEURONS_PER_DAY) continue;
+      if (used + neuronsFor(m, size, m.maxOutput) > FREE_NEURONS_PER_DAY) {
+        why.push(`${m.label}: the free daily allowance is used`);
+        continue;
+      }
     } else {
       const r = await budget.reserve(
         ctx.user.id,
@@ -1177,7 +1216,12 @@ async function ask(
         s.capPaise,
         s.personCapPaise,
       );
-      if (!r.ok) continue;
+      if (!r.ok) {
+        why.push(
+          `${m.label}: ${r.reason === "person_cap" ? "this person's share of the monthly AI cap is used" : "the monthly AI cap is reached"}`,
+        );
+        continue;
+      }
       reservation = r.id;
     }
     const started = Date.now();
@@ -1192,6 +1236,7 @@ async function ask(
       await settle(ctx, m, level, reservation, { input: 0, output: 0 }, Date.now() - started, "error");
       if (!(e instanceof ModelError)) throw e;
       console.warn("model failed", m.id, e.message);
+      why.push(`${m.label}: ${modelFailure(e)}`);
     }
   }
   return null;
