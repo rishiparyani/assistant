@@ -5,6 +5,7 @@
 // that focuses itself, like the chat opened from Help) counts too. Used as bottom padding.
 import { useEffect, useState } from "react";
 import { Dimensions, Keyboard, Platform } from "react-native";
+import { useAnimatedKeyboard, useSharedValue, type SharedValue } from "react-native-reanimated";
 
 const roomFor = (screenY: number) => Math.max(0, Math.round(Dimensions.get("screen").height - screenY));
 
@@ -28,3 +29,12 @@ export function useKeyboardRoom() {
   }, []);
   return room;
 }
+
+/**
+ * The keyboard's height as it moves, frame by frame (iPhone), so something resting on it rises
+ * with it instead of jumping to where the keyboard will end up (owner, 2026-10-17: "the search
+ * bar should come up simultaneously with the keyboard"). Elsewhere 0: Android resizes the window
+ * itself (the hook there would change how the window handles the keyboard), and the web has none.
+ */
+export const useKeyboardHeight: () => SharedValue<number> =
+  Platform.OS === "ios" ? () => useAnimatedKeyboard().height : () => useSharedValue(0);

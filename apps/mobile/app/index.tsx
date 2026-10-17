@@ -2,6 +2,7 @@
 // person's own pages of cards, nothing pre-built, the chat bar under them. Hold a card to move
 // it, remove it or open its menu; the library has every card. Empty: a blank canvas and "Start
 // building". Ticks work offline; the chat is one tap away.
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -47,7 +48,7 @@ import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { useChats } from "@/chats";
 import { useLive } from "@/live-socket";
-import { useKeyboardRoom } from "@/keyboard";
+import { useKeyboardHeight } from "@/keyboard";
 import { lastChat } from "@/last-chat";
 import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
@@ -74,8 +75,10 @@ export default function Home() {
     return () => clearTimeout(id);
   }, []);
   const insets = useSafeAreaInsets();
-  // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it").
-  const keyboard = useKeyboardRoom();
+  // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it"), moving
+  // with it as it slides, not ahead of it (2026-10-17).
+  const keyboard = useKeyboardHeight();
+  const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(keyboard.value, insets.bottom) + 10 }));
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [pages, setPages] = useState<HomePage[] | null>(null);
@@ -568,10 +571,7 @@ export default function Home() {
           style={[StyleSheet.absoluteFill, { backgroundColor: t.shadow }]}
         />
       ) : null}
-      <View
-        style={[s.bottom, { paddingBottom: (keyboard || insets.bottom) + 10, backgroundColor: t.page }]}
-        pointerEvents="box-none"
-      >
+      <Animated.View style={[s.bottom, { backgroundColor: t.page }, lift]} pointerEvents="box-none">
         {failed[0] ? (
           <Pressable
             accessibilityRole="button"
@@ -645,7 +645,7 @@ export default function Home() {
             }}
           />
         </View>
-      </View>
+      </Animated.View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
       <HelpSheet
         open={help}

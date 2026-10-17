@@ -2,7 +2,7 @@
 // once, from the device (lists, cards, rows) and a moment later from the server's index;
 // press send to ask the assistant instead. Offline it is a search bar and nothing else:
 // the send button becomes a magnifier and nothing is queued as a message.
-import { forwardRef } from "react";
+import { forwardRef, useState } from "react";
 import { Image, Platform, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, { FadeInDown, FadeOut } from "react-native-reanimated";
@@ -57,6 +57,10 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const keyboard = useKeyboardRoom();
+  // The bar grows with what's typed or dictated (about four lines, then it scrolls inside), so
+  // the matches sit above wherever its top is (owner, 2026-10-17: "I can see only a single line").
+  const [barHeight, setBarHeight] = useState(52);
+  const [typed, setTyped] = useState(34);
   const panelMax = Math.max(160, Math.min(340, height - (keyboard || insets.bottom) - insets.top - 110));
   const net = useNetworkState();
   const online = net.isConnected !== false && net.isInternetReachable !== false;
@@ -87,7 +91,13 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
           exiting={FadeOut.duration(motion.fade)}
           style={[
             s.panel,
-            { maxHeight: panelMax, backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow },
+            {
+              bottom: barHeight + 8,
+              maxHeight: panelMax,
+              backgroundColor: t.cell,
+              borderColor: t.hair,
+              shadowColor: t.shadow,
+            },
           ]}
         >
           <ScrollView keyboardShouldPersistTaps="handled" style={s.scroll} contentContainerStyle={s.results}>
@@ -173,8 +183,13 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
           </ScrollView>
         </Animated.View>
       ) : null}
-      <View ref={ref} collapsable={false} style={[s.bar, { backgroundColor: t.ink, shadowColor: t.shadow }]}>
-        <Image source={logoDark} style={{ width: 26, height: 26 }} accessibilityIgnoresInvertColors />
+      <View
+        ref={ref}
+        collapsable={false}
+        onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}
+        style={[s.bar, { backgroundColor: t.ink, shadowColor: t.shadow }]}
+      >
+        <Image source={logoDark} style={s.logo} accessibilityIgnoresInvertColors />
         <TextInput
           accessibilityLabel={assistant ? "Ask or search" : "Search your cards"}
           placeholder={
@@ -191,10 +206,21 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
           onChangeText={onChangeText}
           onSubmitEditing={ask}
           returnKeyType={canAsk ? "send" : "search"}
+          submitBehavior={canAsk ? "submit" : "blurAndSubmit"}
+          multiline
           autoFocus={autoFocus}
-          blurOnSubmit={!canAsk}
           autoCorrect={false}
-          style={[s.input, type.body, { color: t.onInk }]}
+          // The phone sizes a growing box itself (up to maxHeight); the web needs its height.
+          onContentSizeChange={
+            Platform.OS === "web" ? (e) => setTyped(e.nativeEvent.contentSize.height) : undefined
+          }
+          style={[
+            s.input,
+            type.body,
+            { color: t.onInk },
+            // The measured height includes the 6 + 6 padding.
+            Platform.OS === "web" ? { height: Math.min(MAX_TEXT + 12, Math.max(34, typed)) } : null,
+          ]}
         />
         {searching ? (
           <Tap
@@ -241,6 +267,10 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
   );
 });
 
+/** One line of the bar's text, and the most it shows before scrolling (four lines). */
+const LINE = 22;
+const MAX_TEXT = LINE * 4;
+
 const s = StyleSheet.create({
   wrap: { flex: 1 },
   bubble: {
@@ -255,11 +285,13 @@ const s = StyleSheet.create({
     gap: 2,
   },
   dot: { width: 2.5, height: 2.5, borderRadius: 2 },
+  // The buttons rest on the bottom edge as the text grows (like a messaging app).
   bar: {
-    height: 52,
+    minHeight: 52,
     borderRadius: 26,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-end",
+    paddingVertical: 9,
     gap: 10,
     paddingLeft: 14,
     paddingRight: 9,
@@ -268,21 +300,23 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
+  logo: { width: 26, height: 26, marginBottom: 4 },
   input: {
     flex: 1,
     minWidth: 0,
-    height: 44,
-    paddingVertical: 0,
+    minHeight: 34,
+    maxHeight: MAX_TEXT + 12,
+    paddingTop: 6,
+    paddingBottom: 6,
     fontWeight: "600",
     ...(Platform.OS === "web" ? ({ outlineWidth: 0 } as object) : {}),
   },
-  clear: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
+  clear: { width: 28, height: 28, marginBottom: 3, alignItems: "center", justifyContent: "center" },
   send: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
   panel: {
     position: "absolute",
     left: 0,
     right: 0,
-    bottom: 60,
     borderRadius: radius.card,
     borderWidth: StyleSheet.hairlineWidth,
     shadowOpacity: 1,

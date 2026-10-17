@@ -2,7 +2,7 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, StyleSheet, View } from "react-native";
+import { FlatList, Platform, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import {
   Boundary,
@@ -504,8 +504,18 @@ export default function Chat() {
               returnKeyType="send"
               submitBehavior="submit"
               multiline
-              onContentSizeChange={(e) => setTypedHeight(e.nativeEvent.contentSize.height)}
-              style={[s.input, type.body, { color: t.fg, height: Math.min(110, Math.max(22, typedHeight)) }]}
+              // The phone sizes a growing box itself, up to maxHeight, then it scrolls inside (an
+              // explicit height from onContentSizeChange stayed one line on the iPhone, owner
+              // 2026-10-17); the web needs its height set.
+              onContentSizeChange={
+                Platform.OS === "web" ? (e) => setTypedHeight(e.nativeEvent.contentSize.height) : undefined
+              }
+              style={[
+                s.input,
+                type.body,
+                { color: t.fg },
+                Platform.OS === "web" ? { height: Math.min(110, Math.max(22, typedHeight)) } : null,
+              ]}
             />
           </View>
           <Tap
@@ -749,7 +759,14 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     justifyContent: "center",
   },
-  input: { paddingVertical: 0, paddingTop: 0, paddingBottom: 0, outlineWidth: 0 },
+  input: {
+    minHeight: 22,
+    maxHeight: 110,
+    paddingVertical: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    outlineWidth: 0,
+  },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   attach: {
     width: 36,
