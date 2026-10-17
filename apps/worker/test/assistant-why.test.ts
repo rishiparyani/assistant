@@ -74,6 +74,13 @@ describe("why the assistant couldn't answer", () => {
       "Each row shows its Due",
       "Marked “Overdue” in red when it applies",
     ]);
+    // Search words, and clearing settings, are said too.
+    expect(cardWords("save_view", { name: "Tax", collection: "Notes", search: "tax" }).details).toContain(
+      "Only ones with “tax”",
+    );
+    expect(
+      cardWords("update_view", { view_id: "Tax", search: null, sort: null, card_size: null }).details,
+    ).toEqual(["No word search", "In the list's usual order", "Card size: picked by the app"]);
     // Any other tool: settings with parts are named, never printed as data.
     const other = cardWords("some_tool", {
       name: "X",

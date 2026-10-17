@@ -603,14 +603,24 @@ function viewWords(args: Record<string, unknown>): string[] {
         ? `Shows: ${filters.map((f) => condWords({ field: String(f.field ?? "?"), op: f.op ?? "eq", value: f.value })).join(" and ")}`
         : "Shows every record",
     );
-  const sort = args.sort as { field?: string; dir?: string } | undefined;
+  // Every setting the view takes is said here, a clearing too (a confirm says what happens).
+  if (typeof args.name === "string" && args.view_id) out.push(`New name: ${args.name}`);
+  if (typeof args.search === "string" && args.search.trim())
+    out.push(`Only ones with “${args.search.trim()}”`);
+  if (args.search === null || (typeof args.search === "string" && !args.search.trim()))
+    out.push("No word search");
+  const sort = args.sort as { field?: string; dir?: string } | null | undefined;
   if (sort?.field)
     out.push(`In order of ${sort.field}, ${sort.dir === "desc" ? "last to first" : "first to last"}`);
+  if (sort === null) out.push("In the list's usual order");
+  if (typeof args.mode === "string") out.push(`Shown as a ${args.mode}`);
+  if (typeof args.position === "number") out.push("Moved to a new place");
   if (args.pinned === true) out.push("On your home");
   if (args.pinned === false) out.push("Off your home");
   if (Array.isArray(args.add_fields) && args.add_fields.length)
     out.push(`Adding one asks for ${(args.add_fields as string[]).join(", ")}`);
   if (typeof args.card_size === "string") out.push(`Card size: ${args.card_size}`);
+  if (args.card_size === null) out.push("Card size: picked by the app");
   const card = args.card as
     | {
         arrangement?: string;
@@ -621,6 +631,8 @@ function viewWords(args: Record<string, unknown>): string[] {
           callout?: { field?: string };
           highlights?: { label?: string; colour?: string }[];
         };
+        grid?: { fields?: string[] } | null;
+        question?: unknown;
       }
     | null
     | undefined;
@@ -639,6 +651,8 @@ function viewWords(args: Record<string, unknown>): string[] {
     if (r?.callout?.field) out.push(`${r.callout.field} under each row`);
     for (const h of r?.highlights ?? [])
       if (h.label) out.push(`Marked “${h.label}”${h.colour ? ` in ${h.colour}` : ""} when it applies`);
+    if (card.grid?.fields?.length) out.push(`Columns: ${card.grid.fields.join(", ")}`);
+    if (card.question) out.push("Shows a worked-out answer (totals or counts)");
   }
   return out;
 }
