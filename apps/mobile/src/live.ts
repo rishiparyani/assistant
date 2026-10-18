@@ -100,6 +100,9 @@ export async function loadLive(
     }
     case "app":
       return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null };
+    // Drawn by its own player (UiCard), never loaded here.
+    case "ui":
+      return { kind: "plain", title: ref.title, subtitle: null };
   }
 }
 

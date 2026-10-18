@@ -744,6 +744,8 @@ export interface CardConfig {
   question?: CardQuestion | null;
   /** grid: the columns (field ids), edited in place (decision 2026-10-15 "Toward Excel", 5). */
   grid?: { fields: string[] } | null;
+  /** A card the assistant designed and the person pinned (decision 2026-10-18 "Try A2UI"). */
+  ui?: UiCardSpec | null;
 }
 
 /** Card sizes, smallest first: xs and bar are half height (a number, a countdown, a bar). */
@@ -898,6 +900,23 @@ export const CardQuestion = z
   })
   .describe("With arrangement table or bars: the question the card answers live (as for the query tool)");
 export type CardQuestion = z.infer<typeof CardQuestion>;
+/** A card designed in A2UI, pinned (decision 2026-10-18 "Try A2UI"); checked by the space. */
+export const UiCardInput = z.object({
+  parts: z.array(z.record(z.string(), z.unknown())).min(1).max(120),
+  data: z.record(z.string(), z.unknown()).optional(),
+  sources: z
+    .record(
+      z.string().regex(/^\/[A-Za-z][A-Za-z0-9_]*$/),
+      z.object({
+        collection_id: z.string().min(1).max(40),
+        name: z.string().max(80),
+        filters: z.array(FilterInput).max(10).optional(),
+        sort: z.object({ field: z.string().min(1).max(80), dir: z.enum(["asc", "desc"]) }).optional(),
+      }),
+    )
+    .optional(),
+});
+export type UiCardSpec = z.infer<typeof UiCardInput>;
 const cardConfig = z
   .object({
     arrangement: z
@@ -913,6 +932,9 @@ const cardConfig = z
       .describe(
         'With arrangement "grid": a sheet of the list, a column per field, cells typed over in place (not links, people or calculated fields)',
       ),
+    ui: UiCardInput.nullish().describe(
+      "Set by the app when the person pins a card you designed with show_card; never write it yourself",
+    ),
   })
   .nullish()
   .describe(
@@ -1213,7 +1235,29 @@ export type LiveRef =
       };
     }
   /** Something in an app (a Songbook song): what it was then, opening the app's own screen. */
-  | { kind: "app"; app: string; title: string; subtitle?: string | null; href: string };
+  | { kind: "app"; app: string; title: string; subtitle?: string | null; href: string }
+  /**
+   * A card the assistant designed in A2UI (decision 2026-10-18 "Try A2UI"): its parts and data,
+   * and the lists whose records fill parts of the data (read fresh on the device; a change made
+   * on the card saves to the record).
+   */
+  | {
+      kind: "ui";
+      title: string;
+      space_id: string | null;
+      card: { parts: Record<string, unknown>[]; data?: Record<string, unknown> };
+      sources?: Record<string, UiSource>;
+    };
+
+/** A list feeding a card's data at a path: one item per record, its fields by name. */
+export interface UiSource {
+  collection_id: string;
+  /** The list's name when the card was made (for words). */
+  name: string;
+  /** As find_records takes them (fields by name or id). */
+  filters?: Filter[];
+  sort?: { field: string; dir: "asc" | "desc" };
+}
 
 /**
  * A question the assistant asks with answers to tap (owner, 2026-10-17: "interactive

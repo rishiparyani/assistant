@@ -20,8 +20,19 @@ import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
 import { Card, cardHeight } from "@assistant/cards/native";
+import { UiCard } from "./UiCard.tsx";
 
-export function LiveCard({
+export function LiveCard(props: {
+  live: LiveRef;
+  collections: () => Promise<CollectionView[]>;
+  onAsk?: (title: string) => void;
+}) {
+  // A card the assistant designed draws itself (its own data and lists).
+  if (props.live.kind === "ui") return <UiCard live={props.live} collections={props.collections} pinnable />;
+  return <LoadedCard {...props} />;
+}
+
+function LoadedCard({
   live,
   collections,
   onAsk,

@@ -24,6 +24,7 @@ import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { CardFull } from "@/components/CardFull";
+import { UiCard } from "@/components/UiCard";
 import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
@@ -479,6 +480,19 @@ export default function Home() {
                     <Text style={[s.sub, { color: t.fg }]}>Nothing coming up on your cards.</Text>
                   </View>
                 )
+              ) : card.view?.card?.ui ? (
+                // A card the assistant designed and the person pinned: it draws itself.
+                <Boundary where="home card">
+                  <UiCard
+                    live={{
+                      kind: "ui",
+                      title: card.spec.title,
+                      space_id: card.space ?? null,
+                      card: { parts: card.view.card.ui.parts, data: card.view.card.ui.data },
+                      sources: card.view.card.ui.sources,
+                    }}
+                  />
+                </Boundary>
               ) : (
                 <Boundary where="home card">
                   <Card
