@@ -21,6 +21,7 @@ import {
   type WorkflowView,
   type QueryResult,
   type ChatSummary,
+  type ChatModelPick,
   type ChatView,
   type CollectionView,
   type LiveRef,
@@ -862,7 +863,7 @@ export async function chatView(ctx: OpUserCtx, chatId = MAIN): Promise<ChatView>
 export async function sendMessage(
   ctx: OpUserCtx,
   ops: readonly AnyOperation[],
-  input: { text: string; think_harder?: boolean },
+  input: { text: string; think_harder?: boolean; model?: ChatModelPick },
   chatId = MAIN,
   /** proposeOnly: every write becomes a card to tap, whatever its own rules (the Inbox's
    *  filing turn). chatHome: the people chat this is about has a home (its space). */
@@ -943,7 +944,7 @@ function progressWords(call: ToolCall): string {
 async function answerMessage(
   ctx: OpUserCtx,
   ops: readonly AnyOperation[],
-  input: { text: string; think_harder?: boolean },
+  input: { text: string; think_harder?: boolean; model?: ChatModelPick },
   requestKey: string,
   chatId: string,
   proposeOnly = false,
@@ -954,7 +955,10 @@ async function answerMessage(
   const s = ctx.ai.settings;
   // Faster answers (Cerebras) for this person: first choice at the everyday level.
   const fast = await fasterAnswers(ctx);
-  let level: Level = (await chat.setupInProgress(uid)) || input.think_harder ? 2 : 1;
+  // The person's pick (decision 2026-10-18 "Pick the model"); "think harder" is the old Careful.
+  const pick = input.model ?? (input.think_harder ? "careful" : "auto");
+  let level: Level =
+    pick === "careful" ? 2 : pick === "quick" ? 1 : (await chat.setupInProgress(uid)) ? 2 : 1;
   if (level === 2 && !modelsFor(2, s).length) level = 1;
 
   const history = await chat.context(uid);
@@ -1133,8 +1137,8 @@ async function answerMessage(
       });
       break;
     }
-    // Two failed checks: try the next level up, if there is one.
-    if (failures >= 2 && level < 3 && modelsFor((level + 1) as Level, s).length) {
+    // Two failed checks: try the next level up, if there is one (not when Quick was picked).
+    if (pick !== "quick" && failures >= 2 && level < 3 && modelsFor((level + 1) as Level, s).length) {
       level = (level + 1) as Level;
       failures = 0;
       rows.push({ role: "assistant", content: "Trying a stronger model…", shown: "note", level });

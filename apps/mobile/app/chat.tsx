@@ -30,6 +30,7 @@ import { LiveCard, LiveRecords } from "@/components/LiveCard";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { ChatsSheet } from "@/components/ChatsSheet";
+import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
 import { ApiError, isOffline, request } from "@/api";
 import { send } from "@/outbox";
 import { useLive } from "@/live-socket";
@@ -97,6 +98,9 @@ export default function Chat() {
     if (myId && chatId) rememberChat(myId, chatId);
   }, [myId, chatId]);
   const [showChats, setShowChats] = useState(false);
+  // Auto, Quick or Careful, kept on the device (decision 2026-10-18 "Pick the model").
+  const [pick, setPick] = useModelPick();
+  const [showModel, setShowModel] = useState(false);
   // The very first chat ever gets the "tell me about your week" opening; later new chats a line.
   const [firstEver, setFirstEver] = useState<boolean | null>(null);
   // The newest answer gets 👍 / 👎 (not one waiting behind a newer message of mine).
@@ -162,6 +166,12 @@ export default function Chat() {
     });
     return out;
   }, [view]);
+  // Cards still waiting for a tap, oldest first (owner, 2026-10-18: four or five in a row meant
+  // scrolling up to each one, then down to see what they made): one bar above the box does all.
+  const waiting = useMemo(
+    () => (view?.items ?? []).filter((i) => i.role === "card" && i.card?.status === "waiting"),
+    [view],
+  );
   const box = useRef<RNTextInput>(null);
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
@@ -252,7 +262,7 @@ export default function Chat() {
     setBusy(true);
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>("POST", `/api/chats/${chatId}`, { text: msg });
+      const next = await request<ChatView>("POST", `/api/chats/${chatId}`, { text: msg, model: pick });
       setView(next);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
@@ -269,7 +279,7 @@ export default function Chat() {
           kind: "assistant.message",
           method: "POST",
           path: `/api/chats/${chatId}`,
-          body: { text: msg },
+          body: { text: msg, model: pick },
           label: "Message to the assistant",
         });
         setNote("Waiting to send: it goes when you're back online.");
@@ -301,11 +311,41 @@ export default function Chat() {
       );
       setEditing(null);
       setNote("");
+      if (!waiting.some((w) => w.card!.action_id !== actionId)) toEnd();
     } catch (e) {
       setNote(isOffline(e) ? "Confirming needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
     }
+  };
+  /** The newest message, where what the cards made shows up. */
+  const toEnd = () => setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
+  // online-only: every waiting card runs its action on the server, once, in the order proposed
+  // (a list before the view that shows it); the first one that fails stops the rest.
+  const confirmAll = async () => {
+    if (busy || !waiting.length) return;
+    setBusy(true);
+    try {
+      for (const w of waiting)
+        setView(
+          await request<ChatView>(
+            "POST",
+            `/api/chats/${chatId ?? MAIN}/actions/${enc(w.card!.action_id)}/confirm`,
+            {},
+          ),
+        );
+      setNote("");
+      toEnd();
+    } catch (e) {
+      setNote(isOffline(e) ? "Confirming needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  /** Up to the first card still waiting, to read them before confirming. */
+  const review = () => {
+    const index = newestFirst.findIndex((i) => i.id === waiting[0]?.id);
+    if (index >= 0) list.current?.scrollToIndex({ index, viewPosition: 0.9, animated: true });
   };
 
   return (
@@ -317,15 +357,21 @@ export default function Chat() {
             <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
               {card ? card : view && view.id !== MAIN && view.title !== "New chat" ? view.title : "Gigspree"}
             </Text>
-            {card ? (
-              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
-                about this card
-              </Text>
-            ) : view?.space_name ? (
-              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
-                in {view.space_name}
-              </Text>
-            ) : null}
+            {/* Under the title: the model (tap to change it) and what the chat is about. */}
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel={`Model: ${pickLabel(pick)}. Change`}
+              onPress={() => setShowModel(true)}
+              hitSlop={{ top: 6, bottom: 12, left: 12, right: 12 }}
+              style={s.pick}
+            >
+              <Text style={[s.ctx, { color: t.accent, fontWeight: "700" }]}>{pickLabel(pick)} ▾</Text>
+              {card || view?.space_name ? (
+                <Text style={[s.ctx, { color: t.fg2, flexShrink: 1 }]} numberOfLines={1}>
+                  {card ? " · about this card" : ` · in ${view!.space_name}`}
+                </Text>
+              ) : null}
+            </Tap>
           </View>
           <Tap
             accessibilityRole="button"
@@ -363,6 +409,13 @@ export default function Chat() {
             <Text style={[type.label, { color: t.accent }]}>Done</Text>
           </Tap>
         </View>
+        <ModelSheet
+          open={showModel}
+          pick={pick}
+          carefulOn={view?.smart_available !== false}
+          onPick={setPick}
+          onClose={() => setShowModel(false)}
+        />
         <ChatsSheet
           open={showChats}
           current={chatId}
@@ -379,6 +432,14 @@ export default function Chat() {
           contentContainerStyle={{ padding: 14, gap: 4 }}
           // Near the bottom, a new message pulls the list down to it; higher up, nothing moves.
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
+          // A card far up isn't measured yet: get near it, then go to it.
+          onScrollToIndexFailed={(info) => {
+            list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+            setTimeout(
+              () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.9, animated: true }),
+              120,
+            );
+          }}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => {
@@ -455,6 +516,34 @@ export default function Chat() {
           <Changes items={changed} inline onChange={setChanged} onClose={() => setChanged([])} />
         ) : null}
         {note && view?.items.length ? <Text style={[s.sys, { color: t.fg2 }]}>{note}</Text> : null}
+        {waiting.length > 1 ? (
+          <Animated.View
+            entering={FadeInDown.duration(motion.enter)}
+            style={[s.waitBar, { backgroundColor: t.cell, borderColor: t.hair }]}
+          >
+            <Text style={[type.label, { color: t.fg, flex: 1, fontSize: 14 }]} numberOfLines={2}>
+              {waiting.length} changes to confirm
+            </Text>
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Show the first one"
+              disabled={busy}
+              onPress={review}
+              style={[s.answer, { backgroundColor: t.fill, paddingHorizontal: 14 }]}
+            >
+              <Text style={[type.label, { color: t.fg, fontSize: 14, fontWeight: "600" }]}>Review</Text>
+            </Tap>
+            <Tap
+              accessibilityRole="button"
+              disabled={busy}
+              onPress={() => void confirmAll()}
+              haptic="light"
+              style={[s.answer, { backgroundColor: t.accent, paddingHorizontal: 14 }]}
+            >
+              <Text style={[type.label, { color: t.onAccent, fontSize: 14 }]}>Confirm all</Text>
+            </Tap>
+          </Animated.View>
+        ) : null}
         {showChanges ? <Changes onClose={() => setShowChanges(false)} /> : null}
         {/* Ideas to start with, only until the conversation has begun (ChatGPT's way). */}
         {!view?.items.length ? (
@@ -775,6 +864,7 @@ const s = StyleSheet.create({
   titleBox: { flex: 1, alignItems: "center", paddingLeft: 92, paddingRight: 152 },
   title: { ...type.heading, fontSize: 16 },
   ctx: { ...type.caption, marginTop: 1 },
+  pick: { flexDirection: "row", alignItems: "center", maxWidth: "100%" },
   done: { position: "absolute", right: 16, height: 56, justifyContent: "center" },
   tools: { position: "absolute", right: 64, height: 56, flexDirection: "row", alignItems: "center", gap: 6 },
   tool: {
@@ -815,6 +905,18 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
+  },
+  waitBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 6,
+    paddingLeft: 14,
+    paddingRight: 6,
+    paddingVertical: 6,
+    borderRadius: radius.card,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   sys: { fontSize: 12, fontWeight: "600", textAlign: "center", padding: 6 },
   rate: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: -2 },

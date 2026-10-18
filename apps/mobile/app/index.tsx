@@ -23,6 +23,7 @@ import { nextUp, type CardSize } from "@assistant/cards";
 import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
+import { CardFull } from "@/components/CardFull";
 import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
@@ -88,6 +89,8 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(0);
   const [menu, setMenu] = useState<HomeCard | null>(null);
+  // A card opened up to its full height (owner, 2026-10-18), by id so it follows the home's data.
+  const [fullId, setFullId] = useState<string | null>(null);
   const list = useRef<FlatList<HomePage>>(null);
   const [failed, setFailed] = useState(() => outboxState().failed);
   const userId = me?.user.id ?? null;
@@ -492,7 +495,7 @@ export default function Home() {
                             })
                           : card.shared?.kind === "form"
                             ? openOnWeb(card)
-                            : ask(card))
+                            : setFullId(card.id))
                     }
                     onAnswer={
                       card.waiting
@@ -671,6 +674,36 @@ export default function Home() {
         </View>
       </Animated.View>
       <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
+      {(() => {
+        const full = fullId
+          ? ((pages ?? []).flatMap((p) => p.cards).find((c) => c.id === fullId) ?? null)
+          : null;
+        const close = () => setFullId(null);
+        return (
+          <CardFull
+            card={full}
+            onClose={close}
+            onTick={full ? onTick(full) : undefined}
+            onSet={full ? onSet(full) : undefined}
+            onOpenList={
+              full?.collection && !full.shared
+                ? () => {
+                    close();
+                    openList(full.collection!.id, full.view?.id, full.space);
+                  }
+                : undefined
+            }
+            onAsk={
+              full && (assistant || full.shared)
+                ? () => {
+                    close();
+                    ask(full);
+                  }
+                : undefined
+            }
+          />
+        );
+      })()}
       <HelpSheet
         open={help}
         onClose={() => setHelp(false)}

@@ -103,4 +103,14 @@ describe("why the assistant couldn't answer", () => {
     await call("/api/chat", { cookie: me.cookie, body: { text: "hi" } });
     expect(fakeSystems.at(-1)).toMatch(/Test weddings are/);
   });
+
+  it("takes the person's pick of model: auto, quick or careful, nothing else", async () => {
+    const me = await signUp("Test Picker");
+    for (const model of ["auto", "quick", "careful"]) {
+      const res = await call("/api/chat", { cookie: me.cookie, body: { text: "hi", model } });
+      expect(res.status).toBe(200);
+    }
+    const bad = await call("/api/chat", { cookie: me.cookie, body: { text: "hi", model: "fast" } });
+    expect(bad.status).toBe(400);
+  });
 });
