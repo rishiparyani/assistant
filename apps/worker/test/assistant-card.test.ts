@@ -2,7 +2,7 @@
 // the chat with its lists resolved; one that doesn't comes back to the model in words and
 // nothing is shown. Fake data only.
 import { describe, expect, it } from "vitest";
-import type { ChatView, LiveRef } from "@assistant/shared";
+import type { ChatView, CollectionView, LiveRef } from "@assistant/shared";
 import { showCard } from "../src/core/assistant/service.ts";
 import { call, json, signUp } from "./http.ts";
 
@@ -42,6 +42,23 @@ describe("cards the assistant designs", () => {
     expect(lost.text).toMatch(/No list called \\"Nowhere\\"/);
     const badPath = showCard(card({ "things/x": { list: "Nowhere" } }), [], null);
     expect(badPath.text).toMatch(/one word after a slash/);
+    const col = {
+      id: "01K0000000000000000000COL1",
+      name: "Test Reminders",
+      fields: [{ id: "01K0000000000000000000FLD1", name: "Done" }],
+    } as unknown as CollectionView;
+    const misspelt = showCard(
+      card({ "/r": { list: "test reminders", filters: [{ field: "Dnoe", op: "eq", value: true }] } }),
+      [col],
+      null,
+    );
+    expect(misspelt.text).toMatch(/no field \\"Dnoe\\".*fields: Done/);
+    const fine = showCard(
+      card({ "/r": { list: "test reminders", filters: [{ field: "done", op: "ne", value: true }] } }),
+      [col],
+      null,
+    );
+    expect(fine.kind).toBe("ran");
   });
 
   it("pins a designed card to the home as a view, checked like the chat checks it", async () => {
@@ -73,5 +90,20 @@ describe("cards the assistant designs", () => {
     });
     expect(bad.status).toBe(400);
     expect(await bad.text()).toMatch(/Sparkle/);
+    const badSort = await call("/api/views", {
+      cookie: me.cookie,
+      body: {
+        name: "Test badly sorted card",
+        collection: source.collection_id,
+        pinned: true,
+        card: {
+          ui: {
+            parts: ui.card.parts,
+            sources: { "/reminders": { ...source, sort: { field: "Nowhere", dir: "asc" } } },
+          },
+        },
+      },
+    });
+    expect(badSort.status).toBe(400);
   });
 });

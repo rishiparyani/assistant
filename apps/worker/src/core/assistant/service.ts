@@ -256,6 +256,18 @@ export function showCard(raw: unknown, cols: CollectionView[], spaceId: string |
       );
       continue;
     }
+    // Filters and sort must name the list's fields, or the card would fail when it opens.
+    const named = (ref: string) => col.fields.some((f) => f.id === ref || nameKey(f.name) === nameKey(ref));
+    const unknown = [
+      ...(src.filters ?? []).map((f) => f.field),
+      ...(src.sort ? [src.sort.field] : []),
+    ].filter((ref) => !named(ref));
+    if (unknown.length) {
+      problems.push(
+        `${col.name} has no field ${unknown.map((u) => `"${u}"`).join(", ")} (fields: ${col.fields.map((f) => f.name).join(", ")})`,
+      );
+      continue;
+    }
     resolved[path] = {
       collection_id: col.id,
       name: col.name,

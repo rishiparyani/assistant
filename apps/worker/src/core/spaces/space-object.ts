@@ -5978,9 +5978,26 @@ export class SpaceObject extends DurableObject<Env> {
     // A card the assistant designed, pinned: checked like show_card checks it, its lists here.
     if (card.ui) {
       const problems = cardProblems({ parts: card.ui.parts, data: card.ui.data } as A2Card);
-      for (const src of Object.values(card.ui.sources ?? {})) this.requireCollection(src.collection_id);
       if (problems.length) throw new ObjectError("validation_failed", problems.slice(0, 5).join("; "));
-      return { arrangement: null, controls: [], ui: card.ui };
+      // Each source's list must be here, and its filters and sort name real fields.
+      const sources = Object.fromEntries(
+        Object.entries(card.ui.sources ?? {}).map(([path, src]) => {
+          const q = this.checkViewQuery(this.requireCollection(src.collection_id), {
+            filters: src.filters,
+            sort: src.sort,
+          } as ViewInput);
+          return [
+            path,
+            {
+              ...src,
+              ...(q.filters.length ? { filters: q.filters } : {}),
+              ...(q.sort ? { sort: q.sort } : {}),
+            },
+          ];
+        }),
+      );
+      const ui = { ...card.ui, ...(card.ui.sources ? { sources } : {}) };
+      return { arrangement: null, controls: [], ui };
     }
     const controls: CardControl[] = (card.controls ?? []).map((c) => {
       const f = this.matchField(fields, c.field);

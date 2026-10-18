@@ -28,7 +28,7 @@ export function LiveCard(props: {
   onAsk?: (title: string) => void;
 }) {
   // A card the assistant designed draws itself (its own data and lists).
-  if (props.live.kind === "ui") return <UiCard live={props.live} collections={props.collections} pinnable />;
+  if (props.live.kind === "ui") return <UiCard live={props.live} pinnable />;
   return <LoadedCard {...props} />;
 }
 
