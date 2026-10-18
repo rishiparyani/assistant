@@ -995,16 +995,24 @@ async function answerMessage(
   const lives = new Map<string, LiveRef>();
 
   let asked: z.output<typeof ChoicesArgs> | null = null;
+  // Claude's signed thinking is accepted back only while everything before it is unchanged:
+  // the instructions, the tools and the messages (decision 2026-10-18 "One set of instructions
+  // per request"). So each level's instructions are made once per request, and when the level
+  // changes (a hand-over, a stronger model) this request's earlier thinking is let go.
+  const prompts = new Map<Level, string>();
+  let promptLevel: Level = level;
   steps: for (let step = 0; step < MAX_STEPS; step++) {
     const { specs, allowed } = toolsFor(level, ops, connected, chatHome);
-    const messages: ChatMessage[] = [
-      {
-        role: "system",
-        content: systemPrompt(ctx, level, cols, memories, ops, connected, chatHome, spaceWords),
-      },
-      ...history,
-      ...turn,
-    ];
+    if (level !== promptLevel) {
+      for (const m of turn) delete m.opaque;
+      promptLevel = level;
+    }
+    let system = prompts.get(level);
+    if (system === undefined) {
+      system = systemPrompt(ctx, level, cols, memories, ops, connected, chatHome, spaceWords);
+      prompts.set(level, system);
+    }
+    const messages: ChatMessage[] = [{ role: "system", content: system }, ...history, ...turn];
     progress(ctx, chatId, "thinking");
     const why: string[] = [];
     const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast, why);
