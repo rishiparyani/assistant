@@ -73,9 +73,10 @@ export default function Gallery() {
             width={gridWidth}
             arrangeable={false}
             onHold={() => undefined}
-            renderCard={(card) => (
+            renderCard={(card, _open, natural) => (
               <Card
                 card={card}
+                natural={natural}
                 onSet={set(card)}
                 onTick={(r, v) => {
                   const f = card.spec.sources[0]?.answer_field;

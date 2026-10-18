@@ -460,15 +460,21 @@ export default function Home() {
             onHold={setMenu}
             onReorder={reorder(index)}
             onDrop={dropped}
-            renderCard={(card, canOpen) =>
+            renderCard={(card, canOpen, natural) =>
               card.id === "now" ? (
                 // Now (a card like any other since 2026-10-16): the soonest thing coming up.
                 next ? (
-                  <View style={s.nowSlot}>
+                  <View style={natural ? null : s.nowSlot}>
                     <HeroCard next={next} now={now} onOpen={() => canOpen() && ask(next.card)} />
                   </View>
                 ) : (
-                  <View style={[s.nowEmpty, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                  <View
+                    style={[
+                      s.nowEmpty,
+                      natural && { flex: 0, minHeight: 96 },
+                      { backgroundColor: t.cell, borderColor: t.hair },
+                    ]}
+                  >
                     <Text style={[s.eyebrow, { color: t.fg2 }]}>NOW</Text>
                     <Text style={[s.sub, { color: t.fg }]}>Nothing coming up on your cards.</Text>
                   </View>
@@ -477,6 +483,7 @@ export default function Home() {
                 <Boundary where="home card">
                   <Card
                     card={card}
+                    natural={natural}
                     onTick={onTick(card)}
                     onSet={onSet(card)}
                     onSeeAll={

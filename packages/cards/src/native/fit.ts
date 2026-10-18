@@ -1,6 +1,7 @@
-// A card drawn at its natural height (the chat and the full view, owner 2026-10-18: "the
-// expense tracker widget … is not fully visible"): every row it has, nothing stretched to fill
-// a home cell. On the home a card keeps its cell's height and shows what fits.
+// A card drawn at its natural height (owner 2026-10-18: "the expense tracker widget … is not
+// fully visible"): nothing stretched to fill a cell. In the chat and the full view with every
+// row it has; on the home, a full-width card with the rows its size allows. Narrow cards on the
+// home keep their cell's height, so two sit side by side.
 import { createContext, useContext } from "react";
 
 export const FitContext = createContext(false);
