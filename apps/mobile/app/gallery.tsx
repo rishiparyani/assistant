@@ -61,6 +61,14 @@ export default function Gallery() {
           {GALLERY_ARRANGEMENTS.length} kinds of card at every size they come in. Made-up data; nothing is
           saved.
         </Text>
+        {/* The trial of cards written in A2UI (decision 2026-10-18 "Try A2UI"). */}
+        <Pressable
+          accessibilityRole="link"
+          onPress={() => router.push("/a2ui")}
+          style={[s.trial, { width: gridWidth, backgroundColor: t.accentSoft }]}
+        >
+          <Text style={{ color: t.accent, fontWeight: "700", fontSize: 15 }}>Try the new kind of card ›</Text>
+        </Pressable>
         {/* The "Next up" card Now opens with: the soonest dated record among these cards. */}
         {nextUp(cards) ? (
           <View style={{ width: gridWidth, marginBottom: 12 }}>
@@ -110,4 +118,11 @@ const s = StyleSheet.create({
   title: { fontSize: 28, fontWeight: "800", letterSpacing: -0.6 },
   note: { fontSize: 13, lineHeight: 18, marginBottom: 8 },
   legend: { marginTop: 16, gap: 2 },
+  trial: {
+    minHeight: 44,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+    marginBottom: 12,
+  },
 });

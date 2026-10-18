@@ -106,7 +106,7 @@ Mobile-first and polished (owner's priority): build screens from `apps/web/src/c
 - Put the owner's name in the app; it says "the app team".
 - Write band, gig or music words in what people see (messages, examples, placeholders, the assistant's instructions): the app is for anything; examples come from everyday life. `apps/web/test/neutral-words.test.ts` checks it (decision 2026-10-16 "No band or gig words").
 - Put business logic in routes, MCP tools, or the web app.
-- Give any AI raw SQL, code execution or unchecked writes. The in-app assistant (allowed since 2026-10-09) goes through the model router, uses only structured tools from the operation registry, and every action is checked by the app; deletes, money changes and new setups need the user's confirmation.
+- Give any AI raw SQL or unchecked writes, or run code an AI wrote anywhere but a sandbox with no network whose every read and write goes through the operations (decision 2026-10-18 "Try A2UI"; the owner: "I just wanted the running of the code to be safe"). The in-app assistant (allowed since 2026-10-09) goes through the model router, uses only structured tools from the operation registry, and every action is checked by the app; deletes, money changes and new setups need the user's confirmation.
 - Parse users' messages with patterns or rules to decide what they mean (the owner's rule): understanding is the model's job; the router decides only facts (level, budget, errors).
 - Put Cloudflare on a paid plan, turn on AI credit auto top-up, or raise the AI cap without the owner's OK.
 - Commit secrets or real personal data (public repo). `.dev.vars` is git-ignored; secrets are GitHub/Worker secrets.
