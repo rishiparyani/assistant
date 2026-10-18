@@ -16,7 +16,12 @@ const say = (content: string): ModelAnswer => ({
   usage: { input: 900, output: 40, cached: 0 },
 });
 
+/** The instructions each call got, newest last (tests check they hold still within a request). */
+export const fakeSystems: string[] = [];
+
 export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: ToolSpec[]): ModelAnswer {
+  fakeSystems.push(String(messages[0]?.content ?? ""));
+  if (fakeSystems.length > 50) fakeSystems.shift();
   const last = messages.at(-1)!;
   // After a tool ran: a short reply that quotes what it got back.
   if (last.role === "tool") {
