@@ -326,14 +326,18 @@ export default function Chat() {
     if (busy || !waiting.length) return;
     setBusy(true);
     try {
-      for (const w of waiting)
-        setView(
-          await request<ChatView>(
-            "POST",
-            `/api/chats/${chatId ?? MAIN}/actions/${enc(w.card!.action_id)}/confirm`,
-            {},
-          ),
+      for (const w of waiting) {
+        const id = w.card!.action_id;
+        const next = await request<ChatView>(
+          "POST",
+          `/api/chats/${chatId ?? MAIN}/actions/${enc(id)}/confirm`,
+          {},
         );
+        setView(next);
+        // A card that couldn't be done comes back marked "failed" (not as an error): the ones
+        // after it may need it, so they wait.
+        if (next.items.find((i) => i.card?.action_id === id)?.card?.status !== "done") break;
+      }
       setNote("");
       toEnd();
     } catch (e) {
