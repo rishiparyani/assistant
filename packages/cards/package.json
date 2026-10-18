@@ -5,13 +5,15 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./native": "./src/native/index.ts"
+    "./native": "./src/native/index.ts",
+    "./a2ui": "./src/a2ui/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
+    "@a2ui/web_core": "0.14.0",
     "@assistant/shared": "workspace:*",
     "zod": "catalog:"
   },
@@ -20,7 +22,8 @@
     "react": "*",
     "react-native": "*",
     "react-native-gesture-handler": "*",
-    "react-native-reanimated": "*"
+    "react-native-reanimated": "*",
+    "react-native-svg": "*"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
@@ -29,6 +32,7 @@
     "react-native": "0.86.3",
     "react-native-gesture-handler": "~2.32.0",
     "react-native-reanimated": "4.5.1",
+    "react-native-svg": "15.15.4",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

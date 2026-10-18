@@ -14,3 +14,5 @@ export * from "./boundary.tsx";
 export * from "./skeleton.tsx";
 export { act, ACTION_WORDS, highlightColour, highlightOf, shown, tint } from "./rows.tsx";
 export { EditableGrid, gridEditable } from "./Grid.tsx";
+export { A2uiSurface, type ChildRef, type PartProps, type PartView } from "./a2ui/player.tsx";
+export { A2UI_PARTS, shownValue } from "./a2ui/parts.tsx";
