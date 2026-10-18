@@ -68,7 +68,7 @@ export async function findAll(
       `/api/collections/${enc(collectionId)}/find`,
       {
         ...query,
-        limit: limit ?? 100,
+        limit: Math.min(limit ?? 100, 100),
         ...(cursor ? { cursor } : {}),
       },
     );
@@ -114,6 +114,11 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
   if (v.card?.controls.length) out.controls = v.card.controls;
   if (v.card?.row) out.row = v.card.row;
   if (v.card?.grid) out.grid = v.card.grid;
+  // A designed card (A2UI) takes the whole width and draws itself as tall as it needs.
+  if (v.card?.ui) {
+    out.size = "l";
+    return out;
+  }
   // The person's size wins when the arrangement can be drawn at it; else the size that fits
   // the content (a number half width, a list full, a table tall), never one flat default.
   if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;

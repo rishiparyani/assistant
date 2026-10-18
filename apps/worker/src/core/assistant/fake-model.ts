@@ -49,6 +49,29 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
         { label: "Every month", description: "On the 1st" },
       ],
     });
+  // "Test: show a card": a card the assistant designs, filled from the Reminders list.
+  if (lastUser === "Test: show a card")
+    return call("show_card", {
+      title: "Test reminders board",
+      parts: [
+        { id: "root", component: "Card", title: "Reminders", children: ["count", "list"] },
+        {
+          id: "count",
+          component: "Stat",
+          label: "Open",
+          value: {
+            call: "count",
+            args: { list: { path: "/reminders" }, where: { field: "Done", not: true } },
+          },
+        },
+        { id: "list", component: "List", children: { componentId: "row", path: "/reminders" } },
+        { id: "row", component: "CheckRow", label: { path: "title" }, checked: { path: "Done" } },
+      ],
+      sources: { "/reminders": { list: "Reminders" } },
+    });
+  // "Test: show a bad card": one the app can't draw (the problems come back to the model).
+  if (lastUser === "Test: show a bad card")
+    return call("show_card", { title: "Test bad", parts: [{ id: "root", component: "Sparkle" }] });
   if (lastUser === "Test: fail")
     throw new ModelError(`${model.label}: 429 Too Many Requests for "Test private words"`);
   const has = (name: string) => tools.some((t) => t.function.name === name);

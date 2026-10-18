@@ -3,6 +3,7 @@
 // or expenses, only field types and the rules every write follows. It checks the
 // caller's role itself (architecture rule 3) and keeps idempotency and audit with the data.
 import { DurableObject } from "cloudflare:workers";
+import { cardProblems, type A2Card } from "@assistant/cards/a2ui";
 import {
   SETUP_LIMITS,
   SPACE_LIMITS,
@@ -112,6 +113,7 @@ import {
   type CardSizeValue,
   type CardConfig,
   type CardQuestion,
+  type UiCardSpec,
   type CardControl,
   type RowAction,
   type HighlightColour,
@@ -5969,9 +5971,34 @@ export class SpaceObject extends DurableObject<Env> {
       row?: RowLayoutInput | null;
       question?: CardQuestion | null;
       grid?: { fields: string[] } | null;
+      ui?: UiCardSpec | null;
     },
     view?: { c: CollectionRow; filters: Filter[] },
   ): CardConfig | null {
+    // A card the assistant designed, pinned: checked like show_card checks it, its lists here.
+    if (card.ui) {
+      const problems = cardProblems({ parts: card.ui.parts, data: card.ui.data } as A2Card);
+      if (problems.length) throw new ObjectError("validation_failed", problems.slice(0, 5).join("; "));
+      // Each source's list must be here, and its filters and sort name real fields.
+      const sources = Object.fromEntries(
+        Object.entries(card.ui.sources ?? {}).map(([path, src]) => {
+          const q = this.checkViewQuery(this.requireCollection(src.collection_id), {
+            filters: src.filters,
+            sort: src.sort,
+          } as ViewInput);
+          return [
+            path,
+            {
+              ...src,
+              ...(q.filters.length ? { filters: q.filters } : {}),
+              ...(q.sort ? { sort: q.sort } : {}),
+            },
+          ];
+        }),
+      );
+      const ui = { ...card.ui, ...(card.ui.sources ? { sources } : {}) };
+      return { arrangement: null, controls: [], ui };
+    }
     const controls: CardControl[] = (card.controls ?? []).map((c) => {
       const f = this.matchField(fields, c.field);
       const o = toField(f).options;
@@ -6184,6 +6211,7 @@ export class SpaceObject extends DurableObject<Env> {
             ...(q.card.row ? { row: rowOfLive(q.card.row, live) } : {}),
             ...(q.card.grid ? { grid: { fields: q.card.grid.fields.filter((id) => live.has(id)) } } : {}),
             ...(q.card.question ? { question: q.card.question } : {}),
+            ...(q.card.ui ? { ui: q.card.ui } : {}),
           }
         : null,
       updated_at: v.updated_at,

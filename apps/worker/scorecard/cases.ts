@@ -4,6 +4,7 @@
 // the cards waiting for a tap, the reply. Only the model calls are real.
 import type { ChatView, CollectionView, FindResult, Memory, QueryResult, SavedView } from "@assistant/shared";
 import { call, json, signUp } from "../test/http.ts";
+import { cardProblems, type A2Card } from "@assistant/cards/a2ui";
 
 export type User = Awaited<ReturnType<typeof signUp>>;
 
@@ -1030,6 +1031,43 @@ export const CASES: Case[] = [
     seed: spendingThisMonth,
     check: async (_u, o) => (has(o.reply, "gear") ? null : `reply: ${o.reply.slice(0, 160)}`),
   },
+  // Cards the assistant designs (decision 2026-10-18 "Try A2UI", step 2): a card on a list's
+  // records that the app's own check passes, with linked figures where asked.
+  {
+    id: "card-dashboard",
+    about: "a spending dashboard card on the Expenses list",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    text: "Make me a card showing this month's spending: the total, a bar for each category, and the list of expenses.",
+    seed: spendingThisMonth,
+    check: async (_u, o) => {
+      const card = uiCard(o);
+      if (!card) return `no designed card; reply: ${o.reply.slice(0, 160)}`;
+      const problems = cardProblems(card.card as A2Card);
+      if (problems.length) return `problems: ${problems.slice(0, 3).join("; ")}`;
+      const names = Object.values(card.sources ?? {}).map((s) => s.name);
+      if (!names.some((n) => has(n, "expense"))) return `sources: ${names.join(", ") || "none"}`;
+      const parts = card.card.parts.map((p) => String(p.component));
+      return parts.includes("BarChart") && parts.includes("Stat") ? null : `parts: ${parts.join(", ")}`;
+    },
+  },
+  {
+    id: "card-calculator",
+    about: "Hinglish: a calculator card with linked sliders",
+    level: 1,
+    lang: "hi-en",
+    suite: "hard",
+    text: "ek card banao jisme SIP calculator ho: monthly amount aur years ke sliders, aur 12% pe kitna banega",
+    check: async (_u, o) => {
+      const card = uiCard(o);
+      if (!card) return `no designed card; reply: ${o.reply.slice(0, 160)}`;
+      const problems = cardProblems(card.card as A2Card);
+      if (problems.length) return `problems: ${problems.slice(0, 3).join("; ")}`;
+      const sliders = card.card.parts.filter((p) => p.component === "Slider").length;
+      return sliders >= 2 ? null : `sliders: ${sliders}`;
+    },
+  },
 ];
 
 /** Four expenses today: Gear ₹2,000, Food ₹1,200 + ₹300, Travel ₹500 (₹4,000 in all). */
@@ -1041,6 +1079,12 @@ async function spendingThisMonth(u: User) {
     ["Auto to the venue", "500", "Travel"],
   ])
     await add(u, "Expenses", { What: what, Amount: amount, Category: category, Date: isoDay(0) });
+}
+
+/** The card the assistant designed this turn, if any. */
+function uiCard(o: Outcome) {
+  const live = o.turn.find((i) => i.role === "live" && i.live?.kind === "ui")?.live;
+  return live?.kind === "ui" ? live : null;
 }
 
 /** The answer card this turn showed, worked out again: each row's words joined. */

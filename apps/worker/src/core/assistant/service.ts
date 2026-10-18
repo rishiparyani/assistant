@@ -25,9 +25,12 @@ import {
   type ChatView,
   type CollectionView,
   type LiveRef,
+  type UiSource,
+  FilterInput,
   type Memory,
   type RuleFilter,
 } from "@assistant/shared";
+import { cardGuide, cardProblems, type A2Card } from "@assistant/cards/a2ui";
 import { AppError } from "../errors.ts";
 import { toAppError } from "../objects/errors.ts";
 import { operationContext, type AnyOperation, type OpUserCtx } from "../operations.ts";
@@ -129,7 +132,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-17b";
+export const PROMPT_VERSION = "2026-10-18a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -182,6 +185,121 @@ const ASK_CHOICES: ToolSpec = {
     },
   },
 };
+/**
+ * A card the assistant designs (decision 2026-10-18 "Try A2UI"): parts from the catalogue,
+ * data, and the lists that fill the data. Checked here; drawn by the app from the same
+ * catalogue. Its description is the whole guide (parts, functions, an example).
+ */
+const SHOW_CARD: ToolSpec = {
+  type: "function",
+  function: {
+    name: "show_card",
+    description: [
+      "Show the person a card you design: a dashboard, a tracker with tabs, a calculator or planner with sliders, charts, filters, a form. It appears in the chat, live (their taps on it work).",
+      cardGuide(),
+      'sources fills the card\'s data from their lists: {"/expenses": {"list": "Expenses", "filters": [...like find_records], "sort": {"field": "Date", "dir": "desc"}}}. The data at that path is then the list\'s records, one item per record: id plus each field by its name (money in paise, yes/no as true/false, dates as YYYY-MM-DD). Inside a row repeated over it, {path: "Amount"} is that record\'s field, and an input bound to one (a CheckRow checked {path: "Paid"}, a Radio value {path: "Status"}) saves to the record. Use made-up numbers only for a calculator or plan they asked about; for their own things, use sources.',
+    ].join("\n\n"),
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "A short name for the card" },
+        parts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { id: { type: "string" }, component: { type: "string" } },
+            required: ["id", "component"],
+          },
+        },
+        data: { type: "object", description: "The card's own starting data (not the lists')" },
+        sources: { type: "object", description: "Paths in the data filled from their lists" },
+      },
+      required: ["title", "parts"],
+    },
+  },
+};
+const UiSourceArgs = z.object({
+  list: z.string().trim().min(1).max(80),
+  filters: z.array(FilterInput).max(10).optional(),
+  sort: z.object({ field: z.string().min(1).max(80), dir: z.enum(["asc", "desc"]) }).optional(),
+});
+const ShowCardArgs = z.object({
+  title: z.string().trim().min(1).max(80),
+  parts: z.array(z.record(z.string(), z.unknown())).min(1).max(120),
+  data: z.record(z.string(), z.unknown()).optional(),
+  sources: z.record(z.string(), UiSourceArgs).optional(),
+});
+
+/** A card the model designed, checked: the live card to show, or what's wrong in words. */
+export function showCard(raw: unknown, cols: CollectionView[], spaceId: string | null): ToolResult {
+  const got = ShowCardArgs.safeParse(raw);
+  if (!got.success)
+    return {
+      kind: "error",
+      code: "validation_failed",
+      text: JSON.stringify({ error: "A card needs a title and parts: [{id, component, ...}]" }),
+    };
+  const { title, parts, sources = {} } = got.data;
+  const data = { ...(got.data.data ?? {}) };
+  const problems = cardProblems({ title, parts, data } as A2Card);
+  const resolved: Record<string, UiSource> = {};
+  for (const [path, src] of Object.entries(sources)) {
+    if (!/^\/[A-Za-z][A-Za-z0-9_]*$/.test(path)) {
+      problems.push(`A source path is one word after a slash, like "/expenses" (got "${path}")`);
+      continue;
+    }
+    const want = src.list.toLowerCase();
+    const col = cols.find((c) => c.id === src.list || c.name.toLowerCase() === want);
+    if (!col) {
+      problems.push(
+        `No list called "${src.list}" here (lists: ${cols.map((c) => c.name).join(", ") || "none"})`,
+      );
+      continue;
+    }
+    // Filters and sort must name the list's fields, or the card would fail when it opens.
+    const named = (ref: string) => col.fields.some((f) => f.id === ref || nameKey(f.name) === nameKey(ref));
+    const unknown = [
+      ...(src.filters ?? []).map((f) => f.field),
+      ...(src.sort ? [src.sort.field] : []),
+    ].filter((ref) => !named(ref));
+    if (unknown.length) {
+      problems.push(
+        `${col.name} has no field ${unknown.map((u) => `"${u}"`).join(", ")} (fields: ${col.fields.map((f) => f.name).join(", ")})`,
+      );
+      continue;
+    }
+    resolved[path] = {
+      collection_id: col.id,
+      name: col.name,
+      ...(src.filters?.length ? { filters: src.filters } : {}),
+      ...(src.sort ? { sort: src.sort } : {}),
+    };
+    // The list fills it: an empty list until the records arrive.
+    data[path.slice(1)] = [];
+  }
+  if (problems.length)
+    return {
+      kind: "error",
+      code: "validation_failed",
+      text: JSON.stringify({ error: "The card can't be drawn yet", problems: problems.slice(0, 12) }),
+    };
+  return {
+    kind: "ran",
+    text: JSON.stringify({
+      shown: true,
+      title,
+      note: "The card is on their screen now; say in a line what it shows.",
+    }),
+    live: {
+      kind: "ui",
+      title,
+      space_id: spaceId,
+      card: { parts, data },
+      ...(Object.keys(resolved).length ? { sources: resolved } : {}),
+    },
+  };
+}
+
 const ChoicesArgs = z.object({
   question: z.string().trim().min(1).max(300),
   options: z
@@ -230,7 +348,7 @@ function toolsFor(
   const fromApps = ops.filter((o) => offered(o, level, connected)).map((o) => o.tool);
   const allowed = new Set([...names, ...fromApps]);
   const specs = ops.filter((o) => allowed.has(o.tool) && !o.sessionOnly).map((o) => toolSpec(o, chatHome));
-  specs.push(level === 1 ? HAND_OVER : HAND_BACK, ASK_CHOICES);
+  specs.push(level === 1 ? HAND_OVER : HAND_BACK, ASK_CHOICES, SHOW_CARD);
   return { specs, allowed };
 }
 
@@ -327,6 +445,7 @@ function systemPrompt(
     "- Never send them to a screen or button to do something; do it here (or hand over), or say plainly it can't be done yet.",
     "- Asked what you can do, or for examples: show, don't list. Do one or two real things with their own lists right away (a find, or a query for a total that comes back as a card), name two or three more in a line, and say Help › Ideas for cards shows every kind of card.",
     "- Short Markdown is fine (bold, a bulleted list); no headings, no tables.",
+    "- For anything richer than a list or one answer (a dashboard, a tracker with tabs, a calculator or planner with sliders, charts, filters, a form), design a card with show_card: fill it from their lists with sources so it shows and saves their real records, and let the card's functions work figures out. Keep it to what they asked; one card, then a line on what it shows.",
     "- When you need them to choose before you go on (which of a few ways, yes or no, which list), ask with ask_choices: 2 to 4 answers they tap, each with one line on what it means. One question at a time; for open questions (a name, an amount) just ask in words.",
     '- Adding or changing money, deleting, new setups and workflows are shown to the person as a card that runs only when they tap Confirm. Until they tap it nothing has happened: never write "I\'ve made", "I\'ve added" or "done"; write "Here\'s the … to check: tap Confirm".',
     "- Do what they asked, not something near it: asked to delete or turn off something you can't find, say you couldn't find it (and the closest names); never make something new instead.",
@@ -1209,6 +1328,19 @@ async function runTool(
       text: JSON.stringify({ asked: true, waiting_for: "their answer" }),
       choices: got.data,
     };
+  }
+  if (name === "show_card") {
+    let raw: unknown;
+    try {
+      raw = JSON.parse(call.function.arguments || "{}");
+    } catch {
+      return {
+        kind: "error",
+        code: "bad_json",
+        text: JSON.stringify({ error: "The arguments weren't valid JSON" }),
+      };
+    }
+    return showCard(raw, cols, defaultSpace);
   }
   const op = ops.find((o) => o.tool === name && allowed.has(o.tool) && !o.sessionOnly);
   if (!op)

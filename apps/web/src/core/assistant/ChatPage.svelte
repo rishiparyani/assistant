@@ -182,6 +182,8 @@
             <AppCard live={m.live} />
           {:else if m.live.kind === "query"}
             <AnswerCard live={m.live} />
+          {:else if m.live.kind === "ui"}
+            <p class="note">{m.live.title}: this card shows in the new app.</p>
           {:else}
             <LiveCard live={m.live} collections={collections.data} />
           {/if}
