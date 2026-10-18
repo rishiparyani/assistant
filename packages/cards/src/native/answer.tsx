@@ -15,6 +15,7 @@ import type { QueryResult } from "@assistant/shared";
 import type { CardSize } from "../spec.ts";
 import { tint } from "./rows.tsx";
 import { useTheme } from "./theme.ts";
+import { UNFLEX } from "./fit.ts";
 
 /** Rows that fit under the title: an M card is one cell tall, an L card two. */
 const TABLE_ROWS: Partial<Record<CardSize, number>> = { m: 3, l: 9 };
@@ -28,14 +29,23 @@ export function answerTag(answer: QueryResult | undefined, size: CardSize, bars:
   return shown < all ? `${shown} of ${all}` : null;
 }
 
-export function AnswerTable({ answer, size }: { answer: QueryResult; size: CardSize }) {
+export function AnswerTable({
+  answer,
+  size,
+  all = false,
+}: {
+  answer: QueryResult;
+  size: CardSize;
+  /** Every row, at its natural height (a card that fits its content). */
+  all?: boolean;
+}) {
   const { t } = useTheme();
-  const rows = answer.rows.slice(0, TABLE_ROWS[size] ?? 3);
+  const rows = all ? answer.rows : answer.rows.slice(0, TABLE_ROWS[size] ?? 3);
   // A phone card has room for about four columns; the first ones are the ones asked for.
   const cols = answer.columns.slice(0, 4);
   const left = (i: number) => answer.columns[i]?.kind === "group" || answer.columns[i]?.type === "text";
   return (
-    <View style={s.box}>
+    <View style={[s.box, all && UNFLEX]}>
       <View style={[s.row, s.headRow, { borderBottomColor: t.sep }]}>
         {cols.map((c, i) => (
           <Text
@@ -78,21 +88,23 @@ export function AnswerBars({
   answer,
   size,
   colour,
+  all = false,
 }: {
   answer: QueryResult;
   size: CardSize;
   colour: string;
+  all?: boolean;
 }) {
   const { t, dark } = useTheme();
   // The bars are the first group by the first number column.
   const g = answer.columns.findIndex((c) => c.kind === "group");
   const m = answer.columns.findIndex((c) => c.kind === "measure");
-  if (m < 0) return <AnswerTable answer={answer} size={size} />;
-  const rows = answer.rows.slice(0, BAR_ROWS[size] ?? 3);
+  if (m < 0) return <AnswerTable answer={answer} size={size} all={all} />;
+  const rows = all ? answer.rows : answer.rows.slice(0, BAR_ROWS[size] ?? 3);
   const nums = rows.map((r) => (typeof r.cells[m] === "number" ? Math.max(0, r.cells[m] as number) : 0));
   const top = Math.max(1, ...nums);
   return (
-    <View style={s.box}>
+    <View style={[s.box, all && UNFLEX]}>
       {rows.map((r, j) => (
         <View key={j} style={s.barRow} accessibilityLabel={`${g >= 0 ? r.shown[g] : ""} ${r.shown[m]}`}>
           <Text style={[s.barLabel, { color: t.fg }]} numberOfLines={1}>

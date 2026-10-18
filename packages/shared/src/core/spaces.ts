@@ -1315,9 +1315,17 @@ export const RememberInput = z.object({
 });
 export const MemoryRef = z.object({ memory_id: z.string().trim().min(1).max(60) });
 
+/**
+ * Which model answers (decision 2026-10-18 "Pick the model"): auto (Quick, Careful for setups
+ * and when Quick fails twice), quick (Quick only, never stepping up on its own), careful.
+ */
+export const ChatModelPick = z.enum(["auto", "quick", "careful"]);
+export type ChatModelPick = z.infer<typeof ChatModelPick>;
+
 export const ChatSendInput = z.object({
   text: z.string().trim().min(1).max(2000),
   think_harder: z.boolean().optional(),
+  model: ChatModelPick.optional(),
 });
 /** Put a live card in a chat without the assistant (e.g. a question asked from the + menu). */
 export const ShowInChatInput = z.object({

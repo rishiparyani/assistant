@@ -13,6 +13,7 @@ import { Control, INLINE } from "./controls.tsx";
 import { RichRows, richRows, shown, tint } from "./rows.tsx";
 import { AnswerBars, AnswerTable, answerTag } from "./answer.tsx";
 import { EditableGrid } from "./Grid.tsx";
+import { FIT_ROWS, FitContext, UNFLEX } from "./fit.ts";
 
 const ROWS = { xs: 0, s: 3, bar: 0, m: 3, l: 8 } as const;
 
@@ -25,8 +26,11 @@ export function Card({
   onNudge,
   onSeeAll,
   busy,
+  fit = false,
 }: {
   card: HomeCard;
+  /** Drawn at its natural height with every row (the chat, the full view), not a home cell's. */
+  fit?: boolean;
   /** The card's title opens its whole list (with "›" after it). */
   onSeeAll?: () => void;
   onTick?: (record: RecordView, value: boolean) => void;
@@ -44,12 +48,17 @@ export function Card({
   const field = card.spec.sources[0]?.answer_field;
   // Half-height sizes: one line of title and one figure, nothing else (no empty space).
   if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} onSeeAll={onSeeAll} />;
+  // How many rows: what fits the cell, or all of them when the card fits its content.
+  const upTo = (n: number) => (fit ? FIT_ROWS : n);
+  const un = fit ? UNFLEX : null;
 
   // A plain bold title on the white card, and what's going on as a tag in the list's colour
   // (decision 2026-10-13 "A warmer home", from the mock-up the owner chose).
   const tag = field
     ? `${card.records.filter((r) => r.values[field] !== true).length} left`
-    : answerTag(card.answer, size, card.spec.arrangement === "bars");
+    : fit
+      ? null
+      : answerTag(card.answer, size, card.spec.arrangement === "bars");
   const header = (
     <View style={s.head}>
       {onSeeAll ? (
@@ -92,10 +101,12 @@ export function Card({
       <RichRows
         card={card}
         colour={c}
-        limit={richRows(
-          size,
-          card.spec.row,
-          controls.some((x) => !INLINE.has(x.ctl.as)),
+        limit={upTo(
+          richRows(
+            size,
+            card.spec.row,
+            controls.some((x) => !INLINE.has(x.ctl.as)),
+          ),
         )}
         onTick={onTick}
         onSet={onSet}
@@ -106,9 +117,9 @@ export function Card({
     const below = controls.filter((x) => !INLINE.has(x.ctl.as));
     // What fits under the title: a row with its controls on one line is about 41 points, one
     // with a line of chips or a slider under it about 75.
-    const rows = size === "l" ? (below.length ? 3 : 6) : below.length ? 1 : 2;
+    const rows = upTo(size === "l" ? (below.length ? 3 : 6) : below.length ? 1 : 2);
     body = (
-      <View style={s.ctlList}>
+      <View style={[s.ctlList, un]}>
         {card.records.slice(0, rows).map((r) => (
           <View key={r.id} style={[s.ctlRow, { borderBottomColor: t.sep }]}>
             <View style={s.ctlLine}>
@@ -156,7 +167,7 @@ export function Card({
             fields={cols}
             records={card.records}
             colour={c}
-            rows={size === "l" ? 8 : 3}
+            rows={upTo(size === "l" ? 8 : 3)}
             onSet={onSet}
           />
         );
@@ -164,14 +175,14 @@ export function Card({
       }
       case "table":
         body = card.answer ? (
-          <AnswerTable answer={card.answer} size={size} />
+          <AnswerTable answer={card.answer} size={size} all={fit} />
         ) : (
           <Text style={[s.sub, { color: t.fg2 }]}>Working it out…</Text>
         );
         break;
       case "bars":
         body = card.answer ? (
-          <AnswerBars answer={card.answer} size={size} colour={c} />
+          <AnswerBars answer={card.answer} size={size} colour={c} all={fit} />
         ) : (
           <Text style={[s.sub, { color: t.fg2 }]}>Working it out…</Text>
         );
@@ -181,9 +192,9 @@ export function Card({
         // A small card has room under its title for one thing kept and one short line; more
         // would run up over the title.
         const small = size === "s";
-        const shown = kept.slice(0, small ? 1 : 3);
+        const shown = kept.slice(0, upTo(small ? 1 : 3));
         body = (
-          <View style={s.grow}>
+          <View style={[s.grow, un]}>
             {shown.map((m) => (
               <View key={m.id} style={[s.row, { borderBottomColor: t.sep }]}>
                 <View style={[s.dot, { backgroundColor: c, opacity: 0.6 }]} />
@@ -211,7 +222,7 @@ export function Card({
         const answered = w.on.filter((p) => p.answer !== null);
         const askedMe = !!w.share_id && w.mine === null;
         body = (
-          <View style={s.grow}>
+          <View style={[s.grow, un]}>
             {/* At M the question (which names the record) is the headline: everything else has
                 to fit beside a 44-point button. */}
             {size === "l" ? (
@@ -282,7 +293,7 @@ export function Card({
         const sumField = card.collection?.fields.find((f) => f.id === card.spec.sources[0]?.sum_field);
         const latest = card.records.slice(0, 2);
         body = (
-          <View style={s.fill}>
+          <View style={[s.fill, un]}>
             <View>
               <Text
                 style={[s.num, { color: t.fg }]}
@@ -322,7 +333,7 @@ export function Card({
           .sort((a, b) => a.d.localeCompare(b.d))[0];
         const days = ahead ? Math.round((Date.parse(ahead.d) - Date.parse(today)) / 86_400_000) : null;
         body = (
-          <View style={s.grow}>
+          <View style={[s.grow, un]}>
             <Text
               style={[s.num, { color: t.fg }]}
               numberOfLines={1}
@@ -343,7 +354,7 @@ export function Card({
         const done = field ? card.records.filter((r) => r.values[field] === true).length : 0;
         const all = card.records.length;
         body = (
-          <View style={s.grow}>
+          <View style={[s.grow, un]}>
             <Text style={[s.num, { color: t.fg }]} numberOfLines={1}>
               {done}
               <Text style={[s.of, { color: t.fg2 }]}> / {all}</Text>
@@ -365,8 +376,8 @@ export function Card({
       }
       case "list-ticks":
         body = (
-          <View style={s.list}>
-            {card.records.slice(0, ROWS[size]).map((r) => {
+          <View style={[s.list, un]}>
+            {card.records.slice(0, upTo(ROWS[size])).map((r) => {
               const done = field ? r.values[field] === true : false;
               return (
                 // A ticked row that leaves the card slides away; the rest close up.
@@ -410,8 +421,8 @@ export function Card({
       default:
         body = card.shared?.fields ? (
           // A record shared with me: its fields as rows ("Fee: ₹15,000").
-          <View style={s.list}>
-            {card.shared.fields.slice(0, ROWS[size]).map((f) => (
+          <View style={[s.list, un]}>
+            {card.shared.fields.slice(0, upTo(ROWS[size])).map((f) => (
               <View key={f.name} style={[s.row, { borderBottomColor: t.sep }]}>
                 <Text style={[s.rowText, { color: t.fg2 }]} numberOfLines={1}>
                   {f.name}
@@ -426,8 +437,8 @@ export function Card({
             </Text>
           </View>
         ) : (
-          <View style={s.list}>
-            {card.records.slice(0, ROWS[size]).map((r) => (
+          <View style={[s.list, un]}>
+            {card.records.slice(0, upTo(ROWS[size])).map((r) => (
               <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
                 <Text style={[s.rowText, { color: t.fg }]} numberOfLines={1}>
                   {r.title}
@@ -454,6 +465,7 @@ export function Card({
       onPress={onOpen}
       style={({ pressed }) => [
         s.card,
+        un,
         // The whole card in a soft wash of its list's colour (decision 2026-10-16 "Soft coloured
         // cards"); the edge is the same colour, a little stronger.
         {
@@ -464,8 +476,10 @@ export function Card({
         pressed && { transform: [{ scale: 0.97 }] },
       ]}
     >
-      {header}
-      {body}
+      <FitContext.Provider value={fit}>
+        {header}
+        {body}
+      </FitContext.Provider>
     </Pressable>
   );
 }

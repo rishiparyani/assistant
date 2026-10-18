@@ -4,6 +4,7 @@
 // part is a field of the list; this file decides how it looks.
 import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "./text.tsx";
+import { UNFLEX, useFit } from "./fit.ts";
 import * as Haptics from "expo-haptics";
 import {
   matchesAll,
@@ -156,6 +157,7 @@ export function RichRows({
   onSet?: (record: RecordView, fieldId: string, value: StoredValue) => void;
 }) {
   const { t, dark } = useTheme();
+  const fit = useFit();
   const row = card.spec.row!;
   const fields = card.collection?.fields ?? [];
   const byId = (id: string | null | undefined) => (id ? fields.find((f) => f.id === id) : undefined);
@@ -172,7 +174,7 @@ export function RichRows({
   const palette = COLLECTION_COLOURS[dark ? "dark" : "light"];
 
   return (
-    <View style={s.list}>
+    <View style={[s.list, fit && UNFLEX]}>
       {card.records.slice(0, limit).map((r) => {
         const tile = row.date ? when(r.values[row.date]) : null;
         const tileDay = tile

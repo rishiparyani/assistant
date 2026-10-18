@@ -16,6 +16,7 @@ import {
 import { Text, TextInput } from "./text.tsx";
 import { shown, tint } from "./rows.tsx";
 import { useTheme } from "./theme.ts";
+import { UNFLEX, useFit } from "./fit.ts";
 
 const TYPED = new Set(["text", "long_text", "number", "money", "date", "datetime"]);
 const WIDTH: Record<string, number> = {
@@ -80,6 +81,7 @@ export function EditableGrid({
   onOpen?: (record: RecordView) => void;
 }) {
   const { t, dark } = useTheme();
+  const fit = useFit();
   const [editing, setEditing] = useState<{ record: string; field: string } | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -148,7 +150,7 @@ export function EditableGrid({
   };
 
   return (
-    <View style={s.wrap}>
+    <View style={[s.wrap, fit && UNFLEX]}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
         <View>
           <View style={[s.row, s.headRow, { borderBottomColor: t.sep }]}>

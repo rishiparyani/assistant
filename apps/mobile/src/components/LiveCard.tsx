@@ -287,6 +287,13 @@ function RecordsWidget({ items, onAsk }: { items: RecordItem[]; onAsk?: (title: 
   );
 }
 
+/**
+ * A card in the chat is as tall as what it holds (owner, 2026-10-18: "it's not fully visible"),
+ * every row shown; only the half-height ones keep their size (one figure, nothing to grow).
+ */
+const heightIn = (card: HomeCard) =>
+  card.spec.size === "xs" || card.spec.size === "bar" ? { height: cardHeight(card) } : null;
+
 function ListCard({
   card: given,
   more,
@@ -301,9 +308,10 @@ function ListCard({
   useEffect(() => setCard(given), [given]);
   return (
     <View style={{ gap: 4 }}>
-      <View style={{ height: cardHeight(card) }}>
+      <View style={heightIn(card)}>
         <Card
           card={card}
+          fit
           onTick={(record, value) =>
             setCard((c) => ({
               ...c,
@@ -399,8 +407,8 @@ function AnswerCard({
   }));
   return (
     <View style={{ gap: 6 }}>
-      <Animated.View style={[{ height: cardHeight(card) }, dipStyle]}>
-        <Card card={card} onOpen={() => onAsk?.(card.spec.title)} />
+      <Animated.View style={[heightIn(card), dipStyle]}>
+        <Card card={card} fit onOpen={() => onAsk?.(card.spec.title)} />
       </Animated.View>
       <View style={s.actions}>
         {card.answer ? (
