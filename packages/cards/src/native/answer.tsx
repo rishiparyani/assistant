@@ -15,7 +15,7 @@ import type { QueryResult } from "@assistant/shared";
 import type { CardSize } from "../spec.ts";
 import { tint } from "./rows.tsx";
 import { useTheme } from "./theme.ts";
-import { UNFLEX } from "./fit.ts";
+import { UNFLEX, useFit } from "./fit.ts";
 
 /** Rows that fit under the title: an M card is one cell tall, an L card two. */
 const TABLE_ROWS: Partial<Record<CardSize, number>> = { m: 3, l: 9 };
@@ -40,12 +40,14 @@ export function AnswerTable({
   all?: boolean;
 }) {
   const { t } = useTheme();
+  // A card as tall as its content (the chat, the full view, a full-width home card).
+  const natural = useFit() || all;
   const rows = all ? answer.rows : answer.rows.slice(0, TABLE_ROWS[size] ?? 3);
   // A phone card has room for about four columns; the first ones are the ones asked for.
   const cols = answer.columns.slice(0, 4);
   const left = (i: number) => answer.columns[i]?.kind === "group" || answer.columns[i]?.type === "text";
   return (
-    <View style={[s.box, all && UNFLEX]}>
+    <View style={[s.box, natural && UNFLEX]}>
       <View style={[s.row, s.headRow, { borderBottomColor: t.sep }]}>
         {cols.map((c, i) => (
           <Text
@@ -96,6 +98,7 @@ export function AnswerBars({
   all?: boolean;
 }) {
   const { t, dark } = useTheme();
+  const natural = useFit() || all;
   // The bars are the first group by the first number column.
   const g = answer.columns.findIndex((c) => c.kind === "group");
   const m = answer.columns.findIndex((c) => c.kind === "measure");
@@ -104,7 +107,7 @@ export function AnswerBars({
   const nums = rows.map((r) => (typeof r.cells[m] === "number" ? Math.max(0, r.cells[m] as number) : 0));
   const top = Math.max(1, ...nums);
   return (
-    <View style={[s.box, all && UNFLEX]}>
+    <View style={[s.box, natural && UNFLEX]}>
       {rows.map((r, j) => (
         <View key={j} style={s.barRow} accessibilityLabel={`${g >= 0 ? r.shown[g] : ""} ${r.shown[m]}`}>
           <Text style={[s.barLabel, { color: t.fg }]} numberOfLines={1}>
