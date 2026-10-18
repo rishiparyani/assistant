@@ -42,6 +42,14 @@ const MOVE_PX = 6;
 const SPRING = { damping: 18, stiffness: 220, mass: 0.6 };
 const SETTLE = { damping: 20, stiffness: 260, mass: 0.7 };
 
+/**
+ * A card that takes the whole width (a phone's M and L): nothing sits beside it, so it can be
+ * exactly as tall as what it shows (owner, 2026-10-18: a table with empty space under it, a
+ * list cut off) instead of a whole number of cells.
+ */
+export const isNatural = (card: HomeCard, width: number) =>
+  (card.spec.size === "m" || card.spec.size === "l") && cardWidth(card, width) >= width;
+
 /** How many half-cell rows a card takes: xs and bar one, s and m two, l four. */
 const halves = (card: HomeCard) =>
   card.spec.size === "l" ? 4 : card.spec.size === "xs" || card.spec.size === "bar" ? 1 : 2;
@@ -51,14 +59,30 @@ const halves = (card: HomeCard) =>
  * grid of columns × half-cell rows. Two half-height cards stack in one cell, so a tiny card
  * next to a small one leaves no hole.
  */
-export function layoutCards(cards: HomeCard[], width: number): { rects: Map<string, Rect>; height: number } {
+export function layoutCards(
+  cards: HomeCard[],
+  width: number,
+  /** Measured heights of the full-width cards (until measured, their size's height). */
+  measured: Record<string, number> = {},
+): { rects: Map<string, Rect>; height: number } {
   const rects = new Map<string, Rect>();
   const cols = columnsFor(width);
   const unit = Math.floor((width - CARD_GAP * (cols - 1)) / cols);
-  const taken: boolean[][] = [];
+  let taken: boolean[][] = [];
   const free = (r: number, c: number) => !taken[r]?.[c];
   let bottom = 0;
+  // Where the cells start: under the last full-width card (the cells after it never go above it).
+  let origin = 0;
   for (const card of cards) {
+    if (isNatural(card, width)) {
+      const y = bottom ? bottom + CARD_GAP : 0;
+      const h = Math.max(HALF, Math.ceil(measured[card.id] ?? cardHeight(card)));
+      rects.set(card.id, { x: 0, y, w: width, h });
+      bottom = y + h;
+      origin = bottom + CARD_GAP;
+      taken = [];
+      continue;
+    }
     const w = cardWidth(card, width);
     const span = Math.min(cols, Math.round((w + CARD_GAP) / (unit + CARD_GAP)));
     const rows = halves(card);
@@ -71,7 +95,7 @@ export function layoutCards(cards: HomeCard[], width: number): { rects: Map<stri
         if (!fits) continue;
         for (let dr = 0; dr < rows; dr++)
           for (let dc = 0; dc < span; dc++) (taken[r + dr] ??= [])[c + dc] = true;
-        const y = r * (HALF + CARD_GAP);
+        const y = origin + r * (HALF + CARD_GAP);
         const h = cardHeight(card);
         rects.set(card.id, { x: c * (unit + CARD_GAP), y, w, h });
         bottom = Math.max(bottom, y + h);
@@ -95,14 +119,22 @@ export function CardGrid({
   width: number;
   /** The person's page: hold and move arranges. The Now page only shows the menu. */
   arrangeable: boolean;
-  /** `canOpen` is false right after a hold, so letting go of a lifted card never opens it. */
-  renderCard: (card: HomeCard, canOpen: () => boolean) => ReactNode;
+  /**
+   * `canOpen` is false right after a hold, so letting go of a lifted card never opens it.
+   * `natural`: draw it as tall as its content (the grid measures it and makes room).
+   */
+  renderCard: (card: HomeCard, canOpen: () => boolean, natural: boolean) => ReactNode;
   onHold: (card: HomeCard) => void;
   onReorder?: (from: number, to: number) => void;
   onDrop?: () => void;
 }) {
   const { t } = useTheme();
-  const { rects, height } = useMemo(() => layoutCards(cards, width), [cards, width]);
+  // The full-width cards' own heights, as drawn.
+  const [measured, setMeasured] = useState<Record<string, number>>({});
+  const measure = useCallback((id: string, h: number) => {
+    setMeasured((m) => (Math.abs((m[id] ?? 0) - h) < 1 ? m : { ...m, [id]: h }));
+  }, []);
+  const { rects, height } = useMemo(() => layoutCards(cards, width, measured), [cards, width, measured]);
   // Elements keep the order they first appeared in; only their places change.
   const stable = useRef<string[]>([]);
   const ids = new Set(cards.map((c) => c.id));
@@ -244,8 +276,9 @@ export function CardGrid({
             release={release}
             cancel={cancel}
             placeholderColour={t.fg3}
+            onMeasure={isNatural(card, width) ? measure : undefined}
           >
-            {renderCard(card, canOpen)}
+            {renderCard(card, canOpen, isNatural(card, width))}
           </Slot>
         );
       })}
@@ -264,7 +297,7 @@ export function CardGrid({
             overlayStyle,
           ]}
         >
-          {renderCard(dragging.card, () => false)}
+          {renderCard(dragging.card, () => false, isNatural(dragging.card, width))}
         </Animated.View>
       ) : null}
     </View>
@@ -283,6 +316,7 @@ function Slot({
   release,
   cancel,
   placeholderColour,
+  onMeasure,
   children,
 }: {
   /** Its place among the cards when it first shows (how long it waits to rise in). */
@@ -297,6 +331,8 @@ function Slot({
   release: (moved: boolean) => void;
   cancel: () => void;
   placeholderColour: string;
+  /** A full-width card: report how tall it draws itself. */
+  onMeasure?: (id: string, height: number) => void;
   children: ReactNode;
 }) {
   // The place slides when the order changes (not on first show).
@@ -358,7 +394,11 @@ function Slot({
           <View style={[StyleSheet.absoluteFill, s.placeholder, { borderColor: placeholderColour }]} />
         ) : null}
         {/* Lifted: the card under the finger takes no tap, so letting go never opens it. */}
-        <View style={[s.fill, hidden && { opacity: 0 }]} pointerEvents={hidden ? "none" : "auto"}>
+        <View
+          style={[onMeasure ? null : s.fill, hidden && { opacity: 0 }]}
+          pointerEvents={hidden ? "none" : "auto"}
+          onLayout={onMeasure ? (e) => onMeasure(card.id, e.nativeEvent.layout.height) : undefined}
+        >
           {children}
         </View>
       </Animated.View>

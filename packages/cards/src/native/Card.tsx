@@ -27,10 +27,13 @@ export function Card({
   onSeeAll,
   busy,
   fit = false,
+  natural = false,
 }: {
   card: HomeCard;
   /** Drawn at its natural height with every row (the chat, the full view), not a home cell's. */
   fit?: boolean;
+  /** As tall as what it shows, with the rows its size allows (a full-width card on the home). */
+  natural?: boolean;
   /** The card's title opens its whole list (with "›" after it). */
   onSeeAll?: () => void;
   onTick?: (record: RecordView, value: boolean) => void;
@@ -50,7 +53,7 @@ export function Card({
   if (size === "xs" || size === "bar") return <Compact card={card} onOpen={onOpen} onSeeAll={onSeeAll} />;
   // How many rows: what fits the cell, or all of them when the card fits its content.
   const upTo = (n: number) => (fit ? FIT_ROWS : n);
-  const un = fit ? UNFLEX : null;
+  const un = fit || natural ? UNFLEX : null;
 
   // A plain bold title on the white card, and what's going on as a tag in the list's colour
   // (decision 2026-10-13 "A warmer home", from the mock-up the owner chose).
@@ -476,7 +479,7 @@ export function Card({
         pressed && { transform: [{ scale: 0.97 }] },
       ]}
     >
-      <FitContext.Provider value={fit}>
+      <FitContext.Provider value={fit || natural}>
         {header}
         {body}
       </FitContext.Provider>

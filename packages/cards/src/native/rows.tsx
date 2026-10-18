@@ -174,8 +174,9 @@ export function RichRows({
   const palette = COLLECTION_COLOURS[dark ? "dark" : "light"];
 
   return (
-    <View style={[s.list, fit && UNFLEX]}>
-      {card.records.slice(0, limit).map((r) => {
+    // A card as tall as its rows clips nothing (a highlighted row's band reaches past the edge).
+    <View style={[s.list, fit && UNFLEX, fit && { overflow: "visible" }]}>
+      {card.records.slice(0, limit).map((r, i, shownRows) => {
         const tile = row.date ? when(r.values[row.date]) : null;
         const tileDay = tile
           ? `${tile.y}-${String(tile.m + 1).padStart(2, "0")}-${String(tile.d).padStart(2, "0")}`
@@ -207,14 +208,21 @@ export function RichRows({
             style={[
               s.row,
               { borderBottomColor: t.sep },
+              // No line under the last row: the card's edge is enough.
+              i === shownRows.length - 1 && { borderBottomWidth: 0 },
               hitColour
                 ? {
-                    backgroundColor: tint(hitColour, dark ? 0.14 : 0.08),
+                    // A soft band with the colour at its edge, inset the same on both sides.
+                    backgroundColor: tint(hitColour, dark ? 0.09 : 0.07),
                     borderLeftWidth: 3,
                     borderLeftColor: hitColour,
                     paddingLeft: 8,
+                    paddingRight: 8,
                     marginLeft: -11,
-                    borderRadius: 6,
+                    marginRight: -8,
+                    borderRadius: 10,
+                    borderBottomWidth: 0,
+                    marginVertical: 2,
                   }
                 : null,
             ]}
@@ -305,22 +313,34 @@ export function RichRows({
                   </Text>
                 </View>
               ) : null}
-              {below.length ? (
-                // One line that scrolls sideways (wrapped chips would be cut off at the card's edge).
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.below}>
-                  {below.map(({ ctl, f }) => (
-                    <Control
-                      key={`${ctl.field}:${ctl.as}`}
-                      control={ctl}
-                      field={f}
-                      value={r.values[f.id]}
-                      colour={colour}
-                      label={`${r.title} · ${f.name}`}
-                      onSet={(v) => onSet?.(r, f.id, v)}
-                    />
-                  ))}
-                </ScrollView>
-              ) : null}
+              {below.length
+                ? (() => {
+                    const ctls = below.map(({ ctl, f }) => (
+                      <Control
+                        key={`${ctl.field}:${ctl.as}`}
+                        control={ctl}
+                        field={f}
+                        value={r.values[f.id]}
+                        colour={colour}
+                        label={`${r.title} · ${f.name}`}
+                        onSet={(v) => onSet?.(r, f.id, v)}
+                      />
+                    ));
+                    // A card as tall as its rows lets the chips wrap; in a fixed cell they keep
+                    // to one line that scrolls sideways (wrapped, they'd be cut off at the edge).
+                    return fit ? (
+                      <View style={s.belowWrap}>{ctls}</View>
+                    ) : (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={s.below}
+                      >
+                        {ctls}
+                      </ScrollView>
+                    );
+                  })()
+                : null}
             </View>
             {inline.map(({ ctl, f }) => (
               <Control
@@ -403,4 +423,5 @@ const s = StyleSheet.create({
   tickHit: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   empty: { fontSize: 12, fontWeight: "500" },
   below: { gap: 8, alignItems: "center" },
+  belowWrap: { gap: 8 },
 });
