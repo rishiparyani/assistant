@@ -166,14 +166,16 @@ jobs:
           # seconds, and a new custom domain needs a few minutes for its certificate, so
           # retry the whole set of checks (up to ~6 min) and name any failure.
           migrations="$(ls apps/worker/migrations/*.sql | wc -l)"
+          # Each request gives up after 20 s, so a connection that hangs is retried, not waited on
+          # until the job times out (2026-10-19: one reset and one hang cancelled a good deploy).
           check() {
-            curl -fsS "$APP_URL/api/health" | jq -e --argjson m "$migrations" \
+            curl -fsS --max-time 20 "$APP_URL/api/health" | jq -e --argjson m "$migrations" \
               '.ok == true and .migrations == $m and (.modules | length) >= 1' > /dev/null || { echo "health"; return 1; }
-            curl -fsS "$APP_URL/" | grep -q '<div id="app">' || { echo "web app"; return 1; }
-            curl -fsS "$APP_URL/auth/get-session" > /dev/null || { echo "auth session endpoint"; return 1; }
-            curl -fsS "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null \
+            curl -fsS --max-time 20 "$APP_URL/" | grep -q '<div id="app">' || { echo "web app"; return 1; }
+            curl -fsS --max-time 20 "$APP_URL/auth/get-session" > /dev/null || { echo "auth session endpoint"; return 1; }
+            curl -fsS --max-time 20 "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null \
               || { echo "OAuth discovery"; return 1; }
-            [ "$(curl -s -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401" ] || { echo "/api/me not protected"; return 1; }
+            [ "$(curl -s --max-time 20 -o /dev/null -w '%{http_code}' "$APP_URL/api/me")" = "401" ] || { echo "/api/me not protected"; return 1; }
           }
           for i in $(seq 1 72); do
             if failed="$(check 2>&1)"; then
