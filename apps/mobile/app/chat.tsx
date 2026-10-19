@@ -206,12 +206,22 @@ export default function Chat() {
   const room = useKeyboardRoom();
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
-  // The person's collections, once for every live card in the chat.
+  // The collections of the chat's space, once for every live card in the chat.
   const collections = useRef<Promise<CollectionView[]> | null>(null);
+  const chatSpace = view?.space_id ?? null;
+  // Another space's chat: its own lists.
+  const spaceRef = useRef(chatSpace);
+  if (spaceRef.current !== chatSpace) {
+    spaceRef.current = chatSpace;
+    collections.current = null;
+  }
   // `fresh`: a card names a list the copy doesn't have (made in this chat since): ask again.
   const getCollections = useCallback((fresh?: boolean) => {
     if (fresh) collections.current = null;
-    collections.current ??= request<CollectionView[]>("GET", "/api/collections").catch((e: unknown) => {
+    collections.current ??= request<CollectionView[]>(
+      "GET",
+      `/api/collections${spaceRef.current ? `?space=${encodeURIComponent(spaceRef.current)}` : ""}`,
+    ).catch((e: unknown) => {
       collections.current = null;
       throw e;
     });
@@ -485,6 +495,7 @@ export default function Chat() {
                 onEdit={(card) => setEditing(card)}
                 busy={busy}
                 collections={getCollections}
+                space={chatSpace}
                 onAsk={(title) => setText((t) => t || `About "${title}": `)}
                 answered={answers.get(item.id)}
                 onPick={(label) => void say(label)}
@@ -725,6 +736,7 @@ function Bubble({
   onEdit,
   busy,
   collections,
+  space,
   onAsk,
   answered,
   onPick,
@@ -736,6 +748,8 @@ function Bubble({
   onEdit?: (card: NonNullable<ChatItem["card"]>) => void;
   busy: boolean;
   collections: (fresh?: boolean) => Promise<CollectionView[]>;
+  /** The chat's space (null: the person's own): the cards' lists live there. */
+  space: string | null;
   onAsk: (title: string) => void;
   /** A question with answers to tap: what the person answered (undefined/null: not yet). */
   answered?: string | null;
@@ -802,13 +816,13 @@ function Bubble({
   if (item.role === "records")
     return (
       <View style={{ marginVertical: 6 }}>
-        <LiveRecords refs={item.refs} collections={collections} onAsk={onAsk} />
+        <LiveRecords refs={item.refs} collections={collections} space={space} onAsk={onAsk} />
       </View>
     );
   if (item.role === "live" && item.live)
     return (
       <View style={{ marginVertical: 4 }}>
-        <LiveCard live={item.live} collections={collections} onAsk={onAsk} />
+        <LiveCard live={item.live} collections={collections} space={space} onAsk={onAsk} />
       </View>
     );
   if (item.role === "user")
