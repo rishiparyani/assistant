@@ -43,6 +43,11 @@ export default function Practice() {
   const [who, setWho] = useState(ME);
   const [as, setAs] = useState<{ view: PracticeAsView; cards: HomeCard[] } | null>(null);
   const [note, setNote] = useState("");
+  // What went wrong with the last thing tapped: kept until the next tap (the screen reads again
+  // every few seconds, which cleared it before anyone saw it; owner, 2026-10-19: "it is showing
+  // starting, but nothing happens after that").
+  const [problem, setProblem] = useState("");
+  const [allLists, setAllLists] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
   const base = space ? `/api/spaces/${enc(space)}/practice` : "";
@@ -92,12 +97,13 @@ export default function Practice() {
   /** Does something as the person being played; the workflows go on a moment later. */
   const act = async (key: string, go: () => Promise<unknown>) => {
     setBusy(key);
+    setProblem("");
     try {
       await go();
       await load();
       setTimeout(() => void load(), 1500);
     } catch (e) {
-      setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
+      setProblem(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
@@ -147,6 +153,17 @@ export default function Practice() {
 
   const people = view?.people ?? [];
   const person = people.find((p) => p.user_id === who) ?? null;
+  // The lists the flow being rehearsed works with: its own and the ones it links to. The copy
+  // holds the whole space (owner, 2026-10-19: "why are these expenses list showing in this
+  // rehearse window?"), but only these matter here; the rest are a tap away.
+  const used = (() => {
+    const own = flow?.workflow.when.collection_id;
+    if (!own) return null;
+    const ids = new Set([own]);
+    for (const f of lists.find((c) => c.id === own)?.fields ?? [])
+      if (f.type === "link" && typeof f.options.target === "string") ids.add(f.options.target);
+    return ids;
+  })();
   // Questions waiting on you (the one practising), answered right here.
   const mine = (view?.waiting ?? []).filter((w) => w.on.some((o) => o.user_id === myId && o.answer === null));
   // Whose turn it is next among the others (yours show as questions in your own view).
@@ -203,6 +220,12 @@ export default function Practice() {
       </ScrollView>
 
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 14 }}>
+        {problem ? (
+          <View style={[s.card, { backgroundColor: t.cell, borderColor: t.danger }]}>
+            <Text style={[s.line, { color: t.danger, fontWeight: "700" }]}>That didn't work</Text>
+            <Text style={[s.label, { color: t.fg }]}>{problem}</Text>
+          </View>
+        ) : null}
         {/* What happens next, and a way to get there. */}
         {view ? (
           turn && turn.user_id !== who ? (
@@ -411,9 +434,11 @@ export default function Practice() {
             ) : (
               <Text style={[s.label, { color: t.fg2 }]}>Nothing yet.</Text>
             )}
-            <Text style={[s.h2, { color: t.fg }]}>The lists in this copy</Text>
+            <Text style={[s.h2, { color: t.fg }]}>
+              {used && !allLists ? "The lists this flow uses" : "The lists in this copy"}
+            </Text>
             <View style={s.row}>
-              {lists.map((c) => {
+              {(used && !allLists ? lists.filter((c) => used.has(c.id)) : lists).map((c) => {
                 const tint = colour(colourFor(c.name));
                 return (
                   <Pressable
@@ -432,6 +457,13 @@ export default function Practice() {
                 );
               })}
             </View>
+            {used && lists.length > used.size ? (
+              <Pressable accessibilityRole="button" onPress={() => setAllLists((a) => !a)} hitSlop={8}>
+                <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>
+                  {allLists ? "Show only this flow's lists" : `Show all ${lists.length} lists in the copy`}
+                </Text>
+              </Pressable>
+            ) : null}
           </>
         ) : null}
 
