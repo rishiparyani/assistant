@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core";
 import { A2uiSurface, A2UI_PARTS, Tap, Text, confirmedJustNow, type } from "@assistant/cards/native";
-import { cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
+import { CARD_ACTIONS, actionWords, cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
 import {
   nameKey,
   ulid,
@@ -141,6 +141,16 @@ export function UiCard({
     setSurface(s);
     if (!s) return;
     const subs: { unsubscribe(): void }[] = [];
+    // A button that asks the app to act: shown first, run only after Confirm (decision 2026-10-19
+    // "Buttons that act").
+    subs.push(
+      s.onAction.subscribe((a) => {
+        if (gone) return;
+        if (!CARD_ACTIONS[a.name])
+          return setNote(`This card asked for something the app doesn't do (${a.name}).`);
+        setAsking({ name: a.name, args: { ...(a.context ?? {}) } });
+      }),
+    );
     // The card's own settings come back as the person left them (decision 2026-10-19 "Cards
     // remember their settings"); the lists' records are not settings and always come fresh.
     const own = (k: string) => !live.sources?.[`/${k}`];
@@ -301,10 +311,71 @@ export function UiCard({
   }, [live]);
 
   const [pinned, setPinned] = useState(false);
+  const [asking, setAsking] = useState<{ name: string; args: Record<string, unknown> } | null>(null);
+  const [doing, setDoing] = useState(false);
   const first = Object.values(live.sources ?? {})[0];
+  const act = async () => {
+    if (!asking) return;
+    const a = CARD_ACTIONS[asking.name]!;
+    const args = { ...asking.args };
+    // The address's ":name" parts come from the args; the rest is the body.
+    const path = a.path.replace(/:(\w+)/g, (_, k: string) => {
+      const v = String(args[k] ?? "");
+      delete args[k];
+      return enc(v);
+    });
+    setDoing(true);
+    try {
+      // online-only: it sends something to other people or another service now.
+      await request(a.method, path, {
+        ...args,
+        ...(live.space_id && !("space" in args) ? { space: live.space_id } : {}),
+      });
+      setNote(`Done: ${actionWords(asking.name, asking.args)}.`);
+      setAsking(null);
+    } catch (e) {
+      setNote(
+        isOffline(e)
+          ? "That needs a connection; nothing was sent."
+          : e instanceof Error
+            ? e.message
+            : String(e),
+      );
+    } finally {
+      setDoing(false);
+    }
+  };
   return (
     <View style={{ gap: 6 }}>
       {surface ? <A2uiSurface surface={surface} parts={A2UI_PARTS} /> : null}
+      {asking ? (
+        <View
+          style={[s.ask, { backgroundColor: t.accentSoft, borderColor: t.accent }]}
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={[type.small, { color: t.fg, fontWeight: "700" }]}>
+            {actionWords(asking.name, asking.args)}?
+          </Text>
+          <View style={s.askRow}>
+            <Tap
+              accessibilityRole="button"
+              onPress={() => setAsking(null)}
+              style={[s.askBtn, { backgroundColor: t.cell }]}
+            >
+              <Text style={[type.label, { color: t.fg, fontSize: 14 }]}>Cancel</Text>
+            </Tap>
+            <Tap
+              accessibilityRole="button"
+              disabled={doing}
+              onPress={() => void act()}
+              haptic="light"
+              style={[s.askBtn, { backgroundColor: t.accent }]}
+            >
+              <Text style={[type.label, { color: t.onAccent, fontSize: 14 }]}>{doing ? "…" : "Confirm"}</Text>
+            </Tap>
+          </View>
+        </View>
+      ) : null}
       {loading ? <ActivityIndicator color={t.fg3} style={s.spin} /> : null}
       {note ? <Text style={[type.caption, { color: t.fg2 }]}>{note}</Text> : null}
       {pinnable && first ? (
@@ -364,6 +435,9 @@ async function pin(live: UiRef, collection: string) {
 
 const s = StyleSheet.create({
   spin: { marginTop: -4 },
+  ask: { borderRadius: 16, borderWidth: 1.5, padding: 12, gap: 10 },
+  askRow: { flexDirection: "row", gap: 10, justifyContent: "flex-end" },
+  askBtn: { minHeight: 44, paddingHorizontal: 18, borderRadius: 22, justifyContent: "center" },
   pin: {
     alignSelf: "flex-end",
     minHeight: 44,

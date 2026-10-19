@@ -85,6 +85,22 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       ],
       sources: { "/reminders": { list: "Reminders" } },
     });
+  // "Test: show an action card": a button that asks the app to act (it confirms first).
+  if (lastUser === "Test: show an action card")
+    return call("show_card", {
+      title: "Test note to self",
+      parts: [
+        { id: "root", component: "Card", title: "A note to keep", children: ["what", "keep"] },
+        { id: "what", component: "Field", label: "What to remember", value: { path: "/note" } },
+        {
+          id: "keep",
+          component: "Button",
+          label: "Keep it",
+          action: { event: { name: "remember", context: { text: { path: "/note" } } } },
+        },
+      ],
+      data: { note: "Test the plumber comes on Fridays" },
+    });
   // "Test: show a bad card": one the app can't draw (the problems come back to the model).
   if (lastUser === "Test: show a bad card")
     return call("show_card", { title: "Test bad", parts: [{ id: "root", component: "Sparkle" }] });
