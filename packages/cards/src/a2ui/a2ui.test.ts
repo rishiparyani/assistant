@@ -49,6 +49,19 @@ describe("A2UI cards", () => {
     expect(words).toContain('calls "nope"');
     expect(words).toContain("value must be {path");
     expect(cardProblems({ parts: [{ id: "x", component: "Text", text: "hi" }] }).join()).toContain('"root"');
+    // Deleting takes two taps: removeItem only on a Button that asks first.
+    const oneTap: A2Card = {
+      parts: [
+        {
+          id: "root",
+          component: "Button",
+          label: "Delete",
+          action: { functionCall: { call: "removeItem", args: {} } },
+        },
+      ],
+    };
+    expect(cardProblems(oneTap).join()).toContain("removeItem only on a Button with confirm");
+    expect(cardProblems({ parts: [{ ...oneTap.parts[0]!, confirm: "Sure?" }] })).toEqual([]);
   });
 
   it("keeps worked-out figures current when the data changes", async () => {

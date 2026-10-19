@@ -16,3 +16,4 @@ export { act, ACTION_WORDS, highlightColour, highlightOf, shown, tint } from "./
 export { EditableGrid, gridEditable } from "./Grid.tsx";
 export { A2uiSurface, type ChildRef, type PartProps, type PartView } from "./a2ui/player.tsx";
 export { A2UI_PARTS, shownValue } from "./a2ui/parts.tsx";
+export { confirmedJustNow } from "./a2ui/kit.tsx";
