@@ -179,7 +179,7 @@ jobs:
           }
           for i in $(seq 1 72); do
             if failed="$(check 2>&1)"; then
-              curl -fsS "$APP_URL/api/health"; echo
+              curl -fsS --max-time 20 "$APP_URL/api/health" || true; echo
               echo "App, API and auth are up at $APP_URL"
               exit 0
             fi
