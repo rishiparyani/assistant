@@ -1272,7 +1272,7 @@ export class SpaceObject extends DurableObject<Env> {
     if (!w.enabled) throw new ObjectError("validation_failed", "This workflow is off in the practice copy");
     if (def.when.event === "added") {
       const c = this.requireCollection(w.collection_id);
-      const r = await this.addRecord(actor, null, c.id, { values: this.sampleValues(c) });
+      const r = await this.addRecord(actor, null, c.id, { values: await this.sampleValues(actor, c) });
       return { record: { id: r.id, title: r.title } };
     }
     let record: { id: string; title: string } | null = null;
@@ -1296,8 +1296,13 @@ export class SpaceObject extends DurableObject<Env> {
     return { record };
   }
 
-  /** Made-up values for a sample record: every field it can fill, links to a first record. */
-  private sampleValues(c: CollectionRow): Record<string, unknown> {
+  /**
+   * Made-up values for a sample record: every field it can fill, links to a first record. A
+   * link to a list that's still empty gets a sample made there too (one level down): the
+   * owner's Visitors needed a Flat while Flats was empty, and Start failed with "Flat is
+   * required" (2026-10-19).
+   */
+  private async sampleValues(actor: Actor, c: CollectionRow, depth = 0): Promise<Record<string, unknown>> {
     const out: Record<string, unknown> = {};
     const now = Date.now();
     const day = new Date(todayIST(now)).toISOString().slice(0, 10);
@@ -1324,6 +1329,13 @@ export class SpaceObject extends DurableObject<Env> {
           )
           .toArray()[0];
         if (first) out[f.id] = [first.id];
+        else if (o.target && o.target !== c.id && depth < 1) {
+          const target = this.requireCollection(o.target);
+          const made = await this.addRecord(actor, null, target.id, {
+            values: await this.sampleValues(actor, target, depth + 1),
+          });
+          out[f.id] = [made.id];
+        }
       }
     }
     return out;

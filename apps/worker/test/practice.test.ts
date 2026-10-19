@@ -335,4 +335,68 @@ describe("practice copies", () => {
       404,
     );
   });
+
+  it("starts a workflow whose record needs a link to an empty list: a sample is made there too", async () => {
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Flats",
+        fields: [
+          { name: "Flat number", type: "text" },
+          { name: "Resident", type: "person" },
+        ],
+      },
+    });
+    const cols = await json<{ id: string; name: string }[]>(await api(owner)("/collections"));
+    const flats = cols.find((c) => c.name === "Flats")!.id;
+    // The owner's setup (2026-10-19): Flats still empty, and a visitor must name a flat.
+    await api(owner)("/collections", {
+      body: {
+        name: "Visitors",
+        fields: [
+          { name: "Name", type: "text" },
+          { name: "Flat", type: "link", required: true, options: { target: flats } },
+          { name: "Pre-approved", type: "boolean" },
+          {
+            name: "Status",
+            type: "choice",
+            options: { choices: ["Waiting approval", "Approved", "Denied"] },
+          },
+        ],
+      },
+    });
+    const wf = await json<WorkflowView>(
+      await api(owner)("/workflows", {
+        body: {
+          name: "Visitor approval",
+          when: { event: "added", collection: "Visitors" },
+          check: [{ field: "Pre-approved", op: "ne", value: true }],
+          then: [
+            { do: "set", field: "Status", value: "Waiting approval" },
+            {
+              do: "ask",
+              who: ["{Flat.Resident}"],
+              text: "{Name} is at the gate for flat {Flat}. Allow or Deny?",
+              choices: ["Allow", "Deny"],
+              until: "first",
+            },
+          ],
+          enabled: false,
+        },
+      }),
+    );
+    expect(wf.id).toBeTruthy();
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    const started = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id } });
+    expect(started.status).toBe(200);
+    // A sample flat was made for it, and its empty Resident is played by a stand-in.
+    expect(
+      await until(async () =>
+        (await json<PracticeView>(await api(owner)(base))).people.some(
+          (p) => p.role === "standin" && p.waiting === 1,
+        ),
+      ),
+    ).toBe(true);
+  });
 });
