@@ -5,7 +5,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core";
-import { A2uiSurface, A2UI_PARTS, Tap, Text, confirmedJustNow, type } from "@assistant/cards/native";
+import {
+  A2uiSurface,
+  A2UI_PARTS,
+  Tap,
+  Text,
+  confirmedJustNow,
+  type,
+  type HomeCard,
+} from "@assistant/cards/native";
 import { actionWords, cardAction, cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
 import {
   nameKey,
@@ -25,6 +33,20 @@ import { readJson, writeJson } from "../storage.ts";
 import { useTheme } from "../theme.ts";
 
 type UiRef = Extract<LiveRef, { kind: "ui" }>;
+
+/** A home card the assistant designed, as the card to draw (null: an ordinary card). */
+export function homeUi(card: HomeCard): UiRef | null {
+  const ui = card.view?.card?.ui;
+  return ui
+    ? {
+        kind: "ui",
+        title: card.spec.title,
+        space_id: card.space ?? null,
+        card: { parts: ui.parts, data: ui.data },
+        sources: ui.sources,
+      }
+    : null;
+}
 const enc = encodeURIComponent;
 const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
 /** At most this many records fill one path (a card, not a full list). */
