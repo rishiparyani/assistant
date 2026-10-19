@@ -899,6 +899,43 @@ export function rememberHome(userId: string, pages: HomePage[]) {
   writeJson(keyFor(userId), pages);
 }
 
+/**
+ * The views on the home as this device last showed it: the chat's "Pin to home" buttons check
+ * it, so a card already pinned says so when its chat is opened again.
+ */
+export function pinnedViews(userId: string | null): SavedView[] {
+  if (!userId) return [];
+  return (savedHome(userId) ?? []).flatMap((p) => p.cards).flatMap((c) => (c.view ? [c.view] : []));
+}
+
+/** The same text for the same content whatever order its keys arrive in (the server stores
+ *  a card and may hand it back with its keys in another order). */
+export const canonical = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(canonical)
+    : v && typeof v === "object"
+      ? Object.fromEntries(
+          Object.keys(v as object)
+            .sort()
+            .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+        )
+      : v;
+
+const same = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+
+/** An answer from the chat that is already on the home: a view asking the same question. */
+export function answerPinned(userId: string | null, ref: Extract<LiveRef, { kind: "query" }>): boolean {
+  const { from, where, group_by, measures } = ref.query;
+  return pinnedViews(userId).some(
+    (v) =>
+      v.collection === from &&
+      !!v.card?.question &&
+      same(v.filters ?? [], where ?? []) &&
+      same(v.card.question.group_by ?? [], group_by ?? []) &&
+      same(v.card.question.measures, measures?.length ? measures : [{ fn: "count" }]),
+  );
+}
+
 const viewChange = (card: HomeCard, body: object, label: string) =>
   card.view &&
   send({

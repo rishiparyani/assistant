@@ -15,7 +15,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-
 import { Tap, Text, Tick, faceOf, shown, tint, type } from "@assistant/cards/native";
 import type { CollectionView, FieldView, LiveRef, RecordView } from "@assistant/shared";
 import { isOffline } from "../api.ts";
-import { pinAnswer, setValue, stillShown, tick, writeValue, type HomeCard } from "../home.ts";
+import { answerPinned, pinAnswer, setValue, stillShown, tick, writeValue, type HomeCard } from "../home.ts";
 import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
@@ -409,8 +409,10 @@ function AnswerCard({
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();
-  const [pinned, setPinned] = useState(false);
   const { card, ref } = data;
+  // Already on the home: the button says so when the chat is opened again.
+  const userId = useSession().me?.user.id ?? null;
+  const [pinned, setPinned] = useState(() => answerPinned(userId, ref));
   // Pinning: the card dips toward the home and springs back, with a tap (the motion demo).
   const dip = useSharedValue(1);
   const dipStyle = useAnimatedStyle(() => ({
