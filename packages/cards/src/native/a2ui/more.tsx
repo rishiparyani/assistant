@@ -2,7 +2,7 @@
 // figures, rings, donuts, columns, heatmaps, tables, timelines, a calendar, a board, and the
 // controls a planner needs (a compact switch, search, − +, stars, a day picker). Drawn in the
 // app's theme with 44-point targets; definitions are in "@assistant/cards/a2ui".
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
 import { dayOf, localDay } from "../../a2ui/catalog.ts";
@@ -575,6 +575,11 @@ export const MORE_VIEWS: Record<string, ViewFn> = {
     const set = props.setValue as ((v: string) => void) | undefined;
     const given = typeof props.month === "string" && /^\d{4}-\d{2}$/.test(props.month) ? props.month : null;
     const [month, setMonth] = useState(given ?? localDay(new Date()).slice(0, 7));
+    // A month bound to the card's data (a switch writing /month) moves the calendar with it;
+    // ‹ › still move it by hand in between.
+    useEffect(() => {
+      if (given) setMonth(given);
+    }, [given]);
     const marks = new Map<string, number>();
     const df = typeof props.dateField === "string" ? props.dateField : "date";
     for (const r of itemsOf(props.data)) {
@@ -1099,7 +1104,8 @@ const m = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   off: { opacity: 0.4 },
-  stars: { flexDirection: "row" },
+  // Up to ten stars: what doesn't fit the width wraps (each keeps its 44-point target).
+  stars: { flexDirection: "row", flexWrap: "wrap" },
   star: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   dateBtn: {
     flexDirection: "row",
