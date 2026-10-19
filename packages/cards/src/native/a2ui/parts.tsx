@@ -17,6 +17,7 @@ import {
   SERIES,
   colourOf,
   kids,
+  markConfirmed,
   num,
   numbers,
   shownValue,
@@ -508,6 +509,7 @@ const views: Record<string, ViewFn> = {
         onPress={() => {
           // "confirm": the first tap asks, the second acts.
           if (typeof props.confirm === "string" && props.confirm && !asking) return setAsking(true);
+          if (asking) markConfirmed();
           setAsking(false);
           void run?.().catch(() => undefined);
         }}

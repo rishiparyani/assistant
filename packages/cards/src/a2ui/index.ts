@@ -113,6 +113,15 @@ export function cardProblems(card: A2Card): string[] {
         `${p.component} "${p.id}": ${prop} must be {path: "..."} into the data, so the person's choice is kept`,
       );
   }
+  // Deleting a record takes two taps: removeItem only on a Button that asks first.
+  for (const p of byId.values()) {
+    const a = (p as { action?: { functionCall?: { call?: unknown } } }).action;
+    if (
+      a?.functionCall?.call === "removeItem" &&
+      !(p.component === "Button" && typeof p.confirm === "string" && p.confirm)
+    )
+      out.push(`${p.component} "${p.id}": removeItem only on a Button with confirm (deleting asks first)`);
+  }
   // Every function a part calls must exist (the core only finds out when it runs).
   const names = new Set(FUNCTION_DOCS.map((f) => f.name));
   const calls = (v: unknown, at: string): void => {

@@ -10,6 +10,15 @@ import type { ChildRef } from "./player.tsx";
 
 export type Tone = "plain" | "muted" | "accent" | "good" | "warn" | "danger";
 
+// When a button that asks first was last confirmed (its second tap). A card deletes a person's
+// record only right after one: no other tap can (a row's tap, a plain button, a set).
+let confirmedAt = 0;
+export const markConfirmed = () => {
+  confirmedAt = Date.now();
+};
+/** Yes when a confirming button's second tap came within the last moment. */
+export const confirmedJustNow = () => Date.now() - confirmedAt < 1500;
+
 export const toneOf = (t: Theme, tone: unknown, plain = t.fg): string =>
   tone === "muted"
     ? t.fg2

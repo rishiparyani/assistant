@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core";
-import { A2uiSurface, A2UI_PARTS, Tap, Text, type } from "@assistant/cards/native";
+import { A2uiSurface, A2UI_PARTS, Tap, Text, confirmedJustNow, type } from "@assistant/cards/native";
 import { cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
 import {
   nameKey,
@@ -66,6 +66,20 @@ function readCols(space: string | null): Promise<CollectionView[]> {
  *  Cleared with everything else of the person's at sign-out (the "gigspree:" prefix). */
 function savedKey(live: UiRef): string {
   return `gigspree:ui:${hashOf([live.space_id, live.sources])}`;
+}
+/** The key before keys were hashed in a fixed order (2026-10-19): read once, then moved. */
+function legacyKey(live: UiRef): string {
+  const text = JSON.stringify([live.space_id, live.sources]);
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
+  return `gigspree:ui:${(h >>> 0).toString(36)}`;
+}
+function readKept(live: UiRef): Kept {
+  const now = readJson<Kept>(savedKey(live));
+  if (now) return now;
+  const old = readJson<Kept>(legacyKey(live));
+  if (old) writeJson(savedKey(live), old);
+  return old ?? {};
 }
 /** Where the card's own settings are kept (a slider, a picked option): the person's, per card. */
 function settingsKey(live: UiRef): string {
@@ -145,7 +159,7 @@ export function UiCard({
       { unsubscribe: () => clearTimeout(saving) },
     );
     // What each path showed last (its list and items), kept on the device for offline opens.
-    const kept = readJson<Kept>(savedKey(live)) ?? {};
+    const kept = readKept(live);
     const last = new Map<string, Map<string, Record<string, unknown>>>();
     const colOf = new Map<string, CollectionView>();
     const watched = new Set<string>();
@@ -169,6 +183,12 @@ export function UiCard({
           const fresh = now.filter((x) => typeof x.id !== "string" || !known.has(x.id));
           if (gone.length > 1 || fresh.length > 1) {
             setNote("A card changes one row at a time; nothing was saved for that.");
+            return;
+          }
+          // Only right after a confirming button's second tap: put the row back otherwise.
+          if (gone.length && !confirmedJustNow()) {
+            setNote("Deleting needs a button that asks first; nothing was deleted.");
+            s.dataModel.set(path, [...now, ...gone.map((id) => ({ ...known.get(id)! }))]);
             return;
           }
           for (const id of gone) {
