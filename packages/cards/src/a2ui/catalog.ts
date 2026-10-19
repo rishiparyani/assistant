@@ -919,3 +919,88 @@ export const FUNCTIONS = [
     (a, ctx) => ctx.set(a.to, ctx.resolveDynamicValue({ path: ctx.path ?? "/" })),
   ),
 ];
+
+// --- Actions a card's button may ask the app to do (decision 2026-10-19 "Buttons that act") ---
+// Each is one of the app's own operations, checked by the server as if the person did it from a
+// screen; the app always shows what it will do in plain words and runs it only after Confirm.
+// A button names one with {event: {name, context: {...args}}}; args may be paths into the data.
+
+export interface CardAction {
+  method: "POST";
+  /** The operation's address; ":name" parts come from the args. */
+  path: string;
+  /** Args it needs (the rest are optional). */
+  needs: string[];
+  /** What it will do, for the confirm step: {arg} is filled in, whole (never shortened). */
+  says: string;
+  about: string;
+  /** Names the app looks up before asking (which chat, which record), so the confirm step
+   *  says where it goes; a lookup that fails stops the action. {as} is the word in `says`. */
+  names?: { arg: string; path: string; field: "name" | "title"; as: string }[];
+}
+
+export const CARD_ACTIONS: Record<string, CardAction> = {
+  post_message: {
+    method: "POST",
+    path: "/api/groups/:group_id/messages",
+    needs: ["group_id", "text"],
+    says: "Send “{text}” to {chat}",
+    names: [{ arg: "group_id", path: "/api/groups/:group_id", field: "name", as: "chat" }],
+    about: "post_message {group_id, text}: writes in a group chat (ids from list_groups).",
+  },
+  ask_everyone: {
+    method: "POST",
+    path: "/api/groups/:group_id/polls",
+    needs: ["group_id", "question"],
+    says: "Ask {chat}: “{question}”",
+    names: [{ arg: "group_id", path: "/api/groups/:group_id", field: "name", as: "chat" }],
+    about: "ask_everyone {group_id, question, options?}: a poll in a group chat.",
+  },
+  remind_waiting: {
+    method: "POST",
+    path: "/api/waiting/:wait_id/nudge",
+    needs: ["wait_id"],
+    says: "Ask again the people this is waiting on",
+    about:
+      "remind_waiting {wait_id}: asks again, now, the people a process is waiting on (ids from whats_waiting).",
+  },
+  add_to_calendar: {
+    method: "POST",
+    path: "/api/connectors/google-calendar/events",
+    needs: ["title", "start"],
+    says: "Add “{title}” to your calendar ({start})",
+    about:
+      "add_to_calendar {title, start, end?, place?}: an event in the person's Google Calendar (start YYYY-MM-DDTHH:MM).",
+  },
+  remember: {
+    method: "POST",
+    path: "/api/memories",
+    needs: ["text"],
+    says: "Remember: “{text}”",
+    about: "remember {text}: one fact or preference the assistant keeps.",
+  },
+  comment: {
+    method: "POST",
+    path: "/api/records/:record_id/comments",
+    needs: ["record_id", "body"],
+    says: "Comment on “{record}”: “{body}”",
+    names: [{ arg: "record_id", path: "/api/records/:record_id", field: "title", as: "record" }],
+    about: 'comment {record_id, body}: a comment on a record (inside a row, {path: "id"}).',
+  },
+};
+
+/** One of the card actions by name (only the app's own: not "constructor" and the like). */
+export const cardAction = (name: unknown): CardAction | undefined =>
+  typeof name === "string" && Object.prototype.hasOwnProperty.call(CARD_ACTIONS, name)
+    ? CARD_ACTIONS[name]
+    : undefined;
+
+/** The confirm step's words for an action, its args (and looked-up names) filled in whole. */
+export function actionWords(name: string, args: Record<string, unknown>): string {
+  const a = cardAction(name);
+  if (!a) return name;
+  return a.says.replace(/\{(\w+)\}/g, (_, k: string) => {
+    const v = args[k];
+    return v === undefined || v === null ? "" : String(v);
+  });
+}

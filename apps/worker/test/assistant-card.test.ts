@@ -59,6 +59,16 @@ describe("cards the assistant designs", () => {
       null,
     );
     expect(fine.kind).toBe("ran");
+    // A button may only ask for one of the app's actions, with what it needs.
+    const act = (event: object) =>
+      showCard(
+        { title: "x", parts: [{ id: "root", component: "Button", label: "Go", action: { event } }] },
+        [],
+        null,
+      );
+    expect(act({ name: "wire_money", context: {} }).text).toMatch(/isn't one/);
+    expect(act({ name: "post_message", context: { text: "hi" } }).text).toMatch(/needs group_id/);
+    expect(act({ name: "remember", context: { text: "Test fact" } }).kind).toBe("ran");
   });
 
   it("pins a designed card to the home as a view, checked like the chat checks it", async () => {

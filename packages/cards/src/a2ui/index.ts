@@ -1,7 +1,15 @@
 // A2UI cards (decision 2026-10-18 "Try A2UI"): the catalogue, the card the assistant writes
 // (parts + data), the messages it becomes, a check in words, and the assistant's guide.
 import { Catalog, MessageProcessor, getKnownSchemaKeys } from "@a2ui/web_core";
-import { A2UI_CATALOG, A2UI_VERSION, FUNCTIONS, FUNCTION_DOCS, PART_APIS } from "./catalog.ts";
+import {
+  A2UI_CATALOG,
+  A2UI_VERSION,
+  CARD_ACTIONS,
+  FUNCTIONS,
+  FUNCTION_DOCS,
+  PART_APIS,
+  cardAction,
+} from "./catalog.ts";
 
 export * from "./catalog.ts";
 
@@ -122,6 +130,22 @@ export function cardProblems(card: A2Card): string[] {
     )
       out.push(`${p.component} "${p.id}": removeItem only on a Button with confirm (deleting asks first)`);
   }
+  // A button that asks the app to act names one of its actions, with what that action needs.
+  for (const p of byId.values()) {
+    const ev = (p as { action?: { event?: { name?: unknown; context?: Record<string, unknown> } } }).action
+      ?.event;
+    if (!ev) continue;
+    const a = cardAction(ev.name);
+    if (!a) {
+      out.push(
+        `${p.component} "${p.id}": the action "${String(ev.name)}" isn't one (actions: ${Object.keys(CARD_ACTIONS).join(", ")})`,
+      );
+      continue;
+    }
+    const missing = a.needs.filter((k) => ev.context?.[k] === undefined || ev.context?.[k] === "");
+    if (missing.length)
+      out.push(`${p.component} "${p.id}": ${String(ev.name)} needs ${missing.join(", ")} in its context`);
+  }
   // Every function a part calls must exist (the core only finds out when it runs).
   const names = new Set(FUNCTION_DOCS.map((f) => f.name));
   const calls = (v: unknown, at: string): void => {
@@ -162,6 +186,10 @@ export function cardGuide(): string {
     'Props take a literal, {path: "/x"} (the card\'s data; inputs write back to it, so a Picker bound to /period changes everything that reads /period), or {call: "fn", args: {...}} (args may themselves be paths or calls). Money is in paise (₹1,500 = 150000). Every part takes visible (yes/no, often a call).',
     "Parts:\n" + parts,
     "Functions:\n" + fns,
+    "Actions (a Button asks the app to do one with {event: {name, context: {...args}}}; args may be paths; the person always confirms first):\n" +
+      Object.values(CARD_ACTIONS)
+        .map((a) => `- ${a.about}`)
+        .join("\n"),
     'Buttons and rows act with {functionCall: {call: "set", args: {path, value}}} (or toggle, select) on the card itself.',
     'On a list filled from the person\'s list (sources), changing an item\'s field saves to that record; to add one, give Fields bound to a draft ({path: "/draft/Title"}, field names as in the list) and a Button {functionCall: {call: "addItem", args: {to: "/items", from: "/draft"}}}; to delete one, a Button in its row with confirm and {functionCall: {call: "removeItem", args: {}}}. One row at a time.',
     "Design like a polished phone app, not a plain list: open with a Hero (the headline figure, its change against before and a trend) or a Countdown; put 2 or 3 Tiles or Stats in a Grid; give the Card an icon (one emoji) and, when it suits, a colour; pick the chart that fits (PieChart for shares, ColumnChart for months or categories over time, LineChart for a running trend, Heatmap for days, BarChart for a ranking, ProgressRing or Progress with current and target for a goal or budget); show records as a Table, a Timeline, a Board or rows with icons, initials or date tiles; put more than three sections in Tabs or Accordions. Choices (Segmented, Search, Chips, Stepper, Stars, DateField) are bound to paths, and everything that depends on them reads those paths.",

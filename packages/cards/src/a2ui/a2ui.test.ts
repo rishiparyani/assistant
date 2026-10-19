@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { ComponentContext, GenericBinder, MessageProcessor } from "@a2ui/web_core";
 import {
+  actionWords,
   DEMOS,
   PART_APIS,
   cardMessages,
@@ -153,6 +154,19 @@ describe("A2UI cards", () => {
     ).toBe("Test cab");
     expect(stat({ call: "count", args: { list, where: { field: "Amount", above: 1500 } } })).toBe(2);
     expect(stat({ call: "daysUntil", args: { date: ago(-3) } })).toBe(3);
+  });
+
+  it("knows only its own actions and says them whole", () => {
+    const button = (name: string) => ({
+      parts: [
+        { id: "root", component: "Button", label: "Go", action: { event: { name, context: { text: "x" } } } },
+      ],
+    });
+    for (const name of ["constructor", "toString", "__proto__"])
+      expect(cardProblems(button(name)).join()).toContain("isn't one");
+    const long = `Test ${"word ".repeat(60)}end`;
+    expect(actionWords("remember", { text: long })).toBe(`Remember: “${long}”`);
+    expect(actionWords("post_message", { text: "hi", chat: "Test Flat" })).toBe("Send “hi” to Test Flat");
   });
 
   it("teaches every part and function, with an example that passes", () => {
