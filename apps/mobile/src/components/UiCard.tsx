@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core";
 import { A2uiSurface, A2UI_PARTS, Tap, Text, confirmedJustNow, type } from "@assistant/cards/native";
-import { CARD_ACTIONS, actionWords, cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
+import { actionWords, cardAction, cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
 import {
   nameKey,
   ulid,
@@ -144,11 +144,31 @@ export function UiCard({
     // A button that asks the app to act: shown first, run only after Confirm (decision 2026-10-19
     // "Buttons that act").
     subs.push(
-      s.onAction.subscribe((a) => {
+      s.onAction.subscribe(async (a) => {
         if (gone) return;
-        if (!CARD_ACTIONS[a.name])
-          return setNote(`This card asked for something the app doesn't do (${a.name}).`);
-        setAsking({ name: a.name, args: { ...(a.context ?? {}) } });
+        const action = cardAction(a.name);
+        if (!action) return setNote(`This card asked for something the app doesn't do (${a.name}).`);
+        const args = { ...(a.context ?? {}) };
+        // Where it goes, in names the person knows (which chat, which record), looked up now: a
+        // card can't send to a chat or record that isn't the person's, or hide which one.
+        const shown: Record<string, unknown> = { ...args };
+        try {
+          for (const n of action.names ?? []) {
+            const found = await request<Record<string, unknown>>(
+              "GET",
+              n.path.replace(`:${n.arg}`, enc(String(args[n.arg] ?? ""))) +
+                (live.space_id && n.field === "title" ? `?space=${enc(live.space_id)}` : ""),
+            );
+            shown[n.as] = String(found[n.field] ?? "");
+          }
+        } catch (e) {
+          return setNote(
+            isOffline(e)
+              ? "That needs a connection; nothing was sent."
+              : "That card points at a chat or entry that isn't yours; nothing was sent.",
+          );
+        }
+        if (!gone) setAsking({ name: a.name, args, shown });
       }),
     );
     // The card's own settings come back as the person left them (decision 2026-10-19 "Cards
@@ -311,12 +331,18 @@ export function UiCard({
   }, [live]);
 
   const [pinned, setPinned] = useState(false);
-  const [asking, setAsking] = useState<{ name: string; args: Record<string, unknown> } | null>(null);
+  const [asking, setAsking] = useState<{
+    name: string;
+    args: Record<string, unknown>;
+    /** The args with the looked-up names, for the words. */
+    shown: Record<string, unknown>;
+  } | null>(null);
   const [doing, setDoing] = useState(false);
   const first = Object.values(live.sources ?? {})[0];
   const act = async () => {
     if (!asking) return;
-    const a = CARD_ACTIONS[asking.name]!;
+    const a = cardAction(asking.name);
+    if (!a) return;
     const args = { ...asking.args };
     // The address's ":name" parts come from the args; the rest is the body.
     const path = a.path.replace(/:(\w+)/g, (_, k: string) => {
@@ -331,7 +357,7 @@ export function UiCard({
         ...args,
         ...(live.space_id && !("space" in args) ? { space: live.space_id } : {}),
       });
-      setNote(`Done: ${actionWords(asking.name, asking.args)}.`);
+      setNote(`Done: ${actionWords(asking.name, asking.shown)}.`);
       setAsking(null);
     } catch (e) {
       setNote(
@@ -354,7 +380,7 @@ export function UiCard({
           accessibilityLiveRegion="polite"
         >
           <Text style={[type.small, { color: t.fg, fontWeight: "700" }]}>
-            {actionWords(asking.name, asking.args)}?
+            {actionWords(asking.name, asking.shown)}?
           </Text>
           <View style={s.askRow}>
             <Tap

@@ -1,7 +1,15 @@
 // A2UI cards (decision 2026-10-18 "Try A2UI"): the catalogue, the card the assistant writes
 // (parts + data), the messages it becomes, a check in words, and the assistant's guide.
 import { Catalog, MessageProcessor, getKnownSchemaKeys } from "@a2ui/web_core";
-import { A2UI_CATALOG, A2UI_VERSION, CARD_ACTIONS, FUNCTIONS, FUNCTION_DOCS, PART_APIS } from "./catalog.ts";
+import {
+  A2UI_CATALOG,
+  A2UI_VERSION,
+  CARD_ACTIONS,
+  FUNCTIONS,
+  FUNCTION_DOCS,
+  PART_APIS,
+  cardAction,
+} from "./catalog.ts";
 
 export * from "./catalog.ts";
 
@@ -127,7 +135,7 @@ export function cardProblems(card: A2Card): string[] {
     const ev = (p as { action?: { event?: { name?: unknown; context?: Record<string, unknown> } } }).action
       ?.event;
     if (!ev) continue;
-    const a = typeof ev.name === "string" ? CARD_ACTIONS[ev.name] : undefined;
+    const a = cardAction(ev.name);
     if (!a) {
       out.push(
         `${p.component} "${p.id}": the action "${String(ev.name)}" isn't one (actions: ${Object.keys(CARD_ACTIONS).join(", ")})`,

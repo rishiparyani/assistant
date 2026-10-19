@@ -931,9 +931,12 @@ export interface CardAction {
   path: string;
   /** Args it needs (the rest are optional). */
   needs: string[];
-  /** What it will do, for the confirm step: {arg} is filled in. */
+  /** What it will do, for the confirm step: {arg} is filled in, whole (never shortened). */
   says: string;
   about: string;
+  /** Names the app looks up before asking (which chat, which record), so the confirm step
+   *  says where it goes; a lookup that fails stops the action. {as} is the word in `says`. */
+  names?: { arg: string; path: string; field: "name" | "title"; as: string }[];
 }
 
 export const CARD_ACTIONS: Record<string, CardAction> = {
@@ -941,14 +944,16 @@ export const CARD_ACTIONS: Record<string, CardAction> = {
     method: "POST",
     path: "/api/groups/:group_id/messages",
     needs: ["group_id", "text"],
-    says: "Send “{text}” to the chat",
+    says: "Send “{text}” to {chat}",
+    names: [{ arg: "group_id", path: "/api/groups/:group_id", field: "name", as: "chat" }],
     about: "post_message {group_id, text}: writes in a group chat (ids from list_groups).",
   },
   ask_everyone: {
     method: "POST",
     path: "/api/groups/:group_id/polls",
     needs: ["group_id", "question"],
-    says: "Ask the chat: “{question}”",
+    says: "Ask {chat}: “{question}”",
+    names: [{ arg: "group_id", path: "/api/groups/:group_id", field: "name", as: "chat" }],
     about: "ask_everyone {group_id, question, options?}: a poll in a group chat.",
   },
   remind_waiting: {
@@ -978,18 +983,24 @@ export const CARD_ACTIONS: Record<string, CardAction> = {
     method: "POST",
     path: "/api/records/:record_id/comments",
     needs: ["record_id", "body"],
-    says: "Comment on it: “{body}”",
+    says: "Comment on “{record}”: “{body}”",
+    names: [{ arg: "record_id", path: "/api/records/:record_id", field: "title", as: "record" }],
     about: 'comment {record_id, body}: a comment on a record (inside a row, {path: "id"}).',
   },
 };
 
-/** The confirm step's words for an action, its args filled in (shortened). */
+/** One of the card actions by name (only the app's own: not "constructor" and the like). */
+export const cardAction = (name: unknown): CardAction | undefined =>
+  typeof name === "string" && Object.prototype.hasOwnProperty.call(CARD_ACTIONS, name)
+    ? CARD_ACTIONS[name]
+    : undefined;
+
+/** The confirm step's words for an action, its args (and looked-up names) filled in whole. */
 export function actionWords(name: string, args: Record<string, unknown>): string {
-  const a = CARD_ACTIONS[name];
+  const a = cardAction(name);
   if (!a) return name;
   return a.says.replace(/\{(\w+)\}/g, (_, k: string) => {
     const v = args[k];
-    const text = v === undefined || v === null ? "" : String(v);
-    return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+    return v === undefined || v === null ? "" : String(v);
   });
 }
