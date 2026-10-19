@@ -32,11 +32,18 @@ export function CardFull({
       onClose={onClose}
       maxHeight="92%"
       gap={12}
+      // A card can have its own boxes (a field to fill in): they stay above the keyboard.
+      keyboard
       accessibilityLabel={card ? card.spec.title : "Card"}
     >
       {card ? (
         <>
-          <ScrollView style={s.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
+          <ScrollView
+            style={s.scroll}
+            contentContainerStyle={{ paddingBottom: 4 }}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+          >
             <Boundary where="full card">
               <Card card={card} fit onTick={onTick} onSet={onSet} />
             </Boundary>

@@ -3,7 +3,7 @@
 // it (so does a tap outside, or Back on Android), and it keeps clear of the keyboard. Built on
 // React Native's Modal so it sits over everything, including a pushed screen; the motion is
 // Reanimated on the UI thread (Reduce Motion turns it into a plain appearance).
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, {
@@ -62,6 +62,11 @@ export function Sheet({
   const [shown, setShown] = useState(open);
   const y = useSharedValue(screenH);
   const scrim = useSharedValue(0);
+  // What it showed when open stays in it as it slides out: a sheet whose content goes with the
+  // thing it shows (a card closed to null) emptied at once and dropped as a bare strip (owner,
+  // 2026-10-19: "closing some cards is not that smooth").
+  const last = useRef(children);
+  if (open) last.current = children;
 
   useEffect(() => {
     if (open) {
@@ -138,7 +143,7 @@ export function Sheet({
                 </View>
               </GestureDetector>
             ) : null}
-            {children}
+            {open ? children : last.current}
           </Animated.View>
         </View>
       </GestureHandlerRootView>

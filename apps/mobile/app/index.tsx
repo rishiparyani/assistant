@@ -2,7 +2,7 @@
 // person's own pages of cards, nothing pre-built, the chat bar under them. Hold a card to move
 // it, remove it or open its menu; the library has every card. Empty: a blank canvas and "Start
 // building". Ticks work offline; the chat is one tap away.
-import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -79,8 +79,14 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it"), moving
   // with it as it slides, not ahead of it (2026-10-17).
+  // Only for the bar's own box: a box in a card (a field to fill in) brought the bar up over the
+  // card instead (owner, 2026-10-19: "I tapped on the widget's text box, but the search bar came
+  // up"); the bar then stays down under the keyboard and the page scrolls the box into view.
   const keyboard = useKeyboardHeight();
-  const lift = useAnimatedStyle(() => ({ paddingBottom: Math.max(keyboard.value, insets.bottom) + 10 }));
+  const barFocused = useSharedValue(false);
+  const lift = useAnimatedStyle(() => ({
+    paddingBottom: Math.max(barFocused.value ? keyboard.value : 0, insets.bottom) + 10,
+  }));
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [pages, setPages] = useState<HomePage[] | null>(null);
@@ -571,14 +577,18 @@ export default function Home() {
           onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
           renderItem={({ item, index }) => (
             <ScrollView
-              style={{ width: pageWidth }}
+              // The page starts under the clock and battery, so a scrolled page doesn't pass
+              // under them (owner's screenshot, 2026-10-19).
+              style={{ width: pageWidth, marginTop: insets.top }}
               contentContainerStyle={{
-                paddingTop: insets.top + 12,
+                paddingTop: 12,
                 paddingHorizontal: SIDE,
                 paddingBottom: insets.bottom + 150,
                 gap: 10,
               }}
               refreshControl={refreshControl}
+              keyboardShouldPersistTaps="handled"
+              automaticallyAdjustKeyboardInsets
             >
               {renderPage(item, index)}
             </ScrollView>
@@ -642,6 +652,9 @@ export default function Home() {
             text={barText}
             autoFocus={!!startQuery}
             onChangeText={setBarText}
+            onFocusChange={(on) => {
+              barFocused.value = on;
+            }}
             cards={(pages ?? []).flatMap((p) => p.cards)}
             lists={homeLists()}
             onAsk={(words, space) =>
