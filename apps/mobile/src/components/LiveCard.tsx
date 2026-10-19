@@ -24,7 +24,7 @@ import { UiCard } from "./UiCard.tsx";
 
 export function LiveCard(props: {
   live: LiveRef;
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
   onAsk?: (title: string) => void;
 }) {
   // A card the assistant designed draws itself (its own data and lists).
@@ -38,7 +38,7 @@ function LoadedCard({
   onAsk,
 }: {
   live: LiveRef;
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();
@@ -107,7 +107,7 @@ export function LiveRecords({
   onAsk,
 }: {
   refs: LiveRef[];
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();

@@ -27,27 +27,27 @@ export type LiveData =
 
 export async function loadLive(
   ref: LiveRef,
-  collections: () => Promise<CollectionView[]>,
+  collections: (fresh?: boolean) => Promise<CollectionView[]>,
 ): Promise<LiveData> {
+  // A list made in this chat after the copy of the lists was taken (a setup just confirmed)
+  // said "That list is gone": look once more before saying so.
+  const listOf = async (id: string) =>
+    (await collections()).find((c) => c.id === id) ?? (await collections(true)).find((c) => c.id === id);
   switch (ref.kind) {
     case "record": {
-      const [record, cols] = await Promise.all([
-        request<RecordView>("GET", `/api/records/${enc(ref.record_id)}`),
-        collections(),
-      ]);
-      const collection = cols.find((c) => c.id === record.collection_id);
+      const record = await request<RecordView>("GET", `/api/records/${enc(ref.record_id)}`);
+      const collection = await listOf(record.collection_id);
       if (!collection) throw new Error("That list is gone");
       return { kind: "record", record, collection };
     }
     case "list": {
-      const [result, cols] = await Promise.all([
+      const [result, collection] = await Promise.all([
         request<FindResult>("POST", `/api/collections/${enc(ref.collection_id)}/find`, {
           ...ref.query,
           limit: ROWS,
         }),
-        collections(),
+        listOf(ref.collection_id),
       ]);
-      const collection = cols.find((c) => c.id === ref.collection_id);
       if (!collection) throw new Error("That list is gone");
       return withWholeTotal(
         cardFor(collection, result.items, null, ref.title),
@@ -75,15 +75,12 @@ export async function loadLive(
       );
     }
     case "query": {
-      const [answer, cols] = await Promise.all([
-        request<QueryResult>("POST", "/api/query", {
-          ...(ref.space_id ? { space: ref.space_id } : {}),
-          ...ref.query,
-          title: ref.title,
-        }),
-        collections(),
-      ]);
-      const collection = cols.find((c) => c.id === answer.collection_id);
+      const answer = await request<QueryResult>("POST", "/api/query", {
+        ...(ref.space_id ? { space: ref.space_id } : {}),
+        ...ref.query,
+        title: ref.title,
+      });
+      const collection = await listOf(answer.collection_id);
       if (!collection) throw new Error("That list is gone");
       return { kind: "answer", card: answerCard(collection, answer, null, ref.title), ref };
     }

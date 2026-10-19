@@ -61,6 +61,27 @@ function groupRecords(items: ChatItem[]): Shown[] {
   }
   return out;
 }
+/**
+ * The assistant's words before the cards it made on the way to them: the cards are saved as
+ * the tools run and the words when it finishes, so "Here's the setup to check" came under the
+ * setup it meant (owner, 2026-10-19: "why do I get the confirm message … above the main
+ * message?"). Only within one reply; a note, a question to answer or my next message ends it.
+ */
+function wordsFirst(items: Shown[]): Shown[] {
+  const out: Shown[] = [];
+  let cards: Shown[] = [];
+  for (const i of items) {
+    if (i.role === "card" || i.role === "live" || i.role === "records") cards.push(i);
+    else if (i.role === "assistant" && cards.length) {
+      out.push(i, ...cards);
+      cards = [];
+    } else {
+      out.push(...cards, i);
+      cards = [];
+    }
+  }
+  return [...out, ...cards];
+}
 const enc = encodeURIComponent;
 const SUGGEST = [
   "What's due this week?",
@@ -154,8 +175,15 @@ export default function Chat() {
   // near the bottom it follows.
   // Items from before this screen opened don't animate in; new ones rise into place.
   const openedAt = useRef(Date.now());
-  const shownItems = useMemo(() => groupRecords(view?.items ?? []), [view]);
+  const shownItems = useMemo(() => wordsFirst(groupRecords(view?.items ?? [])), [view]);
   const newestFirst = useMemo(() => [...shownItems].reverse(), [shownItems]);
+  // 👍 / 👎 go under the whole reply: after the cards that now follow its words.
+  const rateAt = useMemo(() => {
+    let at = shownItems.findIndex((i) => i.id === lastReply);
+    if (at < 0) return null;
+    while (["card", "live", "records"].includes(shownItems[at + 1]?.role ?? "")) at++;
+    return shownItems[at]!.id;
+  }, [shownItems, lastReply]);
   // A question with answers to tap: what was answered (the next thing the person said), if anything.
   const answers = useMemo(() => {
     const out = new Map<string, string | null>();
@@ -180,7 +208,9 @@ export default function Chat() {
   const attached = useRef(false);
   // The person's collections, once for every live card in the chat.
   const collections = useRef<Promise<CollectionView[]> | null>(null);
-  const getCollections = useCallback(() => {
+  // `fresh`: a card names a list the copy doesn't have (made in this chat since): ask again.
+  const getCollections = useCallback((fresh?: boolean) => {
+    if (fresh) collections.current = null;
     collections.current ??= request<CollectionView[]>("GET", "/api/collections").catch((e: unknown) => {
       collections.current = null;
       throw e;
@@ -430,7 +460,7 @@ export default function Chat() {
         <FlatList
           ref={list}
           inverted={newestFirst.length > 0}
-          extraData={[lastReply, busy]}
+          extraData={[rateAt, busy]}
           data={newestFirst}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 14, gap: 4 }}
@@ -451,7 +481,6 @@ export default function Chat() {
             const bubble = (
               <Bubble
                 item={item}
-                rate={item.id === lastReply}
                 onAnswer={answer}
                 onEdit={(card) => setEditing(card)}
                 busy={busy}
@@ -462,7 +491,12 @@ export default function Chat() {
                 onOther={() => box.current?.focus()}
               />
             );
-            const safe = <Boundary where="chat item">{bubble}</Boundary>;
+            const safe = (
+              <Boundary where="chat item">
+                {bubble}
+                {item.id === rateAt && lastReply ? <Rate id={lastReply} /> : null}
+              </Boundary>
+            );
             // In the upside-down list a cell's "down" is up on screen: new messages rise in.
             return fresh ? (
               <Animated.View entering={FadeInDown.duration(motion.enter).springify().damping(18)}>
@@ -687,7 +721,6 @@ function Rate({ id }: { id: string }) {
 
 function Bubble({
   item,
-  rate,
   onAnswer,
   onEdit,
   busy,
@@ -698,13 +731,11 @@ function Bubble({
   onOther,
 }: {
   item: Shown;
-  /** The newest answer: show 👍 / 👎 under it. */
-  rate?: boolean;
   onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
   /** A setup card: change it by hand before Confirm. */
   onEdit?: (card: NonNullable<ChatItem["card"]>) => void;
   busy: boolean;
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
   onAsk: (title: string) => void;
   /** A question with answers to tap: what the person answered (undefined/null: not yet). */
   answered?: string | null;
@@ -851,7 +882,6 @@ function Bubble({
       </View>
       {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
       {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
-      {rate ? <Rate id={item.id} /> : null}
     </>
   );
 }

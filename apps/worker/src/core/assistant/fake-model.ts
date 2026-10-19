@@ -33,7 +33,7 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
         collection: "Reminders",
         values: { Title: "Test call the venue", Due: "2030-01-01T18:00" },
       });
-    if (result.includes('"needs_confirmation"')) return say("Please confirm the card above.");
+    if (result.includes('"needs_confirmation"')) return say("Please confirm the card below.");
     if (result.includes('"error"')) return say("That didn't work: " + result.slice(0, 120));
     return say("Done.");
   }

@@ -1264,7 +1264,7 @@ async function answerMessage(
     }
     if (step === MAX_STEPS - 1) {
       outcome = "stopped";
-      reply("I stopped here to keep things safe. Check what's done above.");
+      reply("I stopped here to keep things safe. Check what's done so far.");
     }
   }
   for (const live of [...lives.values()].slice(-MAX_LIVE))
