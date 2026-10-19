@@ -5,6 +5,7 @@ import { ScrollView, StyleSheet, View } from "react-native";
 import { Boundary, Card, Tap, Text, type, type HomeCard } from "@assistant/cards/native";
 import type { RecordView, StoredValue } from "@assistant/shared";
 import { Sheet } from "./Sheet";
+import { UiCard, homeUi } from "./UiCard";
 import { useTheme } from "@/theme";
 
 export function CardFull({
@@ -45,7 +46,11 @@ export function CardFull({
             automaticallyAdjustKeyboardInsets
           >
             <Boundary where="full card">
-              <Card card={card} fit onTick={onTick} onSet={onSet} />
+              {homeUi(card) ? (
+                <UiCard live={homeUi(card)!} />
+              ) : (
+                <Card card={card} fit onTick={onTick} onSet={onSet} />
+              )}
             </Boundary>
           </ScrollView>
           <View style={s.actions}>

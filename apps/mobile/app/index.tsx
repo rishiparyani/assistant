@@ -24,7 +24,7 @@ import type { StoredValue } from "@assistant/shared";
 import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { CardFull } from "@/components/CardFull";
-import { UiCard } from "@/components/UiCard";
+import { UiCard, homeUi } from "@/components/UiCard";
 import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
@@ -487,18 +487,24 @@ export default function Home() {
                   </View>
                 )
               ) : card.view?.card?.ui ? (
-                // A card the assistant designed and the person pinned: it draws itself.
-                <Boundary where="home card">
-                  <UiCard
-                    live={{
-                      kind: "ui",
-                      title: card.spec.title,
-                      space_id: card.space ?? null,
-                      card: { parts: card.view.card.ui.parts, data: card.view.card.ui.data },
-                      sources: card.view.card.ui.sources,
-                    }}
-                  />
-                </Boundary>
+                // A card the assistant designed and the person pinned: it draws itself. Its
+                // parts take the taps (tabs, boxes), so the corner button opens it up (owner,
+                // 2026-10-19: "why is this money dashboard not expandable?").
+                <View>
+                  <Boundary where="home card">
+                    <UiCard live={homeUi(card)!} />
+                  </Boundary>
+                  <Tap
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open ${card.spec.title}`}
+                    onPress={() => canOpen() && setFullId(card.id)}
+                    haptic="light"
+                    hitSlop={6}
+                    style={[s.openBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+                  >
+                    <Text style={[s.openIcon, { color: t.fg2 }]}>⤢</Text>
+                  </Tap>
+                </View>
               ) : (
                 <Boundary where="home card">
                   <Card
@@ -894,6 +900,20 @@ const s = StyleSheet.create({
   },
   sub: { fontSize: 14, textAlign: "center" },
   fade: { position: "absolute", left: 0, right: 0, top: -FADE_HEIGHT, height: FADE_HEIGHT },
+  openBtn: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  openIcon: { fontSize: 18, fontWeight: "700", lineHeight: 20 },
   bottom: {
     position: "absolute",
     left: 0,

@@ -5,7 +5,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { MessageProcessor, type SurfaceModel } from "@a2ui/web_core";
-import { A2uiSurface, A2UI_PARTS, Tap, Text, confirmedJustNow, type } from "@assistant/cards/native";
+import {
+  A2uiSurface,
+  A2UI_PARTS,
+  Tap,
+  Text,
+  confirmedJustNow,
+  type,
+  type HomeCard,
+} from "@assistant/cards/native";
 import { actionWords, cardAction, cardMessages, makeCatalog, type A2Card } from "@assistant/cards/a2ui";
 import {
   nameKey,
@@ -25,6 +33,20 @@ import { readJson, writeJson } from "../storage.ts";
 import { useTheme } from "../theme.ts";
 
 type UiRef = Extract<LiveRef, { kind: "ui" }>;
+
+/** A home card the assistant designed, as the card to draw (null: an ordinary card). */
+export function homeUi(card: HomeCard): UiRef | null {
+  const ui = card.view?.card?.ui;
+  return ui
+    ? {
+        kind: "ui",
+        title: card.spec.title,
+        space_id: card.space ?? null,
+        card: { parts: ui.parts, data: ui.data },
+        sources: ui.sources,
+      }
+    : null;
+}
 const enc = encodeURIComponent;
 const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
 /** At most this many records fill one path (a card, not a full list). */
@@ -92,6 +114,13 @@ function hashOf(v: unknown): string {
   for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36);
 }
+/**
+ * The same card drawn twice at once (the home's and the opened-up one): a change in one shows in
+ * the other at once (Codex on PR 169). Each copy tells the others what its data is now; a copy
+ * that hears it takes the data as already saved (only the copy the person touched saves).
+ */
+const peers = new Map<string, Set<{ from: string; hear: (data: Record<string, unknown>) => void }>>();
+
 /** Settings bigger than this aren't kept (a card's settings are a few numbers and words). */
 const MAX_SETTINGS = 20_000;
 
@@ -130,6 +159,30 @@ export function UiCard({
     setSurface(s);
     if (!s) return;
     const subs: { unsubscribe(): void }[] = [];
+    // `quiet`: what changes now isn't the person's doing (drawing what was loaded, or a copy
+    // passing on its change), so it isn't passed on; `mirroring`: it's already saved, too.
+    let quiet = false;
+    let mirroring = false;
+    const others = peers.get(key) ?? new Set();
+    peers.set(key, others);
+    const me = {
+      from: id,
+      hear: (data: Record<string, unknown>) => {
+        quiet = mirroring = true;
+        try {
+          for (const [k, v] of Object.entries(data)) s.dataModel.set(`/${k}`, JSON.parse(JSON.stringify(v)));
+        } finally {
+          quiet = mirroring = false;
+        }
+      },
+    };
+    others.add(me);
+    subs.push({
+      unsubscribe: () => {
+        others.delete(me);
+        if (!others.size) peers.delete(key);
+      },
+    });
     // A button that asks the app to act: shown first, run only after Confirm (decision 2026-10-19
     // "Buttons that act").
     subs.push(
@@ -168,6 +221,10 @@ export function UiCard({
     let saving: ReturnType<typeof setTimeout> | undefined;
     subs.push(
       s.dataModel.subscribe("/", (all) => {
+        if (!quiet && all && typeof all === "object") {
+          const copy = JSON.parse(JSON.stringify(all)) as Record<string, unknown>;
+          for (const o of others) if (o.from !== id) o.hear(copy);
+        }
         clearTimeout(saving);
         saving = setTimeout(() => {
           const out: Record<string, unknown> = {};
@@ -192,6 +249,13 @@ export function UiCard({
           const col = colOf.get(path);
           const known = last.get(path);
           if (!col || !known || !Array.isArray(items)) return;
+          // Saved by the copy that made the change: this one only learns the rows as they are.
+          if (mirroring) {
+            const rows = (items as Record<string, unknown>[]).filter((x) => !!x && typeof x === "object");
+            last.set(path, new Map(rows.map((x) => [String(x.id), { ...x }])));
+            kept[path] = { col, items: rows };
+            return;
+          }
           const space = live.space_id ? { space: live.space_id } : {};
           const now = (items as Record<string, unknown>[]).filter((x) => !!x && typeof x === "object");
           const here = new Set(now.map((x) => (typeof x.id === "string" ? x.id : "")));
@@ -271,7 +335,12 @@ export function UiCard({
       // Set before the data, so drawing what's already saved isn't taken for a change. Copies:
       // the core changes the items it holds in place.
       last.set(path, new Map(items.map((i) => [String(i.id), { ...i }])));
-      s.dataModel.set(path, items);
+      quiet = true;
+      try {
+        s.dataModel.set(path, items);
+      } finally {
+        quiet = false;
+      }
       watch(path);
     };
     for (const [path, k] of Object.entries(kept)) if (live.sources?.[path]) show(path, k.col, k.items);
@@ -317,7 +386,7 @@ export function UiCard({
       gone = true;
       subs.forEach((x) => x.unsubscribe());
     };
-  }, [live]);
+  }, [live, key]);
 
   // Already on the home (this device's copy of it): a chat opened again showed "Pin to home"
   // on a card that was pinned (owner, 2026-10-19).

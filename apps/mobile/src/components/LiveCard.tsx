@@ -14,7 +14,7 @@ import Animated, {
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Tap, Text, Tick, faceOf, shown, tint, type } from "@assistant/cards/native";
 import type { CollectionView, FieldView, LiveRef, RecordView } from "@assistant/shared";
-import { isOffline } from "../api.ts";
+import { ApiError, isOffline } from "../api.ts";
 import { answerPinned, pinAnswer, setValue, stillShown, tick, writeValue, type HomeCard } from "../home.ts";
 import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
@@ -24,7 +24,9 @@ import { UiCard } from "./UiCard.tsx";
 
 export function LiveCard(props: {
   live: LiveRef;
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
+  /** The chat's space (null: the person's own). */
+  space?: string | null;
   onAsk?: (title: string) => void;
 }) {
   // A card the assistant designed draws itself (its own data and lists).
@@ -35,10 +37,12 @@ export function LiveCard(props: {
 function LoadedCard({
   live,
   collections,
+  space = null,
   onAsk,
 }: {
   live: LiveRef;
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
+  space?: string | null;
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();
@@ -49,7 +53,7 @@ function LoadedCard({
     let gone = false;
     setData(null);
     setError("");
-    loadLive(live, collections)
+    loadLive(live, collections, space)
       .then((d) => {
         if (!gone) setData(d);
       })
@@ -57,15 +61,13 @@ function LoadedCard({
         if (gone) return;
         const msg = e instanceof Error ? e.message : String(e);
         // A record the chat showed and that was removed since (deleted, or an add undone).
-        setError(
-          isOffline(e) ? "Needs a connection." : /not found/i.test(msg) ? "This one is gone now." : msg,
-        );
+        setError(problemWords(e, msg));
       });
     return () => {
       gone = true;
     };
     // The ref's content is the dependency (a new object each render otherwise).
-  }, [key, live, collections]);
+  }, [key, live, collections, space]);
 
   if (error)
     return (
@@ -93,6 +95,13 @@ function LoadedCard({
   return <ListCard card={data.card} more={data.more} onAsk={onAsk} />;
 }
 
+/** What went wrong, in words for the person (never the server's own message, which is for us). */
+function problemWords(e: unknown, msg: string): string {
+  if (isOffline(e)) return "Needs a connection.";
+  if (e instanceof ApiError) return e.status === 404 ? "This one is gone now." : "Couldn't show this one.";
+  return msg;
+}
+
 type RecordItem = { record: RecordView; collection: CollectionView };
 
 /**
@@ -104,10 +113,12 @@ type RecordItem = { record: RecordView; collection: CollectionView };
 export function LiveRecords({
   refs,
   collections,
+  space = null,
   onAsk,
 }: {
   refs: LiveRef[];
-  collections: () => Promise<CollectionView[]>;
+  collections: (fresh?: boolean) => Promise<CollectionView[]>;
+  space?: string | null;
   onAsk?: (title: string) => void;
 }) {
   const { t } = useTheme();
@@ -121,7 +132,7 @@ export function LiveRecords({
     setItems(null);
     setError("");
     const wanted = JSON.parse(key) as LiveRef[];
-    Promise.all(wanted.map((r) => loadLive(r, collections)))
+    Promise.all(wanted.map((r) => loadLive(r, collections, space)))
       .then((all) => {
         if (gone) return;
         const got = all.filter((d): d is Extract<LiveData, { kind: "record" }> => d.kind === "record");
@@ -131,14 +142,12 @@ export function LiveRecords({
       .catch((e: unknown) => {
         if (gone) return;
         const msg = e instanceof Error ? e.message : String(e);
-        setError(
-          isOffline(e) ? "Needs a connection." : /not found/i.test(msg) ? "This one is gone now." : msg,
-        );
+        setError(problemWords(e, msg));
       });
     return () => {
       gone = true;
     };
-  }, [key, collections]);
+  }, [key, collections, space]);
   if (error)
     return (
       <View style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}>
@@ -375,7 +384,12 @@ function WorkflowCard({ data }: { data: Extract<LiveData, { kind: "workflow" }> 
       accessibilityRole="link"
       accessibilityLabel={`Open ${data.name}`}
       accessibilityHint="Shows the workflow, to rehearse it or turn it on"
-      onPress={() => router.push({ pathname: "/process", params: { id: data.id } })}
+      onPress={() =>
+        router.push({
+          pathname: "/process",
+          params: { id: data.id, ...(data.space ? { space: data.space } : {}) },
+        })
+      }
       scale={0.99}
       style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}
     >

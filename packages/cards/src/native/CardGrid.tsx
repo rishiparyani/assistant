@@ -156,7 +156,12 @@ export function CardGrid({
     [onHold],
   );
 
-  const [dragging, setDragging] = useState<{ card: HomeCard; start: Rect } | null>(null);
+  // `grab`: where the finger took hold, inside the card.
+  const [dragging, setDragging] = useState<{
+    card: HomeCard;
+    start: Rect;
+    grab: { x: number; y: number };
+  } | null>(null);
   // The gesture callbacks read these through refs: a running gesture keeps its first closures.
   const draggingRef = useRef(dragging);
   draggingRef.current = dragging;
@@ -169,7 +174,7 @@ export function CardGrid({
   const scale = useSharedValue(1);
 
   const lift = useCallback(
-    (card: HomeCard) => {
+    (card: HomeCard, grabX: number, grabY: number) => {
       const start = rectsRef.current.get(card.id);
       if (!start) return;
       heldAt.current = Date.now();
@@ -177,17 +182,21 @@ export function CardGrid({
       tx.value = 0;
       ty.value = 0;
       scale.value = withSpring(1.05, SPRING);
-      draggingRef.current = { card, start };
-      setDragging({ card, start });
+      const grab = { x: grabX, y: grabY };
+      draggingRef.current = { card, start, grab };
+      setDragging({ card, start, grab });
     },
     [tx, ty, scale],
   );
 
-  // Where the finger is now decides which place the card takes; the others move aside.
+  // Where the finger is now decides which place the card takes; the others move aside. The
+  // finger, not the card's middle: a tall card's middle is far below the finger, so moving it
+  // up a card's height did nothing and it went back (owner, 2026-10-19: "it goes down again,
+  // and then the second time when I move up, then it goes up").
   const hover = useCallback(
-    (card: HomeCard, start: Rect, dx: number, dy: number) => {
-      const cx = start.x + start.w / 2 + dx;
-      const cy = start.y + start.h / 2 + dy;
+    (card: HomeCard, start: Rect, grab: { x: number; y: number }, dx: number, dy: number) => {
+      const cx = start.x + grab.x + dx;
+      const cy = start.y + grab.y + dy;
       const list = cardsRef.current;
       const from = list.findIndex((c) => c.id === card.id);
       const to = list.findIndex((c) => {
@@ -225,7 +234,7 @@ export function CardGrid({
       tx.value = dx;
       ty.value = dy;
       const d = draggingRef.current;
-      if (d) hover(d.card, d.start, dx, dy);
+      if (d) hover(d.card, d.start, d.grab, dx, dy);
     },
     [tx, ty, hover],
   );
@@ -326,7 +335,7 @@ function Slot({
   hidden: boolean;
   arrangeable: boolean;
   onHold: (card: HomeCard) => void;
-  lift: (card: HomeCard) => void;
+  lift: (card: HomeCard, grabX: number, grabY: number) => void;
   move: (dx: number, dy: number) => void;
   release: (moved: boolean) => void;
   cancel: () => void;
@@ -367,9 +376,9 @@ function Slot({
   const pan = Gesture.Pan()
     .activateAfterLongPress(HOLD_MS)
     .enabled(arrangeable)
-    .onStart(() => {
+    .onStart((e) => {
       moved.value = false;
-      runOnJS(lift)(card);
+      runOnJS(lift)(card, e.x, e.y);
     })
     .onUpdate((e) => {
       if (!moved.value && Math.hypot(e.translationX, e.translationY) > MOVE_PX) moved.value = true;
