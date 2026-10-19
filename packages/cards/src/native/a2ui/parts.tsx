@@ -4,48 +4,31 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from "react-native-svg";
-import { formatINR } from "@assistant/shared";
-import { PART_APIS } from "../../a2ui/catalog.ts";
+import { PART_APIS, dayOf } from "../../a2ui/catalog.ts";
 import { Tap } from "../press.tsx";
 import { Text, TextInput } from "../text.tsx";
 import { Tick } from "../tick.tsx";
-import { radius, type, useTheme, type Theme } from "../theme.ts";
-import type { ChildRef, PartProps, PartView } from "./player.tsx";
+import { radius, type, useTheme } from "../theme.ts";
+import {
+  DateTile,
+  IconBox,
+  Initials,
+  Pill,
+  SERIES,
+  colourOf,
+  kids,
+  num,
+  numbers,
+  shownValue,
+  soft,
+  str,
+  toneOf,
+  type Tone,
+} from "./kit.tsx";
+import { MORE_VIEWS, Change, Spark } from "./more.tsx";
+import type { PartProps, PartView, ChildRef } from "./player.tsx";
 
-type Tone = "plain" | "muted" | "accent" | "good" | "warn" | "danger";
-const toneOf = (t: Theme, tone: unknown, plain = t.fg): string =>
-  tone === "muted"
-    ? t.fg2
-    : tone === "accent"
-      ? t.accent
-      : tone === "good"
-        ? t.good
-        : tone === "warn"
-          ? t.warn
-          : tone === "danger"
-            ? t.danger
-            : plain;
-const soft = (c: string, a: number) => {
-  // A colour at a little opacity, for pills and bands (hex or rgb()).
-  if (c.startsWith("#") && c.length === 7) {
-    const v = parseInt(c.slice(1), 16);
-    return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${a})`;
-  }
-  return c.replace(/rgba?\(([^,]+),([^,]+),([^,)]+).*\)/, `rgba($1,$2,$3,${a})`);
-};
-
-const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : Number(v) || 0);
-/** A value in the card's words: money in paise as ₹, a percentage, a number in Indian style. */
-export function shownValue(v: unknown, format: unknown): string {
-  if (v === undefined || v === null) return "–";
-  // Whole rupees on a card (calculations leave paise behind: ₹21,695.58).
-  if (format === "money") return formatINR(Math.round(num(v) / 100) * 100);
-  if (format === "percent") return `${Math.round(num(v) * 10) / 10}%`;
-  if (format === "number" || typeof v === "number") return num(v).toLocaleString("en-IN");
-  return String(v);
-}
-const kids = (p: Record<string, unknown>) => (Array.isArray(p.children) ? (p.children as ChildRef[]) : []);
-const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
+export { shownValue } from "./kit.tsx";
 const GAP = { none: 0, small: 6, medium: 12, large: 20 } as const;
 
 type ViewFn = (p: PartProps) => ReactNode;
@@ -60,6 +43,8 @@ const views: Record<string, ViewFn> = {
     <View
       style={[
         s.row,
+        // Spaced out: what doesn't fit goes to the next line rather than off the card.
+        props.align ? { flexWrap: "wrap" } : null,
         {
           justifyContent:
             props.align === "spread"
@@ -102,15 +87,26 @@ const views: Record<string, ViewFn> = {
     );
   },
   Card: ({ props, child }) => {
-    const { t } = useTheme();
+    const { t, dark } = useTheme();
+    // A colour washes the card in it, like the home's cards (decision 2026-10-16 "Soft coloured cards").
+    const c = props.colour ? colourOf(t, dark, props.colour) : null;
     return (
-      <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow }]}>
+      <View
+        style={[
+          s.card,
+          { backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow },
+          c && { backgroundColor: soft(c, dark ? 0.16 : 0.08), borderColor: soft(c, dark ? 0.3 : 0.2) },
+        ]}
+      >
         {props.title || props.subtitle ? (
-          <View style={{ gap: 2 }}>
-            {props.title ? <Text style={[type.heading, { color: t.fg }]}>{str(props.title)}</Text> : null}
-            {props.subtitle ? (
-              <Text style={[type.caption, { color: t.fg2 }]}>{str(props.subtitle)}</Text>
-            ) : null}
+          <View style={s.head}>
+            {props.icon ? <IconBox icon={str(props.icon)} colour={props.colour} size="medium" /> : null}
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              {props.title ? <Text style={[type.heading, { color: t.fg }]}>{str(props.title)}</Text> : null}
+              {props.subtitle ? (
+                <Text style={[type.caption, { color: t.fg2 }]}>{str(props.subtitle)}</Text>
+              ) : null}
+            </View>
           </View>
         ) : null}
         {kids(props).map((c, i) => child(c, i))}
@@ -119,9 +115,20 @@ const views: Record<string, ViewFn> = {
   },
   Section: ({ props, child }) => {
     const { t } = useTheme();
+    const run = props.action as (() => Promise<void>) | undefined;
     return (
-      <View style={{ gap: 8 }}>
-        <Text style={[s.eyebrow, { color: t.fg2 }]}>{str(props.title).toUpperCase()}</Text>
+      <View style={{ gap: 10 }}>
+        <View style={s.kv}>
+          <Text style={[s.eyebrow, { color: t.fg2, flexShrink: 1 }]} numberOfLines={1}>
+            {props.icon ? `${str(props.icon)}  ` : ""}
+            {str(props.title).toUpperCase()}
+          </Text>
+          {run && props.actionLabel ? (
+            <Tap accessibilityRole="button" onPress={() => void run().catch(() => undefined)} style={s.link}>
+              <Text style={[type.label, { color: t.accent, fontSize: 14 }]}>{str(props.actionLabel)} ›</Text>
+            </Tap>
+          ) : null}
+        </View>
         {kids(props).map((c, i) => child(c, i))}
       </View>
     );
@@ -161,24 +168,37 @@ const views: Record<string, ViewFn> = {
   },
   Text: ({ props }) => {
     const { t } = useTheme();
-    const styles = ["title", "heading", "body", "small", "caption"] as const;
+    const styles = ["display", "title", "heading", "body", "small", "caption"] as const;
     type Style = (typeof styles)[number];
     const style: Style = (styles as readonly string[]).includes(String(props.style))
       ? (props.style as Style)
       : "body";
     return (
-      <Text style={[type[style], { color: toneOf(t, props.tone, style === "caption" ? t.fg2 : t.fg) }]}>
+      <Text
+        style={[
+          style === "display" ? s.display : type[style],
+          { color: toneOf(t, props.tone, style === "caption" ? t.fg2 : t.fg) },
+          props.align === "center" || props.align === "end"
+            ? { textAlign: props.align === "end" ? "right" : "center" }
+            : null,
+        ]}
+      >
         {str(props.text)}
       </Text>
     );
   },
   Stat: ({ props }) => {
-    const { t } = useTheme();
+    const { t, dark } = useTheme();
+    const c = props.colour ? colourOf(t, dark, props.colour) : null;
+    const trend = numbers(props.trend, props.trendField);
     return (
-      <View style={[s.stat, { backgroundColor: t.fill }]}>
-        <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={1}>
-          {str(props.label)}
-        </Text>
+      <View style={[s.stat, { backgroundColor: c ? soft(c, dark ? 0.18 : 0.1) : t.fill }]}>
+        <View style={s.statHead}>
+          {props.icon ? <IconBox icon={str(props.icon)} colour={props.colour} size="small" /> : null}
+          <Text style={[type.caption, { color: t.fg2, flex: 1 }]} numberOfLines={1}>
+            {str(props.label)}
+          </Text>
+        </View>
         <Text
           style={[s.figure, { color: toneOf(t, props.tone) }]}
           numberOfLines={1}
@@ -187,6 +207,8 @@ const views: Record<string, ViewFn> = {
         >
           {shownValue(props.value, props.format)}
         </Text>
+        {typeof props.change === "number" ? <Change value={props.change} goodWhen={props.goodWhen} /> : null}
+        {trend.length > 1 ? <Spark values={trend} colour={c ?? t.accent} height={28} /> : null}
         {props.hint ? (
           <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={2}>
             {str(props.hint)}
@@ -206,17 +228,29 @@ const views: Record<string, ViewFn> = {
       </View>
     );
   },
-  Badge: ({ props }) => <Pill text={str(props.text)} tone={props.tone as Tone} />,
+  Badge: ({ props }) => (
+    <Pill text={str(props.text)} tone={props.tone as Tone} icon={props.icon ? str(props.icon) : undefined} />
+  ),
   Progress: ({ props }) => {
     const { t } = useTheme();
-    const v = Math.max(0, Math.min(1, num(props.value)));
-    const c = toneOf(t, props.tone, t.accent);
+    const target = props.target !== undefined ? num(props.target) : null;
+    const current = props.current !== undefined ? num(props.current) : null;
+    // With a target, the bar is what's used of it, and runs red past it (a budget).
+    const raw = target && current !== null ? current / target : num(props.value);
+    const v = Math.max(0, Math.min(1, raw));
+    const c = raw > 1 ? t.danger : toneOf(t, props.tone, t.accent);
+    const right =
+      target !== null && current !== null
+        ? `${shownValue(current, props.format)} of ${shownValue(target, props.format)}`
+        : `${Math.round(v * 100)}%`;
     return (
       <View style={{ gap: 6 }}>
-        {props.label ? (
+        {props.label || target !== null ? (
           <View style={s.kv}>
-            <Text style={[type.small, { color: t.fg2 }]}>{str(props.label)}</Text>
-            <Text style={[type.small, { color: t.fg, fontWeight: "700" }]}>{Math.round(v * 100)}%</Text>
+            <Text style={[type.small, { color: t.fg2, flexShrink: 1 }]} numberOfLines={1}>
+              {str(props.label)}
+            </Text>
+            <Text style={[type.small, { color: raw > 1 ? t.danger : t.fg, fontWeight: "700" }]}>{right}</Text>
           </View>
         ) : null}
         <View style={[s.track, { backgroundColor: t.fill }]}>
@@ -229,8 +263,14 @@ const views: Record<string, ViewFn> = {
     const { t } = useTheme();
     const c = toneOf(t, props.tone ?? "accent", t.accent);
     return (
-      <View style={[s.notice, { backgroundColor: soft(c, 0.12), borderLeftColor: c }]}>
-        <Text style={[type.small, { color: t.fg }]}>{str(props.text)}</Text>
+      <View style={[s.notice, { backgroundColor: soft(c, 0.12) }]}>
+        {props.icon ? <Text style={s.noticeIcon}>{str(props.icon)}</Text> : null}
+        <View style={{ flex: 1, gap: 2 }}>
+          {props.title ? (
+            <Text style={[type.small, { color: c, fontWeight: "800" }]}>{str(props.title)}</Text>
+          ) : null}
+          <Text style={[type.small, { color: t.fg }]}>{str(props.text)}</Text>
+        </View>
       </View>
     );
   },
@@ -498,8 +538,16 @@ const views: Record<string, ViewFn> = {
   ItemRow: ({ props }) => {
     const { t } = useTheme();
     const run = props.action as (() => Promise<void>) | undefined;
+    const day = dayOf(props.date);
     const body = (
       <>
+        {day ? (
+          <DateTile day={day} />
+        ) : props.avatar ? (
+          <Initials name={str(props.avatar)} />
+        ) : props.icon ? (
+          <IconBox icon={str(props.icon)} colour={props.colour} />
+        ) : null}
         <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
           <Text style={[type.small, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
             {str(props.title)}
@@ -555,15 +603,16 @@ const views: Record<string, ViewFn> = {
         </View>
         {typeof props.amount === "number" ? (
           <Text style={[type.small, { color: done ? t.fg2 : t.fg, fontVariant: ["tabular-nums"] }]}>
-            {formatINR(props.amount)}
+            {shownValue(props.amount, "money")}
           </Text>
         ) : null}
       </Pressable>
     );
   },
   BarChart: ({ props }) => {
-    const { t } = useTheme();
+    const { t, dark } = useTheme();
     const bars = series(props, "bars").slice(0, 12);
+    const one = colourOf(t, dark, props.colour ?? "accent");
     const top = Math.max(1, ...bars.map((b) => b.value));
     if (!bars.length) return <Text style={[type.small, { color: t.fg2 }]}>Nothing to show yet.</Text>;
     return (
@@ -582,7 +631,11 @@ const views: Record<string, ViewFn> = {
               <View
                 style={[
                   s.bar,
-                  { width: `${Math.max(2, (Math.max(0, b.value) / top) * 100)}%`, backgroundColor: t.accent },
+                  {
+                    width: `${Math.max(2, (Math.max(0, b.value) / top) * 100)}%`,
+                    backgroundColor:
+                      props.multicolour === true ? colourOf(t, dark, SERIES[i % SERIES.length]) : one,
+                  },
                 ]}
               />
             </View>
@@ -592,13 +645,16 @@ const views: Record<string, ViewFn> = {
     );
   },
   LineChart: function LineChart({ props }) {
-    const { t } = useTheme();
+    const { t, dark } = useTheme();
+    const c = colourOf(t, dark, props.colour ?? "accent");
     const { width: screen } = useWindowDimensions();
     const [width, setWidth] = useState(Math.min(screen - 64, 600));
     const height = Math.min(260, Math.max(80, num(props.height) || 150));
     const pts = series(props, "points").slice(0, 120);
     if (pts.length < 2) return <Text style={[type.small, { color: t.fg2 }]}>Not enough points to draw.</Text>;
-    const values = pts.map((p) => p.value);
+    // A second line (last month, a target), dotted, on the same scale.
+    const before = series({ ...props, data: props.compareData }, "compare").slice(0, pts.length);
+    const values = [...pts.map((p) => p.value), ...before.map((p) => p.value)];
     const lo = Math.min(0, ...values);
     const hi = Math.max(...values, lo + 1);
     const pad = 8;
@@ -606,6 +662,10 @@ const views: Record<string, ViewFn> = {
     const y = (v: number) => pad + (1 - (v - lo) / (hi - lo)) * (height - pad * 2);
     const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
     const area = `${line} L${x(pts.length - 1).toFixed(1)},${height - pad} L${x(0).toFixed(1)},${height - pad} Z`;
+    const back =
+      before.length > 1
+        ? before.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ")
+        : null;
     const last = pts[pts.length - 1]!;
     return (
       <View style={{ gap: 6 }} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
@@ -618,17 +678,18 @@ const views: Record<string, ViewFn> = {
         <Svg width={width} height={height}>
           <Defs>
             <LinearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor={t.accent} stopOpacity={0.28} />
-              <Stop offset="1" stopColor={t.accent} stopOpacity={0} />
+              <Stop offset="0" stopColor={c} stopOpacity={0.28} />
+              <Stop offset="1" stopColor={c} stopOpacity={0} />
             </LinearGradient>
           </Defs>
           <Path d={area} fill="url(#fill)" />
-          <Path d={line} stroke={t.accent} strokeWidth={2.5} fill="none" strokeLinejoin="round" />
+          {back ? <Path d={back} stroke={t.fg3} strokeWidth={2} strokeDasharray="5 5" fill="none" /> : null}
+          <Path d={line} stroke={c} strokeWidth={2.5} fill="none" strokeLinejoin="round" />
           <Circle
             cx={x(pts.length - 1)}
             cy={y(last.value)}
             r={4.5}
-            fill={t.accent}
+            fill={c}
             stroke={t.cell}
             strokeWidth={2}
           />
@@ -637,13 +698,26 @@ const views: Record<string, ViewFn> = {
           <Text style={[type.caption, { color: t.fg2 }]}>{pts[0]!.label}</Text>
           <Text style={[type.caption, { color: t.fg2 }]}>{last.label}</Text>
         </View>
+        {back ? (
+          <View style={s.legend}>
+            <View style={[s.swatch, { backgroundColor: c }]} />
+            <Text style={[type.caption, { color: t.fg2 }]}>
+              {typeof props.label === "string" ? props.label : "Now"}
+            </Text>
+            <View style={[s.swatch, { backgroundColor: t.fg3, marginLeft: 10 }]} />
+            <Text style={[type.caption, { color: t.fg2 }]}>
+              {typeof props.compareLabel === "string" ? props.compareLabel : "Before"}
+            </Text>
+          </View>
+        ) : null}
       </View>
     );
   },
+  ...MORE_VIEWS,
 };
 
 /** A chart's points: its own list, or a data list read by labelField / valueField. */
-function series(props: Record<string, unknown>, own: string): { label: string; value: number }[] {
+export function series(props: Record<string, unknown>, own: string): { label: string; value: number }[] {
   const listed = props[own];
   if (Array.isArray(listed) && listed.length)
     return listed.map((p) => ({
@@ -657,16 +731,6 @@ function series(props: Record<string, unknown>, own: string): { label: string; v
   return data
     .filter((r): r is Record<string, unknown> => !!r && typeof r === "object")
     .map((r) => ({ label: str(r[lf]), value: num(r[vf]) }));
-}
-
-function Pill({ text, tone }: { text: string; tone?: Tone }) {
-  const { t } = useTheme();
-  const c = toneOf(t, tone ?? "muted", t.fg2);
-  return (
-    <Text style={[s.pill, { color: c, backgroundColor: soft(c, 0.14) }]} numberOfLines={1}>
-      {text}
-    </Text>
-  );
 }
 
 /** The app's parts for the player: each catalogue entry with its view. */
@@ -688,6 +752,13 @@ const s = StyleSheet.create({
     elevation: 3,
   },
   eyebrow: { fontSize: 11.5, fontWeight: "800", letterSpacing: 0.7 },
+  head: { flexDirection: "row", alignItems: "center", gap: 12 },
+  link: { minHeight: 44, justifyContent: "center", paddingLeft: 8 },
+  display: { fontSize: 38, fontWeight: "800", letterSpacing: -1.4, lineHeight: 44 },
+  statHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  noticeIcon: { fontSize: 18, lineHeight: 22 },
+  legend: { flexDirection: "row", alignItems: "center", gap: 6 },
+  swatch: { width: 10, height: 10, borderRadius: 3 },
   tabs: { flexDirection: "row", borderRadius: 14, padding: 3, gap: 3 },
   tab: {
     flex: 1,
@@ -713,7 +784,7 @@ const s = StyleSheet.create({
   },
   track: { height: 8, borderRadius: 4, overflow: "hidden" },
   bar: { height: "100%", borderRadius: 4 },
-  notice: { borderRadius: 12, padding: 12, borderLeftWidth: 3 },
+  notice: { borderRadius: 14, padding: 12, flexDirection: "row", gap: 10, alignItems: "flex-start" },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: {
     minHeight: 44,
