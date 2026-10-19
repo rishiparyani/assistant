@@ -1,16 +1,17 @@
 // A home card opened up (owner, 2026-10-18: "the widget or the card should be maximized"):
 // the same card at its full height with every row, still working (ticks, controls), and under
 // it the whole list and the chat about it. Tapping a card used to open the chat.
+import type { ReactNode } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Boundary, Card, Tap, Text, type, type HomeCard } from "@assistant/cards/native";
 import type { RecordView, StoredValue } from "@assistant/shared";
 import { Sheet } from "./Sheet";
 import { UiCard, homeUi } from "./UiCard";
-import { quickAddFor } from "./QuickAdd";
 import { useTheme } from "@/theme";
 
 export function CardFull({
   card,
+  footer,
   onClose,
   onTick,
   onSet,
@@ -19,6 +20,8 @@ export function CardFull({
 }: {
   /** The card as the home has it now (a tick shows here and there at once); null: closed. */
   card: HomeCard | null;
+  /** Under the rows, inside the card (its add box). */
+  footer?: ReactNode;
   onClose: () => void;
   onTick?: (record: RecordView, value: boolean) => void;
   onSet?: (record: RecordView, field: string, value: StoredValue) => void;
@@ -50,7 +53,7 @@ export function CardFull({
               {homeUi(card) ? (
                 <UiCard live={homeUi(card)!} />
               ) : (
-                <Card card={card} fit onTick={onTick} onSet={onSet} footer={quickAddFor(card)} />
+                <Card card={card} fit onTick={onTick} onSet={onSet} footer={footer} />
               )}
             </Boundary>
           </ScrollView>

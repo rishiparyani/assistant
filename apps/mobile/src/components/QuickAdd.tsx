@@ -6,9 +6,16 @@
 import { useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";
 import { Tap, Text, TextInput, type } from "@assistant/cards/native";
-import { ValueError, normalizeValue, ulid, type CollectionView, type StoredValue } from "@assistant/shared";
+import {
+  ValueError,
+  normalizeValue,
+  ulid,
+  type CollectionView,
+  type RecordView,
+  type StoredValue,
+} from "@assistant/shared";
 import { send } from "../outbox.ts";
-import { homeChanged } from "../home.ts";
+import { cardFor, homeChanged } from "../home.ts";
 import { useTheme } from "../theme.ts";
 import type { HomeCard } from "@assistant/cards/native";
 
@@ -23,11 +30,14 @@ export function QuickAdd({
   collection,
   fieldIds,
   space = null,
+  onAdded,
 }: {
   collection: CollectionView;
   fieldIds: string[];
   /** The space the list is in (null: the person's own). */
   space?: string | null;
+  /** The new record as it will be, to show at once (offline it waits in the outbox). */
+  onAdded?: (record: RecordView) => void;
 }) {
   const { t } = useTheme();
   const fields = fieldIds
@@ -47,7 +57,8 @@ export function QuickAdd({
     const values: Record<string, StoredValue> = {};
     for (const f of fields) {
       try {
-        values[f.id] = normalizeValue(f, form[f.id]);
+        // A switch left alone is a "no", not a blank.
+        values[f.id] = normalizeValue(f, f.type === "boolean" ? (form[f.id] ?? false) : form[f.id]);
       } catch (err) {
         e[f.id] = err instanceof ValueError ? err.message.replace(`${f.name}: `, "") : String(err);
       }
@@ -74,6 +85,20 @@ export function QuickAdd({
       label: `New in ${collection.name}`,
     });
     const title = values[collection.title_field_id];
+    const now = new Date().toISOString();
+    // Shown on the card at once (Codex on PR 170): offline the home reloads from its saved copy,
+    // which wouldn't have it until the outbox is sent.
+    onAdded?.({
+      id,
+      collection_id: collection.id,
+      title: typeof title === "string" && title ? title : "New record",
+      values: Object.fromEntries(Object.entries(values).filter(([, v]) => v !== null)),
+      named: {},
+      links: {},
+      created_at: now,
+      updated_at: now,
+      version: 0,
+    });
     setNote(`Added${typeof title === "string" && title ? ` “${title}”` : ""}.`);
     setForm({});
     homeChanged();
@@ -225,10 +250,26 @@ const s = StyleSheet.create({
   add: { minHeight: 44, paddingHorizontal: 22, borderRadius: 22, justifyContent: "center" },
 });
 
-/** A card's add box, when its view is a quick add (and it's the person's own list). */
-export function quickAddFor(card: HomeCard | null) {
+/**
+ * A card's add box, when its view is a quick add (and it's the person's own list). `onChange`
+ * gets the card with the new record in it, to draw at once.
+ */
+export function quickAddFor(card: HomeCard | null, onChange?: (card: HomeCard) => void) {
   const fields = card?.view?.add_fields ?? [];
-  return card && fields.length && card.collection && !card.shared ? (
-    <QuickAdd collection={card.collection} fieldIds={fields} space={card.space ?? null} />
+  const collection = card?.collection;
+  return card && collection && fields.length && !card.shared ? (
+    <QuickAdd
+      collection={collection}
+      fieldIds={fields}
+      space={card.space ?? null}
+      onAdded={(r) =>
+        onChange?.({
+          ...cardFor(collection, [r, ...card.records], card.view ?? null, card.spec.title),
+          id: card.id,
+          space: card.space,
+          colour: card.colour,
+        })
+      }
+    />
   ) : undefined;
 }

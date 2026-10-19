@@ -511,7 +511,7 @@ export default function Home() {
                   <Card
                     card={card}
                     natural={natural}
-                    footer={quickAddFor(card)}
+                    footer={quickAddFor(card, (c) => update((prev) => replaceCard(prev, c)))}
                     onTick={onTick(card)}
                     onSet={onSet(card)}
                     onSeeAll={
@@ -724,6 +724,7 @@ export default function Home() {
         return (
           <CardFull
             card={full}
+            footer={quickAddFor(full, (c) => update((prev) => replaceCard(prev, c)))}
             onClose={close}
             onTick={full ? onTick(full) : undefined}
             onSet={full ? onSet(full) : undefined}

@@ -333,7 +333,7 @@ function ListCard({
         <Card
           card={card}
           fit
-          footer={quickAddFor(card)}
+          footer={quickAddFor(card, setCard)}
           onTick={(record, value) =>
             setCard((c) => ({
               ...c,

@@ -32,6 +32,9 @@ export const cardHeight = (card: HomeCard) =>
 /** A phone page has 2 columns; a laptop 4 (home-first.md §3 grid). XS and S take one; the rest two. */
 export const columnsFor = (width: number) => (width >= 860 ? 4 : 2);
 export const cardWidth = (card: HomeCard, width: number, cols = columnsFor(width)) => {
+  // A quick add (an add box under its rows) takes the whole width on a wide home too, so it's
+  // drawn as tall as it needs (Codex on PR 170: in four columns the add box was left out).
+  if (card.view?.add_fields?.length && card.spec.size === "l") return width;
   const unit = Math.floor((width - CARD_GAP * (cols - 1)) / cols);
   const narrow = card.spec.size === "s" || card.spec.size === "xs";
   return narrow || cols === 1 ? unit : cols === 2 ? width : unit * 2 + CARD_GAP;
