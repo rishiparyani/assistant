@@ -882,7 +882,7 @@ export const FUNCTIONS = [
   ),
   fn(
     "removeItem",
-    "removeItem {}: from inside a List row, removes that row's item from its list (an action; pair it with confirm).",
+    "removeItem {}: from inside a List row, removes that row's item from its list (an action; pair it with confirm). On a list filled from the person's list it deletes that record (it goes to Recently deleted).",
     "void",
     z.object({}),
     (_a, ctx) => {
@@ -894,6 +894,21 @@ export const FUNCTIONS = [
           at[1] || "/",
           list.filter((_, i) => i !== Number(at[2])),
         );
+    },
+  ),
+  fn(
+    "addItem",
+    "addItem {to, from?, item?}: adds an item to the list at `to` (an action): the object at `from` (a draft the card's Fields fill, e.g. \"/draft\", emptied after) or `item`. On a list filled from the person's list it becomes a new record (fields by name).",
+    "void",
+    z.object({ to: z.string(), from: z.string().optional(), item: z.record(z.unknown()).optional() }),
+    (a, ctx) => {
+      const draft = a.from ? ctx.resolveDynamicValue({ path: a.from }) : a.item;
+      if (!draft || typeof draft !== "object" || Array.isArray(draft)) return;
+      // Nothing typed: nothing to add.
+      if (!Object.values(draft).some((v) => v !== "" && v !== null && v !== undefined)) return;
+      const list = ctx.resolveDynamicValue({ path: a.to });
+      ctx.set(a.to, [...(Array.isArray(list) ? list : []), { ...(draft as object) }]);
+      if (a.from) ctx.set(a.from, {});
     },
   ),
   fn(

@@ -47,7 +47,19 @@ export function cardMessages(card: A2Card, surfaceId: string, oneByOne = false):
     ...(oneByOne
       ? parts.map((c) => ({ version: v, updateComponents: { surfaceId, components: [c] } }))
       : [{ version: v, updateComponents: { surfaceId, components: parts } }]),
-    ...(card.data ? [{ version: v, updateDataModel: { surfaceId, path: "/", value: card.data } }] : []),
+    // A copy: the core changes its data in place, and the card it came from must stay as written.
+    ...(card.data
+      ? [
+          {
+            version: v,
+            updateDataModel: {
+              surfaceId,
+              path: "/",
+              value: JSON.parse(JSON.stringify(card.data)) as unknown,
+            },
+          },
+        ]
+      : []),
   ];
 }
 
@@ -142,6 +154,7 @@ export function cardGuide(): string {
     "Parts:\n" + parts,
     "Functions:\n" + fns,
     'Buttons and rows act with {functionCall: {call: "set", args: {path, value}}} (or toggle, select) on the card itself.',
+    'On a list filled from the person\'s list (sources), changing an item\'s field saves to that record; to add one, give Fields bound to a draft ({path: "/draft/Title"}, field names as in the list) and a Button {functionCall: {call: "addItem", args: {to: "/items", from: "/draft"}}}; to delete one, a Button in its row with confirm and {functionCall: {call: "removeItem", args: {}}}. One row at a time.',
     "Design like a polished phone app, not a plain list: open with a Hero (the headline figure, its change against before and a trend) or a Countdown; put 2 or 3 Tiles or Stats in a Grid; give the Card an icon (one emoji) and, when it suits, a colour; pick the chart that fits (PieChart for shares, ColumnChart for months or categories over time, LineChart for a running trend, Heatmap for days, BarChart for a ranking, ProgressRing or Progress with current and target for a goal or budget); show records as a Table, a Timeline, a Board or rows with icons, initials or date tiles; put more than three sections in Tabs or Accordions. Choices (Segmented, Search, Chips, Stepper, Stars, DateField) are bound to paths, and everything that depends on them reads those paths.",
     'Example: {"title":"Savings","parts":[{"id":"root","component":"Card","title":"Savings plan","icon":"🌱","colour":"green","children":["monthly","hero","ring"]},{"id":"monthly","component":"Slider","label":"Each month","value":{"path":"/monthly"},"min":100000,"max":5000000,"step":50000,"format":"money"},{"id":"hero","component":"Hero","label":"In two years","format":"money","colour":"green","value":{"call":"max","args":{"list":{"call":"growth","args":{"start":0,"monthly":{"path":"/monthly"},"yearlyRatePercent":7,"months":24}},"field":"value"}},"trend":{"call":"growth","args":{"start":0,"monthly":{"path":"/monthly"},"yearlyRatePercent":7,"months":24}},"trendField":"value"},{"id":"ring","component":"ProgressRing","label":"Of the goal","colour":"green","value":{"call":"divide","args":{"a":{"call":"multiply","args":{"a":{"path":"/monthly"},"b":24}},"b":{"path":"/goal"}}}}],"data":{"monthly":1000000,"goal":30000000}}',
   ].join("\n\n");

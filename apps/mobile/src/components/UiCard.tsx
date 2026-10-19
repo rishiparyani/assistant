@@ -25,6 +25,7 @@ import { useTheme } from "../theme.ts";
 
 type UiRef = Extract<LiveRef, { kind: "ui" }>;
 const enc = encodeURIComponent;
+const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
 /** At most this many records fill one path (a card, not a full list). */
 const MAX_ITEMS = 200;
 
@@ -64,11 +65,32 @@ function readCols(space: string | null): Promise<CollectionView[]> {
 /** Where the last records a card showed are kept, so it opens with them offline (rule 17).
  *  Cleared with everything else of the person's at sign-out (the "gigspree:" prefix). */
 function savedKey(live: UiRef): string {
-  const text = JSON.stringify([live.space_id, live.sources]);
+  return `gigspree:ui:${hashOf([live.space_id, live.sources])}`;
+}
+/** Where the card's own settings are kept (a slider, a picked option): the person's, per card. */
+function settingsKey(live: UiRef): string {
+  return `gigspree:uiset:${hashOf([live.space_id, live.card])}`;
+}
+/** The same text for the same content whatever order its keys arrive in (the server stores
+ *  a card and may hand it back with its keys in another order). */
+const canonical = (v: unknown): unknown =>
+  Array.isArray(v)
+    ? v.map(canonical)
+    : v && typeof v === "object"
+      ? Object.fromEntries(
+          Object.keys(v as object)
+            .sort()
+            .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
+        )
+      : v;
+function hashOf(v: unknown): string {
+  const text = JSON.stringify(canonical(v));
   let h = 0;
   for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0;
-  return `gigspree:ui:${(h >>> 0).toString(36)}`;
+  return (h >>> 0).toString(36);
 }
+/** Settings bigger than this aren't kept (a card's settings are a few numbers and words). */
+const MAX_SETTINGS = 20_000;
 
 export function UiCard({
   live: given,
@@ -105,6 +127,23 @@ export function UiCard({
     setSurface(s);
     if (!s) return;
     const subs: { unsubscribe(): void }[] = [];
+    // The card's own settings come back as the person left them (decision 2026-10-19 "Cards
+    // remember their settings"); the lists' records are not settings and always come fresh.
+    const own = (k: string) => !live.sources?.[`/${k}`];
+    const settings = readJson<Record<string, unknown>>(settingsKey(live));
+    if (settings) for (const [k, v] of Object.entries(settings)) if (own(k)) s.dataModel.set(`/${k}`, v);
+    let saving: ReturnType<typeof setTimeout> | undefined;
+    subs.push(
+      s.dataModel.subscribe("/", (all) => {
+        clearTimeout(saving);
+        saving = setTimeout(() => {
+          const out: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries((all ?? {}) as Record<string, unknown>)) if (own(k)) out[k] = v;
+          if (JSON.stringify(out).length <= MAX_SETTINGS) writeJson(settingsKey(live), out);
+        }, 400);
+      }),
+      { unsubscribe: () => clearTimeout(saving) },
+    );
     // What each path showed last (its list and items), kept on the device for offline opens.
     const kept = readJson<Kept>(savedKey(live)) ?? {};
     const last = new Map<string, Map<string, Record<string, unknown>>>();
@@ -120,7 +159,53 @@ export function UiCard({
           const col = colOf.get(path);
           const known = last.get(path);
           if (!col || !known || !Array.isArray(items)) return;
-          for (const item of items as Record<string, unknown>[]) {
+          const space = live.space_id ? { space: live.space_id } : {};
+          const now = (items as Record<string, unknown>[]).filter((x) => !!x && typeof x === "object");
+          const here = new Set(now.map((x) => (typeof x.id === "string" ? x.id : "")));
+          // A row the card removed (removeItem) deletes its record; one the card added (addItem)
+          // becomes a new one. One at a time: a card that empties or fills a whole list at once
+          // is a mistake, and nothing is deleted or added for it.
+          const gone = [...known.keys()].filter((id) => !here.has(id));
+          const fresh = now.filter((x) => typeof x.id !== "string" || !known.has(x.id));
+          if (gone.length > 1 || fresh.length > 1) {
+            setNote("A card changes one row at a time; nothing was saved for that.");
+            return;
+          }
+          for (const id of gone) {
+            const before = known.get(id)!;
+            known.delete(id);
+            send({
+              kind: "spaces.delete_record",
+              method: "DELETE",
+              path: `/api/records/${enc(id)}${live.space_id ? `?space=${enc(live.space_id)}` : ""}`,
+              body: undefined,
+              label: `Delete ${String(before.title ?? "")} · ${col.name}`,
+            });
+          }
+          for (const item of fresh) {
+            const values: Record<string, StoredValue> = {};
+            for (const f of col.fields)
+              if (writable(f) && item[f.name] !== undefined && item[f.name] !== null && item[f.name] !== "")
+                values[f.id] = item[f.name] as StoredValue;
+            if (!Object.keys(values).length) continue;
+            // The record's id is made here (offline first), and the row learns it.
+            const id = ulid();
+            send({
+              kind: "spaces.add_record",
+              method: "POST",
+              path: `/api/collections/${enc(col.id)}/records`,
+              body: { id, values, ...space },
+              label: `New in ${col.name}`,
+            });
+            // The row learns its id and its title (rows read "title", the draft fills the field).
+            const tf = col.fields.find((f) => f.id === col.title_field_id);
+            const title = tf ? str(item[tf.name]) : "";
+            known.set(id, { ...item, id, title });
+            const at = (items as unknown[]).indexOf(item);
+            s.dataModel.set(`${path}/${at}/id`, id);
+            if (title) s.dataModel.set(`${path}/${at}/title`, title);
+          }
+          for (const item of now) {
             const before = typeof item?.id === "string" ? known.get(item.id) : undefined;
             if (!before) continue;
             const values: Record<string, StoredValue> = {};

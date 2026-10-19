@@ -54,7 +54,7 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     return call("show_card", {
       title: "Test reminders board",
       parts: [
-        { id: "root", component: "Card", title: "Reminders", children: ["count", "list"] },
+        { id: "root", component: "Card", title: "Reminders", children: ["count", "list", "new", "add"] },
         {
           id: "count",
           component: "Stat",
@@ -64,8 +64,24 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
             args: { list: { path: "/reminders" }, where: { field: "Done", not: true } },
           },
         },
-        { id: "list", component: "List", children: { componentId: "row", path: "/reminders" } },
+        { id: "list", component: "List", children: { componentId: "line", path: "/reminders" } },
+        { id: "line", component: "Row", align: "spread", children: ["row", "drop"] },
         { id: "row", component: "CheckRow", label: { path: "title" }, checked: { path: "Done" } },
+        {
+          id: "drop",
+          component: "Button",
+          label: "Delete",
+          style: "secondary",
+          confirm: "Sure?",
+          action: { functionCall: { call: "removeItem", args: {} } },
+        },
+        { id: "new", component: "Field", label: "New reminder", value: { path: "/draft/Title" } },
+        {
+          id: "add",
+          component: "Button",
+          label: "Add",
+          action: { functionCall: { call: "addItem", args: { to: "/reminders", from: "/draft" } } },
+        },
       ],
       sources: { "/reminders": { list: "Reminders" } },
     });
