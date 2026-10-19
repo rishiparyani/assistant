@@ -19,7 +19,8 @@ import {
 } from "@assistant/shared";
 import { isOffline, request } from "../api.ts";
 import { send } from "../outbox.ts";
-import { findAll, homeChanged } from "../home.ts";
+import { canonical, findAll, homeChanged, pinnedViews } from "../home.ts";
+import { useSession } from "../session.tsx";
 import { readJson, writeJson } from "../storage.ts";
 import { useTheme } from "../theme.ts";
 
@@ -85,18 +86,6 @@ function readKept(live: UiRef): Kept {
 function settingsKey(live: UiRef): string {
   return `gigspree:uiset:${hashOf([live.space_id, live.card])}`;
 }
-/** The same text for the same content whatever order its keys arrive in (the server stores
- *  a card and may hand it back with its keys in another order). */
-const canonical = (v: unknown): unknown =>
-  Array.isArray(v)
-    ? v.map(canonical)
-    : v && typeof v === "object"
-      ? Object.fromEntries(
-          Object.keys(v as object)
-            .sort()
-            .map((k) => [k, canonical((v as Record<string, unknown>)[k])]),
-        )
-      : v;
 function hashOf(v: unknown): string {
   const text = JSON.stringify(canonical(v));
   let h = 0;
@@ -330,7 +319,16 @@ export function UiCard({
     };
   }, [live]);
 
-  const [pinned, setPinned] = useState(false);
+  // Already on the home (this device's copy of it): a chat opened again showed "Pin to home"
+  // on a card that was pinned (owner, 2026-10-19).
+  const userId = useSession().me?.user.id ?? null;
+  const [pinned, setPinned] = useState(() => {
+    const mine = JSON.stringify(canonical({ parts: live.card.parts, sources: live.sources ?? null }));
+    return pinnedViews(userId).some((v) => {
+      const ui = v.card?.ui;
+      return !!ui && JSON.stringify(canonical({ parts: ui.parts, sources: ui.sources ?? null })) === mine;
+    });
+  });
   const [asking, setAsking] = useState<{
     name: string;
     args: Record<string, unknown>;

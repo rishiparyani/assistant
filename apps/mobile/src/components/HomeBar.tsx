@@ -22,6 +22,8 @@ export interface HomeBarProps {
   autoFocus?: boolean;
   text: string;
   onChangeText: (t: string) => void;
+  /** The box gained or lost the keyboard (the home lifts the bar only for its own box). */
+  onFocusChange?: (focused: boolean) => void;
   cards: HomeCard[];
   lists: { id: string; name: string; space?: string; space_name?: string }[];
   /** The space whose page is showing (decision 2026-10-16 "Spaces"): asking goes to its chat. */
@@ -41,6 +43,7 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
     autoFocus,
     text,
     onChangeText,
+    onFocusChange,
     cards,
     lists,
     space,
@@ -221,6 +224,8 @@ export const HomeBar = forwardRef<View, HomeBarProps>(function HomeBar(
           placeholderTextColor={t.onInk + "99"}
           value={text}
           onChangeText={onChangeText}
+          onFocus={() => onFocusChange?.(true)}
+          onBlur={() => onFocusChange?.(false)}
           onSubmitEditing={ask}
           returnKeyType={canAsk ? "send" : "search"}
           submitBehavior={canAsk ? "submit" : "blurAndSubmit"}
