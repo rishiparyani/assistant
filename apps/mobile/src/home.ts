@@ -119,6 +119,11 @@ function specFor(v: SavedView, c: CollectionView): CardSpec {
     out.size = "l";
     return out;
   }
+  // A quick add: full width, as tall as its rows and add box.
+  if (v.add_fields?.length) {
+    out.size = "l";
+    return out;
+  }
   // The person's size wins when the arrangement can be drawn at it; else the size that fits
   // the content (a number half width, a list full, a table tall), never one flat default.
   if (v.card_size && sizesFor(out).includes(v.card_size)) out.size = v.card_size;

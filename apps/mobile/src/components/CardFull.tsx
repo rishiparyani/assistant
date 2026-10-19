@@ -6,6 +6,7 @@ import { Boundary, Card, Tap, Text, type, type HomeCard } from "@assistant/cards
 import type { RecordView, StoredValue } from "@assistant/shared";
 import { Sheet } from "./Sheet";
 import { UiCard, homeUi } from "./UiCard";
+import { quickAddFor } from "./QuickAdd";
 import { useTheme } from "@/theme";
 
 export function CardFull({
@@ -49,7 +50,7 @@ export function CardFull({
               {homeUi(card) ? (
                 <UiCard live={homeUi(card)!} />
               ) : (
-                <Card card={card} fit onTick={onTick} onSet={onSet} />
+                <Card card={card} fit onTick={onTick} onSet={onSet} footer={quickAddFor(card)} />
               )}
             </Boundary>
           </ScrollView>

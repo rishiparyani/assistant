@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 // Draws a card from its spec (docs/design/home-first.md §2.3): the arrangement decides the
 // layout, the size how much shows, the collection the colour. The model never positions
 // anything; this file does.
@@ -28,6 +29,7 @@ export function Card({
   busy,
   fit = false,
   natural = false,
+  footer,
 }: {
   card: HomeCard;
   /** Drawn at its natural height with every row (the chat, the full view), not a home cell's. */
@@ -44,6 +46,8 @@ export function Card({
   onAnswer?: (answer: string) => void;
   onNudge?: () => void;
   busy?: boolean;
+  /** Under the rows, inside the card (an add box); drawn only when the card fits its content. */
+  footer?: ReactNode;
 }) {
   const { t, dark, colour, cardTint } = useTheme();
   const c = colour(card.colour);
@@ -482,6 +486,7 @@ export function Card({
       <FitContext.Provider value={fit || natural}>
         {header}
         {body}
+        {fit || natural ? footer : null}
       </FitContext.Provider>
     </Pressable>
   );

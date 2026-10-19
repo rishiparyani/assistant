@@ -25,6 +25,7 @@ import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { CardFull } from "@/components/CardFull";
 import { UiCard, homeUi } from "@/components/UiCard";
+import { quickAddFor } from "@/components/QuickAdd";
 import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
@@ -510,6 +511,7 @@ export default function Home() {
                   <Card
                     card={card}
                     natural={natural}
+                    footer={quickAddFor(card)}
                     onTick={onTick(card)}
                     onSet={onSet(card)}
                     onSeeAll={

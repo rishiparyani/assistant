@@ -21,6 +21,7 @@ import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
 import { Card, cardHeight } from "@assistant/cards/native";
 import { UiCard } from "./UiCard.tsx";
+import { quickAddFor } from "./QuickAdd.tsx";
 
 export function LiveCard(props: {
   live: LiveRef;
@@ -332,6 +333,7 @@ function ListCard({
         <Card
           card={card}
           fit
+          footer={quickAddFor(card)}
           onTick={(record, value) =>
             setCard((c) => ({
               ...c,
