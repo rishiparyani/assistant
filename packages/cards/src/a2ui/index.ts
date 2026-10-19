@@ -25,6 +25,11 @@ export const INPUTS: Record<string, string> = {
   Radio: "value",
   Field: "value",
   CheckRow: "checked",
+  Segmented: "value",
+  Search: "value",
+  Stepper: "value",
+  Stars: "value",
+  DateField: "value",
 };
 const MAX_DATA_CHARS = 60_000;
 
@@ -137,7 +142,8 @@ export function cardGuide(): string {
     "Parts:\n" + parts,
     "Functions:\n" + fns,
     'Buttons and rows act with {functionCall: {call: "set", args: {path, value}}} (or toggle, select) on the card itself.',
-    'Example: {"title":"Savings","parts":[{"id":"root","component":"Card","title":"Savings plan","children":["monthly","total","chart"]},{"id":"monthly","component":"Slider","label":"Each month","value":{"path":"/monthly"},"min":100000,"max":5000000,"step":50000,"format":"money"},{"id":"total","component":"Stat","label":"In a year","format":"money","value":{"call":"multiply","args":{"a":{"path":"/monthly"},"b":12}}},{"id":"chart","component":"LineChart","format":"money","points":[],"data":{"call":"growth","args":{"start":0,"monthly":{"path":"/monthly"},"yearlyRatePercent":7,"months":12}},"labelField":"label","valueField":"value"}],"data":{"monthly":1000000}}',
+    "Design like a polished phone app, not a plain list: open with a Hero (the headline figure, its change against before and a trend) or a Countdown; put 2 or 3 Tiles or Stats in a Grid; give the Card an icon (one emoji) and, when it suits, a colour; pick the chart that fits (PieChart for shares, ColumnChart for months or categories over time, LineChart for a running trend, Heatmap for days, BarChart for a ranking, ProgressRing or Progress with current and target for a goal or budget); show records as a Table, a Timeline, a Board or rows with icons, initials or date tiles; put more than three sections in Tabs or Accordions. Choices (Segmented, Search, Chips, Stepper, Stars, DateField) are bound to paths, and everything that depends on them reads those paths.",
+    'Example: {"title":"Savings","parts":[{"id":"root","component":"Card","title":"Savings plan","icon":"🌱","colour":"green","children":["monthly","hero","ring"]},{"id":"monthly","component":"Slider","label":"Each month","value":{"path":"/monthly"},"min":100000,"max":5000000,"step":50000,"format":"money"},{"id":"hero","component":"Hero","label":"In two years","format":"money","colour":"green","value":{"call":"max","args":{"list":{"call":"growth","args":{"start":0,"monthly":{"path":"/monthly"},"yearlyRatePercent":7,"months":24}},"field":"value"}},"trend":{"call":"growth","args":{"start":0,"monthly":{"path":"/monthly"},"yearlyRatePercent":7,"months":24}},"trendField":"value"},{"id":"ring","component":"ProgressRing","label":"Of the goal","colour":"green","value":{"call":"divide","args":{"a":{"call":"multiply","args":{"a":{"path":"/monthly"},"b":24}},"b":{"path":"/goal"}}}}],"data":{"monthly":1000000,"goal":30000000}}',
   ].join("\n\n");
 }
 export * from "./demos.ts";

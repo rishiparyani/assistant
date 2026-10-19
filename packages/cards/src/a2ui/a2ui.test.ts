@@ -37,14 +37,14 @@ describe("A2UI cards", () => {
     const bad: A2Card = {
       parts: [
         { id: "root", component: "Card", children: ["a", "gone"] },
-        { id: "a", component: "Stat", label: "x", value: { call: "nope" }, colour: "red" },
+        { id: "a", component: "Stat", label: "x", value: { call: "nope" }, shade: "red" },
         { id: "b", component: "Picker", value: "This month", options: ["This month", "Last month"] },
         { id: "c", component: "Sparkle" },
       ],
     };
     const words = cardProblems(bad).join(" | ");
     expect(words).toContain('"Sparkle" isn\'t a part');
-    expect(words).toContain('has no property "colour"');
+    expect(words).toContain('has no property "shade"');
     expect(words).toContain('child "gone"');
     expect(words).toContain('calls "nope"');
     expect(words).toContain("value must be {path");
@@ -100,6 +100,46 @@ describe("A2UI cards", () => {
     expect(read(card, "a").props().visible).toBe(true);
     // ₹10,00,000 at 12% over a year: ₹88,849 a month.
     expect(Math.round(Number(read(card, "b").props().value) / 100)).toBe(88849);
+  });
+
+  it("works out months, changes, searches and order", () => {
+    const today = new Date();
+    const ago = (days: number) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - days);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 15);
+    const lm = `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, "0")}-15`;
+    const items = [
+      { What: "Test tea", Amount: 1000, Date: ago(0) },
+      { What: "Test cab", Amount: 3000, Date: ago(0) },
+      { What: "Test shoes", Amount: 2000, Date: lm },
+    ];
+    const stat = (value: object) =>
+      read({ parts: [{ id: "root", component: "Stat", label: "x", value }], data: { items } }, "root").props()
+        .value;
+    const list = { path: "/items" };
+    const month = (m: string) => ({ call: "inMonth", args: { list, dateField: "Date", month: m } });
+    expect(stat({ call: "sum", args: { list: month("this"), field: "Amount" } })).toBe(4000);
+    expect(stat({ call: "sum", args: { list: month("last"), field: "Amount" } })).toBe(2000);
+    expect(stat({ call: "change", args: { now: 4000, before: 2000 } })).toBe(100);
+    const months = stat({
+      call: "byMonth",
+      args: { list, dateField: "Date", field: "Amount", months: 2 },
+    }) as {
+      value: number;
+    }[];
+    expect(months.map((m) => m.value)).toEqual([2000, 4000]);
+    expect(stat({ call: "count", args: { list: { call: "search", args: { list, text: "CAB" } } } })).toBe(1);
+    expect(
+      stat({
+        call: "first",
+        args: { list: { call: "sortBy", args: { list, field: "Amount", desc: true } }, field: "What" },
+      }),
+    ).toBe("Test cab");
+    expect(stat({ call: "count", args: { list, where: { field: "Amount", above: 1500 } } })).toBe(2);
+    expect(stat({ call: "daysUntil", args: { date: ago(-3) } })).toBe(3);
   });
 
   it("teaches every part and function, with an example that passes", () => {

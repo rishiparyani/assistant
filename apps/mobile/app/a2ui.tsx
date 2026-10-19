@@ -44,6 +44,8 @@ export default function A2uiTrial() {
   }, [which, run]);
 
   const show = (i: number, again: boolean) => {
+    // The card already showing: nothing to build (clearing it would leave it empty).
+    if (i === which && !again && run === 0) return;
     stop.current();
     setSurface(null);
     setWhich(i);
