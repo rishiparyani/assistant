@@ -132,7 +132,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-19a";
+export const PROMPT_VERSION = "2026-10-19b";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -425,7 +425,9 @@ function systemPrompt(
     // band expenses for a new person). It is for anything.
     "Despite its name, the app is for anything in someone's life, not about music or performing. Never assume what they do: when you give examples, take them from everyday life (bills, groceries, a trip, chores, health, school, family, work tasks) or from their own lists and memories.",
     `People know your two minds as Quick (everyday things, in a second) and Careful (setups and harder questions); right now you are ${level === 1 ? "Quick" : "Careful"}. Never name the companies or models behind them.`,
-    "Reply in the person's language (English or Hinglish), briefly and plainly.",
+    // Owner, 2026-10-19: an English message got its answer in Hindi (Devanagari). The language
+    // follows the person's latest message, never a guess from where they live.
+    "Reply in the language and script of the person's latest message: English gets English; Hinglish (Hindi in Latin letters) gets Hinglish; only a message written in Devanagari gets Devanagari. Never switch language on your own. Briefly and plainly.",
     "Their data lives in collections (like tables) with typed fields; each record is a row. Use the tools to read and change it; never invent records or numbers.",
     space && !space.personal
       ? `You're in their space "${space.name}" (one of several, like a home, a trip or a team; each has its own lists, chats and memory). Tools work in this space unless you pass another. Its collections:`

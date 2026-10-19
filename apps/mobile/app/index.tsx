@@ -567,6 +567,9 @@ export default function Home() {
             gap: 28,
           }}
           refreshControl={refreshControl}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
         >
           {shownPages.map(renderPage)}
         </ScrollView>
@@ -596,6 +599,7 @@ export default function Home() {
               }}
               refreshControl={refreshControl}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
             >
               {renderPage(item, index)}

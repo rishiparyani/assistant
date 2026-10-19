@@ -3,15 +3,21 @@
 // maps each weight to its face; the app loads the faces at start (apps/mobile/app/_layout.tsx)
 // and turns this on once they're in. Until then, and when a style names its own font, it's
 // the system font, so nothing ever shows blank.
-import { forwardRef, useLayoutEffect, useRef, useState } from "react";
+import { forwardRef, useId, useLayoutEffect, useRef, useState } from "react";
 import {
+  InputAccessoryView,
+  Keyboard,
+  Platform,
+  Pressable,
   Text as RNText,
   TextInput as RNTextInput,
   StyleSheet,
+  View,
   type TextInputProps,
   type TextProps,
   type TextStyle,
 } from "react-native";
+import { useTheme } from "./theme.ts";
 
 const FACES: Record<string, string> = {
   "400": "Manrope_400Regular",
@@ -53,11 +59,22 @@ export const Text = forwardRef<RNText, TextProps>(function Text(props, ref) {
  * box starts again with that text, focused if it was). What the person types or dictates,
  * and the app's echo of it (even reshaped, like "a, b" kept as a list), never comes back.
  */
-export const TextInput = forwardRef<RNTextInput, TextInputProps>(function TextInput(
-  { value, defaultValue, onChangeText, autoFocus, ...props },
-  ref,
-) {
+export const TextInput = forwardRef<
+  RNTextInput,
+  TextInputProps & {
+    /**
+     * A "Done" bar over the iPhone keyboard that closes it (owner, 2026-10-19: "When the
+     * keyboard is open, how to close it?"): the iPhone keyboard has no key for that, and the
+     * number pad has no return key at all. On by default for one-line boxes; the chat and the
+     * home's bar (they send) leave it out.
+     */
+    doneBar?: boolean;
+  }
+>(function TextInput({ value, defaultValue, onChangeText, autoFocus, doneBar, ...props }, ref) {
   const face = faceOf(props.style);
+  const { t } = useTheme();
+  const barId = `done-${useId()}`;
+  const withBar = Platform.OS === "ios" && (doneBar ?? !props.multiline);
   const inner = useRef<RNTextInput | null>(null);
   const [boot, setBoot] = useState({ key: 0, text: value ?? defaultValue ?? "", focus: !!autoFocus });
   // What the box shows now, and whether a change came from it (this turn), not from the app.
@@ -70,9 +87,10 @@ export const TextInput = forwardRef<RNTextInput, TextInputProps>(function TextIn
     if (value === "" && inner.current) inner.current.clear();
     else setBoot((b) => ({ key: b.key + 1, text: value, focus: inner.current?.isFocused() ?? false }));
   }, [value]);
-  return (
+  const box = (
     <RNTextInput
       key={boot.key}
+      inputAccessoryViewID={withBar ? barId : props.inputAccessoryViewID}
       ref={(r) => {
         inner.current = r;
         if (typeof ref === "function") ref(r);
@@ -94,4 +112,34 @@ export const TextInput = forwardRef<RNTextInput, TextInputProps>(function TextIn
       style={face ? [props.style, face] : props.style}
     />
   );
+  if (!withBar) return box;
+  return (
+    <>
+      {box}
+      <InputAccessoryView nativeID={barId}>
+        <View style={[s.bar, { backgroundColor: t.page, borderTopColor: t.sep }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close the keyboard"
+            onPress={() => Keyboard.dismiss()}
+            hitSlop={8}
+            style={s.done}
+          >
+            <RNText style={[s.doneText, { color: t.accent }, faceOf(s.doneText)]}>Done</RNText>
+          </Pressable>
+        </View>
+      </InputAccessoryView>
+    </>
+  );
+});
+
+const s = StyleSheet.create({
+  bar: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    paddingHorizontal: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  done: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
+  doneText: { fontSize: 16, fontWeight: "700" },
 });

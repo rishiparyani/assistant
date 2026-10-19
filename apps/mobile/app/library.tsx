@@ -2,13 +2,14 @@
 // like a phone's app library. Each says whether it's on the home (which page) and adds or
 // removes it there; a list's card opens the whole list. Lists and views are where the data
 // lives; this only changes what the home shows.
-// online-only: the library reads every space, share and question; it needs a connection.
+// online-only: the library reads every space, share, question and flow; it needs a connection.
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Tap, Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isOffline } from "@/api";
+import type { SpaceView, WorkflowView } from "@assistant/shared";
+import { isOffline, request } from "@/api";
 import { arrange, homeChanged, loadCatalog, saveLayout, type CatalogEntry } from "@/home";
 import { Mark } from "@/components/Mark";
 import { colourFor, radius, useTheme } from "@/theme";
@@ -31,6 +32,26 @@ export default function Library() {
   const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(null);
   const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>([]);
   const [note, setNote] = useState("");
+  // Flows (owner, 2026-10-19: "how do I rehearse it? … Add a flow section"): what the app does
+  // on its own, in every space, each opening on its own page to rehearse it or turn it on.
+  const [flows, setFlows] = useState<{ flow: WorkflowView; space: SpaceView }[] | null>(null);
+
+  const loadFlows = useCallback(async () => {
+    try {
+      const spaces = (await request<SpaceView[]>("GET", "/api/spaces")).filter((sp) => !sp.practice_of);
+      const all = await Promise.all(
+        spaces.map((sp) =>
+          request<WorkflowView[]>("GET", `/api/workflows?space=${encodeURIComponent(sp.id)}`)
+            .then((list) => list.map((flow) => ({ flow, space: sp })))
+            // A space where this person can't see workflows simply shows none.
+            .catch(() => []),
+        ),
+      );
+      setFlows(all.flat());
+    } catch {
+      setFlows([]);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -45,7 +66,8 @@ export default function Library() {
   }, []);
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadFlows();
+  }, [load, loadFlows]);
 
   const change = (pages: string[][]) => {
     if (!layout) return;
@@ -73,13 +95,68 @@ export default function Library() {
       <View style={s.head}>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={[s.title, { color: t.fg }]}>Library</Text>
-          <Text style={[s.label, { color: t.fg2 }]}>Every card. Add one to your home, or take it off.</Text>
+          <Text style={[s.label, { color: t.fg2 }]}>
+            Every card and flow. Add a card to your home, or take it off.
+          </Text>
         </View>
         <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={10}>
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 18 }}>
+        {flows ? (
+          <View style={{ gap: 8 }}>
+            <Text style={[s.h2, { color: t.fg }]}>Flows</Text>
+            <Text style={[s.label, { color: t.fg2 }]}>
+              What the app does on its own. Open one to rehearse it, see what it did, or turn it on.
+            </Text>
+            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
+              {flows.length ? (
+                flows.map(({ flow, space }, i) => {
+                  const open = () =>
+                    router.push({ pathname: "/process", params: { id: flow.id, space: space.id } });
+                  return (
+                    <View
+                      key={flow.id}
+                      style={[
+                        s.row,
+                        i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
+                      ]}
+                    >
+                      <Mark name={flow.name} tone={colourFor(flow.name)} />
+                      <Pressable accessibilityRole="link" onPress={open} style={s.words}>
+                        <Text style={[s.name, { color: t.fg }]} numberOfLines={2}>
+                          {flow.name}
+                        </Text>
+                        <Text style={[s.label, { color: t.fg2 }]} numberOfLines={2}>
+                          {flow.enabled ? "On" : "Off · rehearse it, then turn it on"}
+                          {space.kind === "personal" ? "" : ` · ${space.name}`}
+                        </Text>
+                      </Pressable>
+                      <Tap
+                        accessibilityRole="button"
+                        accessibilityLabel={`Rehearse ${flow.name}`}
+                        onPress={open}
+                        style={[s.btn, { backgroundColor: flow.enabled ? t.fill : t.accent }]}
+                      >
+                        <Text style={[s.btnText, { color: flow.enabled ? t.fg : t.onAccent }]}>Rehearse</Text>
+                      </Tap>
+                    </View>
+                  );
+                })
+              ) : (
+                <View style={[s.row, { paddingVertical: 12 }]}>
+                  <View style={s.words}>
+                    <Text style={[s.name, { color: t.fg }]}>No flows yet</Text>
+                    <Text style={[s.label, { color: t.fg2 }]}>
+                      Ask the chat, like “when a bill is due, remind me the day before”.
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        ) : null}
         {!entries ? (
           <Text style={[s.label, { color: note ? t.danger : t.fg2 }]}>{note || "Loading…"}</Text>
         ) : (
