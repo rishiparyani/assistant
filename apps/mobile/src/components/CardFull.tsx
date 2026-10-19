@@ -47,6 +47,8 @@ export function CardFull({
             style={s.scroll}
             contentContainerStyle={{ paddingBottom: 4 }}
             keyboardShouldPersistTaps="handled"
+            // Dragging the card closes the keyboard (the iPhone keyboard has no key for it).
+            keyboardDismissMode="on-drag"
             automaticallyAdjustKeyboardInsets
           >
             <Boundary where="full card">

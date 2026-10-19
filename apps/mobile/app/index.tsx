@@ -596,6 +596,7 @@ export default function Home() {
               }}
               refreshControl={refreshControl}
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
               automaticallyAdjustKeyboardInsets
             >
               {renderPage(item, index)}

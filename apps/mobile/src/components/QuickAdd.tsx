@@ -192,6 +192,7 @@ export function QuickAdd({
                 placeholderTextColor={t.fg3}
                 keyboardType={numeric ? "decimal-pad" : "default"}
                 multiline={f.type === "long_text"}
+                doneBar
                 style={[
                   s.input,
                   type.body,
