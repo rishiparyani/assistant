@@ -9,6 +9,7 @@
 // answer on the record, and only then goes on; a "repeat" step loops back while a condition
 // holds. Same engine, plus "who" and "waiting on".
 import { z } from "zod";
+import { clientId } from "./fields.ts";
 import { FilterInput, SpaceRef, type FilterOp, type SharedWithMe } from "./spaces.ts";
 
 export const WORKFLOW_EVENTS = ["added", "changed", "date", "schedule"] as const;
@@ -667,6 +668,11 @@ export const PracticeAsShareInput = PracticeAsInput.extend({
 });
 export const PracticeAsUpdateInput = PracticeAsShareInput.extend({
   record_id: z.string().trim().min(1).max(40),
+  values: z.record(z.string(), z.unknown()),
+});
+export const PracticeAsAddInput = PracticeAsShareInput.extend({
+  section: z.string().trim().min(1).max(80),
+  id: clientId,
   values: z.record(z.string(), z.unknown()),
 });
 export const PracticeAsAnswerInput = PracticeAsShareInput.extend({

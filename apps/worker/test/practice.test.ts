@@ -399,4 +399,37 @@ describe("practice copies", () => {
       ),
     ).toBe(true);
   });
+
+  it("fills in a form as a person in the copy, as theirs, and nothing reaches the real list", async () => {
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: { name: "Requests", fields: [{ name: "Title", type: "text" }] },
+    });
+    const { link } = await json<CreatedShare>(await api(owner)("/shares", { body: { form: "Requests" } }));
+    const asha = await signUp("Asha Test");
+    await api(asha)("/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    const v = await json<PracticeView>(await api(owner)(base));
+    const ashaId = v.people.find((p) => p.name === "Asha Test")!.user_id;
+    const form = (await json<PracticeAsView>(await api(owner)(`${base}/as/${ashaId}`))).cards.find(
+      (c) => c.kind === "form",
+    )!;
+    const sent = await api(owner)(`${base}/as/${ashaId}/cards/${form.share_id}/records`, {
+      body: { section: "form", values: { Title: "Test lift repair" } },
+    });
+    expect(sent.status).toBe(201);
+    expect((await json<{ mine: RecordView[] }>(sent)).mine.map((r) => r.title)).toEqual(["Test lift repair"]);
+    // It's in the copy, not the real list; and the real Asha's form shows nothing of it.
+    const inCopy = await json<{ items: RecordView[] }>(
+      await api(owner)("/collections/Requests/find", { body: { space: practice.id } }),
+    );
+    expect(inCopy.items.map((r) => r.title)).toEqual(["Test lift repair"]);
+    const real = await json<{ items: RecordView[] }>(
+      await api(owner)("/collections/Requests/find", { body: {} }),
+    );
+    expect(real.items).toEqual([]);
+    const theirs = await json<{ mine: RecordView[] }>(await api(asha)(`/cards/${form.share_id}`));
+    expect(theirs.mine ?? []).toEqual([]);
+  });
 });
