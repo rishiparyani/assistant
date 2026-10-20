@@ -163,9 +163,15 @@ export default function ListPage() {
   // doesn't ask for the same records again (owner, 2026-10-20: "when I open all the lists, it
   // takes some time to open").
   const listId = c?.id ?? params.collection;
+  // A view opened by its link waits for its filters (asking early would fetch the wrong rows).
+  const viewUnknown = !!params.view && !saved?.views.some((v) => v.id === params.view);
+  // Only the newest first-page answer counts: an early one that comes back last mustn't
+  // replace the real one (Codex on PR 173).
+  const generation = useRef(0);
   const loadPage = useCallback(
     async (after: string | null) => {
-      if (!listId) return;
+      if (!listId || viewUnknown) return;
+      const mine = after ? generation.current : ++generation.current;
       try {
         const r = await request<FindResult>("POST", `/api/collections/${enc(listId)}/find`, {
           ...query,
@@ -173,10 +179,12 @@ export default function ListPage() {
           limit: PAGE,
           ...(after ? { cursor: after } : {}),
         });
+        if (mine !== generation.current) return;
         setRecords((prev) => (after ? [...(prev ?? []), ...r.items] : r.items));
         setCursor(r.next_cursor);
         if (!after) writeJson(pageKey, { items: r.items, next_cursor: r.next_cursor });
       } catch (e) {
+        if (mine !== generation.current) return;
         if (!after) restore();
         setNote(
           isOffline(e)
@@ -187,7 +195,7 @@ export default function ListPage() {
         );
       }
     },
-    [listId, query, pageKey, restore, space],
+    [listId, viewUnknown, query, pageKey, restore, space],
   );
   useEffect(() => {
     restore();
