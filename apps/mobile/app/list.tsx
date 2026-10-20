@@ -142,14 +142,14 @@ export default function ListPage() {
     null;
 
   // The records of the chosen chip, a page at a time; the first page kept for offline.
-  const query = useMemo(() => {
-    const v = current.view;
-    return {
-      filters: v?.filters ?? [],
-      ...(v?.search ? { search: v.search } : {}),
-      sort: v?.sort ?? (dateField ? { field: dateField, dir: "desc" as const } : undefined),
-    };
-  }, [current, dateField]);
+  // Kept by its content: the list's details arriving again (new objects, same query) don't
+  // ask for the same records twice.
+  const queryText = JSON.stringify({
+    filters: current.view?.filters ?? [],
+    ...(current.view?.search ? { search: current.view.search } : {}),
+    sort: current.view?.sort ?? (dateField ? { field: dateField, dir: "desc" as const } : undefined),
+  });
+  const query = useMemo(() => JSON.parse(queryText) as Record<string, unknown>, [queryText]);
   const pageKey = `${key}:${current.id}`;
   // The first page this phone kept, and whether more come after it (so a partial copy
   // never shows as the whole count or total).
@@ -158,20 +158,33 @@ export default function ListPage() {
     setRecords(kept?.items ?? null);
     setCursor(kept?.next_cursor ?? null);
   }, [pageKey]);
+  // By the list's id (or the name it was opened by): the records are asked for at the same time
+  // as the list's fields, not after them, and the list's details coming back (a new object)
+  // doesn't ask for the same records again (owner, 2026-10-20: "when I open all the lists, it
+  // takes some time to open").
+  const listId = c?.id ?? params.collection;
+  // A view opened by its link waits for its filters (asking early would fetch the wrong rows).
+  const viewUnknown = !!params.view && !saved?.views.some((v) => v.id === params.view);
+  // Only the newest first-page answer counts: an early one that comes back last mustn't
+  // replace the real one (Codex on PR 173).
+  const generation = useRef(0);
   const loadPage = useCallback(
     async (after: string | null) => {
-      if (!c) return;
+      if (!listId || viewUnknown) return;
+      const mine = after ? generation.current : ++generation.current;
       try {
-        const r = await request<FindResult>("POST", `/api/collections/${enc(c.id)}/find`, {
+        const r = await request<FindResult>("POST", `/api/collections/${enc(listId)}/find`, {
           ...query,
           ...(space ? { space } : {}),
           limit: PAGE,
           ...(after ? { cursor: after } : {}),
         });
+        if (mine !== generation.current) return;
         setRecords((prev) => (after ? [...(prev ?? []), ...r.items] : r.items));
         setCursor(r.next_cursor);
         if (!after) writeJson(pageKey, { items: r.items, next_cursor: r.next_cursor });
       } catch (e) {
+        if (mine !== generation.current) return;
         if (!after) restore();
         setNote(
           isOffline(e)
@@ -182,7 +195,7 @@ export default function ListPage() {
         );
       }
     },
-    [c, query, pageKey, restore, space],
+    [listId, viewUnknown, query, pageKey, restore, space],
   );
   useEffect(() => {
     restore();
