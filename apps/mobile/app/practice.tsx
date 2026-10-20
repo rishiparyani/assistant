@@ -6,7 +6,7 @@
 // online-only: a rehearsal lives in its practice copy's object.
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Boundary, Card, Text, cardHeight } from "@assistant/cards/native";
+import { Boundary, Card, Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
@@ -14,15 +14,17 @@ import type {
   PracticeAsView,
   PracticePerson,
   PracticeView,
-  RecordView,
   SharedOpened,
   WorkflowDetail,
   StoredValue,
 } from "@assistant/shared";
+import { ulid } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { useLive } from "@/live-socket";
 import { homeChanged, sharedCard, type HomeCard } from "@/home";
 import { useSession } from "@/session";
+import { Sheet } from "@/components/Sheet";
+import { SharedPage } from "@/components/SharedPage";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
@@ -41,7 +43,14 @@ export default function Practice() {
   const [lists, setLists] = useState<CollectionView[]>([]);
   // Who is being played: "" is you (the one practising), otherwise a person's id.
   const [who, setWho] = useState(ME);
-  const [as, setAs] = useState<{ view: PracticeAsView; cards: HomeCard[] } | null>(null);
+  const [as, setAs] = useState<{
+    view: PracticeAsView;
+    cards: HomeCard[];
+    opened: Record<string, SharedOpened>;
+  } | null>(null);
+  // The card of theirs that's open (its share), and the sheet to switch who's played.
+  const [openShare, setOpenShare] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
   const [note, setNote] = useState("");
   // What went wrong with the last thing tapped: kept until the next tap (the screen reads again
   // every few seconds, which cleared it before anyone saw it; owner, 2026-10-19: "it is showing
@@ -72,12 +81,22 @@ export default function Practice() {
         // Each card opened through their share, so it shows what they may see and nothing more.
         const opened = await Promise.all(
           pv.cards.map((c) =>
-            request<SharedOpened>("GET", `${base}/as/${enc(who)}/cards/${enc(c.share_id)}`)
-              .then((o) => sharedCard(c, o, []))
-              .catch(() => null),
+            request<SharedOpened>("GET", `${base}/as/${enc(who)}/cards/${enc(c.share_id)}`).catch(() => null),
           ),
         );
-        setAs({ view: pv, cards: opened.filter((c): c is HomeCard => !!c) });
+        const cards: HomeCard[] = [];
+        const byShare: Record<string, SharedOpened> = {};
+        pv.cards.forEach((c, i) => {
+          const o = opened[i];
+          if (!o) return;
+          byShare[c.share_id] = o;
+          const card = sharedCard(c, o, []);
+          // A form says what it is here: it opens in the app, as theirs.
+          if (card && o.share.kind === "form" && card.shared)
+            card.shared = { ...card.shared, fields: [{ name: "A form to fill in", display: "Tap to open" }] };
+          if (card) cards.push(card);
+        });
+        setAs({ view: pv, cards, opened: byShare });
       } else setAs(null);
       setNote("");
     } catch (e) {
@@ -125,17 +144,21 @@ export default function Practice() {
       : when.event === "schedule"
         ? "Start: run it now"
         : `Start: run it on the newest in ${when.collection}`;
-  const setAsThem = (card: HomeCard, record: RecordView, field: string, value: StoredValue) =>
-    card.shared &&
-    void act(card.id, () =>
-      request(
-        "PATCH",
-        `${base}/as/${enc(who)}/cards/${enc(card.shared!.share_id)}/records/${enc(record.id)}`,
-        {
-          values: { [field]: value },
-        },
-      ),
-    );
+  // What the person being played does, through their shares (checked as theirs).
+  const asThem = `${base}/as/${enc(who)}/cards`;
+  const setAsThem = (shareId: string, recordId: string, field: string, value: StoredValue) =>
+    request("PATCH", `${asThem}/${enc(shareId)}/records/${enc(recordId)}`, { values: { [field]: value } });
+  const addAsThem = (shareId: string, section: string, values: Record<string, unknown>) =>
+    request("POST", `${asThem}/${enc(shareId)}/records`, { id: ulid(), section, values });
+  const answerAsThem = (shareId: string, answer: string) =>
+    request("POST", `${asThem}/${enc(shareId)}/answer`, { answer });
+  const play = (id: string) => {
+    setAs(null);
+    setOpenShare(null);
+    setSwitching(false);
+    setProblem("");
+    setWho(id);
+  };
 
   const end = async () => {
     if (!space) return;
@@ -171,6 +194,202 @@ export default function Practice() {
   const waitingOn = (p: PracticePerson) =>
     view?.waiting.find((w) => w.on.some((o) => o.user_id === p.user_id && o.answer === null)) ?? null;
 
+  // Their app, the whole screen (owner, 2026-10-20: "use it from one role's perspective exactly
+  // as they'll be able to see it"): only what's shared with them, acting as them.
+  const theirs = openShare && as ? (as.opened[openShare] ?? null) : null;
+  const switcher = (
+    <Sheet open={switching} onClose={() => setSwitching(false)} accessibilityLabel="Play as someone else">
+      <Text style={[s.h2, { color: t.fg, marginTop: 0 }]}>Play as</Text>
+      {[{ user_id: ME, name: "You", waiting: mine.length }, ...people].map((p) => {
+        const on = who === p.user_id;
+        return (
+          <Pressable
+            key={p.user_id || "me"}
+            accessibilityRole="button"
+            accessibilityState={{ selected: on }}
+            accessibilityLabel={p.waiting ? `${p.name}, ${p.waiting} waiting` : p.name}
+            onPress={() => play(p.user_id)}
+            style={[s.person, { backgroundColor: on ? t.accentSoft : t.cell, borderColor: t.hair }]}
+          >
+            <Text style={[s.line, { color: t.fg, fontWeight: "700", flex: 1 }]} numberOfLines={1}>
+              {p.user_id ? p.name : "You (the one practising)"}
+            </Text>
+            {p.waiting ? (
+              <View style={[s.badge, { backgroundColor: t.accent }]}>
+                <Text style={[s.badgeText, { color: t.onAccent }]}>{p.waiting}</Text>
+              </View>
+            ) : null}
+            {on ? <Text style={[s.label, { color: t.fg2 }]}>Now</Text> : null}
+          </Pressable>
+        );
+      })}
+    </Sheet>
+  );
+  if (who && person)
+    return (
+      <View style={[s.playRoot, { backgroundColor: t.page }]}>
+        <View style={[s.bar, { backgroundColor: t.accent, paddingTop: insets.top + 8 }]}>
+          <View style={{ flex: 1, gap: 1 }}>
+            <Text style={[s.barSmall, { color: t.onAccent }]}>PRACTISING AS</Text>
+            <Text style={[s.barName, { color: t.onAccent }]} numberOfLines={1}>
+              {person.name}
+            </Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Switch who you play"
+            onPress={() => setSwitching(true)}
+            style={[s.barBtn, { borderColor: t.onAccent }]}
+          >
+            <Text style={[s.btnText, { color: t.onAccent }]}>Switch</Text>
+            {turn && turn.user_id !== who ? <View style={[s.dot, { backgroundColor: t.onAccent }]} /> : null}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Back to you"
+            onPress={() => play(ME)}
+            style={[s.barBtn, { borderColor: t.onAccent }]}
+          >
+            <Text style={[s.btnText, { color: t.onAccent }]}>Done</Text>
+          </Pressable>
+        </View>
+        <ScrollView
+          contentContainerStyle={[s.playBody, { paddingBottom: insets.bottom + 24 }]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
+          {problem ? (
+            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.danger }]}>
+              <Text style={[s.line, { color: t.danger, fontWeight: "700" }]}>That didn't work</Text>
+              <Text style={[s.label, { color: t.fg }]}>{problem}</Text>
+            </View>
+          ) : null}
+          {theirs && openShare ? (
+            // One of their cards, opened as they'd open it.
+            <>
+              <Pressable accessibilityRole="button" onPress={() => setOpenShare(null)} hitSlop={10}>
+                <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>
+                  ‹ {person.name}'s home
+                </Text>
+              </Pressable>
+              <SharedPage
+                opened={theirs}
+                busy={busy}
+                run={(key, go) => void act(key, go)}
+                onSet={(recordId, field, value) => setAsThem(openShare, recordId, field, value)}
+                onAdd={async (section, values) => {
+                  await addAsThem(openShare, section, values);
+                  await load();
+                  setTimeout(() => void load(), 1500);
+                }}
+                onAnswer={(answer) => answerAsThem(openShare, answer)}
+              />
+            </>
+          ) : (
+            <>
+              <View style={{ gap: 4 }}>
+                <Text style={[s.title, { color: t.fg }]}>Hi {person.name.split(" ")[0]}</Text>
+                <Text style={[s.label, { color: t.fg2 }]}>
+                  {person.role === "member"
+                    ? `${person.name} is in this space, so they see all its lists, as you do. Here: what they've been asked and told.`
+                    : person.role === "standin"
+                      ? "Made up for this practice run: nobody fills this role yet. Whoever does will get exactly this."
+                      : `This is ${person.name}'s app: only what's shared with them, with the fields they may see.`}
+                </Text>
+              </View>
+              {turn && turn.user_id !== who ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => play(turn.user_id)}
+                  style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}
+                >
+                  <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
+                    Now it's {turn.name}'s turn
+                  </Text>
+                  <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Play as {turn.name} ›</Text>
+                </Pressable>
+              ) : mine.length ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => play(ME)}
+                  style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}
+                >
+                  <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>Now it's your turn</Text>
+                  <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Back to you ›</Text>
+                </Pressable>
+              ) : null}
+              {as ? (
+                <>
+                  {as.cards.length ? (
+                    as.cards.map((card) => (
+                      <Boundary key={card.id} where="practice card">
+                        <Card
+                          card={card}
+                          natural
+                          busy={busy === card.id}
+                          onOpen={() => card.shared && setOpenShare(card.shared.share_id)}
+                          onAnswer={
+                            card.waiting && card.shared
+                              ? (a) => void act(card.id, () => answerAsThem(card.shared!.share_id, a))
+                              : undefined
+                          }
+                          onTick={(record, value) => {
+                            const field = card.spec.sources[0]?.answer_field;
+                            if (field && card.shared)
+                              void act(card.id, () =>
+                                setAsThem(card.shared!.share_id, record.id, field, value),
+                              );
+                          }}
+                          onSet={(record, field, value) =>
+                            card.shared &&
+                            void act(card.id, () => setAsThem(card.shared!.share_id, record.id, field, value))
+                          }
+                        />
+                      </Boundary>
+                    ))
+                  ) : (
+                    <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                      <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
+                        {as.view.got.length
+                          ? `Nothing is waiting on ${person.name} now`
+                          : `Nothing is shared with ${person.name} yet`}
+                      </Text>
+                      <Text style={[s.label, { color: t.fg2 }]}>
+                        {as.view.got.length
+                          ? "What they were asked and told is below."
+                          : "Their home stays empty until something is. Ask the chat to share a list or a form with them (in the real space), then start a new practice run."}
+                      </Text>
+                    </View>
+                  )}
+                  <Text style={[s.h2, { color: t.fg }]}>Their notifications</Text>
+                  {as.view.got.length ? (
+                    as.view.got.map((g) => (
+                      <View key={g.id} style={[s.notif, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                        <Text style={[s.label, { color: t.fg, fontWeight: "700" }]}>{g.title}</Text>
+                        <Text style={[s.line, { color: t.fg }]}>{g.body ?? ""}</Text>
+                        <Text style={[s.label, { color: t.fg3 }]}>
+                          {new Date(g.at).toLocaleString("en-IN", {
+                            timeStyle: "short",
+                            dateStyle: "medium",
+                          })}
+                        </Text>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={[s.label, { color: t.fg2 }]}>None yet.</Text>
+                  )}
+                </>
+              ) : (
+                <Text style={[s.label, { color: t.fg2 }]}>Loading…</Text>
+              )}
+            </>
+          )}
+        </ScrollView>
+        {switcher}
+      </View>
+    );
+
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 8 }]}>
       <View style={s.head}>
@@ -202,10 +421,7 @@ export default function Practice() {
               accessibilityRole="tab"
               accessibilityState={{ selected: on }}
               accessibilityLabel={p.waiting ? `${p.name}, ${p.waiting} waiting` : p.name}
-              onPress={() => {
-                setAs(null);
-                setWho(p.user_id);
-              }}
+              onPress={() => play(p.user_id)}
               style={[s.role, { backgroundColor: on ? t.ink : t.fill }]}
             >
               <Text style={[s.roleText, { color: on ? t.onInk : t.fg }]}>{p.name}</Text>
@@ -228,7 +444,7 @@ export default function Practice() {
         ) : null}
         {/* What happens next, and a way to get there. */}
         {view ? (
-          turn && turn.user_id !== who ? (
+          turn ? (
             <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
               <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>{turn.name}'s turn</Text>
               {waitingOn(turn) ? (
@@ -239,31 +455,14 @@ export default function Practice() {
               <View style={s.row}>
                 <Pressable
                   accessibilityRole="button"
-                  onPress={() => {
-                    setAs(null);
-                    setWho(turn.user_id);
-                  }}
+                  onPress={() => play(turn.user_id)}
                   style={[s.btn, { backgroundColor: t.accent }]}
                 >
-                  <Text style={[s.btnText, { color: t.onAccent }]}>See {turn.name}'s app ›</Text>
+                  <Text style={[s.btnText, { color: t.onAccent }]}>Play as {turn.name} ›</Text>
                 </Pressable>
               </View>
             </View>
-          ) : mine.length && who ? (
-            <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
-              <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>Your turn</Text>
-              <Text style={[s.label, { color: t.fg2 }]}>“{mine[0]!.text}” is waiting on you.</Text>
-              <View style={s.row}>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => setWho(ME)}
-                  style={[s.btn, { backgroundColor: t.accent }]}
-                >
-                  <Text style={[s.btnText, { color: t.onAccent }]}>Back to You ›</Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : !turn && !mine.length && flow && !who ? (
+          ) : !mine.length && flow ? (
             // The workflow being rehearsed, step by step, and how to start it.
             <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
               <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
@@ -277,7 +476,7 @@ export default function Practice() {
               <Text style={[s.label, { color: t.fg2 }]}>
                 {started
                   ? `Started with “${started}”. See what happened below, or start again.`
-                  : "Tap Start to set it off with made-up details. You play whoever adds it; then a card shows whose turn it is, and you switch to them to see their app and answer."}
+                  : "Tap Start to set it off with made-up details. Then play each person: the screen becomes their app, with only what they'd see, and you answer as them."}
               </Text>
               <View style={s.row}>
                 <Pressable
@@ -292,97 +491,18 @@ export default function Practice() {
                 </Pressable>
               </View>
             </View>
-          ) : !turn && !mine.length ? (
+          ) : !mine.length ? (
             <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
-              <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
-                {who ? `Nothing is waiting on ${person?.name ?? "them"}` : "Your move"}
-              </Text>
+              <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>Your move</Text>
               <Text style={[s.label, { color: t.fg2 }]}>
-                {who
-                  ? "Switch back to You and add or change a record to set a workflow off."
-                  : "Add or change a record in one of the lists below: the workflows take it from there, and you'll see whose turn it is next."}
+                Add or change a record in one of the lists below, or play someone above and use their app: the
+                workflows take it from there, and you'll see whose turn it is next.
               </Text>
-              {who ? (
-                <View style={s.row}>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => setWho(ME)}
-                    style={[s.btn, { backgroundColor: t.fill }]}
-                  >
-                    <Text style={[s.btnText, { color: t.fg }]}>Back to You</Text>
-                  </Pressable>
-                </View>
-              ) : null}
             </View>
           ) : null
         ) : null}
 
-        {who && person ? (
-          // Their app, as it would be: only what's shared with them, acting as them.
-          <View style={[s.phone, { borderColor: t.hair, backgroundColor: t.cell }]}>
-            <View style={{ gap: 2 }}>
-              <Text style={[s.h2, { color: t.fg, marginTop: 0 }]}>{person.name}'s app</Text>
-              <Text style={[s.label, { color: t.fg2 }]}>
-                {person.role === "member"
-                  ? `${person.name} is in this space, so they see all its lists, as you do. Below: what they've been asked and told.`
-                  : person.role === "standin"
-                    ? `Made up for this practice run: nobody fills this role yet. In real use, the person in that field gets exactly this.`
-                    : `Only what's shared with ${person.name}, with the fields they may see. Everything else here stays hidden from them.`}
-              </Text>
-            </View>
-            {as ? (
-              <>
-                {as.cards.length ? (
-                  as.cards.map((card) => (
-                    <Boundary key={card.id} where="practice card">
-                      <View style={{ height: cardHeight(card) }}>
-                        <Card
-                          card={card}
-                          busy={busy === card.id}
-                          onAnswer={
-                            card.waiting && card.shared
-                              ? (a) =>
-                                  void act(card.id, () =>
-                                    request(
-                                      "POST",
-                                      `${base}/as/${enc(who)}/cards/${enc(card.shared!.share_id)}/answer`,
-                                      { answer: a },
-                                    ),
-                                  )
-                              : undefined
-                          }
-                          onTick={(record, value) => {
-                            const field = card.spec.sources[0]?.answer_field;
-                            if (field) setAsThem(card, record, field, value);
-                          }}
-                          onSet={(record, field, value) => setAsThem(card, record, field, value)}
-                        />
-                      </View>
-                    </Boundary>
-                  ))
-                ) : (
-                  <Text style={[s.label, { color: t.fg2 }]}>Nothing is shared with {person.name} now.</Text>
-                )}
-                <Text style={[s.h3, { color: t.fg }]}>Their notifications</Text>
-                {as.view.got.length ? (
-                  as.view.got.map((g) => (
-                    <View key={g.id} style={[s.notif, { backgroundColor: t.fill }]}>
-                      <Text style={[s.label, { color: t.fg, fontWeight: "700" }]}>{g.title}</Text>
-                      <Text style={[s.line, { color: t.fg }]}>{g.body ?? ""}</Text>
-                      <Text style={[s.label, { color: t.fg3 }]}>
-                        {new Date(g.at).toLocaleString("en-IN", { timeStyle: "short", dateStyle: "medium" })}
-                      </Text>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={[s.label, { color: t.fg2 }]}>None yet.</Text>
-                )}
-              </>
-            ) : (
-              <Text style={[s.label, { color: t.fg2 }]}>Loading…</Text>
-            )}
-          </View>
-        ) : view ? (
+        {view ? (
           <>
             {mine.map((w) => (
               <View key={w.id} style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
@@ -483,12 +603,37 @@ export default function Practice() {
         ) : null}
         {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
       </ScrollView>
+      {switcher}
     </View>
   );
 }
 
 const s = StyleSheet.create({
   root: { flex: 1, paddingHorizontal: 16 },
+  playRoot: { flex: 1 },
+  bar: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, paddingBottom: 12 },
+  barSmall: { fontSize: 11, fontWeight: "800", letterSpacing: 0.8, opacity: 0.85 },
+  barName: { fontSize: 18, fontWeight: "800" },
+  barBtn: {
+    minHeight: 44,
+    paddingHorizontal: 14,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  playBody: { padding: 16, gap: 14 },
+  person: {
+    minHeight: 52,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   head: {
     flexDirection: "row",
     alignItems: "center",
@@ -514,7 +659,7 @@ const s = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: "800", paddingHorizontal: 5 },
   card: { padding: 14, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, gap: 8 },
   phone: { padding: 14, borderRadius: 28, borderWidth: 1, gap: 12 },
-  notif: { padding: 12, borderRadius: 14, gap: 2 },
+  notif: { padding: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, gap: 2 },
   list: {
     minHeight: 64,
     minWidth: 140,

@@ -1371,6 +1371,17 @@ export class SpaceObject extends DurableObject<Env> {
     return this.updateSharedRecord(this.practiceAs(actor, userId).as, key, shareId, recordId, values);
   }
 
+  async practiceAsAdd(
+    actor: Actor,
+    key: string | null,
+    userId: string,
+    shareId: string,
+    section: string,
+    input: { id?: string | null; values: Record<string, unknown> },
+  ): Promise<SharedOpened> {
+    return this.addSharedRecord(this.practiceAs(actor, userId).as, key, shareId, section, input);
+  }
+
   async practiceAsAnswer(
     actor: Actor,
     key: string | null,

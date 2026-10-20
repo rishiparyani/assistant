@@ -6,6 +6,7 @@ import {
   AddCommentInput,
   PracticeAnswerInput,
   HomeLayoutInput,
+  PracticeAsAddInput,
   PracticeAsAnswerInput,
   PracticeAsInput,
   PracticeAsShareInput,
@@ -189,6 +190,26 @@ export const spaceOperations = [
     handler: async (ctx, i) => {
       const { stub, actor } = await practiceOf(ctx, i.space ?? "");
       return stub.practiceAsUpdate(actor, ctx.idempotencyKey, i.user_id, i.share_id, i.record_id, i.values);
+    },
+  }),
+  defineOperation({
+    id: "core.practice_as_add",
+    tool: "practice_as_add",
+    description:
+      'In a practice copy: add a record to something shared with a person, as that person (a card\'s section, a view ("view") or a form ("form")).',
+    kind: "write",
+    http: {
+      method: "POST",
+      path: "/spaces/:space/practice/as/:user_id/cards/:share_id/records",
+      status: 201,
+    },
+    input: PracticeAsAddInput,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await practiceOf(ctx, i.space ?? "");
+      return stub.practiceAsAdd(actor, ctx.idempotencyKey, i.user_id, i.share_id, i.section, {
+        id: i.id,
+        values: i.values,
+      });
     },
   }),
   defineOperation({

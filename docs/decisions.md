@@ -934,6 +934,14 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-20: Play as someone (owner: "the practice run doesn't feel like a practice run … I'll be able to use it from one role's perspective exactly as they'll be able to see it or use it, and then the other role's perspective exactly the same way")
+
+- **The whole screen becomes their app:** in a practice run, picking a person replaces the screen with theirs: a coloured bar says "Practising as X" with Switch and Done, then their home (a greeting, their cards drawn as the home draws them, whose turn it is next) and their notifications. Before, their app was a box inside the practice screen.
+- **Their cards open as they would:** a card, a list, a form or a question opens on a page drawn from what the space sends for that person (only their records and fields; only what the share lets them change is a control). Forms can be filled in, lists and a card's parts added to, values changed and questions answered, all sent as them, so the space checks each one as theirs. New: adding as them (`practice_as_add`).
+- **It shows gaps in a setup honestly:** a form's link field shows only the records that person can see, as in real use; if they can see none, the field isn't there and sending says what's missing. That's the point of practising.
+- **Switch** lists You and everyone in the run with what's waiting on each; a "Now it's Y's turn" card leads to the next person.
+- **Next:** the real app opens shared forms and cards on this same page instead of the website (adds through the outbox), so practice and real use match exactly.
+
 ## 2026-10-16: Rehearse as each person (owner: "I was hoping for a much better rehearsal where I can rehearse with other roles also, and I can see what other people are going to see")
 
 - **One rehearsal screen, played person by person:** "Rehearse with everyone" on a workflow's screen makes the practice copy and opens the Practice run screen. At the top is a row of people: You, then everyone the space works with (its other members, and everyone something is shared with), each with a count of what's waiting on them. You set things off in the copy's lists; then a "Rahul's turn" card says what's waiting on him and "See Rahul's app ›" switches to him.
