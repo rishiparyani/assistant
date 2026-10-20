@@ -55,8 +55,16 @@ export function SharedPage({
       <View style={s.page}>
         <Text style={[s.title, { color: t.fg }]}>{opened.text}</Text>
         {from}
+        {opened.choices ? null : (
+          // No choices: they write the answer, as the real question asks.
+          <FreeAnswer
+            mine={opened.mine}
+            disabled={opened.closed || !!busy}
+            send={(answer) => run("answer", () => onAnswer(answer))}
+          />
+        )}
         <View style={s.row}>
-          {(opened.choices ?? ["Done"]).map((c) => {
+          {(opened.choices ?? []).map((c) => {
             const on = opened.mine === c;
             return (
               <Tap
@@ -79,7 +87,9 @@ export function SharedPage({
             ? "No longer taking answers."
             : opened.mine
               ? `You said “${opened.mine}”. You can change it.`
-              : "Tap an answer."}
+              : opened.choices
+                ? "Tap an answer."
+                : "Write an answer."}
         </Text>
       </View>
     );
@@ -163,6 +173,46 @@ export function SharedPage({
       ) : (
         <Text style={[type.caption, { color: t.fg2 }]}>Nothing yet.</Text>
       )}
+    </View>
+  );
+}
+
+/** A written answer to a question with no choices. */
+function FreeAnswer({
+  mine,
+  disabled,
+  send,
+}: {
+  mine: string | null;
+  disabled: boolean;
+  send: (answer: string) => void;
+}) {
+  const { t } = useTheme();
+  const [text, setText] = useState(mine ?? "");
+  const answer = text.trim();
+  return (
+    <View style={[s.row, { alignItems: "center", flexWrap: "nowrap" }]}>
+      <TextInput
+        accessibilityLabel="Your answer"
+        value={text}
+        onChangeText={setText}
+        editable={!disabled}
+        placeholder="Your answer"
+        placeholderTextColor={t.fg3}
+        maxLength={200}
+        doneBar
+        style={[s.input, type.body, { flex: 1, color: t.fg, backgroundColor: t.cell, borderColor: t.hair }]}
+      />
+      <Tap
+        accessibilityRole="button"
+        accessibilityLabel="Send answer"
+        disabled={disabled || !answer}
+        onPress={() => send(answer)}
+        haptic="light"
+        style={[s.btn, { backgroundColor: t.accent, opacity: disabled || !answer ? 0.6 : 1 }]}
+      >
+        <Text style={[s.btnText, { color: t.onAccent }]}>Send</Text>
+      </Tap>
     </View>
   );
 }
@@ -254,19 +304,27 @@ function Edit({ field, busy, set }: { field: SharedField; busy: boolean; set: (v
         trackColor={{ true: t.accent, false: t.fill }}
       />
     );
-  const choices = field.type === "choice" ? (field.options.choices ?? []) : [];
-  if (choices.length)
+  const many = field.type === "multi_choice";
+  const choices = field.type === "choice" || many ? (field.options.choices ?? []) : [];
+  if (choices.length) {
+    const picked = Array.isArray(field.value)
+      ? (field.value as string[])
+      : typeof field.value === "string"
+        ? [field.value]
+        : [];
     return (
       <View style={[s.row, { justifyContent: "flex-end" }]}>
         {choices.map((c) => {
-          const on = field.value === c;
+          const on = picked.includes(c);
           return (
             <Tap
               key={c}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
               disabled={busy}
-              onPress={() => set(on ? null : c)}
+              onPress={() =>
+                set(many ? (on ? picked.filter((x) => x !== c) : [...picked, c]) : on ? null : c)
+              }
               haptic="selection"
               style={[s.chip, { backgroundColor: on ? t.accent : t.fill }]}
             >
@@ -276,6 +334,7 @@ function Edit({ field, busy, set }: { field: SharedField; busy: boolean; set: (v
         })}
       </View>
     );
+  }
   const save = () => {
     if (text === null) return;
     try {
