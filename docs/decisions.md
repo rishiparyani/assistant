@@ -934,6 +934,12 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-22: The chat reads like Claude's (owner: "I want the UI elements and stuff to look like ChatGPT or Claude, but like the layout, like us having like a list of widgets on a home page and… more home pages and stuff, like that is fine")
+
+- **What changes and what doesn't:** the home stays pages of cards. The _pieces_ take Claude's and ChatGPT's manners, the chat first: the assistant's words are plain text on the page, full width, no bubble; the person's words a soft neutral bubble on the right (not a solid coloured one); cards (questions, confirmations) stay cards, a little rounder and airier; the rating sits quietly under the reply; on a laptop the conversation keeps to a centred readable column.
+- **Why plain text for the assistant:** a bubble around every reply makes a long answer a wall of boxes; text on the page reads like a page. It also lets the reply stream into place without a box growing around it.
+- **Next:** the same pass on the home's cards and the list screen: one type scale, the spacing rhythm, lighter chrome (fewer borders, softer fills), the sheets.
+
 ## 2026-10-22: Replies as they're written (owner: "I want the UI elements and stuff to look like ChatGPT or Claude… I want like UI streaming")
 
 - **The chat shows the reply as the model writes it,** word by word in the bubble where the thinking dots were, and the finished reply takes its place. The words travel over the live socket the app already keeps open (`assistant_delta`), a few dozen messages for a long answer, not one per word; the request itself still returns the whole reply, so nothing else changes: cards, confirmations, undo.
