@@ -217,8 +217,11 @@ async function callChatCompletions(
   };
 }
 
-/** The data of each event of a server-sent stream, as text, until it ends or says [DONE]. */
-async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+/**
+ * The data of each event of a server-sent stream, as text, until it ends or says [DONE]
+ * (`whole` is set then: an answer whose connection closed first isn't whole).
+ */
+async function* sseData(body: ReadableStream<Uint8Array>, end: { whole: boolean }): AsyncGenerator<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
@@ -235,7 +238,10 @@ async function* sseData(body: ReadableStream<Uint8Array>): AsyncGenerator<string
         .map((l) => l.slice(5).trimStart())
         .join("\n");
       if (!data) continue;
-      if (data === "[DONE]") return;
+      if (data === "[DONE]") {
+        end.whole = true;
+        return;
+      }
       yield data;
     }
     if (done) return;
@@ -259,7 +265,9 @@ type ChatChunk = {
 
 /**
  * A chat-completions stream put back together as the whole answer (the words going to onText
- * as they come; a tool call's arguments arrive in pieces, by index). Exported for tests.
+ * as they come; a tool call's arguments arrive in pieces, by index). A stream that ends before
+ * [DONE], or carries an error, is a ModelError: the half-answer is dropped and the next model
+ * answers instead (Codex on PR 176). Exported for tests.
  */
 export async function readChatCompletionsStream(
   body: ReadableStream<Uint8Array>,
@@ -268,13 +276,15 @@ export async function readChatCompletionsStream(
   let content = "";
   const calls = new Map<number, ToolCall>();
   let usage: WorkersAiResult["usage"];
-  for await (const data of sseData(body)) {
-    let chunk: ChatChunk;
+  const end = { whole: false };
+  for await (const data of sseData(body, end)) {
+    let chunk: ChatChunk & { error?: unknown };
     try {
       chunk = JSON.parse(data) as ChatChunk;
     } catch {
       continue;
     }
+    if (chunk.error) throw new ModelError("the stream carried an error");
     if (chunk.usage) usage = chunk.usage;
     const delta = chunk.choices?.[0]?.delta;
     if (!delta) continue;
@@ -295,6 +305,7 @@ export async function readChatCompletionsStream(
       calls.set(at, call);
     }
   }
+  if (!end.whole) throw new ModelError("the stream ended early");
   const tool_calls = [...calls.entries()].sort((a, b) => a[0] - b[0]).map(([, c]) => c);
   return {
     choices: [{ message: { content: content || null, ...(tool_calls.length ? { tool_calls } : {}) } }],
@@ -529,13 +540,20 @@ export async function readAnthropicStream(
   const blocks: (Record<string, unknown> & { type: string })[] = [];
   const json = new Map<number, string>();
   const raw: AnthropicResult = { content: [] };
-  for await (const data of sseData(body)) {
+  // Whole only at message_stop; an error event or an early close is a ModelError (Codex on PR 176).
+  const end = { whole: false };
+  for await (const data of sseData(body, end)) {
     let ev: AnthropicEvent;
     try {
       ev = JSON.parse(data) as AnthropicEvent;
     } catch {
       continue;
     }
+    if (ev.type === "message_stop") {
+      end.whole = true;
+      break;
+    }
+    if (ev.type === "error") throw new ModelError("the stream carried an error");
     if (ev.type === "message_start" && "message" in ev) {
       raw.usage = { ...(raw.usage ?? {}), ...(ev.message.usage ?? {}) };
     } else if (ev.type === "content_block_start" && "content_block" in ev) {
@@ -558,6 +576,7 @@ export async function readAnthropicStream(
         raw.usage = { ...(raw.usage ?? {}), output_tokens: ev.usage.output_tokens };
     }
   }
+  if (!end.whole) throw new ModelError("the stream ended early");
   for (const [i, text] of json) {
     const b = blocks[i];
     if (b) b.input = parseArgs(text);

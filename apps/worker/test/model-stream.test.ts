@@ -2,6 +2,7 @@
 // as the whole answer the router reads, while its words go out as they come.
 import { describe, expect, it } from "vitest";
 import {
+  ModelError,
   fromAnthropic,
   readAnthropicStream,
   readChatCompletionsStream,
@@ -115,7 +116,7 @@ describe("streams", () => {
   it("takes events split across chunks and ignores what isn't JSON", async () => {
     const parts = [
       'data: {"choices":[{"delta":{"content":"He',
-      'llo"}}]}\n\ndata: not json\n\ndata: {"choices":[{"delta":{"content":" there"}}]}\n\n',
+      'llo"}}]}\n\ndata: not json\n\ndata: {"choices":[{"delta":{"content":" there"}}]}\n\ndata: [DONE]\n\n',
     ];
     const body = new ReadableStream<Uint8Array>({
       start(c) {
@@ -127,5 +128,37 @@ describe("streams", () => {
     const raw = await readChatCompletionsStream(body, (t) => words.push(t));
     expect(words).toEqual(["Hello", " there"]);
     expect(raw.choices?.[0]?.message?.content).toBe("Hello there");
+  });
+
+  it("refuses a stream that ends before its last marker, or carries an error", async () => {
+    const none = () => undefined;
+    // Chat completions: no [DONE].
+    await expect(
+      readChatCompletionsStream(sse([data({ choices: [{ delta: { content: "Half" } }] })]), none),
+    ).rejects.toBeInstanceOf(ModelError);
+    // Chat completions: an error event.
+    await expect(
+      readChatCompletionsStream(sse([data({ error: { message: "x" } }), "data: [DONE]"]), none),
+    ).rejects.toBeInstanceOf(ModelError);
+    // Messages API: no message_stop.
+    await expect(
+      readAnthropicStream(
+        sse([
+          data({ type: "content_block_start", index: 0, content_block: { type: "text", text: "" } }),
+          data({ type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Half" } }),
+        ]),
+        none,
+      ),
+    ).rejects.toBeInstanceOf(ModelError);
+    // Messages API: an error event.
+    await expect(
+      readAnthropicStream(sse([data({ type: "error", error: { type: "overloaded_error" } })]), none),
+    ).rejects.toBeInstanceOf(ModelError);
+    // A whole one still reads.
+    const ok = await readChatCompletionsStream(
+      sse([data({ choices: [{ delta: { content: "Whole" } }] }), "data: [DONE]"]),
+      none,
+    );
+    expect(ok.choices?.[0]?.message?.content).toBe("Whole");
   });
 });
