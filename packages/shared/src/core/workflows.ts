@@ -648,8 +648,11 @@ export interface PracticeView {
     at: string;
     user_id: string;
     name: string;
-    kind: "message" | "question";
+    /** What they got (a message or a question), or what they answered. */
+    kind: "message" | "question" | "answer";
+    /** For an answer: the question's text. */
     title: string;
+    /** For an answer: what they said. */
     body: string | null;
   }[];
   waiting: WaitingItem[];

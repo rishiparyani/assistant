@@ -1409,7 +1409,12 @@ export class SpaceObject extends DurableObject<Env> {
           at: r.at,
           user_id: r.user_id,
           name: this.personName(r.user_id),
-          kind: n.kind === "question" ? ("question" as const) : ("message" as const),
+          kind:
+            n.kind === "question"
+              ? ("question" as const)
+              : n.kind === "answer"
+                ? ("answer" as const)
+                : ("message" as const),
           title: n.title,
           body: n.body ?? null,
         };
@@ -8928,6 +8933,16 @@ export class SpaceObject extends DurableObject<Env> {
           before: before ?? null,
           after: { answer: value },
         });
+        // A practice copy keeps the answer in its log too: the walkthrough shows what everyone
+        // got and said, in order.
+        if (this.practice)
+          this.sql.exec(
+            `insert into practice_log (id, at, user_id, note_json) values (?, ?, ?, ?)`,
+            ulid(),
+            ts,
+            actor.userId,
+            JSON.stringify({ kind: "answer", title: q.text, body: value } satisfies NewNotification),
+          );
         this.continueWaits(q, actor);
         return this.opened(s, actor);
       },

@@ -118,6 +118,10 @@ describe("practice copies", () => {
       ),
     ).toBe(true);
     expect((await inbox(owner)).some((n) => n.body?.includes("Test practice dinner"))).toBe(false);
+    // The answer itself is in the log too (the walkthrough shows what everyone got and said).
+    expect((await view()).log).toContainEqual(
+      expect.objectContaining({ kind: "answer", name: "Rahul Test", body: "Yes" }),
+    );
 
     // Nothing can be shared out of a practice copy.
     const record = (

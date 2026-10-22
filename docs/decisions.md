@@ -934,6 +934,14 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-22: A rehearsal is a walkthrough (owner: "the rehearse feature for the workflows and stuff, they don't look like a rehearse actually"; earlier: "What am I supposed to do in this? I don't even understand.")
+
+- **What was wrong:** four versions in a week each showed the machinery first (a practice copy, a row of people, a log, lists, End), and each time the owner asked what he was supposed to do. The pieces were right; the framing wasn't.
+- **Now it tells a story:** Rehearse on a flow opens "Let's walk through {flow}" with its steps and one Start. Then, one at a time: "Now Priya gets this" → Priya's phone, with a line saying who you are and what to do → her answer → whoever is next → "That's the whole flow", what everyone got, and Turn it on. The person is told who they are and what to do at every step, and the walkthrough moves on by itself to whoever's turn it is.
+- **The phones are the play-as screens** from 2026-10-20, unchanged underneath: the space checks every tap as that person. The old dashboard stays one tap away as "Behind the scenes".
+- **The log tells what people said too:** a practice copy keeps each answer in its log beside what people got, so the end of the walkthrough reads as a story ("Resident was asked … Resident said: Allow"), oldest first.
+- **Next:** a walkthrough can begin with a person filling in a shared form (today Start adds the sample as the owner).
+
 ## 2026-10-22: The chat reads like Claude's (owner: "I want the UI elements and stuff to look like ChatGPT or Claude, but like the layout, like us having like a list of widgets on a home page and… more home pages and stuff, like that is fine")
 
 - **What changes and what doesn't:** the home stays pages of cards. The _pieces_ take Claude's and ChatGPT's manners, the chat first: the assistant's words are plain text on the page, full width, no bubble; the person's words a soft neutral bubble on the right (not a solid coloured one); cards (questions, confirmations) stay cards, a little rounder and airier; the rating sits quietly under the reply; on a laptop the conversation keeps to a centred readable column.
