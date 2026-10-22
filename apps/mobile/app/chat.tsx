@@ -494,7 +494,14 @@ export default function Chat() {
           extraData={[rateAt, busy]}
           data={newestFirst}
           keyExtractor={(i) => i.id}
-          contentContainerStyle={{ padding: 14, gap: 4 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingVertical: 14,
+            gap: 10,
+            width: "100%",
+            maxWidth: COLUMN,
+            alignSelf: "center",
+          }}
           // Near the bottom, a new message pulls the list down to it; higher up, nothing moves.
           maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
           // A card far up isn't measured yet: get near it, then go to it.
@@ -525,8 +532,10 @@ export default function Chat() {
             );
             const safe = (
               <Boundary where="chat item">
-                {bubble}
-                {item.id === rateAt && lastReply ? <Rate id={lastReply} /> : null}
+                <View style={{ gap: 2 }}>
+                  {bubble}
+                  {item.id === rateAt && lastReply ? <Rate id={lastReply} /> : null}
+                </View>
               </Boundary>
             );
             // In the upside-down list a cell's "down" is up on screen: new messages rise in.
@@ -543,11 +552,11 @@ export default function Chat() {
             busy && view?.items.length ? (
               <Animated.View
                 entering={FadeIn.duration(motion.fade)}
-                style={[s.bub, s.them, s.thinking, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}
+                style={draft?.text ? s.reply : s.thinking}
               >
                 {draft?.text ? (
                   // The words so far, with a mark where the next ones land.
-                  <Markdown text={`${draft.text}▍`} style={[s.bubText, { color: t.fg }]} />
+                  <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
                 ) : (
                   <ThinkingDots />
                 )}
@@ -568,7 +577,7 @@ export default function Chat() {
             view && !note ? (
               firstEver !== false ? (
                 // The first run (home-first.md §2 point 15): a conversation about the week.
-                <View style={[s.bub, s.them, { backgroundColor: t.cell, borderColor: t.hair, marginTop: 8 }]}>
+                <View style={[s.reply, { marginTop: 8 }]}>
                   <Text style={[s.bubText, { color: t.fg }]}>
                     Hi! Tell me about your week: what you do, what you keep forgetting, what money moves. I'll
                     start the lists you need, each with a card on your home.
@@ -746,7 +755,7 @@ function Rate({ id }: { id: string }) {
           scale={0.85}
           style={[s.rateBtn, mine === r && { backgroundColor: t.accentSoft }]}
         >
-          <Text style={{ fontSize: 16, opacity: mine && mine !== r ? 0.3 : 0.8 }}>
+          <Text style={{ fontSize: 14, opacity: mine && mine !== r ? 0.25 : mine === r ? 1 : 0.55 }}>
             {r === "good" ? "👍" : "👎"}
           </Text>
         </Tap>
@@ -853,8 +862,8 @@ function Bubble({
     );
   if (item.role === "user")
     return (
-      <View style={[s.bub, s.me, { backgroundColor: t.accent }]}>
-        <Text style={[s.bubText, { color: t.onAccent }]}>{item.text}</Text>
+      <View style={[s.bub, s.me, { backgroundColor: t.cell, borderColor: t.hair }]}>
+        <Text style={[s.bubText, { color: t.fg }]}>{item.text}</Text>
       </View>
     );
   if (item.role === "card") {
@@ -917,14 +926,17 @@ function Bubble({
   if (item.role === "note") return <Text style={[s.sys, { color: t.fg2 }]}>{item.text}</Text>;
   return (
     <>
-      <View style={[s.bub, s.them, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}>
-        <Markdown text={item.text} style={[s.bubText, { color: t.fg }]} />
+      <View style={s.reply}>
+        <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} />
       </View>
       {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
       {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
     </>
   );
 }
+
+// On a laptop the conversation keeps to a readable column, centred (Claude's and ChatGPT's way).
+const COLUMN = 760;
 
 const s = StyleSheet.create({
   careful: { marginLeft: 12, marginTop: -2, marginBottom: 2, fontWeight: "600", letterSpacing: 0.2 },
@@ -951,25 +963,34 @@ const s = StyleSheet.create({
   },
   fresh: { paddingTop: 120, paddingHorizontal: 24 },
   changes: { position: "absolute", left: 16, height: 56, justifyContent: "center" },
-  bub: { maxWidth: "82%", paddingVertical: 9, paddingHorizontal: 13, borderRadius: 19 },
-  me: { alignSelf: "flex-end", borderBottomRightRadius: 5 },
-  them: { alignSelf: "flex-start", borderBottomLeftRadius: 5, borderWidth: StyleSheet.hairlineWidth },
-  bubText: { ...type.body },
-  thinking: {
+  // The person's words in a soft bubble on the right; the assistant's as plain text on the
+  // page, the width of the screen (decision 2026-10-22 "The chat reads like Claude's").
+  bub: {
+    maxWidth: "82%",
     paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginTop: 4,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  me: { alignSelf: "flex-end", borderBottomRightRadius: 6 },
+  bubText: { ...type.body, lineHeight: 23 },
+  reply: { alignSelf: "stretch", paddingVertical: 2, paddingHorizontal: 2, gap: 4 },
+  replyText: { ...type.body, fontSize: 16.5, lineHeight: 25 },
+  thinking: {
+    paddingVertical: 8,
+    paddingHorizontal: 2,
+    marginTop: 2,
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
   inline: {
     alignSelf: "stretch",
-    borderRadius: radius.card,
-    padding: 12,
+    borderRadius: 18,
+    padding: 14,
     gap: 4,
     borderWidth: StyleSheet.hairlineWidth,
-    marginVertical: 4,
+    marginVertical: 2,
   },
   cardTitle: { fontSize: 12, fontWeight: "700" },
   answers: { flexDirection: "row", gap: 8, marginTop: 6 },
@@ -993,7 +1014,7 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   sys: { fontSize: 12, fontWeight: "600", textAlign: "center", padding: 6 },
-  rate: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: -2 },
+  rate: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: -4, marginLeft: -10 },
   rateBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   rateNote: { fontSize: 12, fontWeight: "600", marginLeft: 4 },
   // A horizontal list grows to fill the column by default; the chips sit above the box.
@@ -1005,7 +1026,16 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     justifyContent: "center",
   },
-  compose: { flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 6 },
+  compose: {
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingTop: 6,
+    width: "100%",
+    maxWidth: COLUMN,
+    alignSelf: "center",
+  },
   // The box grows with the message, to about five lines, then scrolls inside.
   inputBox: {
     flex: 1,
