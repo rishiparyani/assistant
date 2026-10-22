@@ -934,6 +934,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-22: Replies as they're written (owner: "I want the UI elements and stuff to look like ChatGPT or Claude… I want like UI streaming")
+
+- **The chat shows the reply as the model writes it,** word by word in the bubble where the thinking dots were, and the finished reply takes its place. The words travel over the live socket the app already keeps open (`assistant_delta`), a few dozen messages for a long answer, not one per word; the request itself still returns the whole reply, so nothing else changes: cards, confirmations, undo.
+- **What streams:** the makers called with the owner's own key (Anthropic, OpenAI, Gemini, Cerebras). Workers AI answers whole for now. A model that fails halfway has its half-answer dropped and the next model starts a fresh draft.
+- **The maker's stream is put back together as the whole answer** the router reads (text, tool calls, Anthropic's signed thinking exactly as sent), so nothing about tools or prompt caching changes.
+- **Next:** cards appearing as each tool finishes rather than with the final reply.
+
 ## 2026-10-22: The website is the app (owner: "let's keep the web version the same as the iPhone iOS version … the web version should be built first, and I should be able to test the web version first")
 
 - **gigspree.in opens the app:** the Expo app's web build is the site's page at `/` and every screen has its own path (`/chat`, `/list`, `/library`). It's the same code as the iPhone and Android apps, so what's tested on the website is what the phones get.
