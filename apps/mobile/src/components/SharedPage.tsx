@@ -178,7 +178,7 @@ export function SharedPage({
 }
 
 /** A written answer to a question with no choices. */
-function FreeAnswer({
+export function FreeAnswer({
   mine,
   disabled,
   send,

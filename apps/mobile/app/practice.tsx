@@ -27,7 +27,7 @@ import { useLive } from "@/live-socket";
 import { homeChanged, sharedCard, type HomeCard } from "@/home";
 import { useSession } from "@/session";
 import { Sheet } from "@/components/Sheet";
-import { SharedPage } from "@/components/SharedPage";
+import { FreeAnswer, SharedPage } from "@/components/SharedPage";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
@@ -68,6 +68,10 @@ export default function Practice() {
   const [stage, setStage] = useState<"intro" | "run" | "done">("intro");
   const [behind, setBehind] = useState(false);
   const [turnedOn, setTurnedOn] = useState(false);
+  // Whether the real flow is on: the copy's flows are all on, so the copy can't say (Codex on PR 178).
+  const [realOn, setRealOn] = useState<boolean | null>(null);
+  // The newest log line when this run started: the end shows only this run's lines.
+  const [since, setSince] = useState<string | null>(null);
   const base = space ? `/api/spaces/${enc(space)}/practice` : "";
 
   const load = useCallback(async () => {
@@ -79,12 +83,18 @@ export default function Practice() {
       ]);
       setView(v);
       setLists(cols);
-      if (workflow)
+      if (workflow) {
         setFlow(
           await request<WorkflowDetail>("GET", `/api/workflows/${enc(workflow)}?space=${enc(space)}`).catch(
             () => null,
           ),
         );
+        const real = await request<WorkflowDetail>(
+          "GET",
+          `/api/workflows/${enc(workflow)}?space=${enc(v.of)}`,
+        ).catch(() => null);
+        if (real) setRealOn(real.workflow.enabled);
+      }
       if (who) {
         const pv = await request<PracticeAsView>("GET", `${base}/as/${enc(who)}`);
         // Each card opened through their share, so it shows what they may see and nothing more.
@@ -144,6 +154,7 @@ export default function Practice() {
         workflow_id: flow.workflow.id,
       });
       setStarted(r.record ? r.record.title : flow.workflow.name);
+      setSince(view?.log[0]?.id ?? null);
       setStage("run");
     });
   // Turns the real flow on, from the end of a walkthrough (the copy's flows are all on already).
@@ -157,6 +168,9 @@ export default function Practice() {
       });
       setTurnedOn(true);
     });
+  // The owner's own answer to what a flow asked them, in the walkthrough.
+  const answerMine = (waitId: string, answer: string) =>
+    act(waitId, () => request("POST", `${base}/answer`, { wait_id: waitId, as_user_id: myId, answer }));
   const when = flow?.workflow.when;
   const startLabel = !when
     ? ""
@@ -477,17 +491,25 @@ export default function Practice() {
       </Text>
     </Pressable>
   ) : null;
+  // This run's lines (newest first): the walkthrough's log stops at the line that was newest
+  // when it started, so "Run it again" doesn't show the first run's answers as this one's.
+  const runLog = (() => {
+    const log = view?.log ?? [];
+    if (!guided || !since) return log;
+    const at = log.findIndex((l) => l.id === since);
+    return at < 0 ? log : log.slice(0, at);
+  })();
   /** The log: the latest few (newest first), or the whole story from the start. */
   const logList = (max?: number) =>
-    view?.log.length ? (
+    runLog.length ? (
       <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
-        {(max ? view.log.slice(0, max) : [...view.log].reverse()).map((l) => (
+        {(max ? runLog.slice(0, max) : [...runLog].reverse()).map((l) => (
           <Text key={l.id} style={[s.line, { color: t.fg }]}>
             {said(l)}
           </Text>
         ))}
-        {max && view.log.length > max ? (
-          <Text style={[s.label, { color: t.fg3 }]}>and {view.log.length - max} more</Text>
+        {max && runLog.length > max ? (
+          <Text style={[s.label, { color: t.fg3 }]}>and {runLog.length - max} more</Text>
         ) : null}
       </View>
     ) : null;
@@ -592,28 +614,29 @@ export default function Practice() {
                     >
                       <Text style={[s.label, { color: t.fg, fontWeight: "700" }]}>{w.workflow}</Text>
                       <Text style={[s.line, { color: t.fg }]}>{w.text}</Text>
-                      <View style={s.row}>
-                        {(w.choices ?? ["Done"]).map((c) => (
-                          <Pressable
-                            key={c}
-                            accessibilityRole="button"
-                            accessibilityLabel={`Answer ${c}`}
-                            disabled={busy !== null}
-                            onPress={() =>
-                              void act(w.id, () =>
-                                request("POST", `${base}/answer`, {
-                                  wait_id: w.id,
-                                  as_user_id: myId,
-                                  answer: c,
-                                }),
-                              )
-                            }
-                            style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-                          >
-                            <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
-                          </Pressable>
-                        ))}
-                      </View>
+                      {w.choices ? (
+                        <View style={s.row}>
+                          {w.choices.map((c) => (
+                            <Pressable
+                              key={c}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Answer ${c}`}
+                              disabled={busy !== null}
+                              onPress={() => void answerMine(w.id, c)}
+                              style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                            >
+                              <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      ) : (
+                        // No choices: the question wants words (Codex on PR 178).
+                        <FreeAnswer
+                          mine={null}
+                          disabled={busy !== null}
+                          send={(a) => void answerMine(w.id, a)}
+                        />
+                      )}
                     </View>
                   ))}
                 </View>
@@ -627,7 +650,7 @@ export default function Practice() {
                   </Text>
                 </View>
               )}
-              {view.log.length ? <Text style={[s.h2, { color: t.fg }]}>So far</Text> : null}
+              {runLog.length ? <Text style={[s.h2, { color: t.fg }]}>So far</Text> : null}
               {logList(6)}
               <Pressable accessibilityRole="button" onPress={() => setBehind(true)} hitSlop={8}>
                 <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Behind the scenes ›</Text>
@@ -637,13 +660,13 @@ export default function Practice() {
             <>
               <Text style={[s.big, { color: t.fg }]}>That's the whole flow</Text>
               <Text style={[s.line, { color: t.fg2 }]}>
-                {view.log.length
+                {runLog.length
                   ? "Here's what everyone got, in order."
                   : "Nobody was asked or told anything this time; it only changed records."}
               </Text>
               {logList()}
               <View style={s.row}>
-                {!flow.workflow.enabled && !turnedOn ? (
+                {realOn === false && !turnedOn ? (
                   <Pressable
                     accessibilityRole="button"
                     disabled={busy !== null}

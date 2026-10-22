@@ -1269,7 +1269,26 @@ export class SpaceObject extends DurableObject<Env> {
     if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
     const w = this.requireWorkflow(workflowId);
     const def = JSON.parse(w.def_json) as WorkflowDef;
-    if (!w.enabled) throw new ObjectError("validation_failed", "This workflow is off in the practice copy");
+    // Only this flow runs in the copy from here on (Codex on PR 178): another flow on the same
+    // list would mix its questions and messages into the walkthrough. The others' queued jobs
+    // and waits go; a later run of one of them turns it back on the same way.
+    this.ctx.storage.transactionSync(() => {
+      const ts = nowIso();
+      for (const o of this.sql
+        .exec<WorkflowRow>(
+          `select * from workflows where id != ? and enabled = 1 and deleted_at is null`,
+          w.id,
+        )
+        .toArray()) {
+        this.sql.exec(`update workflows set enabled = 0, updated_at = ? where id = ?`, ts, o.id);
+        this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, o.id);
+        this.dropWaits(o.id, ts);
+      }
+      if (!w.enabled) {
+        this.sql.exec(`update workflows set enabled = 1, updated_at = ? where id = ?`, ts, w.id);
+        this.scheduleExisting(w.id, w.collection_id, def);
+      }
+    });
     if (def.when.event === "added") {
       const c = this.requireCollection(w.collection_id);
       const r = await this.addRecord(actor, null, c.id, { values: await this.sampleValues(actor, c) });
