@@ -934,6 +934,20 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-22: The website is the app (owner: "let's keep the web version the same as the iPhone iOS version … the web version should be built first, and I should be able to test the web version first")
+
+- **gigspree.in opens the app:** the Expo app's web build is the site's page at `/` and every screen has its own path (`/chat`, `/list`, `/library`). It's the same code as the iPhone and Android apps, so what's tested on the website is what the phones get.
+- **The old site's pages stay at their addresses until they're ported:** sign-in and OAuth consent (`/login`, `/consent`), the admin page, settings, help, join and public links (`/join`, `/s`), shared cards (`/shared/…`), Songbook, workflow pages, records and group chats. One list (`packages/shared/src/core/site.ts`) decides for the Worker, the service worker and the old site's router. Links people were sent keep working; `/app/…` links (where the app lived before) redirect.
+- **Sign-in stays on the site's page:** Google only works there, so the app on the web sends a signed-out person to `/login?next=…` and the page comes back to the app.
+- **Offline on the web as before:** one service worker for the whole site keeps the app's script and fonts from the first open, and the old site's pages once seen; a browser still on the old site's worker is moved over and reloaded once.
+- **Next:** port the remaining pages into the app (admin first), then delete `apps/web`.
+
+## 2026-10-22: A quicker pipeline (owner: "is there something that can make the pipeline a little quicker?")
+
+- **Where the time went:** a push took about 10 minutes before the app changed: 7 of them were the tests (the worker's 318 tests inside workerd), run twice (once by CI on the PR, again by the deploy), the rest install, build and deploy (about 2½ minutes).
+- **Now:** the worker's tests run in three parts at the same time (`vitest --shard`), so the checks take about 3 minutes instead of 7; a branch push deploys the dev app at once (the PR's CI runs the checks, the dev app holds fake data); main's deploy still waits for the checks, but the short ones. CI's extra web-build step is folded into `pnpm build`.
+- **Not changed:** the iPhone builds (TestFlight about 18 minutes, the simulator screenshots about 35: Xcode's time, on GitHub's Mac runners; the screenshots run only on PRs that touch the app, and nothing waits on them).
+
 ## 2026-10-20: Play as someone (owner: "the practice run doesn't feel like a practice run … I'll be able to use it from one role's perspective exactly as they'll be able to see it or use it, and then the other role's perspective exactly the same way")
 
 - **The whole screen becomes their app:** in a practice run, picking a person replaces the screen with theirs: a coloured bar says "Practising as X" with Switch and Done, then their home (a greeting, their cards drawn as the home draws them, whose turn it is next) and their notifications. Before, their app was a box inside the practice screen.

@@ -1,6 +1,6 @@
 // Builds the Worker's HTTP app. Core never imports modules: they are passed in.
 import { Hono } from "hono";
-import type { HealthResponse } from "@assistant/shared";
+import { isClassicPath, type HealthResponse } from "@assistant/shared";
 import type { ModuleDefinition } from "./module.ts";
 import type { AppEnv } from "./context.ts";
 import { liveOf } from "./live/live-object.ts";
@@ -36,14 +36,16 @@ export interface AppOptions {
   modules: readonly ModuleDefinition[];
 }
 
-/** The new home's page or one of its files, from the static assets (404 without them). */
-async function appIndex(env: Env, req: Request): Promise<Response> {
+/**
+ * A page of the old site (decision 2026-10-22 "The website is the app"): the Expo app's web
+ * build is the site's index, so the pages the Svelte site still owns are served from their own
+ * index, kept at /classic/index.html by the web build. 404 without the static assets.
+ */
+async function classicIndex(env: Env, req: Request): Promise<Response> {
   const assets = (env as { ASSETS?: Fetcher }).ASSETS;
   if (!assets) return new Response("Not found", { status: 404 });
   const url = new URL(req.url);
-  const isFile = /\.[a-z0-9]{1,8}$/i.test(url.pathname);
-  if (isFile) return assets.fetch(req);
-  url.pathname = "/app/index.html";
+  url.pathname = "/classic/index.html";
   const res = await assets.fetch(new Request(url, { headers: req.headers }));
   // Never cached as a page: a new deploy must reach the browser on the next open.
   return new Response(res.body, {
@@ -129,11 +131,23 @@ export function createApp({ modules }: AppOptions) {
     }
   });
 
-  // The new home (the Expo app's web target, home-first.md §7 step 7) lives under /app with
-  // its own files. Its screens are client routes (/app/chat, /app/memory), so any path under
-  // it that isn't a file gets its index; files (scripts, images) come straight from assets.
-  app.get("/app/*", (c) => appIndex(c.env, c.req.raw));
-  app.get("/app", (c) => appIndex(c.env, c.req.raw));
+  // The old site's pages, at the addresses they always had (packages/shared site.ts has the
+  // list); every other path is the app's, answered by the static index (single-page fallback).
+  app.get("*", async (c, next) => {
+    if (!isClassicPath(new URL(c.req.url).pathname)) return next();
+    return classicIndex(c.env, c.req.raw);
+  });
+  // The app lived under /app before it became the site: old links still open the same screen.
+  app.get("/app/*", (c) => {
+    const url = new URL(c.req.url);
+    url.pathname = url.pathname.slice("/app".length) || "/";
+    return c.redirect(url.toString(), 301);
+  });
+  app.get("/app", (c) => {
+    const url = new URL(c.req.url);
+    url.pathname = "/";
+    return c.redirect(url.toString(), 301);
+  });
 
   // Live updates (decision 2026-09-28): one WebSocket per open app, kept by the person's
   // live object (core/live). Cookies ride along on cross-site WebSocket requests, so the

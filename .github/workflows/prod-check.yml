@@ -24,9 +24,9 @@ jobs:
           echo "health ok"
       - name: Website
         run: |
-          code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://gigspree.in/)"
-          echo "website $code"
-          [ "$code" = "200" ]
+          curl -sS --max-time 20 https://gigspree.in/ | grep -q '<div id="root">' || { echo "website: not the app's page"; exit 1; }
+          curl -sS --max-time 20 https://gigspree.in/admin | grep -q '<div id="app">' || { echo "website: the old site's page is missing"; exit 1; }
+          echo "website ok"
       - name: Sign-in route
         run: |
           code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://gigspree.in/auth/ok)"

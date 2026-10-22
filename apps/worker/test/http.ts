@@ -16,6 +16,8 @@ export async function call(
     idempotencyKey?: string | null;
     /** An API token (Authorization: Bearer …) instead of a cookie. */
     bearer?: string;
+    /** "manual" to see a redirect itself instead of following it. */
+    redirect?: "follow" | "manual" | "error";
   } = {},
 ): Promise<Response> {
   const headers = new Headers({ origin: BASE });
@@ -36,6 +38,7 @@ export async function call(
     method: init.method ?? (body !== undefined ? "POST" : "GET"),
     headers,
     body,
+    ...(init.redirect ? { redirect: init.redirect } : {}),
   });
 }
 

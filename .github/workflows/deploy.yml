@@ -19,7 +19,52 @@ permissions:
   contents: read
 
 jobs:
+  # The checks, on main only (a branch's run the PR's CI already; the dev app holds fake data).
+  # The worker's tests are the slow part, so they run in three parts at once (decision
+  # 2026-10-22 "A quicker pipeline").
+  check:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm -r --filter '!@assistant/worker' --if-present test
+  worker-tests:
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - run: pnpm --filter @assistant/worker test -- --shard=${{ matrix.part }}/3
+
   deploy:
+    needs: [check, worker-tests]
+    # Branches deploy at once (the checks above are skipped there); main waits for them to pass.
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # GitHub Environments: restrict `production` to the main branch in repo settings.
@@ -53,12 +98,6 @@ jobs:
         run: |
           corepack enable
           pnpm install --frozen-lockfile
-
-      - name: Check
-        run: |
-          pnpm typecheck
-          pnpm lint
-          pnpm test
 
       - name: Ensure D1 database exists
         working-directory: apps/worker
@@ -171,7 +210,10 @@ jobs:
           check() {
             curl -fsS --max-time 20 "$APP_URL/api/health" | jq -e --argjson m "$migrations" \
               '.ok == true and .migrations == $m and (.modules | length) >= 1' > /dev/null || { echo "health"; return 1; }
-            curl -fsS --max-time 20 "$APP_URL/" | grep -q '<div id="app">' || { echo "web app"; return 1; }
+            curl -fsS --max-time 20 "$APP_URL/" | grep -q '<div id="root">' || { echo "the app's page"; return 1; }
+            curl -fsS --max-time 20 "$APP_URL/admin" | grep -q '<div id="app">' || { echo "the old site's page"; return 1; }
+            curl -fsS --max-time 20 "$APP_URL/sw.js" | grep -q 'site-' || { echo "service worker"; return 1; }
+            [ "$(curl -s --max-time 20 -o /dev/null -w '%{http_code}' "$APP_URL/app/chat")" = "301" ] || { echo "/app redirect"; return 1; }
             curl -fsS --max-time 20 "$APP_URL/auth/get-session" > /dev/null || { echo "auth session endpoint"; return 1; }
             curl -fsS --max-time 20 "$APP_URL/.well-known/oauth-authorization-server" | jq -e '.issuer | endswith("/auth")' > /dev/null \
               || { echo "OAuth discovery"; return 1; }

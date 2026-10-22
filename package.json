@@ -10,7 +10,7 @@
   },
   "scripts": {
     "dev": "pnpm db:migrate && pnpm --filter @assistant/web dev",
-    "build": "pnpm --filter @assistant/web build && pnpm --filter @assistant/mobile build:site",
+    "build": "pnpm --filter @assistant/mobile build:site && pnpm --filter @assistant/web build",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",

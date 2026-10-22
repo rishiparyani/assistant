@@ -124,7 +124,7 @@ export const connectorRoutes = new Hono<AppEnv>().get("/api/connectors/:kind/cal
   return c.html(
     `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${label}</title>` +
       `<body style="font:17px system-ui;margin:0;display:grid;place-items:center;min-height:100vh;padding:0 24px;text-align:center">` +
-      `<p>${text}</p><p><a href="/app/connections">Open Connections</a></p></body>`,
+      `<p>${text}</p><p><a href="/connections">Open Connections</a></p></body>`,
     result === "ok" ? 200 : 400,
   );
 });

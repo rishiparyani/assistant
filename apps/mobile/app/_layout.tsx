@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Platform } from "react-native";
 import {
   useFonts,
   Manrope_400Regular,
@@ -11,12 +12,13 @@ import { setAppFont } from "@assistant/cards/native";
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { API_URL, LOCAL } from "@/config";
 import { SessionProvider, useSession } from "@/session";
 import { useTheme } from "@/theme";
 
 /**
  * Every screen needs a signed-in person (sign-in and the test route aside): a deep link like
- * /app/chat opened while signed out goes to sign-in, which comes back to it.
+ * /chat opened while signed out goes to sign-in, which comes back to it.
  */
 function SessionGate() {
   const { me, loaded } = useSession();
@@ -38,6 +40,12 @@ function SessionGate() {
         if (typeof one === "string") query.push(`${encodeURIComponent(k)}=${encodeURIComponent(one)}`);
     }
     const next = query.length ? `${path}?${query.join("&")}` : path;
+    // On the website the sign-in page is the site's own (Google, passkeys), which comes back
+    // here; the app's sign-in screen would only forward to it.
+    if (Platform.OS === "web" && window.location.origin === API_URL && !LOCAL.test(API_URL)) {
+      window.location.replace(next && next !== "/" ? `/login?next=${encodeURIComponent(next)}` : "/login");
+      return;
+    }
     router.replace({ pathname: "/login", params: next && next !== "/" ? { next } : {} });
   }, [loaded, me, path, params, segments, router]);
   return null;
@@ -58,6 +66,13 @@ export default function Layout() {
   useEffect(() => {
     const id = setTimeout(() => setWaited(true), 1500);
     return () => clearTimeout(id);
+  }, []);
+  // On the website the site's service worker keeps the app's files on the device, so it opens
+  // offline (docs/design/offline.md); not on a local or preview server, which has none.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+    if (window.location.origin !== API_URL || LOCAL.test(API_URL)) return;
+    navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, []);
   setAppFont(fontsLoaded && !fontError);
   if (!fontsLoaded && !fontError && !waited) return null;
