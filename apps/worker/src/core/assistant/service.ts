@@ -1023,6 +1023,42 @@ function progress(ctx: OpUserCtx, chatId: string, step: "thinking" | "tool" | "d
     .catch(() => undefined);
 }
 
+/**
+ * The reply's words as the model writes them (decision 2026-10-22 "Replies as they're
+ * written"), over the live socket to this person's open apps: gathered for a moment so a
+ * long answer is a few dozen messages, not one per word. `part` counts the attempts (a new
+ * step, or the next model after a failed one): the app starts a fresh draft at each.
+ */
+function streamer(ctx: OpUserCtx, chatId: string, key: string) {
+  const live = ctx.objects.LIVE.getByName(`live:${ctx.user.id}`);
+  let part = 0;
+  let buf = "";
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    timer = null;
+    if (!buf) return;
+    const text = buf;
+    buf = "";
+    void live.ping({ type: "assistant_delta", chat: chatId, key, part, text }).catch(() => undefined);
+  };
+  return {
+    fresh() {
+      flush();
+      part++;
+      void live.ping({ type: "assistant_delta", chat: chatId, key, part, text: "" }).catch(() => undefined);
+    },
+    text(t: string) {
+      buf += t;
+      timer ??= setTimeout(flush, 120);
+    },
+    done() {
+      if (timer) clearTimeout(timer);
+      flush();
+    },
+  };
+}
+export type Streamer = ReturnType<typeof streamer>;
+
 const PROGRESS_WORDS: Record<string, (col: string | null) => string> = {
   find_records: (c) => `Looking at ${c ?? "your lists"}…`,
   get_record: (c) => `Looking at ${c ?? "your lists"}…`,
@@ -1126,6 +1162,7 @@ async function answerMessage(
   // changes (a hand-over, a stronger model) this request's earlier thinking is let go.
   const prompts = new Map<Level, string>();
   let promptLevel: Level = level;
+  const stream = streamer(ctx, chatId, requestKey);
   steps: for (let step = 0; step < MAX_STEPS; step++) {
     const { specs, allowed } = toolsFor(level, ops, connected, chatHome);
     if (level !== promptLevel) {
@@ -1140,7 +1177,8 @@ async function answerMessage(
     const messages: ChatMessage[] = [{ role: "system", content: system }, ...history, ...turn];
     progress(ctx, chatId, "thinking");
     const why: string[] = [];
-    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast, why);
+    const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast, why, stream);
+    stream.done();
     stats.steps++;
     if (!answer) {
       outcome = "no_answer";
@@ -1495,6 +1533,8 @@ async function ask(
   fast = false,
   /** Filled with why each model wasn't used, in fixed words (see modelFailure). */
   why: string[] = [],
+  /** Given, the answer's words go to the person's open apps as they're written. */
+  stream?: Streamer,
 ): Promise<{ answer: Awaited<ReturnType<typeof callModel>>; level: Level } | null> {
   const s = ctx.ai.settings;
   const budget = budgetOf(ctx);
@@ -1538,10 +1578,17 @@ async function ask(
     }
     const started = Date.now();
     try {
-      const answer = await callModel(ctx.ai.binding, s, m, messages, tools, affinity, {
-        cerebras: ctx.ai.cerebrasKey,
-        ...ctx.ai.keys,
-      });
+      stream?.fresh();
+      const answer = await callModel(
+        ctx.ai.binding,
+        s,
+        m,
+        messages,
+        tools,
+        affinity,
+        { cerebras: ctx.ai.cerebrasKey, ...ctx.ai.keys },
+        stream ? (t) => stream.text(t) : undefined,
+      );
       await settle(ctx, m, level, reservation, answer.usage, Date.now() - started, "ok");
       return { answer, level };
     } catch (e) {

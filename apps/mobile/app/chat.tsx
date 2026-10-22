@@ -31,7 +31,7 @@ import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { ChatsSheet } from "@/components/ChatsSheet";
 import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
-import { ApiError, isOffline, request } from "@/api";
+import { ApiError, isOffline, request, newKey } from "@/api";
 import { send } from "@/outbox";
 import { useLive } from "@/live-socket";
 import { radius, useTheme } from "@/theme";
@@ -146,8 +146,20 @@ export default function Chat() {
   // server says over the live socket as it thinks and runs each tool; without the socket the
   // words still move on their own.
   const [status, setStatus] = useState<string | null>(null);
+  // The reply as it's being written (decision 2026-10-22 "Replies as they're written"): the
+  // server sends its words over the live socket for the message this screen sent (its key);
+  // each part (a new step, or the next model) starts the draft again.
+  const [draft, setDraft] = useState<{ part: number; text: string } | null>(null);
+  const sentKey = useRef<string | null>(null);
   useLive((m) => {
-    if (m.type !== "assistant_progress" || m.chat !== chatId) return;
+    if (m.chat !== chatId) return;
+    if (m.type === "assistant_delta" && m.key === sentKey.current) {
+      const part = Number(m.part);
+      const text = String(m.text ?? "");
+      setDraft((d) => (d && d.part === part ? { part, text: d.text + text } : { part, text }));
+      return;
+    }
+    if (m.type !== "assistant_progress") return;
     setStatus(m.step === "done" ? null : typeof m.label === "string" ? m.label : "Thinking…");
   });
   useEffect(() => {
@@ -300,9 +312,16 @@ export default function Chat() {
     // The person's own message is what they want to see: to the bottom whatever they were reading.
     list.current?.scrollToOffset({ offset: 0, animated: true });
     setBusy(true);
+    setDraft(null);
+    sentKey.current = newKey();
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>("POST", `/api/chats/${chatId}`, { text: msg, model: pick });
+      const next = await request<ChatView>(
+        "POST",
+        `/api/chats/${chatId}`,
+        { text: msg, model: pick },
+        sentKey.current,
+      );
       setView(next);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
@@ -326,6 +345,8 @@ export default function Chat() {
       } else setNote(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
+      setDraft(null);
+      sentKey.current = null;
     }
   };
 
@@ -524,8 +545,13 @@ export default function Chat() {
                 entering={FadeIn.duration(motion.fade)}
                 style={[s.bub, s.them, s.thinking, { backgroundColor: t.bubbleThem, borderColor: t.hair }]}
               >
-                <ThinkingDots />
-                {status ? (
+                {draft?.text ? (
+                  // The words so far, with a mark where the next ones land.
+                  <Markdown text={`${draft.text}▍`} style={[s.bubText, { color: t.fg }]} />
+                ) : (
+                  <ThinkingDots />
+                )}
+                {status && !draft?.text ? (
                   <Animated.Text
                     key={status}
                     entering={FadeIn.duration(motion.fade)}

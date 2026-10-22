@@ -14,7 +14,7 @@ export class ApiError extends Error {
   }
 }
 
-const newKey = () =>
+export const newKey = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
