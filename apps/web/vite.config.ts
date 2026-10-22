@@ -69,8 +69,12 @@ function site(): Plugin {
           .map((f) => `/${relative(app, resolve(f.parentPath, f.name)).split(sep).join("/")}`),
       );
       const files = ["/index.html", "/classic/index.html", ...appFiles, ...svelteFiles, ...STATIC];
+      // The two pages' contents too: a change to the page alone must reach saved copies.
+      const pages = ["index.html", "classic/index.html"]
+        .map((f) => readFileSync(resolve(out, f), "utf8"))
+        .join();
       const version = createHash("sha256")
-        .update([...files].sort().join() + staticHash())
+        .update([...files].sort().join() + staticHash() + pages)
         .digest("hex")
         .slice(0, 12);
       writeFileSync(resolve(out, "sw.js"), render(files, version));
