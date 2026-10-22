@@ -1,12 +1,15 @@
-// Service worker (built by the "service-worker" plugin in vite.config.ts, which fills in
-// the build's files). Two jobs:
-// 1. Offline (docs/design/offline.md): keeps the app's own files on the device. Pages come
+// Service worker for the whole site (built by the "site" plugin in vite.config.ts, which fills
+// in the build's files). Two jobs:
+// 1. Offline (docs/design/offline.md): keeps the site's own files on the device. Pages come
 //    from the network when it answers in time, otherwise from the saved copy; files with a
 //    hash in their name come from the saved copy. API calls are never touched here.
+//    The site's page is the app's (decision 2026-10-22 "The website is the app"); the old
+//    site's pages (the same list as packages/shared site.ts) have their own.
 // 2. Notifications (T11): shows pushes and opens the right page when one is tapped.
 const VERSION = "__VERSION__";
 const SHELL = /* files */ [];
-const CACHE = `shell-${VERSION}`;
+const CLASSIC = new RegExp("__CLASSIC__");
+const CACHE = `site-${VERSION}`;
 const PAGE_TIMEOUT_MS = 3500;
 
 self.addEventListener("install", (event) => {
@@ -21,79 +24,59 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      for (const k of await caches.keys()) if (k.startsWith("shell-") && k !== CACHE) await caches.delete(k);
+      const keys = await caches.keys();
+      // The old site's worker kept "shell-…" and "app-shell": a device still on it gets the
+      // app on its next open, and the pages it has open now are reloaded onto it once.
+      const fromOldSite = keys.some((k) => k.startsWith("shell-") || k === "app-shell");
+      for (const k of keys) if (k !== CACHE) await caches.delete(k);
       await self.clients.claim();
+      if (fromOldSite)
+        for (const w of await self.clients.matchAll({ type: "window" }))
+          if ("navigate" in w) await w.navigate(w.url).catch(() => {});
     })(),
   );
 });
 
-const SERVER_PATHS = /^\/(api|auth|mcp|\.well-known)(\/|$)/;
-// /app is the new home (its own build, served by the Worker). It gets its own cache, filled as
-// it's used: pages from the network when it answers in time, else its saved page; its hashed
-// files from the cache once seen. So a home opened once also opens offline.
-const APP_CACHE = "app-shell";
-const APP_FILES = /^\/app\/(_expo|assets)\//;
+const SERVER_PATHS = /^\/(api|auth|mcp|\.well-known|app)(\/|$)/;
+// Files with a hash in their name: the app's (_expo, assets) and the old site's (assets).
+const HASHED = /^\/(_expo|assets)\//;
 
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== "GET" || url.origin !== self.location.origin || SERVER_PATHS.test(url.pathname)) return;
-  if (url.pathname === "/app" || url.pathname.startsWith("/app/")) {
-    if (req.mode === "navigate") event.respondWith(appPage(req));
-    else if (APP_FILES.test(url.pathname)) event.respondWith(appFile(req));
-    return;
-  }
   if (req.mode === "navigate") {
-    event.respondWith(page(req));
-  } else if (url.pathname.startsWith("/assets/")) {
-    event.respondWith(caches.match(req).then((hit) => hit || fetch(req)));
+    event.respondWith(page(req, CLASSIC.test(url.pathname) ? "/classic/index.html" : "/index.html"));
+  } else if (HASHED.test(url.pathname)) {
+    event.respondWith(hashedFile(req));
   } else if (SHELL.includes(url.pathname)) {
     event.respondWith(fetch(req).catch(() => caches.match(req)));
   }
 });
 
-/** The new home's page: the network if it answers in time (and keep it), else the saved one. */
-async function appPage(req) {
-  const cache = await caches.open(APP_CACHE);
+/** The page from the network if it answers in time, else the saved one. */
+async function page(req, index) {
+  const saved = () => caches.open(CACHE).then((c) => c.match(index));
   try {
     const res = await Promise.race([
       fetch(req),
       new Promise((_, reject) => setTimeout(() => reject(new Error("slow")), PAGE_TIMEOUT_MS)),
     ]);
-    if (res.ok) {
-      // Every route of the new home is the same page: keep one copy.
-      await cache.put("/app/", res.clone());
-      return res;
-    }
-    return (await cache.match("/app/")) || res;
+    if (res.ok || res.type === "opaqueredirect") return res;
+    return (await saved()) || res;
   } catch {
-    return (await cache.match("/app/")) || Response.error();
+    return (await saved()) || Response.error();
   }
 }
 
-/** The new home's files: hashed names never change, so a saved copy is always right. */
-async function appFile(req) {
-  const cache = await caches.open(APP_CACHE);
+/** Hashed names never change, so a saved copy is always right; one seen once is kept. */
+async function hashedFile(req) {
+  const cache = await caches.open(CACHE);
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
   if (res.ok) await cache.put(req, res.clone());
   return res;
-}
-
-/** The page from the network if it answers in time, else the saved app. */
-async function page(req) {
-  const saved = () => caches.open(CACHE).then((c) => c.match("/index.html"));
-  try {
-    const res = await Promise.race([
-      fetch(req),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("slow")), PAGE_TIMEOUT_MS)),
-    ]);
-    if (res.ok) return res;
-    return (await saved()) || res;
-  } catch {
-    return (await saved()) || Response.error();
-  }
 }
 
 self.addEventListener("push", (event) => {

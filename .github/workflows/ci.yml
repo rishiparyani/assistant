@@ -28,10 +28,27 @@ jobs:
           pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
-      - run: pnpm test
+      - run: pnpm -r --filter '!@assistant/worker' --if-present test
+      # The whole site: the app's web build first, then the old site's and the Worker.
       - run: pnpm build
-      # The phone app's web target bundles (no device needed); the API URL is baked in.
-      - run: pnpm --filter @assistant/mobile build:web
-        env:
-          EXPO_PUBLIC_API_URL: https://gigspree.in
-          CI: 1
+  # The worker's tests are the slow part, so they run in three parts at once (decision
+  # 2026-10-22 "A quicker pipeline").
+  worker-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+      - run: pnpm --filter @assistant/worker test -- --shard=${{ matrix.part }}/3

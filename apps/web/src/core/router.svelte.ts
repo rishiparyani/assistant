@@ -1,4 +1,7 @@
 // Minimal path-based router for the SPA (the Worker serves index.html for unknown paths).
+// The site's other pages belong to the app now (decision 2026-10-22 "The website is the
+// app"): going to one of them is a real navigation, so the browser loads the app.
+import { isClassicPath } from "@assistant/shared";
 export interface Route {
   name: string;
   params: Record<string, string>;
@@ -49,7 +52,15 @@ function match(location: Location): Route {
 
 export const router = $state({ route: match(window.location) });
 
+/** The path part of a same-site link ("/admin?x#y" → "/admin"). */
+const pathOf = (href: string) => href.split(/[?#]/, 1)[0]!;
+
 export function navigate(path: string, { replace = false } = {}) {
+  if (!isClassicPath(pathOf(path))) {
+    if (replace) window.location.replace(path);
+    else window.location.assign(path);
+    return;
+  }
   if (replace) history.replaceState(null, "", path);
   else history.pushState(null, "", path);
   router.route = match(window.location);
@@ -64,6 +75,7 @@ document.addEventListener("click", (e) => {
   if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || a.target) return;
   const href = a.getAttribute("href");
   if (!href?.startsWith("/") || href.startsWith("/auth/") || href.startsWith("/api/")) return;
+  if (!isClassicPath(pathOf(href))) return;
   e.preventDefault();
   navigate(href);
 });

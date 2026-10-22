@@ -71,9 +71,7 @@ export default function Login() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              window.location.assign(
-                `${API_URL}/login?next=${encodeURIComponent(next === "/" ? "/app" : `/app${next}`)}`,
-              );
+              window.location.assign(`${API_URL}/login?next=${encodeURIComponent(next)}`);
             }}
             style={[s.btn, { backgroundColor: t.accent }]}
           >
