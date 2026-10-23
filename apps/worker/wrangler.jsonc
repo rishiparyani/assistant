@@ -147,7 +147,7 @@
     // 2026-10-17 "Sonnet for every day, for now"), on the Anthropic key's own prepaid credit;
     // without the key GLM answers and setups wait.
     "AI_EVERYDAY_MODEL": "claude-sonnet-5-5",
-    "AI_SETUP_MODEL": "claude-sonnet-5-5",
+    "AI_SETUP_MODEL": "gpt-6.1-sol",
     "AI_MONTHLY_CAP_INR": "2000",
     "AI_PERSON_CAP_INR": "2000",
     "USD_INR": "90",
@@ -245,7 +245,7 @@
         "BASE_URL": "https://gigspree.in",
         "AI_PAID_GATEWAY": "",
         "AI_EVERYDAY_MODEL": "claude-sonnet-5-5",
-        "AI_SETUP_MODEL": "claude-sonnet-5-5",
+        "AI_SETUP_MODEL": "gpt-6.1-sol",
         "AI_MONTHLY_CAP_INR": "2000",
         "AI_PERSON_CAP_INR": "2000",
         "AI_FAST_CALLS_PER_DAY": "60",

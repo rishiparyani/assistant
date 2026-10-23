@@ -28,6 +28,9 @@ export interface ModelEntry {
   thinking?: boolean;
   /** For models whose thinking can only be turned down, not off: the lowest level that works. */
   effort?: "none" | "low" | "high" | "max" | "model";
+  /** OpenAI only: the Responses API instead of chat completions (GPT-6.1 Sol takes tools and
+   *  thinking together only there; decision 2026-10-23 "Sol for setups"). */
+  api?: "responses";
   /** Wired up in code; entries still waiting stay in the table, switched off. */
   ready: boolean;
 }
@@ -197,20 +200,22 @@ export const MODELS: ModelEntry[] = [
     ready: true,
   },
   // GPT-6.1 Sol (the id on OpenAI's models page; the launch post says gpt-6-sol): Sonnet's price.
-  // Can't run on chat completions with function tools: 400 naming reasoning_effort for "low",
-  // "none", nothing sent and "high" (2026-10-15/16). Waits for the Responses API in client.ts;
-  // "high" stays so the first try there thinks properly.
+  // Chat completions refused function tools with any reasoning effort (2026-10-15/16), so it
+  // goes through the Responses API (client.ts callResponses), thinking at low effort like
+  // Sonnet; its reasoning items are handed back with the tool results of the same turn.
+  // The setups pick since 2026-10-23 (decision "Sol for setups": the owner's credit is there).
   {
     id: "gpt-6.1-sol",
     label: "GPT-6.1 Sol",
     level: 2,
     route: "paid",
     provider: "openai",
+    api: "responses",
     price: { input: 2, output: 10 },
     cache: { read: 0.1, write: 1 },
     maxOutput: 8_000,
-    effort: "high",
-    ready: false,
+    effort: "low",
+    ready: true,
   },
   {
     id: "gpt-5.4",

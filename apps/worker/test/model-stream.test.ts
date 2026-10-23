@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   ModelError,
   fromAnthropic,
+  fromResponses,
   readAnthropicStream,
   readChatCompletionsStream,
+  readResponsesStream,
+  toResponses,
 } from "../src/core/assistant/client.ts";
 
 const sse = (events: string[]) => new Response(events.map((e) => `${e}\n\n`).join("")).body!;
@@ -160,5 +163,97 @@ describe("streams", () => {
       none,
     );
     expect(ok.choices?.[0]?.message?.content).toBe("Whole");
+  });
+
+  it("reads a Responses API stream: words as they come, the whole answer from the final event", async () => {
+    const words: string[] = [];
+    const final = {
+      status: "completed",
+      output: [
+        { type: "reasoning", id: "rs_1", encrypted_content: "opaque==", summary: [] },
+        {
+          type: "message",
+          id: "msg_1",
+          role: "assistant",
+          content: [{ type: "output_text", text: "On it." }],
+        },
+        {
+          type: "function_call",
+          id: "fc_1",
+          call_id: "call_1",
+          name: "find_records",
+          arguments: '{"collection":"Test"}',
+        },
+      ],
+      usage: { input_tokens: 30, output_tokens: 9, input_tokens_details: { cached_tokens: 20 } },
+    };
+    const raw = await readResponsesStream(
+      sse([
+        "event: response.created\n" + data({ type: "response.created", response: { status: "in_progress" } }),
+        data({
+          type: "response.output_item.added",
+          output_index: 0,
+          item: { type: "reasoning", id: "rs_1" },
+        }),
+        data({ type: "response.output_text.delta", delta: "On " }),
+        data({ type: "response.output_text.delta", delta: "it." }),
+        data({ type: "response.function_call_arguments.delta", delta: '{"collec' }),
+        data({ type: "response.function_call_arguments.delta", delta: 'tion":"Test"}' }),
+        "event: response.completed\n" + data({ type: "response.completed", response: final }),
+      ]),
+      (t) => words.push(t),
+    );
+    expect(words).toEqual(["On ", "it."]);
+    const answer = fromResponses(raw);
+    expect(answer.content).toBe("On it.");
+    expect(answer.tool_calls).toEqual([
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "find_records", arguments: '{"collection":"Test"}' },
+      },
+    ]);
+    expect(answer.opaque).toEqual([
+      { type: "reasoning", id: "rs_1", encrypted_content: "opaque==", summary: [] },
+    ]);
+    expect(answer.usage).toEqual({ input: 30, output: 9, cached: 20 });
+    // No final event, or a failure: not an answer.
+    await expect(
+      readResponsesStream(
+        sse([data({ type: "response.output_text.delta", delta: "Half" })]),
+        () => undefined,
+      ),
+    ).rejects.toBeInstanceOf(ModelError);
+    await expect(
+      readResponsesStream(
+        sse([data({ type: "response.failed", response: { status: "failed" } })]),
+        () => undefined,
+      ),
+    ).rejects.toBeInstanceOf(ModelError);
+  });
+
+  it("puts the conversation in the Responses API's shape: instructions, calls, outputs, reasoning first", () => {
+    const conv = toResponses([
+      { role: "system", content: "Be brief." },
+      { role: "system", content: "Today is Friday." },
+      { role: "user", content: "Add milk" },
+      {
+        role: "assistant",
+        content: "Adding it.",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "add_record", arguments: '{"a":1}' } },
+        ],
+        opaque: [{ type: "reasoning", id: "rs_1", encrypted_content: "x" }],
+      },
+      { role: "tool", tool_call_id: "call_1", content: '{"ok":true}' },
+    ]);
+    expect(conv.instructions).toBe("Be brief.\n\nToday is Friday.");
+    expect(conv.input).toEqual([
+      { type: "message", role: "user", content: "Add milk" },
+      { type: "reasoning", id: "rs_1", encrypted_content: "x" },
+      { type: "message", role: "assistant", content: [{ type: "output_text", text: "Adding it." }] },
+      { type: "function_call", call_id: "call_1", name: "add_record", arguments: '{"a":1}' },
+      { type: "function_call_output", call_id: "call_1", output: '{"ok":true}' },
+    ]);
   });
 });

@@ -32,7 +32,7 @@ on:
         required: false
         default: ""
       setup_model:
-        description: "Setups model to try (level 2; an id from models.ts, e.g. gpt-6.1-sol, gpt-5.4, gemini-3.1-pro-preview, gemini-3.6-flash; @cf/moonshotai/kimi-k2.6 needs paid_gateway; empty: the live one, claude-sonnet-5-5)"
+        description: "Setups model to try (level 2; an id from models.ts, e.g. claude-sonnet-5-5, gpt-5.4, gemini-3.1-pro-preview, gemini-3.6-flash; @cf/moonshotai/kimi-k2.6 needs paid_gateway; empty: the live one, gpt-6.1-sol)"
         required: false
         default: ""
 
