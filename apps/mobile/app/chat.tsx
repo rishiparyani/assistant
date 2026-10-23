@@ -29,6 +29,7 @@ import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
+import { SetupCard, setupOf } from "@/components/SetupCard";
 import { ChatsSheet } from "@/components/ChatsSheet";
 import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
 import { ApiError, isOffline, request, newKey } from "@/api";
@@ -871,11 +872,16 @@ function Bubble({
     return (
       <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
         <Text style={[s.cardTitle, { color: t.accent }]}>{title}</Text>
-        {item.card?.details.map((d) => (
-          <Text key={d} style={[s.bubText, { color: t.fg }]}>
-            {d}
-          </Text>
-        ))}
+        {item.card && setupOf(item.card.tool, item.card.args) ? (
+          // A setup drawn, not listed (owner, 2026-10-24: "a little too much to read").
+          <SetupCard tool={item.card.tool} args={item.card.args} />
+        ) : (
+          item.card?.details.map((d) => (
+            <Text key={d} style={[s.bubText, { color: t.fg }]}>
+              {d}
+            </Text>
+          ))
+        )}
         {item.text ? <Text style={[s.bubText, { color: t.fg2 }]}>{item.text}</Text> : null}
         {item.card?.status === "waiting" ? (
           <View style={s.answers}>
