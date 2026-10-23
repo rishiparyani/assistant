@@ -934,6 +934,12 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-23: Sheets the iOS way (owner, on the Claude app's usage sheet: "this is very intuitive. But our app… I have to pull it from the little bar… Can we make it exactly like this iOS feature?")
+
+- **What:** every sheet in the app behaves like an iOS sheet with stops: a tall one opens at half the screen, a pull up anywhere on it takes it to nearly full, a pull down past the half mark closes it, and scrolling the content and moving the sheet are one gesture. A short sheet sits at its own height. The look (radius, tones, handle) stays ours.
+- **Dependency:** `@gorhom/bottom-sheet` in `apps/mobile`, for the gesture hand-off between the content's scroll and the sheet, the stops and the keyboard; the one `Sheet` component wraps it, so the rest of the app doesn't know it's there and it can be swapped.
+- **The website:** the sheet moves from its handle only, because on the web a drag that starts on a row also fires the row; content drag is the phone's.
+
 ## 2026-10-23: Suggested actions on messages (owner: "Jev can analyze every message and choose from that list… custom choices according to user preferences")
 
 - **What:** in a chat with people, a member who turns it on gets one small suggestion under a new message when a model is sure it calls for something: "Remind me", "Save as note", "Add to Bills". Tapping it hands the message to their own assistant with that action; the usual confirm card follows. Suggest, never act.
