@@ -471,6 +471,13 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /** The morning line's hour ("HH:MM" India time), "off", or null for the default. */
+  async morningSetting(userId: string, set?: string): Promise<string | null> {
+    this.own(userId);
+    if (set !== undefined) setMeta(this.sql, "morning", set);
+    return getMeta(this.sql, "morning") ?? null;
+  }
+
   /** Claims a once-only key (this week's proposals): false when it was claimed before. */
   async claimOnce(userId: string, key: string): Promise<boolean> {
     this.own(userId);

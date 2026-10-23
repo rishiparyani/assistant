@@ -14,7 +14,7 @@ export const thisWeekDue = (now: Date) =>
   now.getUTCDay() === 1 && now.getUTCHours() === 3 && now.getUTCMinutes() >= 30 && now.getUTCMinutes() < 45;
 
 /** Everyone with a personal space who has the assistant (owners, admins, people switched on). */
-async function people(env: Env): Promise<{ user_id: string; space_id: string }[]> {
+export async function people(env: Env): Promise<{ user_id: string; space_id: string }[]> {
   const owners = (env.ADMIN_EMAILS ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())

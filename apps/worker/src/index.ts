@@ -2,6 +2,7 @@ import { createApp } from "./core/app.ts";
 import { queueHandler } from "./core/queues.ts";
 import { scheduledHandler } from "./core/scheduled.ts";
 import { runThisWeek, thisWeekDue } from "./core/assistant/this-week.ts";
+import { morningDue, runMorning } from "./core/assistant/morning.ts";
 import { backupDue, runBackup } from "./core/backup/service.ts";
 import { modules } from "./modules/index.ts";
 
@@ -18,6 +19,8 @@ export default {
     },
     // This week (home-first.md §2 point 13): proposals in each person's chat, Monday morning.
     { id: "this-week", due: thisWeekDue, run: runThisWeek },
+    // The morning line: one or two sentences in each person's chat at their hour.
+    { id: "morning", due: morningDue, run: runMorning },
   ]),
 } satisfies ExportedHandler<Env>;
 
