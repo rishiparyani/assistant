@@ -18,6 +18,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haptic, radius, useTheme } from "@/theme";
+import { useKeyboardRoom } from "@/keyboard";
 
 export interface SheetProps {
   open: boolean;
@@ -63,6 +64,14 @@ export function Sheet({
   // Mounted while open, and for the slide-out after (the sheet says when it's off screen).
   const [shown, setShown] = useState(open);
   const closing = useRef(false);
+  // `onShow` runs once per opening, not again when the sheet moves between its stops (a load
+  // that also resets what the person picked would lose it on a resize).
+  const showed = useRef(false);
+  // The keyboard's height on the iPhone (0 elsewhere): a sheet with a text box rises by it.
+  // The library's own keyboard handling only knows inputs it registers itself, which ours
+  // (the cards' TextInput) aren't, so the lift is done here as before.
+  const room = useKeyboardRoom();
+  const lift = keyboard ? room : 0;
   // What it showed when open stays in it as it slides out: a sheet whose content goes with the
   // thing it shows (a card closed to null) emptied at once and dropped as a bare strip (owner,
   // 2026-10-19: "closing some cards is not that smooth").
@@ -71,12 +80,13 @@ export function Sheet({
   // Taller than half the screen: two stops (half, then as tall as it gets); else one, its own.
   const [tall, setTall] = useState<boolean | null>(null);
   const maxPx = typeof maxHeight === "number" ? maxHeight : (screenH * parseFloat(maxHeight)) / 100;
-  const bottomPad = insets.bottom + 16 + (padding - 16);
+  const bottomPad = (lift ? 12 : insets.bottom + 16) + (padding - 16);
   const chrome = (grab ? 24 : 0) + padding + bottomPad;
 
   useEffect(() => {
     if (open) {
       closing.current = false;
+      showed.current = false;
       setTall(null);
       setShown(true);
     } else if (shown && !closing.current) {
@@ -107,7 +117,8 @@ export function Sheet({
           // sheet's first frame is its own height and a tall one's is half.
           snapPoints={tall === false ? undefined : halfPoint}
           enableDynamicSizing
-          maxDynamicContentSize={maxPx}
+          maxDynamicContentSize={Math.max(160, maxPx - lift)}
+          bottomInset={lift}
           enablePanDownToClose
           // On the website a drag that starts on a row would end as that row's tap (the phone
           // cancels the press once the drag takes over; the browser doesn't), so there the
@@ -124,7 +135,10 @@ export function Sheet({
             }
           }}
           onChange={(index) => {
-            if (index >= 0) onShow?.();
+            if (index >= 0 && !showed.current) {
+              showed.current = true;
+              onShow?.();
+            }
           }}
           backdropComponent={Backdrop}
           handleComponent={grab ? undefined : null}
@@ -132,8 +146,6 @@ export function Sheet({
           handleStyle={s.handle}
           backgroundStyle={[s.panel, { backgroundColor: bg, shadowColor: t.shadow }]}
           style={s.sheet}
-          keyboardBehavior={keyboard ? "interactive" : "extend"}
-          keyboardBlurBehavior="restore"
           android_keyboardInputMode="adjustResize"
         >
           <BottomSheetScrollView
