@@ -7,7 +7,7 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import Svg, { G, Path, Rect, Text as SvgText } from "react-native-svg";
 import { Text } from "@assistant/cards/native";
-import { condWords, type FilterOp } from "@assistant/shared";
+import { proposedRuleWords, type ProposedRule } from "@assistant/shared";
 import { Mark } from "@/components/Mark";
 import { TYPE_WORDS, type DraftField } from "@/components/SetupEditSheet";
 import { colourFor, useTheme } from "@/theme";
@@ -22,15 +22,6 @@ interface DraftView {
   pinned?: boolean;
   add_fields?: string[];
 }
-interface DraftRule {
-  kind: "check" | "unique" | "flow";
-  collection: string;
-  require?: { field: string; op: FilterOp; value?: unknown }[];
-  fields?: string[];
-  field?: string;
-  moves?: { from: string; to: string[] }[];
-}
-
 /** The lists, views and rules a setup card would make; null when the card isn't one. */
 export function setupOf(tool: string, args: Record<string, unknown> | undefined) {
   if (!args) return null;
@@ -38,7 +29,7 @@ export function setupOf(tool: string, args: Record<string, unknown> | undefined)
     return {
       lists: (args.collections as DraftList[]).map((c) => ({ ...c, fields: c.fields ?? [] })),
       views: (Array.isArray(args.views) ? (args.views as DraftView[]) : []).filter((v) => v?.name),
-      rules: Array.isArray(args.rules) ? (args.rules as DraftRule[]) : [],
+      rules: Array.isArray(args.rules) ? (args.rules as ProposedRule[]) : [],
     };
   if (tool === "create_collection" && typeof args.name === "string")
     return {
@@ -141,22 +132,13 @@ export function SetupCard({ tool, args }: { tool: string; args: Record<string, u
           <Text style={[s.label, { color: t.fg2 }]}>Rules</Text>
           {rules.map((r, i) => (
             <Text key={i} style={[s.rule, { color: t.fg }]}>
-              {ruleWords(r)}
+              {proposedRuleWords(r)}
             </Text>
           ))}
         </View>
       ) : null}
     </View>
   );
-}
-
-function ruleWords(r: DraftRule): string {
-  if (r.kind === "unique") return `No two ${r.collection} share ${(r.fields ?? []).join(" and ")}`;
-  if (r.kind === "flow")
-    return `${r.field ?? "Status"} in ${r.collection} moves ${(r.moves ?? [])
-      .map((m) => `${m.from} → ${m.to.join(" / ")}`)
-      .join("; ")}`;
-  return `Every record in ${r.collection}: ${(r.require ?? []).map((f) => condWords({ field: f.field, op: f.op, value: f.value })).join(" and ")}`;
 }
 
 /**
