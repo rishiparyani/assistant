@@ -19,6 +19,7 @@
     "@better-auth/expo": "catalog:",
     "@expo-google-fonts/manrope": "^0.4.2",
     "@expo/metro-runtime": "~57.0.16",
+    "@gorhom/bottom-sheet": "^5.2.14",
     "better-auth": "catalog:",
     "expo": "~57.0.27",
     "expo-clipboard": "~57.0.2",
