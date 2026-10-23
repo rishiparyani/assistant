@@ -142,7 +142,8 @@ export function colourFor(name: string): CollectionColour {
   return PICKS[h % PICKS.length]!;
 }
 
-export const radius = { card: 22, sheet: 26, control: 12, pill: 999 };
+/** card: a card on the home; row: a row inside a list or a sheet; control: inputs and small buttons. */
+export const radius = { card: 22, row: 16, sheet: 26, control: 12, pill: 999 };
 export const space = (n: number) => n * 4;
 
 /**

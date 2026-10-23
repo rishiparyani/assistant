@@ -767,7 +767,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: 12,
     padding: 12,
-    borderRadius: 16,
+    borderRadius: radius.row,
     borderWidth: StyleSheet.hairlineWidth,
   },
   tile: { width: 50, height: 56, borderRadius: 14, alignItems: "center", justifyContent: "center" },
