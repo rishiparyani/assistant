@@ -934,6 +934,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-22: Android builds too (owner: "let's build the Android one also. I won't be testing the Android one right now, but let's keep it going in parallel … The web version should be built first … then the iOS version should come whenever it can, and in the end Android version should get built")
+
+- **One codebase, three builds:** the Expo app (`apps/mobile`) already builds the website and the iPhone app; an Android workflow (`.github/workflows/android.yml`) builds a release APK on GitHub's Linux runners after each push to `main` that touches the app, and keeps it as the run's artifact. Nothing else changes: the web build stays first in `pnpm build`, iOS runs on its own (slower) Mac runners, Android last and on its own.
+- **An APK, not a store listing:** the owner installs it by hand from the run's page (no Google Play account, no fee, nothing to review). The Play Store comes later, when someone else needs the app: an AAB and a developer account.
+- **Signing is optional at first:** without secrets the APK is signed with the project's debug key (enough to try it); a lasting key (four GitHub secrets, keystore kept by the owner) makes builds updatable in place and store-ready. The key never enters the repo or a log.
+- **Cost:** Linux runner minutes are free on a public repo; the build only runs when app code changes.
+
 ## 2026-10-22: A rehearsal is a walkthrough (owner: "the rehearse feature for the workflows and stuff, they don't look like a rehearse actually"; earlier: "What am I supposed to do in this? I don't even understand.")
 
 - **What was wrong:** four versions in a week each showed the machinery first (a practice copy, a row of people, a log, lists, End), and each time the owner asked what he was supposed to do. The pieces were right; the framing wasn't.

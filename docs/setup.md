@@ -89,6 +89,28 @@ The Apple Developer Program (owner, 2026-09-29). The iOS workflow (`.github/work
 
 Once, by hand: register the App ID `in.gigspree.assistant` with **Associated Domains** (developer.apple.com → Identifiers), create the app in App Store Connect (Apps → + → New App, name **Gigspree**, that bundle ID, SKU `assistant`), install TestFlight on the phone and turn on Automatic Updates for the app after the first build.
 
+## Android app
+
+No account needed (decision 2026-10-22 "Android builds too"). The Android workflow (`.github/workflows/android.yml`) runs on GitHub's Linux runners after each push to `main` that touches the app (and by hand from any branch: Actions → Android → Run workflow): `expo prebuild` makes the native project on the runner, Gradle builds a release APK with the JS bundled in, and the APK is the run's artifact **gigspree-android** (download it from the run's page, copy the `.apk` to the phone, open it, allow installs from that source once). It talks to the real server (`https://gigspree.in`; dev builds from other branches to `https://dev.gigspree.in`).
+
+Without signing secrets the APK is signed with the project's debug key: fine for trying it out, but a phone won't update a debug-signed build with one signed by another key, and the Play Store needs the owner's key. When the owner wants a lasting key, once, on any machine with Java:
+
+```
+keytool -genkeypair -v -keystore gigspree.keystore -alias gigspree -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 gigspree.keystore   # macOS: base64 -i gigspree.keystore
+```
+
+then add these GitHub Actions secrets (never in chat or the repo; keep the keystore file somewhere safe, it can't be made again):
+
+| Secret                      | What                                              |
+| --------------------------- | ------------------------------------------------- |
+| `ANDROID_KEYSTORE_B64`      | The keystore file, base64 (the second command)    |
+| `ANDROID_KEYSTORE_PASSWORD` | The keystore password keytool asked for           |
+| `ANDROID_KEY_ALIAS`         | `gigspree` (the alias given to keytool)           |
+| `ANDROID_KEY_PASSWORD`      | The key's password (the same unless told keytool) |
+
+Play Store listing later: a Google Play developer account (one-time fee) and an AAB instead of an APK (`:app:bundleRelease`); not needed to install the app by hand.
+
 ## What the owner does by hand (agents can't)
 
 Done by the repo owner in the browser; agents should give step-by-step instructions when these are needed.
