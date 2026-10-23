@@ -22,11 +22,14 @@ import { radius, useTheme } from "../theme.ts";
 export function SaveSheet({
   groupId,
   message,
+  action = null,
   canAsk,
   onClose,
 }: {
   groupId: string;
   message: GroupMessage | null;
+  /** A suggestion the person tapped ("Remind me"): the assistant proposes that, not a guess. */
+  action?: string | null;
   canAsk: boolean;
   onClose: () => void;
 }) {
@@ -43,7 +46,7 @@ export function SaveSheet({
     setDone("");
     if (!message || !canAsk) return;
     let gone = false;
-    proposeSave(groupId, message.id)
+    proposeSave(groupId, message.id, action ?? undefined)
       .then((p) => {
         if (gone) return;
         setChatId(p.chat_id);
@@ -63,7 +66,7 @@ export function SaveSheet({
     return () => {
       gone = true;
     };
-  }, [groupId, message, canAsk]);
+  }, [groupId, message, action, canAsk]);
 
   const finish = (label: string) => {
     if (!message) return;
@@ -108,7 +111,7 @@ export function SaveSheet({
 
   return (
     <Sheet open={!!message} onClose={onClose} tone="cell" accessibilityLabel="Save this message">
-      <Text style={[s.label, { color: t.fg2 }]}>Save · only you see this</Text>
+      <Text style={[s.label, { color: t.fg2 }]}>{action ?? "Save"} · only you see this</Text>
       {message ? (
         <View style={[s.quote, { backgroundColor: t.fill }]}>
           <Text style={[s.quoteWho, { color: t.fg2 }]}>{message.author}</Text>

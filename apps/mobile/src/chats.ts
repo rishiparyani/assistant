@@ -177,8 +177,12 @@ export async function startChat(input: { people: string[]; name?: string }): Pro
 export type { GroupMessage, GroupSummary, GroupView, ChatPerson };
 
 // online-only: the assistant proposes where a message goes; that needs the server and the model.
-export const proposeSave = (groupId: string, messageId: string) =>
-  request<SaveProposal>("POST", `/api/groups/${enc(groupId)}/messages/${enc(messageId)}/save`, {});
+export const proposeSave = (groupId: string, messageId: string, action?: string) =>
+  request<SaveProposal>(
+    "POST",
+    `/api/groups/${enc(groupId)}/messages/${enc(messageId)}/save`,
+    action ? { action } : {},
+  );
 
 // online-only: a proposal is confirmed (or dropped) on the server, where it waits.
 export const answerProposal = (chatId: string, actionId: string, what: "confirm" | "cancel") =>

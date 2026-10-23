@@ -10,7 +10,8 @@ import {
   SetGroupRoleInput,
   CreateGroupInput,
   GetGroupInput,
-  GroupMessageRef,
+  SaveMessageInput,
+  SuggestInput,
   GroupRef,
   MarkSavedInput,
   PostGroupMessageInput,
@@ -41,6 +42,7 @@ import {
   markGroupRead,
   myGroups,
   saveGroupMessage,
+  setGroupSuggest,
   postGroupMessage,
 } from "./service.ts";
 
@@ -175,8 +177,19 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       kind: "write",
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/messages/:message_id/save" },
-      input: GroupMessageRef,
-      handler: (ctx, i) => saveGroupMessage(ctx, all(), i.group_id, i.message_id),
+      input: SaveMessageInput,
+      handler: (ctx, i) => saveGroupMessage(ctx, all(), i.group_id, i.message_id, i.action),
+    }),
+    defineOperation({
+      id: "core.group_suggest",
+      tool: "set_group_suggest",
+      description:
+        "Suggested actions on new messages in one of my chats, on or off: a model reads each new message (only its words) and, when sure, suggests one action under it that only I see.",
+      kind: "write",
+      sessionOnly: true,
+      http: { method: "PUT", path: "/groups/:group_id/suggest" },
+      input: SuggestInput,
+      handler: (ctx, i) => setGroupSuggest(ctx, i.group_id, i.on),
     }),
     defineOperation({
       id: "core.mark_group_message_saved",

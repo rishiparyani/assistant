@@ -934,6 +934,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-23: Suggested actions on messages (owner: "Jev can analyze every message and choose from that list… custom choices according to user preferences")
+
+- **What:** in a chat with people, a member who turns it on gets one small suggestion under a new message when a model is sure it calls for something: "Remind me", "Save as note", "Add to Bills". Tapping it hands the message to their own assistant with that action; the usual confirm card follows. Suggest, never act.
+- **Only your own words of one message go to the model:** no history, no names, nothing the provider keeps; said plainly on the switch. The switch is per person per chat, off by default; the other members see nothing and send nothing anywhere by your choice.
+- **The options are the person's own:** their lists (as "Add to …"), the two standard ones, and "Nothing", which wins unless the message plainly names something to remember, pay, buy, do by a day or keep. A high bar (80%) and a daily limit (40 decisions) keep a busy group quiet and cheap. Next: Careful writes a one-line "when this fits" for each option from the person's memories, once in a while, so the menu reflects how they use the app (the owner's idea).
+- **Which model:** the everyday model through the app's own call (`systemAsk`), billed to the person who turned it on; Jev drops in there when its key arrives.
+
 ## 2026-10-23: A morning line, and the app's own calls (owner: "build all of them… the morning line first")
 
 - **What:** one or two sentences in the person's chat each morning at 8 (India time), from their own lists: what's due today by name, how many things are coming this week. Nothing on a quiet day: no message and no model call. A notification carries the line. The first one says how to stop it or move it; after that it's just the line.
