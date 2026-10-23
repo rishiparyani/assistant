@@ -68,6 +68,8 @@ export async function callModel(
     return answer;
   }
   if (model.provider === "anthropic") return callAnthropic(keys.anthropic, model, messages, tools, onText);
+  if (model.provider === "openai" && model.api === "responses")
+    return callResponses(keys.openai, model, messages, tools, onText);
   if (model.provider === "cerebras" || model.provider === "openai" || model.provider === "gemini")
     return callChatCompletions(
       OPENAI_SHAPED[model.provider],
@@ -382,8 +384,15 @@ export function toAnthropic(messages: ChatMessage[]): {
     } else if (m.role === "tool") {
       push("user", [{ type: "tool_result", tool_use_id: m.tool_call_id ?? "", content: m.content ?? "" }]);
     } else if (m.role === "assistant") {
-      // Its thinking first, exactly as it came, then what it said and asked for.
-      const blocks: AnthropicBlock[] = [...((m.opaque ?? []) as AnthropicBlock[])];
+      // Its thinking first, exactly as it came, then what it said and asked for. Only
+      // Anthropic's own blocks: a turn another maker started (a fallback mid-setup) carries
+      // that maker's items, which this API would refuse (Codex on PR 181).
+      const blocks: AnthropicBlock[] = (m.opaque ?? []).filter(
+        (b): b is AnthropicBlock =>
+          !!b &&
+          typeof b === "object" &&
+          ["thinking", "redacted_thinking"].includes((b as { type?: string }).type ?? ""),
+      );
       if (m.content?.trim()) blocks.push({ type: "text", text: m.content });
       for (const t of m.tool_calls ?? []) {
         blocks.push({
@@ -583,4 +592,217 @@ export async function readAnthropicStream(
   }
   raw.content = blocks.filter((b): b is AnthropicBlock & Record<string, unknown> => !!b) as AnthropicBlock[];
   return raw;
+}
+
+// ---------------------------------------------------------------------------------------------
+// OpenAI's Responses API (decision 2026-10-23 "Sol for setups"): GPT-6.1 Sol takes function
+// tools and thinking together only here. Nothing is stored at OpenAI (store: false); its
+// reasoning items come back encrypted and are handed back with the tool results of the same
+// turn (ChatMessage.opaque), as Anthropic's thinking is.
+
+const RESPONSES_URL = "https://api.openai.com/v1/responses";
+
+type ResponsesItem =
+  | { type: "message"; role: "user" | "assistant"; content: string | { type: "output_text"; text: string }[] }
+  | { type: "function_call"; call_id: string; name: string; arguments: string }
+  | { type: "function_call_output"; call_id: string; output: string }
+  | { type: "reasoning"; [k: string]: unknown };
+type ResponsesResult = {
+  status?: string;
+  output?: (ResponsesItem & { id?: string })[];
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    input_tokens_details?: { cached_tokens?: number };
+  };
+  error?: unknown;
+  incomplete_details?: { reason?: string };
+};
+
+/**
+ * The chat-completions conversation in the Responses API's shape: system lines become the
+ * instructions, tool calls function_call items and tool replies function_call_output items,
+ * an assistant turn's reasoning items first, exactly as they came. Exported for tests.
+ */
+export function toResponses(messages: ChatMessage[]): { instructions: string; input: ResponsesItem[] } {
+  const instructions: string[] = [];
+  const input: ResponsesItem[] = [];
+  for (const m of messages) {
+    if (m.role === "system") {
+      if (m.content) instructions.push(m.content);
+    } else if (m.role === "tool") {
+      input.push({ type: "function_call_output", call_id: m.tool_call_id ?? "", output: m.content ?? "" });
+    } else if (m.role === "assistant") {
+      // Only OpenAI's own reasoning items: another maker's thinking (a fallback mid-setup)
+      // would be refused here (Codex on PR 181).
+      input.push(
+        ...(m.opaque ?? []).filter(
+          (b): b is ResponsesItem =>
+            !!b && typeof b === "object" && (b as { type?: string }).type === "reasoning",
+        ),
+      );
+      if (m.content?.trim())
+        input.push({
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: m.content }],
+        });
+      for (const t of m.tool_calls ?? [])
+        input.push({
+          type: "function_call",
+          call_id: t.id,
+          name: t.function.name,
+          arguments: t.function.arguments,
+        });
+    } else if (m.content) {
+      input.push({ type: "message", role: "user", content: m.content });
+    }
+  }
+  return { instructions: instructions.join("\n\n"), input };
+}
+
+/** A Responses API answer in the chat-completions shape the router reads. Exported for tests. */
+export function fromResponses(raw: ResponsesResult): ModelAnswer {
+  const out = raw.output ?? [];
+  const text = out
+    .flatMap((o) =>
+      o.type === "message" && o.role === "assistant"
+        ? typeof o.content === "string"
+          ? [o.content]
+          : o.content.flatMap((c) => (c.type === "output_text" ? [c.text] : []))
+        : [],
+    )
+    .join("");
+  const tool_calls: ToolCall[] = out.flatMap((o) =>
+    o.type === "function_call"
+      ? [
+          {
+            id: o.call_id,
+            type: "function" as const,
+            function: { name: o.name, arguments: o.arguments || "{}" },
+          },
+        ]
+      : [],
+  );
+  // The reasoning items as they came (id and encrypted content), minus nothing: the API wants
+  // them back whole before this turn's function calls.
+  const opaque = out.filter((o) => o.type === "reasoning");
+  const cached = raw.usage?.input_tokens_details?.cached_tokens ?? 0;
+  return {
+    content: text || null,
+    tool_calls,
+    usage: { input: raw.usage?.input_tokens ?? 0, output: raw.usage?.output_tokens ?? 0, cached },
+    ...(opaque.length ? { opaque } : {}),
+  };
+}
+
+async function callResponses(
+  key: string | undefined,
+  model: ModelEntry,
+  messages: ChatMessage[],
+  tools: ToolSpec[],
+  onText?: OnText,
+): Promise<ModelAnswer> {
+  if (!key) throw new ModelError(`${model.label} isn't set up`);
+  const conv = toResponses(messages);
+  let res: Response;
+  try {
+    res = await fetch(RESPONSES_URL, {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: model.id,
+        instructions: conv.instructions,
+        input: conv.input,
+        ...(tools.length
+          ? {
+              tools: tools.map((t) => ({
+                type: "function",
+                name: t.function.name,
+                description: t.function.description,
+                parameters: t.function.parameters,
+                strict: false,
+              })),
+            }
+          : {}),
+        max_output_tokens: model.maxOutput,
+        // Nothing kept at OpenAI (decision 2026-10-14 "We don't read people's data"); the
+        // reasoning comes back encrypted so the next call of the turn can carry it.
+        store: false,
+        include: ["reasoning.encrypted_content"],
+        ...(model.effort === "model"
+          ? {}
+          : { reasoning: { effort: model.effort === "high" || model.effort === "max" ? "high" : "low" } }),
+        ...(onText ? { stream: true } : {}),
+      }),
+      signal: AbortSignal.timeout(CHAT_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new ModelError(`${model.label}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  if (!res.ok) {
+    throw new ModelError(
+      res.status === 429
+        ? `${model.label} is busy (rate limit)`
+        : res.status === 401
+          ? `${model.label} refused the key`
+          : res.status === 402 || res.status === 403
+            ? `${model.label} has no credit left`
+            : `${model.label} answered ${res.status}${await errorCode(res)}`,
+    );
+  }
+  const raw =
+    onText && res.body
+      ? await readResponsesStream(res.body, onText)
+      : ((await res.json()) as ResponsesResult);
+  if (raw.error) throw new ModelError(`${model.label} answered with an error`);
+  // Cut off (max_output_tokens, a content filter): a half-answer isn't one; the next model
+  // answers instead (Codex on PR 181).
+  if (raw.status && raw.status !== "completed")
+    throw new ModelError(`${model.label} stopped early (${raw.incomplete_details?.reason ?? raw.status})`);
+  const answer = fromResponses(raw);
+  if (answer.content === null && !answer.tool_calls.length)
+    throw new ModelError(`${model.label} gave no answer`);
+  return answer;
+}
+
+type ResponsesEvent =
+  | { type: "response.output_text.delta"; delta: string }
+  | { type: "response.completed"; response: ResponsesResult }
+  | { type: "response.incomplete"; response?: ResponsesResult }
+  | { type: "response.failed"; response?: ResponsesResult }
+  | { type: "error" }
+  | { type: string };
+
+/**
+ * A Responses API stream: the words go to onText as they come, and the whole answer is the
+ * final response object the stream ends with (its items, reasoning included, and usage).
+ * A stream that fails, is cut off (response.incomplete), carries an error, or closes before
+ * that is a ModelError. Exported for
+ * tests.
+ */
+export async function readResponsesStream(
+  body: ReadableStream<Uint8Array>,
+  onText: OnText,
+): Promise<ResponsesResult> {
+  let final: ResponsesResult | null = null;
+  const end = { whole: false };
+  for await (const data of sseData(body, end)) {
+    let ev: ResponsesEvent;
+    try {
+      ev = JSON.parse(data) as ResponsesEvent;
+    } catch {
+      continue;
+    }
+    if (ev.type === "error" || ev.type === "response.failed")
+      throw new ModelError("the stream carried an error");
+    if (ev.type === "response.incomplete") throw new ModelError("the answer was cut off");
+    if (ev.type === "response.output_text.delta" && "delta" in ev && ev.delta) onText(ev.delta);
+    else if (ev.type === "response.completed" && "response" in ev) {
+      final = ev.response;
+      break;
+    }
+  }
+  if (!final) throw new ModelError("the stream ended early");
+  return final;
 }

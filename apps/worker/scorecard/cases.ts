@@ -18,6 +18,9 @@ export const find = (u: User, collection: string) =>
     r.status === 200 ? json<FindResult>(r) : { items: [] as FindResult["items"] },
   );
 
+/** A card as the person reads it: its title and its lines (a field's card names the field in
+ *  the title since 2026-10-23). */
+const cardText = (c: { title: string; details: string[] }) => `${c.title} | ${c.details.join(" | ")}`;
 export const say = (u: User, text: string) =>
   api(u)("/chat", { body: { text } }).then((r) => json<ChatView>(r));
 
@@ -427,7 +430,7 @@ export const CASES: Case[] = [
       const f = c.fields.find((x) => has(x.name, "reimburs"));
       if (f) return f.type === "boolean" ? null : `field type: ${f.type}`;
       const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
-      return card && has(card.details.join(" | "), "reimburs") ? null : `reply: ${o.reply.slice(0, 160)}`;
+      return card && has(cardText(card), "reimburs") ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
   },
   {
@@ -442,7 +445,7 @@ export const CASES: Case[] = [
       const formula = f?.options.formula ?? "";
       if (f) return has(formula, "if(") && has(formula, "big") ? null : `field: ${f.type} ${formula}`;
       const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
-      const d = card?.details.join(" | ") ?? "";
+      const d = card ? cardText(card) : "";
       return has(d, "if(") && has(d, "big") ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
   },
@@ -462,7 +465,7 @@ export const CASES: Case[] = [
           : `field: ${f.type} ${show(f.options.choices)}`;
       }
       const card = o.cards.find((x) => ["add_field", "update_collection", "make_setup"].includes(x.tool));
-      const d = card?.details.join(" | ") ?? "";
+      const d = card ? cardText(card) : "";
       return has(d, "kisne") && has(d, "band") && has(d, "client") ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
   },

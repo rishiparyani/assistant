@@ -686,6 +686,39 @@ export function describe(
         details: fields.map((f) => `${f.name ?? "?"} (${f.type ?? "text"})`),
       };
     }
+    // A field's card names the field and its kind (the first Sol scorecard, 2026-10-23: the
+    // card for "Add a yes/no field called Reimbursed" read "field: set").
+    case "add_field":
+    case "update_field":
+    case "remove_field": {
+      const f = (args.field && typeof args.field === "object" ? args.field : {}) as {
+        name?: string;
+        type?: string;
+        options?: Record<string, unknown>;
+        required?: boolean;
+      };
+      const fieldName = String(tool === "add_field" ? (f.name ?? "") : (args.field ?? ""));
+      const opts = ((tool === "add_field" ? f.options : args.options) ?? {}) as Record<string, unknown>;
+      const details: string[] = [];
+      const type = tool === "add_field" ? f.type : null;
+      if (type) details.push(type === "boolean" ? "yes/no" : type.replace(/_/g, " "));
+      if (tool === "update_field" && typeof args.name === "string") details.push(`Renamed to ${args.name}`);
+      if (Array.isArray(opts.choices) && opts.choices.length) details.push(`Choices: ${show(opts.choices)}`);
+      if (typeof opts.formula === "string" && opts.formula) details.push(`Formula: ${opts.formula}`);
+      if (typeof opts.target === "string" && opts.target) details.push(`Links to ${opts.target}`);
+      if (opts.personal === true) details.push("One answer per person");
+      const required = tool === "add_field" ? f.required : args.required;
+      if (required === true) details.push("Required");
+      return {
+        title:
+          tool === "add_field"
+            ? `Add a field “${fieldName}”${col ? ` to ${col}` : ""}`
+            : tool === "update_field"
+              ? `Change the field “${fieldName}”${col ? ` in ${col}` : ""}`
+              : `Remove the field “${fieldName}”${col ? ` from ${col}` : ""}`,
+        details,
+      };
+    }
     case "save_view":
     case "update_view":
       return {
