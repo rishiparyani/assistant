@@ -118,6 +118,10 @@ describe("practice copies", () => {
       ),
     ).toBe(true);
     expect((await inbox(owner)).some((n) => n.body?.includes("Test practice dinner"))).toBe(false);
+    // The answer itself is in the log too (the walkthrough shows what everyone got and said).
+    expect((await view()).log).toContainEqual(
+      expect.objectContaining({ kind: "answer", name: "Rahul Test", body: "Yes" }),
+    );
 
     // Nothing can be shared out of a practice copy.
     const record = (
@@ -300,6 +304,18 @@ describe("practice copies", () => {
         },
       }),
     );
+    // Another flow on the same list, on: the walkthrough is of one flow, so the copy turns the
+    // others off when this one starts (Codex on PR 178).
+    const other = await json<WorkflowView>(
+      await api(owner)("/workflows", {
+        body: {
+          name: "Test other",
+          when: { event: "added", collection: "Visitors" },
+          then: [{ do: "notify", text: "Other: {Visitor name}", to: ["me"] }],
+          enabled: true,
+        },
+      }),
+    );
     const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
     const base = `/spaces/${practice.id}/practice`;
     const view = async () => json<PracticeView>(await api(owner)(base));
@@ -309,6 +325,9 @@ describe("practice copies", () => {
     expect(started.status).toBe(200);
     const { record } = await json<{ record: { id: string; title: string } }>(started);
     expect(record.title).toBe("Sample visitor name");
+    const inCopy = await json<WorkflowView[]>(await api(owner)(`/workflows?space=${practice.id}`));
+    expect(inCopy.find((w) => w.id === other.id)?.enabled).toBe(false);
+    expect(inCopy.find((w) => w.id === wf.id)?.enabled).toBe(true);
     // The Resident nobody fills is played by a stand-in, asked like anyone.
     expect(
       await until(async () => (await view()).people.some((p) => p.role === "standin" && p.waiting === 1)),
