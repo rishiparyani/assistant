@@ -1,0 +1,131 @@
+# The Android app (apps/mobile, Expo; decision 2026-10-22 "Android builds too"): on push to
+# main (or run by hand, on any branch), `expo prebuild` makes the Android project on the runner
+# (apps/mobile/android stays git-ignored), Gradle builds a release APK with the JS bundled in,
+# and the APK is kept as the run's artifact (download it from the run's page, open it on the
+# phone, allow installs from that source). No Play Store account needed.
+#
+# Signing: with the ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
+# ANDROID_KEY_PASSWORD secrets (docs/setup.md) the APK is signed with the owner's key (needed
+# for the Play Store and for updates over an installed build); without them it's signed with
+# the project's debug key, which is fine for trying it out. Public repo rules: secrets only on
+# push/dispatch, never printed; the key file lives in the runner's temp folder and is deleted.
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/mobile/**"
+      - "packages/shared/**"
+      - "packages/cards/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ${{ github.ref_name == 'main' && 'production' || 'dev' }}
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          # The runner's own JDK 17 and Android SDK (no extra actions to pin).
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          "$JAVA_HOME_17_X64/bin/java" -version 2>&1 | head -1
+          test -d "$ANDROID_HOME"
+
+      # Gradle's downloads (Gradle itself, Android's build tools' dependencies): minutes saved
+      # per build. Saved even when the build fails, so a second try is cheaper.
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: cache
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: expo-android-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+          restore-keys: expo-android-
+
+      # The native project is generated, not committed (apps/mobile/android is git-ignored).
+      # Version codes only go up: this workflow's run number, plus room for earlier builds.
+      - name: Make the Android project
+        run: |
+          cd apps/mobile
+          BUILD_NUMBER="$((1000 + GITHUB_RUN_NUMBER))" npx expo prebuild --platform android --no-install
+          test -f android/gradlew
+
+      - name: Signing key
+        run: |
+          cd apps/mobile/android
+          if [ -n "$ANDROID_KEYSTORE_B64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            # Gradle reads these from the project's properties (never printed).
+            {
+              echo "GIGSPREE_STORE_FILE=$RUNNER_TEMP/release.keystore"
+              echo "GIGSPREE_STORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+              echo "GIGSPREE_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+              echo "GIGSPREE_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
+            } >> gradle.properties
+            node ../../../scripts/android-signing.mjs app/build.gradle
+            echo "Signing with the owner's key."
+          else
+            echo "No signing secrets (docs/setup.md): signing with the debug key (fine for trying it out)."
+          fi
+
+      - name: Build the APK
+        timeout-minutes: 35
+        env:
+          # The real app talks to the real server, and signs in with Google through the system
+          # browser (as the iPhone app does; decisions.md 2026-10-11).
+          EXPO_PUBLIC_API_URL: ${{ github.ref_name == 'main' && 'https://gigspree.in' || 'https://dev.gigspree.in' }}
+          EXPO_PUBLIC_GOOGLE_IN_APP: 1
+          CI: 1
+        run: |
+          cd apps/mobile/android
+          ./gradlew :app:assembleRelease --no-daemon > "$RUNNER_TEMP/gradle.log" 2>&1 \
+            || { grep -iE "error|what went wrong|FAILURE" -A6 "$RUNNER_TEMP/gradle.log" | head -120; exit 1; }
+          tail -3 "$RUNNER_TEMP/gradle.log"
+          ls -la app/build/outputs/apk/release/*.apk
+          rm -f "$RUNNER_TEMP/release.keystore"
+
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: expo-android-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gigspree-android
+          path: apps/mobile/android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: Build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-build-log
+          path: ${{ runner.temp }}/gradle.log
+          if-no-files-found: ignore
+          retention-days: 7
