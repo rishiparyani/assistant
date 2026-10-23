@@ -399,7 +399,7 @@ export default function ListPage() {
           <FlatList
             data={rows}
             keyExtractor={(x) => x.id}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110, gap: 10 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110, gap: 8 }}
             onEndReached={() => cursor && void loadPage(cursor)}
             onEndReachedThreshold={0.6}
             refreshControl={
@@ -593,7 +593,7 @@ function Row({
       onAccessibilityAction={(e) => e.nativeEvent.actionName === "longpress" && onHold()}
       style={({ pressed }) => [
         s.card,
-        { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.92 : 1 },
+        { backgroundColor: t.cell, borderColor: t.hair, opacity: pressed ? 0.92 : 1 },
         hitColour
           ? {
               borderLeftWidth: 4,
@@ -737,7 +737,8 @@ const s = StyleSheet.create({
   },
   title: { flexShrink: 1, fontSize: 30, fontWeight: "800", letterSpacing: -1 },
   meta: { fontSize: 13, fontWeight: "700" },
-  chipRow: { flexGrow: 0, marginTop: 10 },
+  // flexShrink 0: on the web the list below would squeeze the chips to a sliver.
+  chipRow: { flexGrow: 0, flexShrink: 0, marginTop: 10 },
   chips: { gap: 8, paddingHorizontal: 16, paddingBottom: 6 },
   chip: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, borderWidth: 1, justifyContent: "center" },
   chipText: { fontSize: 14, fontWeight: "700" },
@@ -760,22 +761,20 @@ const s = StyleSheet.create({
     paddingTop: 10,
     paddingHorizontal: 4,
   },
+  // A quiet row (decision 2026-10-22 "The chat reads like Claude's"): a hairline edge, no shadow.
   card: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     padding: 12,
-    borderRadius: radius.card - 2,
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
   },
   tile: { width: 50, height: 56, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   tileDow: { fontSize: 10, fontWeight: "800", letterSpacing: 0.6 },
   tileDay: { fontSize: 22, fontWeight: "800", letterSpacing: -0.8, lineHeight: 26 },
   words: { flex: 1, minWidth: 0, gap: 3 },
-  recTitle: { fontSize: 16, fontWeight: "800", letterSpacing: -0.2 },
+  recTitle: { fontSize: 16, lineHeight: 21, fontWeight: "600", letterSpacing: -0.1 },
   details: { fontSize: 13 },
   pills: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 3 },
   pill: {
