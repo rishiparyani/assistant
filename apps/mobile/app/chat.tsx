@@ -813,8 +813,10 @@ function Bubble({
       setPicks(next);
       if (questions.every((_, i) => next[i])) onPick?.(questions.map((_, i) => next[i]!).join("\n"));
     };
+    // A question reads as a question: a soft tint, no edge (design pass, 2026-10-23: the
+    // chat's boxes should each say what they are at a glance).
     return (
-      <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
+      <View style={[s.inline, { backgroundColor: t.accentSoft, borderColor: "transparent" }]}>
         {questions.map((q, k) => (
           <View key={k} style={k > 0 ? s.nextQ : null}>
             <Text style={[s.choiceQ, { color: t.fg }]}>{q.question}</Text>
@@ -898,9 +900,17 @@ function Bubble({
     );
   if (item.role === "card") {
     const title = item.card?.title ?? "Card";
+    // A card waiting for a tap carries a firm accent edge; once answered it settles back.
+    const waiting = item.card?.status === "waiting";
     return (
-      <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
-        <Text style={[s.cardTitle, { color: t.accent }]}>{title}</Text>
+      <View
+        style={[
+          s.inline,
+          { backgroundColor: t.cell, borderColor: t.hair },
+          waiting && { borderLeftWidth: 3, borderLeftColor: t.accent },
+        ]}
+      >
+        <Text style={[s.cardTitle, { color: t.accent }]}>{waiting ? `To confirm · ${title}` : title}</Text>
         {item.card && setupOf(item.card.tool, item.card.args) ? (
           // A setup drawn, not listed (owner, 2026-10-24: "a little too much to read").
           <SetupCard tool={item.card.tool} args={item.card.args} />

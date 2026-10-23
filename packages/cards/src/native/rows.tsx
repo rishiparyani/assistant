@@ -13,7 +13,7 @@ import {
   type RecordView,
   type StoredValue,
 } from "@assistant/shared";
-import type { HomeCard } from "./model.ts";
+import { emptyWords, type HomeCard } from "./model.ts";
 import { Tick } from "./tick.tsx";
 import { COLLECTION_COLOURS, useTheme, type CollectionColour } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
@@ -367,7 +367,7 @@ export function RichRows({
           </View>
         );
       })}
-      {card.records.length === 0 ? <Text style={[s.empty, { color: t.fg2 }]}>Nothing yet.</Text> : null}
+      {card.records.length === 0 ? <Text style={[s.empty, { color: t.fg2 }]}>{emptyWords(card)}</Text> : null}
     </View>
   );
 }

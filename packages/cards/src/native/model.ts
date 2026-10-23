@@ -45,3 +45,11 @@ export interface HomeCard {
     fields?: { name: string; display: string }[];
   };
 }
+
+/**
+ * An empty card teaches the one way in (design pass, 2026-10-23: "empty states that teach"):
+ * the list's name in the message to send, so "Nothing yet" is never a dead end.
+ */
+export function emptyWords(card: Pick<HomeCard, "collection">): string {
+  return card.collection ? `Nothing yet. Tell the chat: “Add to ${card.collection.name}”.` : "Nothing yet.";
+}
