@@ -23,6 +23,17 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   fakeSystems.push(String(messages[0]?.content ?? ""));
   if (fakeSystems.length > 50) fakeSystems.shift();
   const last = messages.at(-1)!;
+  // A flow's "choose" step: the option whose name appears in the record wins (sure); a record
+  // that says "Test unsure" gets a low confidence; otherwise the first option, sure.
+  if (String(messages[0]?.content ?? "").startsWith("You decide one step")) {
+    const text = last.content ?? "";
+    const options = [...text.matchAll(/^- (.+)$/gm)].map((m) => m[1]!);
+    const record = text.slice(text.indexOf("Record:")).toLowerCase();
+    const hit = options.find((o) => record.includes(o.split(":")[0]!.trim().toLowerCase()));
+    const choice = hit ?? options[0] ?? "";
+    const confidence = record.includes("test unsure") ? 0.3 : 0.9;
+    return say(JSON.stringify({ choice, confidence }));
+  }
   // After a tool ran: a short reply that quotes what it got back.
   if (last.role === "tool") {
     const result = last.content ?? "";

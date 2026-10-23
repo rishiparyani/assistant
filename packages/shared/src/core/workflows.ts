@@ -179,6 +179,60 @@ const IfAction = z.object({
     .default([])
     .describe("What to do otherwise (may be empty)"),
 });
+/**
+ * "Choose" (decision 2026-10-23 "A Choose step"): a model picks one of the flow's own options
+ * from the record (a decision, never an action of its own); below the confidence asked for,
+ * the "unsure" steps run instead (usually: ask a person).
+ */
+const ChooseAction = z.object({
+  do: z.literal("choose"),
+  question: z
+    .string()
+    .trim()
+    .min(1)
+    .max(300)
+    .describe(
+      'What to decide about the record, e.g. "Should this visitor be let in?"; {Field} puts in a value',
+    ),
+  options: z
+    .array(
+      z.object({
+        label: z
+          .string()
+          .trim()
+          .min(1)
+          .max(60)
+          .describe(
+            'The option in a few words, e.g. "Let in"; a hint after a colon helps: "Let in: a regular"',
+          ),
+        then: z
+          .array(z.discriminatedUnion("do", [NotifyAction, SetAction, AddAction]))
+          .max(3)
+          .default([])
+          .describe("What to do when this option is picked"),
+      }),
+    )
+    .min(2)
+    .max(6),
+  unsure: z
+    .array(z.discriminatedUnion("do", [NotifyAction, SetAction, AddAction]))
+    .max(3)
+    .default([])
+    .describe("What to do when the pick isn't sure enough (usually: tell or ask a person)"),
+  min_confidence: z
+    .number()
+    .min(0.5)
+    .max(1)
+    .default(0.7)
+    .describe("How sure the pick must be (0.5 to 1); below it, the unsure steps run"),
+  save_to: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .optional()
+    .describe("A text or choice field of the record that keeps the option picked"),
+});
 export const WorkflowActionInput = z.discriminatedUnion("do", [
   NotifyAction,
   SetAction,
@@ -186,6 +240,7 @@ export const WorkflowActionInput = z.discriminatedUnion("do", [
   SummaryAction,
   ForEachAction,
   IfAction,
+  ChooseAction,
   z.object({
     do: z.literal("ask"),
     who: z
@@ -310,6 +365,15 @@ export interface WorkflowView {
       }
     | { do: "for_each"; collection_id: string; collection: string; where: CondView[]; then: SimpleStepView[] }
     | { do: "if"; if: CondView[]; then: SimpleStepView[]; else: SimpleStepView[] }
+    | {
+        do: "choose";
+        question: string;
+        options: { label: string; then: SimpleStepView[] }[];
+        unsure: SimpleStepView[];
+        min_confidence: number;
+        save_to_id: string | null;
+        save_to: string | null;
+      }
   )[];
   /** The same definition in plain words, one line per part. */
   words: string[];
@@ -477,6 +541,16 @@ export function workflowWords(
       out.push(
         `If ${a.if.map(cond).join(" and ")}: ${a.then.map(simpleWords).join("; ")}${
           a.else.length ? `. Otherwise: ${a.else.map(simpleWords).join("; ")}` : ""
+        }`,
+      );
+      continue;
+    }
+    if (a.do === "choose") {
+      const branch = (steps: SimpleStepView[]) =>
+        steps.length ? steps.map(simpleWords).join("; ") : "nothing";
+      out.push(
+        `Decide “${a.question}” (the app picks): ${a.options.map((o) => `${o.label} → ${branch(o.then)}`).join(". ")}. Not sure → ${branch(a.unsure)}${
+          a.save_to ? `. Keep the pick in ${a.save_to}` : ""
         }`,
       );
       continue;

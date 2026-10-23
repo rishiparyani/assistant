@@ -30,6 +30,13 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 5. ~~An editable grid arrangement: a sheet of one list where cells are edited in place (Next moves along the row), writes through the outbox; a Sheet button on every list~~ (HF49).
 6. ~~The fallback ("Chat makes, screens can fix"): the proposed setup card editable before Confirm; a plain setup screen per list under its ⋯ menu (fields, rules, cards and views), never a tab~~ (HF50).
 
+## DF Decisions in flows (decision 2026-10-23 "A Choose step"; owner: "Add it to the backlog and build the Choose step now")
+
+1. ~~The **Choose** step: a flow lists its own options, each with its steps; a model reads the record and picks one (or "not sure" → the unsure steps); the pick can be kept in a field; rehearsals let the person pick what the app would; the walkthrough shows the pick like any step~~ (HF107, on the everyday model).
+2. **Jev behind the Choose step** (TypeSafe AI's decision model: a typed question and state in, one option and a probability out, 70–500 ms, $0.042 per million input tokens, output free; early access by waitlist). When a key arrives: a `provider: "jev"` entry in `models.ts` and a call in `client.ts` for the decide call only (`SpaceObject.decide`), the model behind the step a setting; a scorecard suite of choose cases (visitor at the gate, an expense's category, a reminder's urgency; English and Hinglish) run on Luna and on Jev, right answers and time side by side. Jev stays off until it matches Luna on the suite.
+   - AC: a flow's Choose step runs unchanged whichever model decides; the run's history names the pick and how sure; the cap and per-person caps cover the call; nothing of the record is logged.
+3. **Jev as the router**: Quick or Careful decided before the first model call (saves a Luna call and ~3 s per setup); which tool group to load; search ranking. Same gate: the scorecard first.
+
 ## C1 New look and the chat-first shell
 
 Colour tokens per kind of card (lists amber, money green, people indigo, workflows violet, forms rose), the gradient assistant mark, a top bar with a side menu (chats, pinned, what it remembers, workflows, settings, help), the chat full screen. Remove the tab bar and the old screens (Overview, Gigs, Collections, Songs, Contacts, Reports and their pages); keep shared-with-you, join/link pages, settings, help, admin.

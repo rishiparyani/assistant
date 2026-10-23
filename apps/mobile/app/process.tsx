@@ -196,7 +196,9 @@ export default function Process() {
                             : `It goes on once all ${rehearsal.waiting.people.length} have answered. Answer as ${rehearsal.waiting.next}:`
                           : rehearsal.waiting.next === "me"
                             ? "Answer to go on:"
-                            : `Answer as ${rehearsal.waiting.next} to go on:`}
+                            : rehearsal.waiting.next === "the app"
+                              ? "Pick what the app would choose here:"
+                              : `Answer as ${rehearsal.waiting.next} to go on:`}
                       </Text>
                       {rehearsal.waiting.choices ? (
                         <View style={s.row}>
