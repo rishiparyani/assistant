@@ -157,5 +157,13 @@ describe("a choose step", () => {
       },
     });
     expect(same.status).toBe(400);
+    const reserved = await api(me)("/workflows", {
+      body: {
+        name: "Test reserved",
+        when: { event: "added", collection: "Visitors" },
+        then: [{ do: "choose", question: "Which?", options: [{ label: "Yes" }, { label: "not sure" }] }],
+      },
+    });
+    expect(reserved.status).toBe(400);
   });
 });

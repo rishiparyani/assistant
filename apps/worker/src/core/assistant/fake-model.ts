@@ -28,7 +28,7 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   if (String(messages[0]?.content ?? "").startsWith("You decide one step")) {
     const text = last.content ?? "";
     const options = [...text.matchAll(/^- (.+)$/gm)].map((m) => m[1]!);
-    const record = text.slice(text.indexOf("Record:")).toLowerCase();
+    const record = text.slice(text.indexOf("<<<")).toLowerCase();
     const hit = options.find((o) => record.includes(o.split(":")[0]!.trim().toLowerCase()));
     const choice = hit ?? options[0] ?? "";
     const confidence = record.includes("test unsure") ? 0.3 : 0.9;
