@@ -8,7 +8,9 @@ import {
   readAnthropicStream,
   readChatCompletionsStream,
   readResponsesStream,
+  toAnthropic,
   toResponses,
+  type ChatMessage,
 } from "../src/core/assistant/client.ts";
 
 const sse = (events: string[]) => new Response(events.map((e) => `${e}\n\n`).join("")).body!;
@@ -230,6 +232,43 @@ describe("streams", () => {
         () => undefined,
       ),
     ).rejects.toBeInstanceOf(ModelError);
+    // Cut off (max_output_tokens): not an answer either (Codex on PR 181).
+    await expect(
+      readResponsesStream(
+        sse([
+          data({ type: "response.output_text.delta", delta: "Half" }),
+          data({
+            type: "response.incomplete",
+            response: { status: "incomplete", incomplete_details: { reason: "max_output_tokens" } },
+          }),
+        ]),
+        () => undefined,
+      ),
+    ).rejects.toBeInstanceOf(ModelError);
+  });
+
+  it("hands each maker only its own opaque blocks (a fallback mid-setup; Codex on PR 181)", () => {
+    const turn: ChatMessage[] = [
+      { role: "user", content: "Add milk" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "c1", type: "function", function: { name: "add_record", arguments: "{}" } }],
+        opaque: [
+          { type: "thinking", thinking: "hmm", signature: "sig" },
+          { type: "reasoning", id: "rs_1", encrypted_content: "x" },
+        ],
+      },
+      { role: "tool", tool_call_id: "c1", content: "{}" },
+    ];
+    expect(toResponses(turn).input.filter((i) => i.type === "reasoning")).toEqual([
+      { type: "reasoning", id: "rs_1", encrypted_content: "x" },
+    ]);
+    const blocks = toAnthropic(turn).messages[1]?.content ?? [];
+    expect(blocks.filter((b) => b.type === "thinking")).toEqual([
+      { type: "thinking", thinking: "hmm", signature: "sig" },
+    ]);
+    expect(blocks.some((b) => (b as { type: string }).type === "reasoning")).toBe(false);
   });
 
   it("puts the conversation in the Responses API's shape: instructions, calls, outputs, reasoning first", () => {

@@ -384,8 +384,15 @@ export function toAnthropic(messages: ChatMessage[]): {
     } else if (m.role === "tool") {
       push("user", [{ type: "tool_result", tool_use_id: m.tool_call_id ?? "", content: m.content ?? "" }]);
     } else if (m.role === "assistant") {
-      // Its thinking first, exactly as it came, then what it said and asked for.
-      const blocks: AnthropicBlock[] = [...((m.opaque ?? []) as AnthropicBlock[])];
+      // Its thinking first, exactly as it came, then what it said and asked for. Only
+      // Anthropic's own blocks: a turn another maker started (a fallback mid-setup) carries
+      // that maker's items, which this API would refuse (Codex on PR 181).
+      const blocks: AnthropicBlock[] = (m.opaque ?? []).filter(
+        (b): b is AnthropicBlock =>
+          !!b &&
+          typeof b === "object" &&
+          ["thinking", "redacted_thinking"].includes((b as { type?: string }).type ?? ""),
+      );
       if (m.content?.trim()) blocks.push({ type: "text", text: m.content });
       for (const t of m.tool_calls ?? []) {
         blocks.push({
@@ -626,7 +633,14 @@ export function toResponses(messages: ChatMessage[]): { instructions: string; in
     } else if (m.role === "tool") {
       input.push({ type: "function_call_output", call_id: m.tool_call_id ?? "", output: m.content ?? "" });
     } else if (m.role === "assistant") {
-      input.push(...((m.opaque ?? []) as ResponsesItem[]));
+      // Only OpenAI's own reasoning items: another maker's thinking (a fallback mid-setup)
+      // would be refused here (Codex on PR 181).
+      input.push(
+        ...(m.opaque ?? []).filter(
+          (b): b is ResponsesItem =>
+            !!b && typeof b === "object" && (b as { type?: string }).type === "reasoning",
+        ),
+      );
       if (m.content?.trim())
         input.push({
           type: "message",
@@ -742,6 +756,10 @@ async function callResponses(
       ? await readResponsesStream(res.body, onText)
       : ((await res.json()) as ResponsesResult);
   if (raw.error) throw new ModelError(`${model.label} answered with an error`);
+  // Cut off (max_output_tokens, a content filter): a half-answer isn't one; the next model
+  // answers instead (Codex on PR 181).
+  if (raw.status && raw.status !== "completed")
+    throw new ModelError(`${model.label} stopped early (${raw.incomplete_details?.reason ?? raw.status})`);
   const answer = fromResponses(raw);
   if (answer.content === null && !answer.tool_calls.length)
     throw new ModelError(`${model.label} gave no answer`);
@@ -750,7 +768,8 @@ async function callResponses(
 
 type ResponsesEvent =
   | { type: "response.output_text.delta"; delta: string }
-  | { type: "response.completed" | "response.incomplete"; response: ResponsesResult }
+  | { type: "response.completed"; response: ResponsesResult }
+  | { type: "response.incomplete"; response?: ResponsesResult }
   | { type: "response.failed"; response?: ResponsesResult }
   | { type: "error" }
   | { type: string };
@@ -758,7 +777,8 @@ type ResponsesEvent =
 /**
  * A Responses API stream: the words go to onText as they come, and the whole answer is the
  * final response object the stream ends with (its items, reasoning included, and usage).
- * A stream that fails, carries an error, or closes before that is a ModelError. Exported for
+ * A stream that fails, is cut off (response.incomplete), carries an error, or closes before
+ * that is a ModelError. Exported for
  * tests.
  */
 export async function readResponsesStream(
@@ -776,8 +796,9 @@ export async function readResponsesStream(
     }
     if (ev.type === "error" || ev.type === "response.failed")
       throw new ModelError("the stream carried an error");
+    if (ev.type === "response.incomplete") throw new ModelError("the answer was cut off");
     if (ev.type === "response.output_text.delta" && "delta" in ev && ev.delta) onText(ev.delta);
-    else if ((ev.type === "response.completed" || ev.type === "response.incomplete") && "response" in ev) {
+    else if (ev.type === "response.completed" && "response" in ev) {
       final = ev.response;
       break;
     }
