@@ -152,6 +152,18 @@ describe("setup sharing", () => {
       (await api(rahul)(`/chats/main/actions/${card.action_id}/confirm`, { method: "POST" })).status,
     ).toBe(200);
 
+    // After the tap, one more turn (owner, 2026-10-23: "how do I use it?"): how to use it,
+    // messages to try, and the flows that fit as answers to tap; the app's prompt stays unseen.
+    const after = await json<ChatView>(await api(rahul)("/chats/main"));
+    const tail = after.items.slice(after.items.findIndex((i) => i.card?.status === "done"));
+    expect(tail.map((i) => i.role)).toEqual(["card", "note", "live", "assistant", "choices"]);
+    expect(tail[3]!.text).toContain('"Add one"');
+    expect(tail[4]!.choices!.options.map((o) => o.label)).toEqual([
+      "Remind me when one is a week old",
+      "Not now",
+    ]);
+    expect(after.items.some((i) => i.role === "user")).toBe(false);
+
     const cols = await json<CollectionView[]>(await api(rahul)("/collections"));
     const bookings = cols.find((c) => c.name === "Bookings")!;
     const clients = cols.find((c) => c.name === "Clients")!;

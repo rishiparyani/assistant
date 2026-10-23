@@ -28,4 +28,21 @@ describe("questions with answers to tap", () => {
     expect(next.items.some((i) => i.role === "user" && i.text === "Every week")).toBe(true);
     expect(next.items.at(-1)!.role).toBe("assistant");
   });
+
+  it("asks several questions together, answered as one message", async () => {
+    const me = await signUp("Test Owner");
+    const chat = await json<ChatView>(
+      await call("/api/chat", { cookie: me.cookie, body: { text: "Test: ask me twice" } }),
+    );
+    const last = chat.items.at(-1)!;
+    expect(last.role).toBe("choices");
+    // The first question doubles as question/options (an older app shows that one).
+    expect(last.choices!.question).toBe("How often?");
+    expect(last.choices!.questions!.map((q) => q.question)).toEqual(["How often?", "Who should hear?"]);
+    expect(last.text).toMatch(/How often\?[\s\S]*Every month[\s\S]*Who should hear\?[\s\S]*Everyone/);
+    const next = await json<ChatView>(
+      await call("/api/chat", { cookie: me.cookie, body: { text: "Every week\nOnly me" } }),
+    );
+    expect(next.items.at(-1)!.role).toBe("assistant");
+  });
 });

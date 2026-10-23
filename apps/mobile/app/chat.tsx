@@ -801,47 +801,69 @@ function Bubble({
   onOther?: () => void;
 }) {
   const { t } = useTheme();
+  // Several questions asked together: each pick is kept here until all are made, then the
+  // answers go as one message, a line per question (the same order).
+  const [picks, setPicks] = useState<Record<number, string>>({});
   if (item.role === "choices" && item.choices) {
     const open = answered == null;
+    const questions = item.choices.questions?.length ? item.choices.questions : [item.choices];
+    const given = answered?.split("\n") ?? [];
+    const pickAt = (k: number, label: string) => {
+      const next = { ...picks, [k]: label };
+      setPicks(next);
+      if (questions.every((_, i) => next[i])) onPick?.(questions.map((_, i) => next[i]!).join("\n"));
+    };
     return (
       <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
-        <Text style={[s.choiceQ, { color: t.fg }]}>{item.choices.question}</Text>
-        {item.choices.options.map((o, i) => {
-          const picked = !open && answered === o.label;
-          const row = [
-            s.choice,
-            i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
-            !open && !picked && { opacity: 0.45 },
-          ];
-          const words = (
-            <View style={{ flex: 1, gap: 2 }}>
-              <Text style={[s.choiceLabel, { color: picked ? t.accent : t.fg }]}>{o.label}</Text>
-              {o.description ? <Text style={[type.caption, { color: t.fg2 }]}>{o.description}</Text> : null}
-            </View>
-          );
-          // Answered: a record of what was picked, nothing to tap (and nothing dimmed but the rest).
-          if (!open)
-            return (
-              <View key={o.label} style={row} accessibilityState={{ selected: picked }}>
-                {words}
-                {picked ? <Text style={{ color: t.accent, fontWeight: "800", fontSize: 16 }}>✓</Text> : null}
-              </View>
-            );
-          return (
-            <Tap
-              key={o.label}
-              accessibilityRole="button"
-              accessibilityLabel={o.description ? `${o.label}: ${o.description}` : o.label}
-              disabled={busy}
-              onPress={() => onPick?.(o.label)}
-              haptic="selection"
-              style={row}
-            >
-              {words}
-              <Text style={{ color: t.fg3, fontWeight: "700", fontSize: 16 }}>›</Text>
-            </Tap>
-          );
-        })}
+        {questions.map((q, k) => (
+          <View key={k} style={k > 0 ? s.nextQ : null}>
+            <Text style={[s.choiceQ, { color: t.fg }]}>{q.question}</Text>
+            {q.options.map((o, i) => {
+              const mine = questions.length > 1 ? given[k] : answered;
+              const picked = (!open && mine === o.label) || (open && picks[k] === o.label);
+              const row = [
+                s.choice,
+                i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
+                !open && !picked && { opacity: 0.45 },
+              ];
+              const words = (
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text style={[s.choiceLabel, { color: picked ? t.accent : t.fg }]}>{o.label}</Text>
+                  {o.description ? (
+                    <Text style={[type.caption, { color: t.fg2 }]}>{o.description}</Text>
+                  ) : null}
+                </View>
+              );
+              // Answered: a record of what was picked, nothing to tap (and nothing dimmed but the rest).
+              if (!open)
+                return (
+                  <View key={o.label} style={row} accessibilityState={{ selected: picked }}>
+                    {words}
+                    {picked ? (
+                      <Text style={{ color: t.accent, fontWeight: "800", fontSize: 16 }}>✓</Text>
+                    ) : null}
+                  </View>
+                );
+              return (
+                <Tap
+                  key={o.label}
+                  accessibilityRole="button"
+                  accessibilityLabel={o.description ? `${o.label}: ${o.description}` : o.label}
+                  accessibilityState={{ selected: picked }}
+                  disabled={busy}
+                  onPress={() => (questions.length > 1 ? pickAt(k, o.label) : onPick?.(o.label))}
+                  haptic="selection"
+                  style={row}
+                >
+                  {words}
+                  <Text style={{ color: picked ? t.accent : t.fg3, fontWeight: "700", fontSize: 16 }}>
+                    {picked ? "✓" : "›"}
+                  </Text>
+                </Tap>
+              );
+            })}
+          </View>
+        ))}
         {open ? (
           <Tap
             accessibilityRole="button"
@@ -956,6 +978,7 @@ const s = StyleSheet.create({
   choiceQ: { fontSize: 17, fontWeight: "800", letterSpacing: -0.3, lineHeight: 23, marginBottom: 4 },
   choice: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 52, paddingVertical: 10 },
   choiceLabel: { fontSize: 16, fontWeight: "700" },
+  nextQ: { marginTop: 14 },
   root: { flex: 1 },
   head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
   // Clear of Changes (left) and Done (right).
