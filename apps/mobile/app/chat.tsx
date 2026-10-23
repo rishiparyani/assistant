@@ -993,7 +993,7 @@ function Bubble({
   return (
     <>
       <View style={s.reply}>
-        <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} />
+        <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} onTry={onSay} />
       </View>
       {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
       {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}

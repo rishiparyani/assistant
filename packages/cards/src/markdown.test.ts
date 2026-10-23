@@ -25,7 +25,17 @@ describe("the assistant's Markdown", () => {
       { kind: "p", lines: ["**Cards**:"] },
       { kind: "list", items: ["Add an expense", "Delete records"], ordered: false },
       { kind: "list", items: ["first", "second"], ordered: true },
-      { kind: "h", text: "Done" },
+      { kind: "h", text: "Done", level: 1 },
+    ]);
+  });
+
+  it("reads heading levels, quotes and rules", () => {
+    expect(blocksOf("# Big\n### Small\n> “Add flat 101”\n> plain\n---\nafter")).toEqual([
+      { kind: "h", text: "Big", level: 1 },
+      { kind: "h", text: "Small", level: 3 },
+      { kind: "q", lines: ["“Add flat 101”", "plain"] },
+      { kind: "hr" },
+      { kind: "p", lines: ["after"] },
     ]);
   });
 });
