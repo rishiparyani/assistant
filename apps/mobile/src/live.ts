@@ -23,7 +23,14 @@ export type LiveData =
   | { kind: "answer"; card: HomeCard; ref: Extract<LiveRef, { kind: "query" }> }
   | { kind: "plain"; title: string; subtitle: string | null }
   /** A workflow in words; it opens on its own screen (to rehearse it, turn it on, see runs). */
-  | { kind: "workflow"; id: string; name: string; enabled: boolean; words: string[]; space: string | null };
+  | { kind: "workflow"; id: string; name: string; enabled: boolean; words: string[]; space: string | null }
+  /** A setup just made: its lists (as they are now) and the cards it put on the home. */
+  | {
+      kind: "setup";
+      lists: CollectionView[];
+      views: { id: string; name: string; collection_id: string; pinned: boolean }[];
+      rules: number;
+    };
 
 export async function loadLive(
   ref: LiveRef,
@@ -103,6 +110,13 @@ export async function loadLive(
     }
     case "app":
       return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null };
+    case "setup": {
+      // The lists as they are now (renamed, or gone since), in the setup's order.
+      const now = await collections(true);
+      const lists = ref.collections.flatMap((c) => now.filter((x) => x.id === c.id));
+      if (!lists.length) throw new Error("That setup is gone");
+      return { kind: "setup", lists, views: ref.views, rules: ref.rules };
+    }
     // Drawn by its own player (UiCard), never loaded here.
     case "ui":
       return { kind: "plain", title: ref.title, subtitle: null };

@@ -29,6 +29,7 @@ import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
+import { SetupCard, setupOf } from "@/components/SetupCard";
 import { ChatsSheet } from "@/components/ChatsSheet";
 import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
 import { ApiError, isOffline, request, newKey } from "@/api";
@@ -525,6 +526,10 @@ export default function Chat() {
                 collections={getCollections}
                 space={chatSpace}
                 onAsk={(title) => setText((t) => t || `About "${title}": `)}
+                onSay={(words) => {
+                  setText(words);
+                  box.current?.focus();
+                }}
                 answered={answers.get(item.id)}
                 onPick={(label) => void say(label)}
                 onOther={() => box.current?.focus()}
@@ -773,6 +778,7 @@ function Bubble({
   collections,
   space,
   onAsk,
+  onSay,
   answered,
   onPick,
   onOther,
@@ -786,6 +792,8 @@ function Bubble({
   /** The chat's space (null: the person's own): the cards' lists live there. */
   space: string | null;
   onAsk: (title: string) => void;
+  /** Words put in the box by a card (a next step), for the person to finish. */
+  onSay?: (text: string) => void;
   /** A question with answers to tap: what the person answered (undefined/null: not yet). */
   answered?: string | null;
   onPick?: (label: string) => void;
@@ -857,7 +865,7 @@ function Bubble({
   if (item.role === "live" && item.live)
     return (
       <View style={{ marginVertical: 4 }}>
-        <LiveCard live={item.live} collections={collections} space={space} onAsk={onAsk} />
+        <LiveCard live={item.live} collections={collections} space={space} onAsk={onAsk} onSay={onSay} />
       </View>
     );
   if (item.role === "user")
@@ -871,11 +879,16 @@ function Bubble({
     return (
       <View style={[s.inline, { backgroundColor: t.cell, borderColor: t.hair }]}>
         <Text style={[s.cardTitle, { color: t.accent }]}>{title}</Text>
-        {item.card?.details.map((d) => (
-          <Text key={d} style={[s.bubText, { color: t.fg }]}>
-            {d}
-          </Text>
-        ))}
+        {item.card && setupOf(item.card.tool, item.card.args) ? (
+          // A setup drawn, not listed (owner, 2026-10-24: "a little too much to read").
+          <SetupCard tool={item.card.tool} args={item.card.args} />
+        ) : (
+          item.card?.details.map((d) => (
+            <Text key={d} style={[s.bubText, { color: t.fg }]}>
+              {d}
+            </Text>
+          ))
+        )}
         {item.text ? <Text style={[s.bubText, { color: t.fg2 }]}>{item.text}</Text> : null}
         {item.card?.status === "waiting" ? (
           <View style={s.answers}>

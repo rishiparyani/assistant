@@ -934,6 +934,14 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-23: Setups drawn, not listed (owner, on a long setup card: "This kind of a response is a little too much to read … wherever we can … diagrammatic representation would be better")
+
+- **What:** when the assistant proposes a setup (lists, fields, views, rules), the card draws it instead of listing it: each list as a block with its fields as chips tagged by kind, a small map of how the lists link (an arc per link field, named), the home's cards as chips, the rules in a line each. The words stay for cards the app can't draw (and for the receipt after Confirm).
+- **Why a picture of the links:** the hard part of a setup to hold in your head is which list points at which; a sentence per field hides it, a map shows it in one look. Fields, views and rules are flat, so chips and lines are enough; a diagram is drawn only where it says more than the words (the owner: "not necessary to have a diagram everywhere").
+- **How:** drawn on the device from the card's own arguments (`SetupCard.tsx`), with the app's colours per list and react-native-svg for the map; nothing new goes over the wire and the model isn't asked to format anything.
+- **After Confirm, a receipt that leads somewhere (owner, the same evening: an empty "Flats · Nothing yet" card "is not a good user experience"):** the card under "Done: Make …" is the setup itself (its lists as chips that open, what went on the home, how many rules) with one next thing to do ("Add the first to Flats", which starts the message), never the first list with nothing in it. An empty list is a fact; a next step is an answer.
+- **Next:** the same for workflow cards (a flow diagram with its branches), then live cards that show structure (a list's links on its screen).
+
 ## 2026-10-23: A Choose step (owner: "We can also create flows that has several options for actions and ask jev to choose right?" … "Add it to the backlog and build the Choose step now")
 
 - **What:** a flow can hold a decision: "Choose" lists the flow's own options, each with its steps, and a model reads the record and picks one. Below the confidence the step asks for (default 70%), the "unsure" steps run instead, usually telling or asking a person. The pick can be kept in a field. The model only picks; it never invents an action, so "chat makes, screens use" and "flow logic is data" hold.

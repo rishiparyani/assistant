@@ -175,6 +175,56 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Vocals", "Keys"] } },
         ],
       });
+    case "Test: make a home setup":
+      // A whole setup (lists that link, a total, cards on the home): the setup card draws it.
+      if (!has("make_setup")) return call("hand_over", { reason: "A new setup" });
+      return call("make_setup", {
+        name: "Test home",
+        collections: [
+          {
+            name: "Test rooms",
+            fields: [
+              { name: "Room", type: "text" },
+              { name: "Floor", type: "number" },
+            ],
+          },
+          {
+            name: "Test repairs",
+            fields: [
+              { name: "Issue", type: "text" },
+              { name: "Room", type: "link", options: { target: "Test rooms" } },
+              { name: "Status", type: "choice", options: { choices: ["Open", "Done"] } },
+              { name: "Cost", type: "money" },
+            ],
+          },
+          {
+            name: "Test bills",
+            fields: [
+              { name: "Bill", type: "text" },
+              { name: "Repair", type: "link", options: { target: "Test repairs" } },
+              { name: "Amount", type: "money" },
+              { name: "Paid on", type: "date" },
+            ],
+          },
+        ],
+        rules: [
+          { kind: "check", collection: "Test bills", require: [{ field: "Amount", op: "gt", value: 0 }] },
+        ],
+        views: [
+          {
+            name: "Open repairs",
+            collection: "Test repairs",
+            pinned: true,
+            filters: [{ field: "Status", op: "eq", value: "Open" }],
+          },
+          {
+            name: "Bills this month",
+            collection: "Test bills",
+            pinned: true,
+            filters: [{ field: "Paid on", op: "period", value: "this_month" }],
+          },
+        ],
+      });
     case "Test: remind me to call the venue":
       return call("start_list", { kind: "reminders" });
     case "Test: make a band space":

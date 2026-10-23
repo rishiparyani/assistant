@@ -29,6 +29,8 @@ export function LiveCard(props: {
   /** The chat's space (null: the person's own). */
   space?: string | null;
   onAsk?: (title: string) => void;
+  /** Put these words in the box, for the person to finish and send. */
+  onSay?: (text: string) => void;
 }) {
   // A card the assistant designed draws itself (its own data and lists).
   if (props.live.kind === "ui") return <UiCard live={props.live} pinnable />;
@@ -40,11 +42,13 @@ function LoadedCard({
   collections,
   space = null,
   onAsk,
+  onSay,
 }: {
   live: LiveRef;
   collections: (fresh?: boolean) => Promise<CollectionView[]>;
   space?: string | null;
   onAsk?: (title: string) => void;
+  onSay?: (text: string) => void;
 }) {
   const { t } = useTheme();
   const [data, setData] = useState<LiveData | null>(null);
@@ -90,6 +94,7 @@ function LoadedCard({
       </View>
     );
   if (data.kind === "workflow") return <WorkflowCard data={data} />;
+  if (data.kind === "setup") return <SetupMadeCard data={data} space={space} onSay={onSay} />;
   if (data.kind === "record")
     return <RecordsWidget items={[{ record: data.record, collection: data.collection }]} onAsk={onAsk} />;
   if (data.kind === "answer") return <AnswerCard data={data} onAsk={onAsk} />;
@@ -416,6 +421,83 @@ function WorkflowCard({ data }: { data: Extract<LiveData, { kind: "workflow" }> 
   );
 }
 
+/**
+ * A setup just made (owner, 2026-10-23: the first list, empty, was "not a good user
+ * experience"): what's there now, each list a chip that opens it, the cards it put on the
+ * home, and the first thing to do, so the person isn't left looking at "Nothing yet".
+ */
+function SetupMadeCard({
+  data,
+  space,
+  onSay,
+}: {
+  data: Extract<LiveData, { kind: "setup" }>;
+  space: string | null;
+  onSay?: (text: string) => void;
+}) {
+  const { t, colour, cardTint } = useTheme();
+  const router = useRouter();
+  const inSpace = space ? { space } : {};
+  const first = data.lists[0]!;
+  const onHome = data.views.filter((v) => v.pinned && data.lists.some((l) => l.id === v.collection_id));
+  const n = data.lists.length;
+  return (
+    <View style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}>
+      <View style={s.head}>
+        <Text style={[s.kicker, { color: t.accent }]}>Setup made</Text>
+      </View>
+      <Text style={[s.title, { color: t.fg }]}>
+        {n === 1 ? "1 list" : `${n} lists`}
+        {onHome.length ? `, ${onHome.length} on the home` : ""}
+        {data.rules ? `, ${data.rules === 1 ? "1 rule" : `${data.rules} rules`}` : ""}
+      </Text>
+      <View style={s.chips}>
+        {data.lists.map((l) => (
+          <Tap
+            key={l.id}
+            accessibilityRole="link"
+            accessibilityLabel={`Open ${l.name}`}
+            onPress={() => router.push({ pathname: "/list", params: { collection: l.id, ...inSpace } })}
+            style={[s.chip, { backgroundColor: cardTint(colourFor(l.name)), borderColor: t.hair }]}
+          >
+            <View style={[s.dot, { backgroundColor: colour(colourFor(l.name)) }]} />
+            <Text style={[s.chipText, { color: t.fg }]} numberOfLines={1}>
+              {l.name}
+            </Text>
+            <Text style={[s.chipText, { color: t.fg3 }]}>›</Text>
+          </Tap>
+        ))}
+      </View>
+      {onHome.length ? (
+        <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
+          On the home: {onHome.map((v) => v.name).join(", ")}
+        </Text>
+      ) : null}
+      <View style={s.nextRow}>
+        {onSay ? (
+          <Tap
+            accessibilityRole="button"
+            onPress={() => onSay(`Add to ${first.name}: `)}
+            style={[s.next, { backgroundColor: t.ink }]}
+          >
+            <Text style={[s.nextText, { color: t.onInk }]}>Add the first to {first.name}</Text>
+          </Tap>
+        ) : null}
+        {onHome.length ? (
+          <Pressable
+            accessibilityRole="link"
+            onPress={() => router.navigate("/")}
+            hitSlop={8}
+            style={s.openList}
+          >
+            <Text style={[s.openListText, { color: t.accent }]}>See the home ›</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 /** An answer in the chat: the table or bars, and a button that keeps it on the home. */
 function AnswerCard({
   data,
@@ -516,6 +598,21 @@ const s = StyleSheet.create({
   askBtn: { minHeight: 36, justifyContent: "center", paddingHorizontal: 6 },
   askText: { ...type.caption, fontSize: 13 },
   openList: { alignSelf: "flex-start", minHeight: 36, justifyContent: "center", paddingHorizontal: 6 },
+  chips: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 10,
+    borderRadius: radius.control,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  chipText: { ...type.label, fontSize: 14 },
+  nextRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 6 },
+  next: { minHeight: 44, justifyContent: "center", paddingHorizontal: 16, borderRadius: radius.pill },
+  nextText: { ...type.label },
   openListText: { fontSize: 14, fontWeight: "800" },
   actions: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 },
   pin: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, justifyContent: "center" },

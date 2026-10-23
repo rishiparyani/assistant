@@ -84,6 +84,34 @@ export interface SetupResult {
 
 type SetupDef = Pick<z.input<typeof MakeSetupInput>, "collections" | "rules" | "views">;
 
+/** A rule as a setup proposes it (names, not ids). */
+export type ProposedRule = NonNullable<SetupDef["rules"]>[number];
+
+/**
+ * A proposed rule in the same words a saved one gets (the card before Confirm and the words
+ * after say the same thing: conditions, limits and moves included).
+ */
+export function proposedRuleWords(r: ProposedRule): string {
+  const filters = (list?: { field: string; op: string; value?: unknown }[]) =>
+    (list ?? []).map((f) => ({
+      field_id: "",
+      field: f.field,
+      op: f.op as RuleView["require"][number]["op"],
+      value: (f.value ?? null) as RuleView["require"][number]["value"],
+    }));
+  return ruleWords({
+    kind: r.kind,
+    collection: r.collection,
+    require: filters(r.require),
+    fields: (r.fields ?? []).map((n) => ({ id: "", name: n })),
+    at_most: r.at_most ?? 1,
+    of: r.of ? { id: "", name: r.of } : null,
+    only_if: filters(r.only_if),
+    field: r.field ? { id: "", name: r.field } : null,
+    moves: r.moves ?? {},
+  });
+}
+
 /** The setup in plain words, one line per part, from its definition. */
 export function setupWords(s: SetupDef): string[] {
   const out: string[] = [];
@@ -133,28 +161,7 @@ export function setupWords(s: SetupDef): string[] {
         );
       }
     }
-  for (const r of s.rules ?? []) {
-    const filters = (list?: { field: string; op: string; value?: unknown }[]) =>
-      (list ?? []).map((f) => ({
-        field_id: "",
-        field: f.field,
-        op: f.op as RuleView["require"][number]["op"],
-        value: (f.value ?? null) as RuleView["require"][number]["value"],
-      }));
-    out.push(
-      ruleWords({
-        kind: r.kind,
-        collection: r.collection,
-        require: filters(r.require),
-        fields: (r.fields ?? []).map((n) => ({ id: "", name: n })),
-        at_most: r.at_most ?? 1,
-        of: r.of ? { id: "", name: r.of } : null,
-        only_if: filters(r.only_if),
-        field: r.field ? { id: "", name: r.field } : null,
-        moves: r.moves ?? {},
-      }),
-    );
-  }
+  for (const r of s.rules ?? []) out.push(proposedRuleWords(r));
   for (const v of s.views ?? [])
     out.push(
       `A view “${v.name}” of ${v.collection}${v.pinned ? ", on the shortcuts bar" : ""}${v.add_fields?.length ? `, with a quick add for ${v.add_fields.join(", ")}` : ""}`,

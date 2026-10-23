@@ -60,7 +60,8 @@
           live.kind === "workflow" ||
           live.kind === "app" ||
           live.kind === "query" ||
-          live.kind === "ui"
+          live.kind === "ui" ||
+          live.kind === "setup"
         ? null
         : collectionOf(live.collection_id),
   );
