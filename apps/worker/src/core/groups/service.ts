@@ -70,12 +70,11 @@ export async function chatPeople(ctx: OpUserCtx): Promise<ChatPerson[]> {
 
 export async function createGroup(
   ctx: OpUserCtx,
-  input: { id?: string; name: string; people: string[]; direct?: boolean },
+  input: { id: string; name: string; people: string[]; direct?: boolean },
 ): Promise<GroupView> {
   const people = input.people.length ? await resolvePeople(ctx, input.people, await chatPeople(ctx)) : [];
   const members = people.map((p): GroupMember => ({ user_id: p.user_id, name: p.name, role: "member" }));
-  // The assistant has no device id to offer: the app makes one (its card is keyed anyway).
-  let id = input.id ?? ulid();
+  let id = input.id;
   if (input.direct) {
     const other = members[0];
     if (!other || other.user_id === ctx.user.id)
