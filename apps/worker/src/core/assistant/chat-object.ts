@@ -471,6 +471,34 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /** The morning line's hour ("HH:MM" India time), "off", or null for the default. */
+  async morningSetting(userId: string): Promise<string | null> {
+    this.own(userId);
+    return getMeta(this.sql, "morning") ?? null;
+  }
+
+  /** Sets it: once per key (a late retry can't undo a newer change), audited (Codex on PR 185). */
+  async setMorning(
+    actor: Actor & { userId: string },
+    key: string | null,
+    value: string,
+  ): Promise<{ at: string }> {
+    this.own(actor.userId);
+    const hash = await hashOf(["set_morning", value]);
+    return idempotent(this.ctx.storage, key, hash, () => {
+      const before = getMeta(this.sql, "morning") ?? null;
+      setMeta(this.sql, "morning", value);
+      audit(this.sql, actor, {
+        action: "set_morning_line",
+        entityType: "chat",
+        entityId: "morning",
+        before: { at: before },
+        after: { at: value },
+      });
+      return { at: value };
+    });
+  }
+
   /** Claims a once-only key (this week's proposals): false when it was claimed before. */
   async claimOnce(userId: string, key: string): Promise<boolean> {
     this.own(userId);

@@ -56,6 +56,13 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   // "Test: fail": the provider refuses, with an error that echoes what was sent (it must
   // never reach anyone: only its fixed category does).
+  // The morning line (the app's own prompt): the facts' titles in one sentence; NOTHING when
+  // the facts have no "Test" item (so a quiet day stays quiet).
+  if (String(messages[0]?.content ?? "").startsWith("You write one morning line")) {
+    const text = last.content ?? "";
+    const titles = [...text.matchAll(/due today: ([^;\n]+)/g)].map((m) => m[1]!);
+    return say(titles.length ? `Test: ${titles.join(" and ")} is due today.` : "NOTHING");
+  }
   // After a setup is saved (the app's own prompt): how to use it, two messages to try, the
   // flows that fit as answers to tap.
   if (/^Make “.*”.*: saved\./.test(lastUser))
@@ -249,6 +256,10 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           },
         ],
       });
+    case "Test: stop the morning line":
+      return call("set_morning_line", { on: false });
+    case "Test: morning line at seven":
+      return call("set_morning_line", { on: true, at: "07:00" });
     case "Test: formatted answer":
       // A longer answer with the Markdown a model writes (for looking at the chat's text).
       return say(

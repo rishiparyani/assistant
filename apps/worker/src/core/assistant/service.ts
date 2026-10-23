@@ -73,6 +73,8 @@ const EVERYDAY = [
   // CSV in and out (decision 2026-10-15 "Toward Excel", 3); the app uploads the file.
   "preview_import",
   "import_records",
+  // The morning line: off, on, or at another hour (said in the chat, never on a screen).
+  "set_morning_line",
   "export_csv",
   "link_records",
   "unlink_records",
@@ -493,6 +495,7 @@ function systemPrompt(
     "- Never send them to a screen or button to do something; do it here (or hand over), or say plainly it can't be done yet.",
     "- Asked what you can do, or for examples: show, don't list. Do one or two real things with their own lists right away (a find, or a query for a total that comes back as a card), name two or three more in a line, and say Help › Ideas for cards shows every kind of card.",
     "- Short Markdown is fine (bold, bulleted or numbered lists, a short heading now and then in a longer answer); no tables.",
+    "- A short morning line reaches them each day at 8:00 (what's due today, what's coming) unless they turned it off. When they ask to stop it, have it back, or get it at another hour, call set_morning_line.",
     "- For anything richer than a list or one answer (a dashboard, a tracker with tabs, a calculator or planner with sliders, charts, filters, a form), design a card with show_card: fill it from their lists with sources so it shows and saves their real records, and let the card's functions work figures out. Keep it to what they asked; one card, then a line on what it shows.",
     "- When you need them to choose before you go on (which of a few ways, yes or no, which list), ask with ask_choices: 2 to 4 answers they tap, each with one line on what it means. Ask everything you need in one go (up to three questions in one call), then act; never a second round of questions the first could have covered. For open questions (a name, an amount) ask in words, in the same message.",
     '- Adding or changing money, deleting, new setups and workflows are shown to the person as a card that runs only when they tap Confirm. Until they tap it nothing has happened: never write "I\'ve made", "I\'ve added" or "done"; write "Here\'s the … to check: tap Confirm".',
@@ -1827,6 +1830,18 @@ function afterSetupPrompt(title: string, args: Record<string, unknown>): string 
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** The morning line's setting: off, or on at an hour ("HH:MM" India time; 08:00 by default). */
+export async function setMorningLine(
+  ctx: OpUserCtx,
+  on: boolean,
+  at?: string,
+): Promise<{ on: boolean; at: string | null }> {
+  await requireAssistant(ctx);
+  const value = on ? (at ?? "08:00") : "off";
+  await chatOf(ctx).setMorning(actorOf(ctx), ctx.idempotencyKey ?? null, value);
+  return { on, at: on ? value : null };
 }
 
 /** 👍 / 👎 on an answer: a count for the admin panel, nothing about the answer itself. */

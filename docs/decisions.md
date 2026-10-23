@@ -934,6 +934,14 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-23: A morning line, and the app's own calls (owner: "build all of them… the morning line first")
+
+- **What:** one or two sentences in the person's chat each morning at 8 (India time), from their own lists: what's due today by name, how many things are coming this week. Nothing on a quiet day: no message and no model call. A notification carries the line. The first one says how to stop it or move it; after that it's just the line.
+- **Changed in the chat, not on a screen:** "stop the morning line", "send it at 7" (the `set_morning_line` tool). Chat makes, screens use.
+- **How it's timed:** the Worker's quarter-hour timer walks everyone with the assistant; each person's hour lives in their own chat object, and a once-a-day claim there keeps a retried run from sending twice. No central table of schedules.
+- **The app's own model calls:** the Choose step and the morning line both make one short call that no person typed. One helper (`systemAsk`) does it the same way for both: the everyday models in the router's order, reserved and settled against the caps, logged to the budget as that person's call, a small output cap. Anything that later wants a line from a model (suggested actions, a weekly note) uses it too.
+- **What the model sees:** only titles and counts from lists with a date, fenced as data; never the chat, never other people's lists.
+
 ## 2026-10-23: A turn after the setup, and the questions up front (owner: "how do I use it?"; "all the follow up is taken beforehand only and then the action is started"; "the AI answer should be not in a bubble")
 
 - **A saved setup is explained.** Tapping Confirm on a setup used to end with "Done" and a card. Now the app hands the model one more turn, with the setup in words and nothing from the person: say how to use it in a few lines, give two messages to try, and offer the flows that make it a system over time (charge every month, remind when late, a status that moves and tells people) as answers to tap. The prompt is the app's, not shown; the answer is. A setup is lists plus what happens to them over time, and the model is told to think about both.

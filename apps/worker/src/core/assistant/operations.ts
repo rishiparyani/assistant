@@ -35,6 +35,7 @@ import {
   newChat,
   remember,
   sendMessage,
+  setMorningLine,
 } from "./service.ts";
 
 import { spaceOf } from "../spaces/service.ts";
@@ -252,6 +253,23 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       http: { method: "PUT", path: "/assistant/people/:user_id" },
       input: AssistantAccessInput,
       handler: (ctx, i) => setAssistantAccess(ctx, i.user_id, i.on),
+    }),
+    defineOperation({
+      id: "core.morning_line",
+      tool: "set_morning_line",
+      description:
+        "Turn the morning line off or on, or move it to another hour: one or two sentences each morning about what's due today and what's coming, from the person's lists. Off when they say they'd rather not get it; `at` as HH:MM India time when they want it at another hour.",
+      kind: "write",
+      http: { method: "PUT", path: "/me/morning" },
+      input: z.object({
+        on: z.boolean(),
+        at: z
+          .string()
+          .regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+          .optional()
+          .describe("HH:MM in India time, e.g. 07:30; left out, 08:00"),
+      }),
+      handler: (ctx, i) => setMorningLine(ctx, i.on, i.at),
     }),
     defineOperation({
       id: "core.chat_show",
