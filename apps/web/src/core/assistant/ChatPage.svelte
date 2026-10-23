@@ -184,6 +184,8 @@
             <AnswerCard live={m.live} />
           {:else if m.live.kind === "ui"}
             <p class="note">{m.live.title}: this card shows in the new app.</p>
+          {:else if m.live.kind === "setup"}
+            <p class="note">Made: {m.live.collections.map((c) => c.name).join(", ")}.</p>
           {:else}
             <LiveCard live={m.live} collections={collections.data} />
           {/if}

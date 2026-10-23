@@ -25,6 +25,7 @@ import {
   type ChatView,
   type CollectionView,
   type LiveRef,
+  type SavedView,
   type UiSource,
   FilterInput,
   type Memory,
@@ -880,8 +881,15 @@ function liveFrom(
     return typeof c.id === "string" ? { kind: "list", collection_id: c.id, title: c.name, query: {} } : null;
   }
   if (tool === "make_setup") {
-    const first = (r.collections as CollectionView[] | undefined)?.[0];
-    return first ? { kind: "list", collection_id: first.id, title: first.name, query: {} } : null;
+    const made = (r.collections as CollectionView[] | undefined) ?? [];
+    if (!made.length) return null;
+    const views = (r.views as SavedView[] | undefined) ?? [];
+    return {
+      kind: "setup",
+      collections: made.map((c) => ({ id: c.id, name: c.name })),
+      views: views.map((v) => ({ id: v.id, name: v.name, collection_id: v.collection_id, pinned: v.pinned })),
+      rules: Array.isArray(r.rules) ? r.rules.length : 0,
+    };
   }
   if (tool === "create_workflow" || tool === "set_workflow_enabled")
     return typeof r.id === "string" ? { kind: "workflow", workflow_id: r.id } : null;

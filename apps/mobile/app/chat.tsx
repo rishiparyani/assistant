@@ -526,6 +526,10 @@ export default function Chat() {
                 collections={getCollections}
                 space={chatSpace}
                 onAsk={(title) => setText((t) => t || `About "${title}": `)}
+                onSay={(words) => {
+                  setText(words);
+                  box.current?.focus();
+                }}
                 answered={answers.get(item.id)}
                 onPick={(label) => void say(label)}
                 onOther={() => box.current?.focus()}
@@ -774,6 +778,7 @@ function Bubble({
   collections,
   space,
   onAsk,
+  onSay,
   answered,
   onPick,
   onOther,
@@ -787,6 +792,8 @@ function Bubble({
   /** The chat's space (null: the person's own): the cards' lists live there. */
   space: string | null;
   onAsk: (title: string) => void;
+  /** Words put in the box by a card (a next step), for the person to finish. */
+  onSay?: (text: string) => void;
   /** A question with answers to tap: what the person answered (undefined/null: not yet). */
   answered?: string | null;
   onPick?: (label: string) => void;
@@ -858,7 +865,7 @@ function Bubble({
   if (item.role === "live" && item.live)
     return (
       <View style={{ marginVertical: 4 }}>
-        <LiveCard live={item.live} collections={collections} space={space} onAsk={onAsk} />
+        <LiveCard live={item.live} collections={collections} space={space} onAsk={onAsk} onSay={onSay} />
       </View>
     );
   if (item.role === "user")

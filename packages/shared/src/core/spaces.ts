@@ -1237,6 +1237,16 @@ export type LiveRef =
   /** Something in an app (a Songbook song): what it was then, opening the app's own screen. */
   | { kind: "app"; app: string; title: string; subtitle?: string | null; href: string }
   /**
+   * A setup just made (owner, 2026-10-23: an empty first list was a poor answer): its lists
+   * and the cards it put on the home, each one a tap away, and a first thing to do.
+   */
+  | {
+      kind: "setup";
+      collections: { id: string; name: string }[];
+      views: { id: string; name: string; collection_id: string; pinned: boolean }[];
+      rules: number;
+    }
+  /**
    * A card the assistant designed in A2UI (decision 2026-10-18 "Try A2UI"): its parts and data,
    * and the lists whose records fill parts of the data (read fresh on the device; a change made
    * on the card saves to the record).
