@@ -23,6 +23,7 @@ import {
   type ChatSummary,
   type ChatModelPick,
   type ChatChoices,
+  type ChatItem,
   type ChatView,
   type CollectionView,
   type LiveRef,
@@ -1158,6 +1159,17 @@ function streamer(ctx: OpUserCtx, chatId: string, key: string) {
       if (timer) clearTimeout(timer);
       flush();
     },
+    /**
+     * A card, a question or a note the moment it's made (owner, 2026-10-23: "I still see the
+     * complete UI showing up at the end"): the screen shows it under the words at once; the
+     * turn is still saved whole when it ends, and the saved turn replaces these.
+     */
+    item(item: ChatItem) {
+      flush();
+      void live
+        .ping({ type: "assistant_item", chat: chatId, key, item: JSON.stringify(item) })
+        .catch(() => undefined);
+    },
   };
 }
 export type Streamer = ReturnType<typeof streamer>;
@@ -1369,6 +1381,21 @@ async function answerMessage(
           card_action_id: id,
           level,
         });
+        stream.item({
+          id: `draft:${id}`,
+          role: "card",
+          text: "",
+          level,
+          created_at: new Date().toISOString(),
+          card: {
+            action_id: id,
+            tool: result.card.tool,
+            title: result.card.title,
+            details: result.card.details,
+            status: "waiting",
+            ...(EDITABLE_CARDS.has(result.card.tool) ? { args: result.card.args, editable: true } : {}),
+          },
+        });
       }
       if (result.kind === "error") failures++;
       if (result.kind === "ran" && SETUP.includes(call.function.name)) cols = await stub.collections(actor);
@@ -1405,6 +1432,14 @@ async function answerMessage(
         shown: "choices",
         choices: q,
         level,
+      });
+      stream.item({
+        id: `draft:choices:${step}`,
+        role: "choices",
+        text: q.question,
+        choices: q,
+        level,
+        created_at: new Date().toISOString(),
       });
       break;
     }

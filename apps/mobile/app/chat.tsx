@@ -151,9 +151,16 @@ export default function Chat() {
   // server sends its words over the live socket for the message this screen sent (its key);
   // each part (a new step, or the next model) starts the draft again.
   const [draft, setDraft] = useState<{ part: number; text: string } | null>(null);
+  // Cards and questions as they're made, before the turn is saved (the saved turn replaces them).
+  const [draftItems, setDraftItems] = useState<ChatItem[]>([]);
   const sentKey = useRef<string | null>(null);
   useLive((m) => {
     if (m.chat !== chatId) return;
+    if (m.type === "assistant_item" && m.key === sentKey.current && typeof m.item === "string") {
+      const item = JSON.parse(m.item) as ChatItem;
+      setDraftItems((xs) => (xs.some((x) => x.id === item.id) ? xs : [...xs, item]));
+      return;
+    }
     if (m.type === "assistant_delta" && m.key === sentKey.current) {
       const part = Number(m.part);
       const text = String(m.text ?? "");
@@ -314,6 +321,7 @@ export default function Chat() {
     list.current?.scrollToOffset({ offset: 0, animated: true });
     setBusy(true);
     setDraft(null);
+    setDraftItems([]);
     sentKey.current = newKey();
     const sentAt = new Date().toISOString();
     try {
@@ -324,6 +332,7 @@ export default function Chat() {
         sentKey.current,
       );
       setView(next);
+      setDraftItems([]);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
       setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
@@ -559,6 +568,18 @@ export default function Chat() {
                 entering={FadeIn.duration(motion.fade)}
                 style={draft?.text ? s.reply : s.thinking}
               >
+                {draftItems.map((item) => (
+                  <View key={item.id} style={{ opacity: 0.85, alignSelf: "stretch" }}>
+                    <Bubble
+                      item={item}
+                      onAnswer={answer}
+                      busy
+                      collections={getCollections}
+                      space={chatSpace}
+                      onAsk={() => undefined}
+                    />
+                  </View>
+                ))}
                 {draft?.text ? (
                   // The words so far, with a mark where the next ones land.
                   <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
