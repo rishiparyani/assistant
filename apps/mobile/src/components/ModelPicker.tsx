@@ -44,6 +44,7 @@ export function ModelSheet({
   carefulOn,
   onPick,
   onClose,
+  onChanges,
 }: {
   open: boolean;
   pick: ChatModelPick;
@@ -51,6 +52,8 @@ export function ModelSheet({
   carefulOn: boolean;
   onPick: (p: ChatModelPick) => void;
   onClose: () => void;
+  /** "What this chat changed" (the undo list) lives under the title too. */
+  onChanges?: () => void;
 }) {
   const { t } = useTheme();
   return (
@@ -86,6 +89,22 @@ export function ModelSheet({
           </Tap>
         );
       })}
+      {onChanges ? (
+        <Tap
+          accessibilityRole="button"
+          onPress={() => {
+            onClose();
+            onChanges();
+          }}
+          style={[s.row, { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep, marginTop: 4 }]}
+        >
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={[s.label, { color: t.fg }]}>What this chat changed</Text>
+            <Text style={[type.caption, { color: t.fg2 }]}>Every change, with Undo</Text>
+          </View>
+          <Text style={{ color: t.fg3, fontWeight: "700", fontSize: 16 }}>›</Text>
+        </Tap>
+      ) : null}
     </Sheet>
   );
 }

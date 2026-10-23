@@ -7,7 +7,7 @@ import Animated, { FadeOutRight, LinearTransition, ZoomIn } from "react-native-r
 import { Text } from "./text.tsx";
 import * as Haptics from "expo-haptics";
 import type { RecordView, StoredValue } from "@assistant/shared";
-import type { HomeCard } from "./model.ts";
+import { emptyWords, type HomeCard } from "./model.ts";
 import { Tick } from "./tick.tsx";
 import { radius, useTheme } from "./theme.ts";
 import { Control, INLINE } from "./controls.tsx";
@@ -455,7 +455,9 @@ export function Card({
                 </Text>
               </View>
             ))}
-            {card.records.length === 0 ? <Text style={[s.sub, { color: t.fg2 }]}>Nothing yet.</Text> : null}
+            {card.records.length === 0 ? (
+              <Text style={[s.sub, { color: t.fg2 }]}>{emptyWords(card)}</Text>
+            ) : null}
             {card.shared ? (
               <Text style={[s.sub, { color: t.fg3 }]} numberOfLines={1}>
                 From {card.shared.owner}

@@ -277,7 +277,7 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     case "Test: formatted answer":
       // A longer answer with the Markdown a model writes (for looking at the chat's text).
       return say(
-        "## Your week at a glance\n\nYou have **three things** due and one payment to make.\n\n- Call the plumber (Tuesday)\n- Renew the car insurance\n- Send the society notice\n\nIn order:\n1. The plumber first, it's the oldest.\n2. Then the insurance, it lapses Friday.\n\nSay `done` on any of these and I'll tick it.",
+        "## Your week at a glance\n\nYou have **three things** due and one payment to make.\n\n- Call the plumber (Tuesday)\n- Renew the car insurance\n- Send the society notice\n\n### In order\n1. The plumber first, it's the oldest.\n2. Then the insurance, it lapses Friday.\n\nTry one of these:\n> “Tick the plumber”\n> “Move the insurance to Saturday”\n\n---\nSay `done` on any of these and I'll tick it.",
       );
     case "Test: remind me to call the venue":
       return call("start_list", { kind: "reminders" });
