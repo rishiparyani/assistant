@@ -1840,7 +1840,7 @@ export async function setMorningLine(
 ): Promise<{ on: boolean; at: string | null }> {
   await requireAssistant(ctx);
   const value = on ? (at ?? "08:00") : "off";
-  await chatOf(ctx).morningSetting(ctx.user.id, value);
+  await chatOf(ctx).setMorning(actorOf(ctx), ctx.idempotencyKey ?? null, value);
   return { on, at: on ? value : null };
 }
 

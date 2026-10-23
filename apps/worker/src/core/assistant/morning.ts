@@ -3,6 +3,7 @@
 // sentences in their chat about what's due today and what's coming, written by the everyday
 // model from their own lists; nothing when there's nothing worth saying. Off and the hour
 // are set in the chat (set_morning_line), never on a screen.
+import { QuerySpec } from "@assistant/shared";
 import type { ChatMessage } from "./client.ts";
 import { systemAsk } from "./system-call.ts";
 import { people } from "./this-week.ts";
@@ -55,12 +56,18 @@ async function facts(env: Env, userId: string, spaceId: string): Promise<Facts[]
       filters: [{ field: date.id, op: "period", value: "today" }, ...open],
       limit: TITLES_PER_LIST,
     });
-    const week = await space.find(actor, c.id, {
-      filters: [{ field: date.id, op: "period", value: "next_7_days" }, ...open],
-      limit: 50,
-    });
-    if (!today.items.length && !week.items.length) continue;
-    out.push({ list: c.name, today: today.items.map((r) => r.title), week: week.items.length });
+    // The week's number is a count by the engine, not a page's length (Codex on PR 185).
+    const week = await space.query(
+      actor,
+      QuerySpec.parse({
+        from: c.id,
+        where: [{ field: date.id, op: "period", value: "next_7_days" }, ...open],
+        measures: [{ fn: "count" }],
+      }),
+    );
+    const coming = Number(week.rows[0]?.cells[0] ?? 0);
+    if (!today.items.length && !coming) continue;
+    out.push({ list: c.name, today: today.items.map((r) => r.title), week: coming });
   }
   return out;
 }

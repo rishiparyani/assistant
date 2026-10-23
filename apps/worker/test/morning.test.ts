@@ -44,6 +44,19 @@ describe("the morning line", () => {
     expect(await morningFor(env, user.id, space!.id, ist(next, "07:05"))).toBe("sent");
     await api(me)("/chat", { body: { text: "Test: stop the morning line" } });
     expect(await morningFor(env, user.id, space!.id, ist(dayAfter(next), "07:05"))).toBe("off");
+    // A late retry of an older change (same key) can't undo the newer one (Codex on PR 185).
+    expect(
+      (
+        await api(me)("/me/morning", {
+          method: "PUT",
+          body: { on: true, at: "06:30" },
+          idempotencyKey: "m-1",
+        })
+      ).status,
+    ).toBe(200);
+    await api(me)("/me/morning", { method: "PUT", body: { on: false }, idempotencyKey: "m-2" });
+    await api(me)("/me/morning", { method: "PUT", body: { on: true, at: "06:30" }, idempotencyKey: "m-1" });
+    expect(await morningFor(env, user.id, space!.id, ist(dayAfter(dayAfter(next)), "06:35"))).toBe("off");
 
     // A quiet day (nothing dated): no model call, no message.
     const quiet = await signUp("Test Quiet");
