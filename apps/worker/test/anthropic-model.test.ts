@@ -91,7 +91,12 @@ describe("Claude models", () => {
     // Without OpenAI's key the pick isn't offered: Sonnet builds setups as before.
     expect(ids(modelsFor(2, { ...sol, anthropic: true }))).toEqual(["claude-sonnet-5-5"]);
     // Never every day: a setups pick doesn't answer everyday messages unless named for them.
-    expect(ids(modelsFor(1, { ...sol, openai: true }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
+    expect(ids(modelsFor(1, { ...sol, openai: true }))).toEqual(["@cf/zai-org/glm-4.7-flash", "gpt-6-luna"]);
+    // Luna as the everyday pick (the same decision): first, GLM behind it.
+    expect(ids(modelsFor(1, { ...sol, openai: true, everydayModel: "gpt-6-luna" }))).toEqual([
+      "gpt-6-luna",
+      "@cf/zai-org/glm-4.7-flash",
+    ]);
   });
 
   it("tries a scorecard candidate first, only at its level and only with its key", () => {
@@ -101,8 +106,10 @@ describe("Claude models", () => {
       "gpt-6.1-sol",
     ]);
     expect(ids(modelsFor(2, { ...base, setupModel: "gpt-5.4" }))).toEqual([]);
+    // OpenAI's key brings Luna (ready since 2026-10-23) behind GLM every day.
     expect(ids(modelsFor(1, { ...base, openai: true, setupModel: "gpt-5.4" }))).toEqual([
       "@cf/zai-org/glm-4.7-flash",
+      "gpt-6-luna",
     ]);
     // The other makers' keys bring only their ready models (Sol for setups; Gemini has none).
     expect(ids(modelsFor(2, { ...base, openai: true, gemini: true }))).toEqual(["gpt-6.1-sol"]);
@@ -112,8 +119,9 @@ describe("Claude models", () => {
       expect(ids(modelsFor(1, { ...base, ...keys, everydayModel: id }))).toEqual([
         id,
         "@cf/zai-org/glm-4.7-flash",
+        "gpt-6-luna",
       ]);
-      expect(ids(modelsFor(1, { ...base, ...keys }))).toEqual(["@cf/zai-org/glm-4.7-flash"]);
+      expect(ids(modelsFor(1, { ...base, ...keys }))).toEqual(["@cf/zai-org/glm-4.7-flash", "gpt-6-luna"]);
     }
   });
 

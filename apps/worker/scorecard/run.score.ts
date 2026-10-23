@@ -4,6 +4,7 @@
 // docs/scorecard/. Never part of `pnpm test`.
 import { env } from "cloudflare:workers";
 import { it } from "vitest";
+import type { ChatView } from "@assistant/shared";
 import type { CallLog } from "../src/core/assistant/budget-object.ts";
 import { modelsFor } from "../src/core/assistant/models.ts";
 import { aiSettings } from "../src/core/context.ts";
@@ -63,6 +64,7 @@ async function runOnce(c: Case): Promise<Row> {
   const started = Date.now();
   let ok = false;
   let why: string;
+  let cards: NonNullable<ChatView["items"][number]["card"]>[] = [];
   try {
     const view = await say(u, c.text);
     const at = view.items.map((i) => i.role).lastIndexOf("user");
@@ -71,7 +73,7 @@ async function runOnce(c: Case): Promise<Row> {
       .filter((i) => i.role === "assistant")
       .map((i) => i.text)
       .join("\n");
-    const cards = turn.flatMap((i) => (i.card ? [i.card] : []));
+    cards = turn.flatMap((i) => (i.card ? [i.card] : []));
     const calls = (await budget().callsFor(u.id, since)).length;
     const res = await c.check(u, { view, turn, reply, cards, calls });
     ok = res === null;
@@ -87,7 +89,12 @@ async function runOnce(c: Case): Promise<Row> {
     why = "no model answered";
   }
   console.log(`${ok ? "PASS" : "FAIL"} ${c.id} (${ms} ms)${ok ? "" : `: ${why}`}`);
-  if (!ok) console.log(await steps(u.id).catch(() => "    (steps not readable)"));
+  if (!ok) {
+    console.log(await steps(u.id).catch(() => "    (steps not readable)"));
+    // The turn's cards (tool and title only; the case's own fake data): a miss that was a card
+    // the check didn't recognise shows here.
+    console.log(`    cards: ${cards.map((x) => `${x.tool} "${x.title}"`).join(", ") || "none"}`);
+  }
   return { c, ok, why, ms, calls: made };
 }
 

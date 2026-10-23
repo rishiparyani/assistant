@@ -121,6 +121,8 @@ export const MODELS: ModelEntry[] = [
     ready: true,
   },
   // GPT-6 Luna (OpenAI, out 2026-09-22; missed in the first round): Haiku's price exactly.
+  // 161/165 on the everyday scorecard, equal to Haiku (decision 2026-10-15). The everyday
+  // pick since 2026-10-23 (decision "Sol for setups"): the owner's credit is at OpenAI.
   {
     id: "gpt-6-luna",
     label: "GPT-6 Luna",
@@ -131,7 +133,7 @@ export const MODELS: ModelEntry[] = [
     cache: { read: 0.1, write: 1 },
     maxOutput: 4_000,
     effort: "low",
-    ready: false,
+    ready: true,
   },
   {
     id: "gpt-5.4-nano",
