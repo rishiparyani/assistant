@@ -953,6 +953,7 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 
 - **What changes and what doesn't:** the home stays pages of cards. The _pieces_ take Claude's and ChatGPT's manners, the chat first: the assistant's words are plain text on the page, full width, no bubble; the person's words a soft neutral bubble on the right (not a solid coloured one); cards (questions, confirmations) stay cards, a little rounder and airier; the rating sits quietly under the reply; on a laptop the conversation keeps to a centred readable column.
 - **Why plain text for the assistant:** a bubble around every reply makes a long answer a wall of boxes; text on the page reads like a page. It also lets the reply stream into place without a box growing around it.
+- **The same manners elsewhere (2026-10-23):** a row in a list is a quiet cell with a hairline edge, not a pill with a shadow; titles at 600 weight, not 800. Chrome gets lighter screen by screen as each is touched.
 - **Next:** the same pass on the home's cards and the list screen: one type scale, the spacing rhythm, lighter chrome (fewer borders, softer fills), the sheets.
 
 ## 2026-10-22: Replies as they're written (owner: "I want the UI elements and stuff to look like ChatGPT or Claude… I want like UI streaming")
