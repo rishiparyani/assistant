@@ -940,6 +940,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Dependency:** `@gorhom/bottom-sheet` in `apps/mobile`, for the gesture hand-off between the content's scroll and the sheet, the stops and the keyboard; the one `Sheet` component wraps it, so the rest of the app doesn't know it's there and it can be swapped.
 - **The website:** the sheet moves from its handle only, because on the web a drag that starts on a row also fires the row; content drag is the phone's.
 
+## 2026-10-23: A system other people use (owner, after Careful said a society system "can't be done": "have we not created enough tools, or we haven't given proper info to the model?")
+
+- **The answer is "yes, through this app":** when someone asks for a system other people use (a society, a club, a family, a team), the assistant builds it here, with a join link, and never says a separate app, login or website is needed. The instructions carry the story in three parts: where it lives (a group chat with a home, a shared space, or the person's own space), what each person sees (a shared view, a form for what others send in, a rule so each person sees only their own rows), and what happens over time (workflows that tell or ask the right person).
+- **The sharing tools are on the model's list:** `create_share`, `set_share_rule`, `create_group` and `start_chat_home` were session-only; they are now Careful's, each behind a confirm card in the chat (the person still says yes), through the same operations the screens use. The card for `create_group` carries a ULID made when the card is, so a retried confirm makes one group; a confirmed share's note carries its join link.
+- **Honest about the edges:** the model says plainly what the app doesn't do: move money (payments are recorded, not collected), hardware (gates, locks, cameras), and messages outside the app (SMS, email, WhatsApp).
+- **Measured:** the scorecard's hard suite has a flats-and-complaints case that expects both a setup card and a share, a form or a group.
+
 ## 2026-10-23: Suggested actions on messages (owner: "Jev can analyze every message and choose from that list… custom choices according to user preferences")
 
 - **What:** in a chat with people, a member who turns it on gets one small suggestion under a new message when a model is sure it calls for something: "Remind me", "Save as note", "Add to Bills". Tapping it hands the message to their own assistant with that action; the usual confirm card follows. Suggest, never act.

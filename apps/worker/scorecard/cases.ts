@@ -387,6 +387,27 @@ export const CASES: Case[] = [
     },
   },
   {
+    id: "setup-society",
+    about: "a system other people use",
+    level: 2,
+    lang: "en",
+    suite: "hard",
+    text: "Set up a system for my housing society: flats, monthly maintenance dues and complaints. Residents should see their own dues and be able to send a complaint.",
+    check: async (u, o) => {
+      // The lists as one card, and a way for the residents in: a form or view shared (by name or
+      // link), a row rule, or a group with a home, now or named in the reply for the next step.
+      const setup = o.cards.find((x) => ["make_setup", "create_collection"].includes(x.tool));
+      if (!setup) return `no setup card; reply: ${o.reply.slice(0, 120)}`;
+      const d = cardText(setup);
+      if (!(has(d, "flat") && has(d, "complaint"))) return `card details: ${d.slice(0, 200)}`;
+      const shared = o.cards.some((x) =>
+        ["share_with", "create_share", "set_share_rule", "create_group", "start_chat_home"].includes(x.tool),
+      );
+      const says = /share|form|join link|group|resident/i.test(o.reply);
+      return shared || says ? null : `nothing for the residents; reply: ${o.reply.slice(0, 160)}`;
+    },
+  },
+  {
     id: "setup-card",
     about: "make a home card",
     level: 2,

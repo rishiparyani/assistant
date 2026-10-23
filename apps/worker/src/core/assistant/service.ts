@@ -133,6 +133,12 @@ const SETUP = [
   "make_setup",
   "add_rule",
   "delete_rule",
+  // For other people (owner, 2026-10-23: "why is the model saying we can't do it?"): a join
+  // link, who sees which rows, a group with a shared home.
+  "create_share",
+  "set_share_rule",
+  "create_group",
+  "start_chat_home",
 ];
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
@@ -528,6 +534,7 @@ function systemPrompt(
     lines.push(
       "- You're building or changing a setup. Use clear names and the right field types (money for amounts, date for days, choice for fixed options, link to connect collections). Reuse what exists before adding new collections. For anything with more than one list, propose it all at once with make_setup (one card).",
       "- When they ask for a system or a way to manage something, think about what should happen over time as well as the lists: a charge every month, a reminder when something is late, a status that moves with the right people told. Once the lists are saved, the app gives you a turn: explain how to use it and offer those flows; when they pick one, propose it with create_workflow, one card each. When the setup and its flows are saved or dropped, call hand_back.",
+      "- For other people (a family, a team, a society, a club): this app does that, through the same app and a join link; there is no separate app, login or website to make. Think in three parts and offer them: WHERE IT LIVES: a group chat with a home (create_group, then start_chat_home) when the people talk together; a shared space (new_space) for a team; the person's own space when they alone run it. WHAT EACH PERSON SEES: share a view or a form with people by name (share_with) or by a join link (create_share: a view can be open to anyone with the link; a form always needs people to sign in, so its link asks them to); set_share_rule so each person sees only their own rows (e.g. Flat is theirs); a form (a collection shared as one) for what others send in: complaints, requests, sign-ups, bookings. WHAT HAPPENS OVER TIME: workflows that tell or ask the right person. Say plainly what can't be done: moving money (payments are recorded here, not collected), hardware (gates, locks, cameras), and messages outside the app (SMS, email, WhatsApp).",
     );
   // Last, because it changes every minute: everything above stays the same from call to call,
   // so the model can reuse what it already read of it (prefix caching).
@@ -742,6 +749,42 @@ export function describe(
       return {
         title: `Make a space “${String(args.name ?? "")}”`,
         details: ["Its own lists, cards, chats and memory; a page of its own on the home."],
+      };
+    case "create_share": {
+      const what = target ?? (args.view ? `“${show(args.view)}”` : `“${show(args.form)}” as a form`);
+      return {
+        title: `Make a join link for ${what}`,
+        details: [
+          args.public ? "Anyone with the link, no sign-in" : "People sign in to use it",
+          args.access === "edit" ? "They can edit" : "They can look (a form: they can send in)",
+          ...(args.expires_in_days ? [`Stops working after ${show(args.expires_in_days)} days`] : []),
+        ],
+      };
+    }
+    case "set_share_rule":
+      return {
+        title: args.user_id === "*" ? "Limit what everyone in a share sees" : "Limit what one person sees",
+        details:
+          Array.isArray(args.filters) && args.filters.length
+            ? (args.filters as { field: string; op: string; value?: unknown }[]).map((f) =>
+                `${f.field} ${f.op} ${f.value === undefined ? "" : show(f.value)}`.trim(),
+              )
+            : ["No limit: the whole view"],
+      };
+    case "create_group":
+      return {
+        title: `Make a group “${String(args.name ?? "")}”`,
+        details: [
+          Array.isArray(args.people) && args.people.length
+            ? `With ${show(args.people)}`
+            : "Just you, for now",
+          "A chat for everyone in it; start its home next for shared lists and cards.",
+        ],
+      };
+    case "start_chat_home":
+      return {
+        title: "Start this chat's home",
+        details: ["Shared lists and cards everyone in the chat can use; admins arrange it."],
       };
     case "create_collection": {
       const fields = Array.isArray(args.fields) ? (args.fields as { name?: string; type?: string }[]) : [];
@@ -1550,6 +1593,9 @@ async function runTool(
     // In a space's chat, tools work in that space unless the model names another.
     if (defaultSpace && args.space === undefined && takesSpace(op.input))
       args = { ...args, space: defaultSpace };
+    // A group's id is made on the device so a retry makes one group; the model has none to
+    // offer, so the card gets it now and every confirm of that card (a retry too) uses it.
+    if (name === "create_group" && typeof args.id !== "string") args = { ...args, id: ulid() };
     const input = parse(op.input, args);
     const confirmFirst =
       proposeOnly ||
@@ -1820,6 +1866,10 @@ export async function confirmAction(
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool, `card:${a.id}`));
     note = `Done: ${a.title}.`;
+    // A share's point is its link: it goes in the note, for the person and for the model's
+    // next turn (Codex on PR 189).
+    const link = (result as { link?: unknown } | null)?.link;
+    if (a.tool === "create_share" && typeof link === "string") note += ` The join link: ${link}`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     if (a.tool === "make_setup") after = afterSetupPrompt(a.title, args);
   } catch (e) {

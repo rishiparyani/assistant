@@ -53,7 +53,7 @@ export const shareOperations = [
     description:
       "Share by a join link: one record as a card (with linked parts you include), a saved view (live), or a collection as a form people fill in; view or edit; hide fields; views and forms can be link-only.",
     kind: "write",
-    sessionOnly: true,
+    confirm: true,
     http: { method: "POST", path: "/shares", status: 201 },
     input: CreateShareInput,
     handler: (ctx, i) => createShare(ctx, i),
@@ -203,6 +203,7 @@ export const shareOperations = [
     description:
       'Limit which rows of a shared view (list) a person sees, or everyone in it ("*"), with filters on top of the view\'s; [] removes the limit.',
     kind: "write",
+    confirm: true,
     http: { method: "PUT", path: "/shares/:share_id/rules/:user_id" },
     input: SetShareRuleInput,
     handler: async (ctx, i) => {
