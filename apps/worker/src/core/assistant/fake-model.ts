@@ -15,6 +15,11 @@ const say = (content: string): ModelAnswer => ({
   tool_calls: [],
   usage: { input: 900, output: 40, cached: 0 },
 });
+/** Words and a call in one answer (as a model that explains and then asks). */
+const both = (content: string, name: string, args: unknown): ModelAnswer => ({
+  ...call(name, args),
+  content,
+});
 
 /** The instructions each call got, newest last (tests check they hold still within a request). */
 export const fakeSystems: string[] = [];
@@ -51,6 +56,25 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   // "Test: fail": the provider refuses, with an error that echoes what was sent (it must
   // never reach anyone: only its fixed category does).
+  // After a setup is saved (the app's own prompt): how to use it, two messages to try, the
+  // flows that fit as answers to tap.
+  if (/^Make “.*”.*: saved\./.test(lastUser))
+    return both(
+      'Test: add the first records, then link the rest to them.\n"Add one"\n"Add another"',
+      "ask_choices",
+      {
+        question: "Want a flow for this?",
+        options: [{ label: "Remind me when one is a week old" }, { label: "Not now" }],
+      },
+    );
+  // "Test: ask me twice": two questions asked together.
+  if (lastUser === "Test: ask me twice")
+    return call("ask_choices", {
+      questions: [
+        { question: "How often?", options: [{ label: "Every week" }, { label: "Every month" }] },
+        { question: "Who should hear?", options: [{ label: "Only me" }, { label: "Everyone" }] },
+      ],
+    });
   // "Test: ask me": a question with answers to tap.
   if (lastUser === "Test: ask me")
     return call("ask_choices", {
@@ -225,6 +249,11 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           },
         ],
       });
+    case "Test: formatted answer":
+      // A longer answer with the Markdown a model writes (for looking at the chat's text).
+      return say(
+        "## Your week at a glance\n\nYou have **three things** due and one payment to make.\n\n- Call the plumber (Tuesday)\n- Renew the car insurance\n- Send the society notice\n\nIn order:\n1. The plumber first, it's the oldest.\n2. Then the insurance, it lapses Friday.\n\nSay `done` on any of these and I'll tick it.",
+      );
     case "Test: remind me to call the venue":
       return call("start_list", { kind: "reminders" });
     case "Test: make a band space":

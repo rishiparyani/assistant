@@ -934,6 +934,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-23: A turn after the setup, and the questions up front (owner: "how do I use it?"; "all the follow up is taken beforehand only and then the action is started"; "the AI answer should be not in a bubble")
+
+- **A saved setup is explained.** Tapping Confirm on a setup used to end with "Done" and a card. Now the app hands the model one more turn, with the setup in words and nothing from the person: say how to use it in a few lines, give two messages to try, and offer the flows that make it a system over time (charge every month, remind when late, a status that moves and tells people) as answers to tap. The prompt is the app's, not shown; the answer is. A setup is lists plus what happens to them over time, and the model is told to think about both.
+- **Ask everything, then act.** A question with answers to tap can carry up to three questions at once; the person answers them all in one card and the model goes on from there. One question, an answer, a think, another question is slower than it needs to be and the model usually knew all its questions at the start.
+- **The model's words beside a call show.** When it writes "Here's the card to check" and calls a tool in the same breath, the words are shown; they were kept only for the model before.
+- **The assistant's answer is text, not a bubble.** It already was in the Expo app (HF52): plain Markdown, bold and lists drawn, no bubble; people's own messages and the chats between people keep their bubbles, which is what a chat is. A short heading is allowed in a longer answer now.
+
 ## 2026-10-23: Setups drawn, not listed (owner, on a long setup card: "This kind of a response is a little too much to read … wherever we can … diagrammatic representation would be better")
 
 - **What:** when the assistant proposes a setup (lists, fields, views, rules), the card draws it instead of listing it: each list as a block with its fields as chips tagged by kind, a small map of how the lists link (an arc per link field, named), the home's cards as chips, the rules in a line each. The words stay for cards the app can't draw (and for the receipt after Confirm).

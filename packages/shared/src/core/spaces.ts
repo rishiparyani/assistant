@@ -1277,6 +1277,11 @@ export interface UiSource {
 export interface ChatChoices {
   question: string;
   options: { label: string; description?: string }[];
+  /**
+   * Several questions asked together (owner, 2026-10-23: the follow-up taken beforehand): the
+   * first is also `question` / `options`; the answer is one line per question.
+   */
+  questions?: { question: string; options: { label: string; description?: string }[] }[];
 }
 
 export interface ChatItem {
