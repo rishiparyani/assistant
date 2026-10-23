@@ -1,8 +1,8 @@
 // Signs the Android release build with the owner's key (.github/workflows/android.yml): the
 // project `expo prebuild` makes signs releases with the debug key, so this adds a release
-// signing config that reads the key from Gradle properties (GIGSPREE_STORE_FILE and the
-// others, written by the workflow from secrets, never into the repo) and points the release
-// build type at it. Usage: node scripts/android-signing.mjs android/app/build.gradle
+// signing config that reads the key from Gradle project properties (GIGSPREE_STORE_FILE and
+// the others, given by the workflow as ORG_GRADLE_PROJECT_* variables from secrets, never
+// written anywhere) and points the release build type at it. Usage: node scripts/android-signing.mjs android/app/build.gradle
 import { readFileSync, writeFileSync } from "node:fs";
 
 const file = process.argv[2];
