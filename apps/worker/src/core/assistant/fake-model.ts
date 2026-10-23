@@ -56,6 +56,14 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   // "Test: fail": the provider refuses, with an error that echoes what was sent (it must
   // never reach anyone: only its fixed category does).
+  // A suggested action on a chat message (the app's own prompt): "Test remind" → Remind me,
+  // sure; "Test unsure" → Remind me, not sure; anything else → Nothing.
+  if (String(messages[0]?.content ?? "").startsWith("You decide whether one chat message")) {
+    const text = (last.content ?? "").toLowerCase();
+    if (text.includes("test remind")) return say(JSON.stringify({ choice: "Remind me", confidence: 0.92 }));
+    if (text.includes("test unsure")) return say(JSON.stringify({ choice: "Remind me", confidence: 0.4 }));
+    return say(JSON.stringify({ choice: "Nothing", confidence: 0.95 }));
+  }
   // The morning line (the app's own prompt): the facts' titles in one sentence; NOTHING when
   // the facts have no "Test" item (so a quiet day stays quiet).
   if (String(messages[0]?.content ?? "").startsWith("You write one morning line")) {
@@ -161,6 +169,12 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
   // A capture about the PA: the model files it as a note (the Inbox turn makes it a card).
   if (lastUser.startsWith("Captured from ") && lastUser.includes("Test PA needs two DI boxes"))
     return call("add_record", { collection: "Notes", values: { Title: "Test PA needs two DI boxes" } });
+  // A chat message being saved with a tapped suggestion: exactly that (a reminder).
+  if (lastUser.startsWith("Save this chat message") && lastUser.includes("I chose: Remind me"))
+    return call("add_record", {
+      collection: "Reminders",
+      values: { Title: "Test remind Rahul about the deposit", Due: "2030-01-01T18:00" },
+    });
   // A chat message being saved (chats step 2): the model files it as a note (a card to tap).
   if (
     lastUser.startsWith("Save this chat message") &&

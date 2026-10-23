@@ -57,7 +57,7 @@ export default function Talk() {
   const { chat, pending, error, reload } = useChat(id ?? "", message || undefined);
   const [text, setText] = useState("");
   // The message being saved (the Save sheet is open for it).
-  const [saving, setSaving] = useState<GroupMessage | null>(null);
+  const [saving, setSaving] = useState<{ m: GroupMessage; action: string | null } | null>(null);
   // The private assistant panel is open.
   const [asking, setAsking] = useState(false);
   // The "Ask everyone" sheet is open.
@@ -248,22 +248,34 @@ export default function Talk() {
                         mine={m.author_id === myId}
                         me={me?.user.name ?? ""}
                         highlight={m.id === marked}
-                        onLongPress={() => setSaving(m)}
+                        onLongPress={() => setSaving({ m, action: null })}
                         saved={chat?.saved?.[m.id]}
                       />
                     );
                   const mine = m.kind === "person" && m.author_id === myId;
                   const saved = chat?.saved?.[m.id];
+                  // A suggestion for me (backlog DF4), until it's saved: one chip, tap to do it.
+                  const suggestion = !saved ? chat?.suggested?.[m.id] : undefined;
                   const savedNote = saved ? (
                     <Text style={[s.saved, { color: t.good }, mine && s.savedMine]}>Saved to {saved} ✓</Text>
+                  ) : suggestion ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${suggestion}: a suggestion only you see`}
+                      onPress={() => setSaving({ m, action: suggestion })}
+                      hitSlop={6}
+                      style={[s.suggest, { backgroundColor: t.accentSoft }, mine && s.savedMine]}
+                    >
+                      <Text style={[s.suggestText, { color: t.accent }]}>{suggestion} ›</Text>
+                    </Pressable>
                   ) : null;
                   // Hold any message to save it to your lists (only you see the proposal).
                   const hold = {
-                    onLongPress: () => setSaving(m),
+                    onLongPress: () => setSaving({ m, action: null }),
                     delayLongPress: 350,
                     accessibilityHint: "Hold to save it to your lists",
                     accessibilityActions: [{ name: "longpress" as const, label: "Save" }],
-                    onAccessibilityAction: () => setSaving(m),
+                    onAccessibilityAction: () => setSaving({ m, action: null }),
                   };
                   if (mine)
                     return (
@@ -311,7 +323,7 @@ export default function Talk() {
                           <Text style={[s.meta, { color: t.fg3 }]}>{when(m.created_at)}</Text>
                         </Pressable>
                       </View>
-                      {saved ? <View style={!chat?.direct && s.savedIndent}>{savedNote}</View> : null}
+                      {savedNote ? <View style={!chat?.direct && s.savedIndent}>{savedNote}</View> : null}
                     </Animated.View>
                   );
                 }}
@@ -407,7 +419,8 @@ export default function Talk() {
       />
       <SaveSheet
         groupId={id ?? ""}
-        message={saving}
+        message={saving?.m ?? null}
+        action={saving?.action}
         canAsk={chat?.can_ask ?? false}
         onClose={() => {
           setSaving(null);
@@ -480,6 +493,15 @@ const s = StyleSheet.create({
   themCol: { gap: 3 },
   savedIndent: { marginLeft: 36 },
   saved: { fontSize: 12, fontWeight: "700", paddingHorizontal: 6 },
+  suggest: {
+    alignSelf: "flex-start",
+    minHeight: 32,
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    marginTop: 2,
+  },
+  suggestText: { fontSize: 13, fontWeight: "800" },
   savedMine: { alignSelf: "flex-end" },
   author: { fontSize: 12, fontWeight: "800" },
   text: { fontSize: 16, lineHeight: 22 },

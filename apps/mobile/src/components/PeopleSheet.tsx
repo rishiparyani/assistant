@@ -1,7 +1,7 @@
 // Who's in a chat, and who its admins are (decision 2026-10-14 "A home for each chat", the
 // mock-up's chat settings): admins can make others admins, or members again; a chat keeps one.
 import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { Sheet } from "@/components/Sheet";
 import type { GroupView } from "@assistant/shared";
 import { Text } from "@assistant/cards/native";
@@ -25,6 +25,20 @@ export function PeopleSheet({
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const admin = chat.members.some((m) => m.user_id === myId && m.role === "owner");
+  const [suggest, setSuggest] = useState(chat.suggest);
+
+  // online-only: the chat keeps who wants suggestions, and decides them there.
+  const setSuggestOn = async (on: boolean) => {
+    setSuggest(on);
+    setNote("");
+    try {
+      await request("PUT", `/api/groups/${encodeURIComponent(chat.id)}/suggest`, { on });
+      onChanged();
+    } catch (e) {
+      setSuggest(!on);
+      setNote(isOffline(e) ? "That needs a connection." : e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // online-only: who's an admin is decided by the chat on the server.
   const setRole = async (userId: string, role: "admin" | "member") => {
@@ -84,6 +98,22 @@ export function PeopleSheet({
           })}
         </View>
       </ScrollView>
+      <Text style={[s.label, { color: t.fg2 }]}>FOR YOU</Text>
+      <View style={[s.list, { backgroundColor: t.cell }]}>
+        <View style={s.row}>
+          <Text style={[s.name, { color: t.fg }]}>Suggest actions on new messages</Text>
+          <Switch
+            value={suggest}
+            onValueChange={(on) => void setSuggestOn(on)}
+            accessibilityLabel="Suggest actions on new messages"
+            trackColor={{ true: t.accent }}
+          />
+        </View>
+      </View>
+      <Text style={[s.small, { color: t.fg2 }]}>
+        The assistant reads each new message here, only its words, and when it's sure suggests one thing under
+        it (a reminder, a note, an add to one of your lists) that only you see. Nothing is kept by the model.
+      </Text>
       {note ? <Text style={[s.small, { color: t.danger }]}>{note}</Text> : null}
       <Text style={[s.small, { color: t.fg2 }]}>
         {chat.direct

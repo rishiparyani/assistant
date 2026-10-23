@@ -102,6 +102,12 @@ export const ShareAnswerInput = GroupRef.extend({ item_id: z.string().trim().min
 export const GroupMessageRef = GroupRef.extend({ message_id: z.string().trim().min(1).max(40) });
 /** "Saved to Gigs ✓" under a message, for the person who saved it only. */
 export const MarkSavedInput = GroupMessageRef.extend({ label: z.string().trim().min(1).max(80) });
+/** Saving a message, with the action the person tapped on a suggestion ("Remind me", "Add to Bills"). */
+export const SaveMessageInput = GroupMessageRef.extend({
+  action: z.string().trim().min(1).max(80).optional(),
+});
+/** Suggested actions on new messages in this chat, for me (backlog DF4). */
+export const SuggestInput = GroupRef.extend({ on: z.boolean() });
 
 export interface GroupMember {
   user_id: string;
@@ -147,6 +153,10 @@ export interface GroupView {
   can_ask: boolean;
   /** Messages the reader saved, by message id: where to ("Gigs"). Only theirs. */
   saved: Record<string, string>;
+  /** Suggested actions on new messages are on for the reader in this chat. */
+  suggest: boolean;
+  /** The one action suggested to the reader per message ("Remind me"), only when sure; theirs only. */
+  suggested: Record<string, string>;
   /** Answers from the reader's own assistant they shared here (item ids), so each is shared once. */
   shared_answers: string[];
   /** Questions asked of everyone (by message id): the answers, who picked what, and mine. */
