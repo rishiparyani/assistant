@@ -55,6 +55,14 @@ export async function createWorkflow(ctx: OpUserCtx, i: z.output<typeof CreateWo
             then: await Promise.all(a.then.map(simple)),
             else: await Promise.all(a.else.map(simple)),
           };
+        if (a.do === "choose")
+          return {
+            ...a,
+            options: await Promise.all(
+              a.options.map(async (o) => ({ label: o.label, then: await Promise.all(o.then.map(simple)) })),
+            ),
+            unsure: await Promise.all(a.unsure.map(simple)),
+          };
         if (a.do !== "ask") return a.do === "notify" ? simple(a) : a;
         const { to, to_fields } = await people(a.who);
         const { who: _who, ...ask } = a;
@@ -73,7 +81,7 @@ export const workflowOperations = [
     id: "core.create_workflow",
     tool: "create_workflow",
     description:
-      "Make a workflow: when a record is added, changes, a date comes (e.g. a day before), or on a schedule (every day, week or month at a time), check it, maybe wait, then tell someone, set a field, add a record, ASK someone and wait for their answer (a process: nudges them, keeps the answer on the record), go back to an earlier step, branch (if … else …), count or total a list (summary, e.g. this week's spending by category) or do steps for each matching record. It is saved OFF; the person turns it on from its card.",
+      "Make a workflow: when a record is added, changes, a date comes (e.g. a day before), or on a schedule (every day, week or month at a time), check it, maybe wait, then tell someone, set a field, add a record, ASK someone and wait for their answer (a process: nudges them, keeps the answer on the record), go back to an earlier step, branch (if … else …), CHOOSE between options by judgement (the app reads the record and picks one of the options you give, each with its own steps; unsure runs the unsure steps, usually asking a person), count or total a list (summary, e.g. this week's spending by category) or do steps for each matching record. It is saved OFF; the person turns it on from its card.",
     kind: "write",
     confirm: true,
     http: { method: "POST", path: "/workflows", status: 201 },

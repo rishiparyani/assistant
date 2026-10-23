@@ -622,7 +622,20 @@ export function describe(
                         then: steps(a.then).map(simple),
                         else: steps(a.else).map(simple),
                       }
-                    : simple(a),
+                    : a.do === "choose"
+                      ? {
+                          do: "choose",
+                          question: String(a.question ?? ""),
+                          options: steps(a.options).map((o) => ({
+                            label: String(o.label ?? ""),
+                            then: steps(o.then).map(simple),
+                          })),
+                          unsure: steps(a.unsure).map(simple),
+                          min_confidence: Number(a.min_confidence ?? 0.7),
+                          save_to_id: null,
+                          save_to: typeof a.save_to === "string" ? a.save_to : null,
+                        }
+                      : simple(a),
         ),
       });
       return {

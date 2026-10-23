@@ -934,6 +934,14 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-23: A Choose step (owner: "We can also create flows that has several options for actions and ask jev to choose right?" … "Add it to the backlog and build the Choose step now")
+
+- **What:** a flow can hold a decision: "Choose" lists the flow's own options, each with its steps, and a model reads the record and picks one. Below the confidence the step asks for (default 70%), the "unsure" steps run instead, usually telling or asking a person. The pick can be kept in a field. The model only picks; it never invents an action, so "chat makes, screens use" and "flow logic is data" hold.
+- **Which model:** the everyday model today (Luna), through the same router, caps and budget log as a chat message, billed to the flow's maker. Jev (TypeSafe AI's decision model, early access) is the intended one: the call sits in one place (`SpaceObject.decide`) so it drops in as a setting when a key arrives, after a scorecard of choose cases against Luna (backlog DF).
+- **Why a job, not a step inside the transaction:** a flow's steps run in one transaction and a rehearsal rolls one back; a model call can't live inside either. The step queues a `decide` job, the pick is made outside, and the rest of the run goes on inside a new transaction from the next step, the way an "ask" step resumes after an answer.
+- **Rehearsals ask no model:** the person picks what the app would (or "Not sure"), so a rehearsal stays free, instant and offline-safe; the practice walkthrough runs the step for real.
+- **What the log keeps:** the pick and how sure, never the record's words to the model; personal fields never go to the model.
+
 ## 2026-10-23: Sol for setups (owner, after Careful stopped with "Claude Sonnet 5.5: out of credit with the provider": "Can we switch to Sol 6.1? I have credits there")
 
 - **What:** the setups model (Careful) is OpenAI's GPT-6.1 Sol (`AI_SETUP_MODEL=gpt-6.1-sol`, dev and prod) and the everyday model (Quick) is GPT-6 Luna (`AI_EVERYDAY_MODEL=gpt-6-luna`; 161/165 on the everyday scorecard, equal to Haiku), both on the owner's prepaid OpenAI credit. The everyday pick had been Sonnet since 2026-10-17, so Quick had stopped with the same "out of credit"; the whole assistant now runs on one credit. Claude Sonnet 5.5 and Haiku 5.5 stay `ready` behind them, and GLM 4.7 Flash on the free route behind every day, for when Anthropic has credit again.
