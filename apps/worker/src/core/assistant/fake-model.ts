@@ -220,6 +220,10 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
           { name: "Instrument", type: "choice", options: { choices: ["Guitar", "Vocals", "Keys"] } },
         ],
       });
+    case "Test: make a join link for Notes":
+      // Sharing for other people is a setup tool (Careful): a card, then the link.
+      if (!has("create_share")) return call("hand_over", { reason: "A share" });
+      return call("create_share", { form: "Notes", public: true });
     case "Test: make a home setup":
       // A whole setup (lists that link, a total, cards on the home): the setup card draws it.
       if (!has("make_setup")) return call("hand_over", { reason: "A new setup" });

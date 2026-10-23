@@ -18,7 +18,8 @@ export const CreateGroupInput = z
       .string()
       .trim()
       .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Not a chat id")
-      .describe("Made on the device (ULID), so a retry makes one group"),
+      .optional()
+      .describe("Made on the device (ULID), so a retry makes one group; left out, the app makes one"),
     name: z
       .string()
       .trim()

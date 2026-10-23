@@ -81,9 +81,10 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
     defineOperation({
       id: "core.create_group",
       tool: "create_group",
-      description: "Make a group chat with people I know, or a chat with one person (direct).",
+      description:
+        "Make a group chat with people I know (by name), or a chat with one person (direct). For a group that shares lists and cards, start its home next (start_chat_home).",
       kind: "write",
-      sessionOnly: true,
+      confirm: true,
       http: { method: "POST", path: "/groups", status: 201 },
       input: CreateGroupInput,
       handler: (ctx, i) => createGroup(ctx, i),
@@ -227,7 +228,7 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       tool: "start_chat_home",
       description: "Start a home for a chat: shared lists and cards everyone in it can use (admins only).",
       kind: "write",
-      sessionOnly: true,
+      confirm: true,
       http: { method: "POST", path: "/groups/:group_id/home" },
       input: GroupRef,
       handler: (ctx, i) => startChatHome(ctx, i.group_id),

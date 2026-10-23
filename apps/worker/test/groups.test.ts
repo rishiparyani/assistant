@@ -52,6 +52,11 @@ describe("group chats", () => {
     expect((await json<GroupView>(again)).id).toBe(g.id);
     expect((await api(owner)("/groups", { body: { id: g.id, name: "Test Other" } })).status).toBe(409);
     expect(await json<GroupSummary[]>(await api(owner)("/groups"))).toHaveLength(1);
+    // The assistant's create_group sends no id: the group gets one.
+    const noId = await api(owner)("/groups", { body: { name: "Test Society" } });
+    expect(noId.status).toBe(201);
+    expect((await json<GroupView>(noId)).id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
+    expect(await json<GroupSummary[]>(await api(owner)("/groups"))).toHaveLength(2);
     // Dev sees it in their list and writes.
     const list = await json<GroupSummary[]>(await api(dev)("/groups"));
     expect(list.map((x) => x.name)).toEqual(["Test Band"]);
