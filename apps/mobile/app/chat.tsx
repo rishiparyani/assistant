@@ -578,10 +578,9 @@ export default function Chat() {
           // Upside down, the header is the visual bottom: the thinking bubble sits under the newest message.
           ListHeaderComponent={
             busy && view?.items.length ? (
-              <Animated.View
-                entering={FadeIn.duration(motion.fade)}
-                style={draft?.text ? s.reply : s.thinking}
-              >
+              <View style={{ gap: 4 }}>
+                {/* Cards and questions as they're made: a full-width column of their own, never
+                    in the thinking row (Codex on PR 187). */}
                 {draftItems.map((item) => (
                   <View key={item.id} style={{ opacity: 0.85, alignSelf: "stretch" }}>
                     <Bubble
@@ -594,23 +593,28 @@ export default function Chat() {
                     />
                   </View>
                 ))}
-                {draft?.text ? (
-                  // The words so far, with a mark where the next ones land.
-                  <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
-                ) : (
-                  <ThinkingDots />
-                )}
-                {status && !draft?.text ? (
-                  <Animated.Text
-                    key={status}
-                    entering={FadeIn.duration(motion.fade)}
-                    style={[type.caption, { color: t.fg2 }]}
-                    accessibilityLiveRegion="polite"
-                  >
-                    {status}
-                  </Animated.Text>
-                ) : null}
-              </Animated.View>
+                <Animated.View
+                  entering={FadeIn.duration(motion.fade)}
+                  style={draft?.text ? s.reply : s.thinking}
+                >
+                  {draft?.text ? (
+                    // The words so far, with a mark where the next ones land.
+                    <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
+                  ) : (
+                    <ThinkingDots />
+                  )}
+                  {status && !draft?.text ? (
+                    <Animated.Text
+                      key={status}
+                      entering={FadeIn.duration(motion.fade)}
+                      style={[type.caption, { color: t.fg2 }]}
+                      accessibilityLiveRegion="polite"
+                    >
+                      {status}
+                    </Animated.Text>
+                  ) : null}
+                </Animated.View>
+              </View>
             ) : null
           }
           ListEmptyComponent={
