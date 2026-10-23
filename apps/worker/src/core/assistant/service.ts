@@ -1208,7 +1208,8 @@ async function answerMessage(
   home: { id: string; name: string } | null = null,
   /** quiet: the app's own prompt (after a setup is saved): the model reads it, the person doesn't. */
   opts: { quiet?: boolean } = {},
-): Promise<void> {
+  /** How the turn ended (the admin numbers' word: answered, asked, card, no_answer, …). */
+): Promise<string> {
   const chat = chatOf(ctx, chatId);
   const uid = ctx.user.id;
   const s = ctx.ai.settings;
@@ -1429,6 +1430,7 @@ async function answerMessage(
       promptVersion: PROMPT_VERSION,
     })
     .catch((e: unknown) => console.warn("turn log failed", e instanceof Error ? e.message : String(e)));
+  return outcome;
 }
 
 type ToolResult =
@@ -1792,16 +1794,20 @@ export async function confirmAction(
     ...(live ? [{ role: "assistant" as const, content: "", shown: "live" as const, live }] : []),
   ]);
   // A saved setup gets one more turn (owner, 2026-10-23: "how do I use it?"): how to use it,
-  // two messages to try, and the flows that fit as answers to tap. The model ends setting up
-  // (hand_back) once the flows are made or declined; if this turn fails, setting up ends here.
-  if (after)
+  // two messages to try, and the flows that fit as answers to tap. Setting up goes on only
+  // while that question is open (the pick is the next message); any other ending, a plain
+  // answer, no model (Codex on PR 184), an error, puts everyday chat back.
+  if (after) {
+    let outcome = "failed";
     try {
-      await answerMessage(ctx, ops, { text: after }, `after-setup:${a.id}`, chatId, false, null, {
+      outcome = await answerMessage(ctx, ops, { text: after }, `after-setup:${a.id}`, chatId, false, null, {
         quiet: true,
       });
     } catch {
-      await chat.setupInProgress(uid, false);
+      // The setup is saved either way; the note above says so.
     }
+    if (outcome !== "asked") await chat.setupInProgress(uid, false);
+  }
   return chatView(ctx, chatId);
 }
 
