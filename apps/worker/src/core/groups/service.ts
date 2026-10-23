@@ -358,7 +358,12 @@ export async function saveGroupMessage(
 
 /** Suggested actions on new messages in this chat, for me (only I see them). */
 export async function setGroupSuggest(ctx: OpUserCtx, groupId: string, on: boolean): Promise<GroupView> {
-  await groupOf(ctx, groupId).setSuggest(ctx.user.id, on);
+  // Membership first (anyone outside the group gets 404), then the assistant (it's the
+  // assistant's model that decides, on the owner's allowance).
+  await groupOf(ctx, groupId).summary(ctx.user.id);
+  if (on && !(await assistantAllowed(ctx)))
+    throw new AppError("forbidden", "The assistant isn't on for you, so it can't suggest here.");
+  await groupOf(ctx, groupId).setSuggest(actorOf(ctx), ctx.idempotencyKey, on);
   return groupView(ctx, groupId);
 }
 

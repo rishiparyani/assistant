@@ -499,6 +499,16 @@ export class ChatObject extends DurableObject<Env> {
     });
   }
 
+  /** One of this person's suggested-action decisions for the day (across their chats): false past the limit. */
+  async claimSuggestion(userId: string, day: string, limit: number): Promise<boolean> {
+    this.own(userId);
+    const key = `suggest:${day}`;
+    const n = Number(getMeta(this.sql, key) ?? 0);
+    if (n >= limit) return false;
+    setMeta(this.sql, key, String(n + 1));
+    return true;
+  }
+
   /** Claims a once-only key (this week's proposals): false when it was claimed before. */
   async claimOnce(userId: string, key: string): Promise<boolean> {
     this.own(userId);

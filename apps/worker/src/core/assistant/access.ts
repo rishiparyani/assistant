@@ -40,8 +40,26 @@ export async function assistantAllowed(ctx: OpUserCtx): Promise<boolean> {
 
 /** Whether the assistant is on for another person (by id): owners, admins, or switched on. */
 export async function assistantOnFor(ctx: OpUserCtx, userId: string): Promise<boolean> {
-  if (!(await anyOwner(ctx))) return true;
-  const row = await ctx.d1
+  return assistantOnForUser(ctx.d1, ctx.owners, userId);
+}
+
+/** The same check from an object (no request): the app's owners from ADMIN_EMAILS. */
+export function ownerEmails(env: { ADMIN_EMAILS?: string }): string[] {
+  return (env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export async function assistantOnForUser(
+  d1: D1Database,
+  owners: readonly string[],
+  userId: string,
+): Promise<boolean> {
+  const anyOwner =
+    owners.length > 0 || (await d1.prepare(`select 1 as ok from admins limit 1`).first()) !== null;
+  if (!anyOwner) return true;
+  const row = await d1
     .prepare(
       `select lower(u.email) as email,
               (select 1 from assistant_access a where a.user_id = u.id) as on_,
@@ -51,7 +69,7 @@ export async function assistantOnFor(ctx: OpUserCtx, userId: string): Promise<bo
     .bind(userId)
     .first<{ email: string; on_: number | null; admin: number | null }>();
   if (!row) return false;
-  return !!row.on_ || !!row.admin || ctx.owners.includes(row.email);
+  return !!row.on_ || !!row.admin || owners.includes(row.email);
 }
 
 export async function requireAssistant(ctx: OpUserCtx): Promise<void> {

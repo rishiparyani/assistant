@@ -63,5 +63,31 @@ describe("suggested actions on messages", () => {
     const card = proposal.items.find((i) => i.card)!.card!;
     expect(card.title).toContain("Reminders");
     expect(card.status).toBe("waiting");
+
+    // A retry of the old "on" (same key) after "off" doesn't switch it back on.
+    await api(rahul)(`/groups/${g.id}/suggest`, { method: "PUT", body: { on: true }, idempotencyKey: "s-1" });
+    await api(rahul)(`/groups/${g.id}/suggest`, {
+      method: "PUT",
+      body: { on: false },
+      idempotencyKey: "s-2",
+    });
+    await api(rahul)(`/groups/${g.id}/suggest`, { method: "PUT", body: { on: true }, idempotencyKey: "s-1" });
+    expect((await json<GroupView>(await api(rahul)(`/groups/${g.id}`))).suggest).toBe(false);
+  });
+
+  it("refuses a member without the assistant", async () => {
+    const owner = await signUp("Test Owner");
+    const noai = await signUp("Test Noai", undefined, { assistant: false });
+    const note = await json<RecordView>(
+      await api(owner)("/collections/Notes/records", { body: { values: { Title: "Test note" } } }),
+    );
+    const { link } = await json<CreatedShare>(await api(owner)("/shares", { body: { record_id: note.id } }));
+    await api(noai)("/cards/join", { body: { token: tokenOf(link) } });
+    const g = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Quiet", people: ["Test Noai"] } }),
+    );
+    expect((await api(noai)(`/groups/${g.id}/suggest`, { method: "PUT", body: { on: true } })).status).toBe(
+      403,
+    );
   });
 });
