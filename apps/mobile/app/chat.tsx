@@ -2,7 +2,9 @@
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FlatList, Platform, StyleSheet, View, type TextInput as RNTextInput } from "react-native";
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
+import { FlatList, Platform, Pressable, StyleSheet, View, type TextInput as RNTextInput } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import {
   Boundary,
@@ -426,36 +428,48 @@ export default function Chat() {
   return (
     <View style={[s.root, { backgroundColor: t.page }]}>
       <View style={[s.root, { paddingBottom: room }]}>
+        {/* The top, as Claude's and ChatGPT's (owner, 2026-10-23: "the top section is pretty
+            clunky"): back on the left, the title in the middle (tap: the model, what this
+            chat changed), chats and a new chat on the right. Nothing else. */}
         <View style={s.head}>
-          {/* Between Changes and Done: a long card name is cut short, "about this card" under it. */}
-          <View style={s.titleBox}>
-            <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-              {card ? card : view && view.id !== MAIN && view.title !== "New chat" ? view.title : "Gigspree"}
-            </Text>
-            {/* Under the title: the model (tap to change it) and what the chat is about. */}
-            <Tap
-              accessibilityRole="button"
-              accessibilityLabel={`Model: ${pickLabel(pick)}. Change`}
-              onPress={() => setShowModel(true)}
-              hitSlop={{ top: 6, bottom: 12, left: 12, right: 12 }}
-              style={s.pick}
-            >
-              <Text style={[s.ctx, { color: t.accent, fontWeight: "700" }]}>{pickLabel(pick)} ▾</Text>
-              {card || view?.space_name ? (
-                <Text style={[s.ctx, { color: t.fg2, flexShrink: 1 }]} numberOfLines={1}>
-                  {card ? " · about this card" : ` · in ${view!.space_name}`}
-                </Text>
-              ) : null}
-            </Tap>
-          </View>
           <Tap
             accessibilityRole="button"
-            accessibilityLabel="What changed"
-            onPress={() => setShowChanges(true)}
-            style={s.changes}
-            hitSlop={10}
+            accessibilityLabel="Back"
+            onPress={() => router.back()}
+            scale={0.9}
+            hitSlop={8}
+            style={s.tool}
           >
-            <Text style={[type.label, { color: t.accent, fontWeight: "600" }]}>Changes</Text>
+            <Text style={[s.toolGlyph, { color: t.fg }]}>‹</Text>
+          </Tap>
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel={`${card ? card : (view?.title ?? "Chat")}. Model: ${pickLabel(pick)}. Options`}
+            onPress={() => setShowModel(true)}
+            hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+            style={s.titleBox}
+          >
+            <View style={s.titleRow}>
+              <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                {card
+                  ? card
+                  : view && view.id !== MAIN && view.title !== "New chat"
+                    ? view.title
+                    : "Gigspree"}
+              </Text>
+              <Text style={[s.title, { color: t.fg3 }]}> ▾</Text>
+            </View>
+            {/* Only the exception is named: a model picked by hand, or what the chat is about. */}
+            {pick !== "auto" || card || view?.space_name ? (
+              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
+                {[
+                  pick !== "auto" ? pickLabel(pick) : "",
+                  card ? "about this card" : view?.space_name ? `in ${view.space_name}` : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+            ) : null}
           </Tap>
           <View style={s.tools}>
             <Tap
@@ -464,9 +478,9 @@ export default function Chat() {
               onPress={() => setShowChats(true)}
               scale={0.9}
               hitSlop={6}
-              style={[s.tool, { backgroundColor: t.cell, borderColor: t.hair }]}
+              style={s.tool}
             >
-              <Text style={{ color: t.fg, fontSize: 15, lineHeight: 17, fontWeight: "700" }}>☰</Text>
+              <Text style={[s.toolGlyph, { color: t.fg, fontSize: 17 }]}>☰</Text>
             </Tap>
             <Tap
               accessibilityRole="button"
@@ -475,14 +489,11 @@ export default function Chat() {
               scale={0.9}
               hitSlop={6}
               haptic="selection"
-              style={[s.tool, { backgroundColor: t.cell, borderColor: t.hair }]}
+              style={s.tool}
             >
-              <Text style={{ color: t.fg, fontSize: 16, lineHeight: 18, fontWeight: "700" }}>✎</Text>
+              <Text style={[s.toolGlyph, { color: t.fg, fontSize: 18 }]}>✎</Text>
             </Tap>
           </View>
-          <Tap accessibilityRole="button" onPress={() => router.back()} style={s.done} hitSlop={10}>
-            <Text style={[type.label, { color: t.accent }]}>Done</Text>
-          </Tap>
         </View>
         <ModelSheet
           open={showModel}
@@ -490,6 +501,7 @@ export default function Chat() {
           carefulOn={view?.smart_available !== false}
           onPick={setPick}
           onClose={() => setShowModel(false)}
+          onChanges={() => setShowChanges(true)}
         />
         <ChatsSheet
           open={showChats}
@@ -548,7 +560,9 @@ export default function Chat() {
               <Boundary where="chat item">
                 <View style={{ gap: 2 }}>
                   {bubble}
-                  {item.id === rateAt && lastReply ? <Rate id={lastReply} /> : null}
+                  {item.id === rateAt && lastReply ? (
+                    <Rate id={lastReply} text={view?.items.find((i) => i.id === lastReply)?.text ?? ""} />
+                  ) : null}
                 </View>
               </Boundary>
             );
@@ -754,9 +768,16 @@ export default function Chat() {
 const rated = new Map<string, "good" | "bad">();
 
 /** 👍 / 👎 under the newest answer: a count for the app team, nothing about the answer. */
-function Rate({ id }: { id: string }) {
+function Rate({ id, text }: { id: string; text: string }) {
   const { t } = useTheme();
   const [mine, setMine] = useState(rated.get(id) ?? null);
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void Clipboard.setStringAsync(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    });
+  };
   // online-only: a rating is only a count; with no connection it's simply not sent.
   const vote = (rating: "good" | "bad") => {
     if (mine) return;
@@ -786,6 +807,18 @@ function Rate({ id }: { id: string }) {
           </Text>
         </Tap>
       ))}
+      <Tap
+        accessibilityRole="button"
+        accessibilityLabel="Copy the answer"
+        onPress={copy}
+        haptic="selection"
+        scale={0.9}
+        style={s.copyBtn}
+      >
+        <Text style={[s.rateNote, { color: copied ? t.good : t.fg2, marginLeft: 0 }]}>
+          {copied ? "Copied" : "Copy"}
+        </Text>
+      </Tap>
       {mine ? <Text style={[s.rateNote, { color: t.fg3 }]}>Thanks</Text> : null}
     </View>
   );
@@ -992,9 +1025,17 @@ function Bubble({
   if (item.role === "note") return <Text style={[s.sys, { color: t.fg2 }]}>{item.text}</Text>;
   return (
     <>
-      <View style={s.reply}>
+      <Pressable
+        accessibilityHint="Hold to copy"
+        delayLongPress={350}
+        onLongPress={() => {
+          void Clipboard.setStringAsync(item.text);
+          void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+        }}
+        style={s.reply}
+      >
         <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} onTry={onSay} />
-      </View>
+      </Pressable>
       {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
       {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
     </>
@@ -1011,25 +1052,17 @@ const s = StyleSheet.create({
   choiceLabel: { fontSize: 16, fontWeight: "700" },
   nextQ: { marginTop: 14 },
   root: { flex: 1 },
-  head: { height: 56, alignItems: "center", justifyContent: "center", flexDirection: "row" },
-  // Clear of Changes (left) and Done (right).
-  // Clear of Changes (left) and the two tools + Done (right); a long title is cut short.
-  titleBox: { flex: 1, alignItems: "center", paddingLeft: 92, paddingRight: 152 },
-  title: { ...type.heading, fontSize: 16 },
+  head: { height: 56, alignItems: "center", flexDirection: "row", paddingHorizontal: 8, gap: 4 },
+  // The title takes the middle; a long one is cut short.
+  titleBox: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44, paddingHorizontal: 4 },
+  titleRow: { flexDirection: "row", alignItems: "center", maxWidth: "100%" },
+  title: { ...type.heading, fontSize: 16, flexShrink: 1 },
   ctx: { ...type.caption, marginTop: 1 },
-  pick: { flexDirection: "row", alignItems: "center", maxWidth: "100%" },
-  done: { position: "absolute", right: 16, height: 56, justifyContent: "center" },
-  tools: { position: "absolute", right: 64, height: 56, flexDirection: "row", alignItems: "center", gap: 6 },
-  tool: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  tools: { flexDirection: "row", alignItems: "center" },
+  // Quiet round targets, no edge: the page is the chrome.
+  tool: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
+  toolGlyph: { fontSize: 22, lineHeight: 26, fontWeight: "700" },
   fresh: { paddingTop: 120, paddingHorizontal: 24 },
-  changes: { position: "absolute", left: 16, height: 56, justifyContent: "center" },
   // The person's words in a soft bubble on the right; the assistant's as plain text on the
   // page, the width of the screen (decision 2026-10-22 "The chat reads like Claude's").
   bub: {
@@ -1084,6 +1117,7 @@ const s = StyleSheet.create({
   rate: { flexDirection: "row", alignItems: "center", gap: 2, marginTop: -4, marginLeft: -10 },
   rateBtn: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   rateNote: { fontSize: 12, fontWeight: "600", marginLeft: 4 },
+  copyBtn: { minHeight: 44, justifyContent: "center", paddingHorizontal: 8 },
   // A horizontal list grows to fill the column by default; the chips sit above the box.
   chips: { flexGrow: 0, flexShrink: 0 },
   chip: {
