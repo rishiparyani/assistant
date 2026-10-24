@@ -6,6 +6,20 @@ Ordered. Work top to bottom unless `STATUS.md` says otherwise. Each task lists a
 
 **Order now follows [docs/design/home-first.md](../docs/design/home-first.md) §7 (approved 2026-10-11; it replaces chat-first.md §5, whose steps 1–8 are done).** Next: the web switch (step 7), then step 8 (widgets, App Intents, share extension).
 
+## FS From scratch (docs/design/from-scratch.md §7; approved 2026-10-24). **Current order of work: this section first.**
+
+Each step is one PR, verified on the built site at 390 light/dark and 1280, with a STATUS entry; the process is in `tasks/STATUS.md` → Handover. Read the design document before starting; do not reinterpret it.
+
+1. **FS1 Today** replaces the arranged home. AC: first screen shows Needs you (open questions/forms for me, inline answers), Up next (records with a date in 7 days across spaces, each opening its record), Chats (by activity, unread), Spaces; the switcher shows Everything + 3 most recent + More (picker with search); no arrange, no pages, no "Add to home"; the library's add/arrange go; HF132's rebuild becomes unnecessary and is removed; existing cards keep rendering as blocks where screens use them.
+2. **FS2 Composer everywhere, chat as a sheet.** AC: every screen has the composer at the bottom with the About chip; tapping raises the chat sheet over the current screen (wide window: the side panel stays); `ChatFab` and the phone's `/chat` route retired; no sheet opens over a sheet; every modal push audited (practice, process, library, memory, connections, capture).
+3. **FS3 Space page.** AC: name, Needs you here, Up next here, Chat row, Lists, Workflows, People with roles; a space with a main screen opens on it; the people chat screen and the space read as one place; the Chats screen and Library are reachable from Today's sections, not as destinations.
+4. **FS4 Group chat, actionable.** AC: a workflow's question lands in the chat as a card with buttons only for its person and the outcome for everyone; a suggestion under a message with one tap and "Not that" (Jev label + confidence shown); the catch-up card ("While you were away") on opening a chat with unread messages; in-space AI charged to the space owner's budget (decision recorded then); people with no plan see all of it, minus the private assistant.
+5. **FS5 Threads on records.** AC: the record page shows its thread (everyone in the space), what the workflow did, status actions; "Chat about this record" becomes the thread; replies from the composer with the "In: X" chip go to the thread.
+6. **FS6 Photos as input** (after the owner OKs R2). AC: a photo in a group message is resized on upload and stored; the assistant reads it (free vision route first, Careful when confidence is low) and offers one action under it; tapping shows the photo; no gallery.
+7. **FS7 Screens from blocks.** AC: a screen format (ordered blocks with specs, attached to a space or a list, per role); block kinds stat tiles, list, form, money, activity, report, diagram, button, text; operations to make/change/remove a screen with preview → confirm; the Gigs space's main screen rebuilt from blocks matches the prototype (tiles, Upcoming/Payments/Report, + Add offline, record page with Money and Activity); no block renders HTML or runs code.
+8. **FS8 Event blocks and the Event setup.** AC: compiled grid (pivot of personal answers), progress, segmented switch, "propose a spread" (a Choose step with Jev that spreads clashes evenly, each confirmed); the Fam Jam case end to end: row rules for who sees which songs, marking by chips, nudges at the deadline, assignment, each musician's own set offline; a musician with no AI plan can do all of it.
+9. **FS9 Expense split from a message; "This keeps happening"; setups that include screens.**
+
 ## HF Home first (docs/design/home-first.md §7)
 
 1. ~~Expo scaffold in `apps/mobile` (iOS, Android, web): sign-in, shared data layer and outbox~~ (HF1); ~~TestFlight + simulator screenshots moved over~~ (HF2).

@@ -882,6 +882,7 @@ _Updated: 2026-10-23_
 
 ## Next
 
+0. **From scratch (approved 2026-10-24): [docs/design/from-scratch.md](../docs/design/from-scratch.md), backlog section FS.** Start at FS1 (Today). Read the design document first; it is the brief, not a suggestion. See "Handover" below for the state of the queue and the process.
 1. **Phase 2, stage 1** (`tasks/backlog.md`): P2-1a data engine → P2-1b app shell (replaces the gig app at gigspree.in as it becomes usable) → P2-1c model router and model test.
 2. Owner steps still open: `ADMIN_EMAILS` GitHub secret = the owner's email (then a redeploy), then Admin panel → Backups → Connect Google Drive (Drive API and redirect URIs done); GitHub safety switches (secret scanning, push protection, Dependabot, fork approvals); `privacy@gigspree.in` via Cloudflare Email Routing; optional `TELEGRAM_BOT_TOKEN`; verify the Google Cloud account (console banner). For P2-1c: prepaid AI credit and spend limits in Cloudflare AI Gateway (instructions to come).
 3. Owner to try: notifications "Send a test" on the iPhone app.
@@ -922,6 +923,15 @@ Steps the owner does by hand (instructions in `docs/setup.md`). Update this list
 - [x] `main` set as default branch; ruleset `main` active (pull request required, no deletion, no force-push); verified via API 2026-09-26
 - [x] GitHub Environment `production` limited to `main` (owner reported; not readable via the API from agent sessions)
 - [x] Claude custom connector added (`Assistant`, pointing at the spike)
+
+## Handover (2026-10-24, from the session that designed "From scratch")
+
+- **What the owner approved:** everything in `docs/design/from-scratch.md`, in that order (FS1–FS9 in the backlog). The owner's words: "I'm good with your idea… This is good what you've decided." Do not reinterpret or extend it; where it is silent, keep current behaviour and ask the owner in plain words.
+- **Prototype:** a private Claude artifact at https://claude.ai/artifact/69Zx2Vs6uJmPZyemZiJtEB (the design document carries its content; ask the owner to open it if a detail is unclear).
+- **Decisions left to the owner** (ask before building): a photo store (Cloudflare R2 free tier) for FS6; the formal billing rule (space owner pays for in-space AI) when FS4 charges that way; a theme change.
+- **Process the owner uses (keep it):** one PR at a time on `claude/gig-assistant-flexibility-7x8ws8`; other work parked on local `*-hold` branches and cherry-picked after a merge; every PR verified on the built site (390 light/dark, 1280) with Playwright; PR body sections What changed / Checks / Handoff; fix every Codex finding (P1 and P2), reply on the thread and resolve it; merge with squash when `check` and `deploy` are green (iOS/Android jobs are not gates); then reset the branch onto `origin/main`; tell the owner in plain words what went live. Local servers: `pnpm dev` on 8787 (sign-in origin, test account admin@example.com / test-password-123) and the built site through wrangler on 8789 (restart it after each `pnpm build`); both die when idle.
+- **State of the queue at handover:** PRs 187–200 merged today (chat like Claude's, sheets, sharing, questions one at a time, library speed, pills that act, chat from any screen, practice fixes, flow diagram, Jev, record sheet, home never empty, floating chat button, walkthrough drawn). PR 201 (this one: a workflow's question names the workflow that asked; practice samples read like real values; this handover) is the last of the queue. Hold branches `flow-hold`, `jev-hold`, `record-hold`, `fab-hold`, `walk-hold`, `sample-hold`, `home-hold` are all merged and can be deleted. The scheduled check-in (`trig_0159J6FhjFEHbBft9RrazUbS`) watches PR 201; delete it once merged.
+- **Known loose ends:** Codex's review of PR 200 was stuck "running" for 48 minutes and the PR was merged green without it; if it posts findings later, handle them in a follow-up. The cause of the owner's blank home (HF132) was not pinned down; the Gotchas list what to check if it recurs. Jev calls should be checked in the admin usage numbers (counts only) after a day.
 
 ## In progress
 
