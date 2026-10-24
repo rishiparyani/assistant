@@ -13,6 +13,7 @@ import type {
   WorkflowView,
 } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
+import { sampleText } from "../src/core/spaces/sample.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
 const api =
@@ -324,7 +325,8 @@ describe("practice copies", () => {
     const started = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id } });
     expect(started.status).toBe(200);
     const { record } = await json<{ record: { id: string; title: string } }>(started);
-    expect(record.title).toBe("Sample visitor name");
+    const visitor = sampleText("Visitor name");
+    expect(record.title).toBe(visitor);
     const inCopy = await json<WorkflowView[]>(await api(owner)(`/workflows?space=${practice.id}`));
     expect(inCopy.find((w) => w.id === other.id)?.enabled).toBe(false);
     expect(inCopy.find((w) => w.id === wf.id)?.enabled).toBe(true);
@@ -338,7 +340,9 @@ describe("practice copies", () => {
       await api(owner)(`${base}/as/${encodeURIComponent(standIn.user_id)}`),
     );
     const q = theirs.cards.find((c) => c.kind === "question")!;
-    expect(q.title).toBe("Sample visitor name is at the gate for Test A-101. Let them in?");
+    expect(q.title).toBe(`${visitor} is at the gate for Test A-101. Let them in?`);
+    // The card says the workflow asked, not the space owner (owner, 2026-10-24).
+    expect(q.asked_by).toBe("Visitor approval");
     expect(
       (
         await api(owner)(`${base}/as/${encodeURIComponent(standIn.user_id)}/cards/${q.share_id}/answer`, {
@@ -346,9 +350,9 @@ describe("practice copies", () => {
         })
       ).status,
     ).toBe(200);
-    expect(
-      await until(async () => (await view()).log.some((l) => l.body === "Sample visitor name: Approved")),
-    ).toBe(true);
+    expect(await until(async () => (await view()).log.some((l) => l.body === `${visitor}: Approved`))).toBe(
+      true,
+    );
     // A real space has no stand-ins: there, the step asks nobody.
     expect((await api(owner)(`/spaces/Personal/practice/run`, { body: { workflow_id: wf.id } })).status).toBe(
       404,
@@ -392,7 +396,7 @@ describe("practice copies", () => {
     // Start used to fail with "Resident is required" (owner, 2026-10-24).
     const started = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id } });
     expect([started.status, await started.clone().text()]).toEqual([200, expect.any(String)]);
-    expect((await json<{ record: { title: string } }>(started)).record.title).toBe("Sample visitor");
+    expect((await json<{ record: { title: string } }>(started)).record.title).toBe(sampleText("Visitor"));
     const view = async () => json<PracticeView>(await api(owner)(base));
     expect(
       await until(async () => (await view()).people.some((p) => p.role === "standin" && p.waiting === 1)),

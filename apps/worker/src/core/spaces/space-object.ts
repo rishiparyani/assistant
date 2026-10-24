@@ -176,6 +176,7 @@ const parseFormulaSafe = (formula: string): FormulaNode => {
 const rawShown = (v: unknown): string =>
   Array.isArray(v) ? v.map(rawShown).join(", ") : typeof v === "object" && v ? JSON.stringify(v) : String(v);
 import { ObjectError } from "../objects/errors.ts";
+import { sampleText } from "./sample.ts";
 import { STARTER_COLLECTIONS } from "./starter.ts";
 
 const MIGRATIONS: Migrations = [
@@ -1389,9 +1390,9 @@ export class SpaceObject extends DurableObject<Env> {
       const f = toField(row);
       const o = f.options;
       if (o.formula || o.rollup || o.personal) continue;
-      if (f.type === "text" || f.type === "long_text") out[f.id] = `Sample ${f.name.toLowerCase()}`;
-      else if (f.type === "number") out[f.id] = 1;
-      else if (f.type === "money") out[f.id] = 100;
+      if (f.type === "text" || f.type === "long_text") out[f.id] = sampleText(f.name, f.type === "long_text");
+      else if (f.type === "number") out[f.id] = 2;
+      else if (f.type === "money") out[f.id] = 50_000;
       else if (f.type === "date") out[f.id] = day;
       else if (f.type === "datetime") out[f.id] = inAnHour;
       else if (f.type === "boolean") out[f.id] = false;
@@ -9322,12 +9323,27 @@ export class SpaceObject extends DurableObject<Env> {
                 kind: s.kind,
                 title: this.shareTitle(s),
                 owner: this.ownerName(),
+                ...(s.kind === "question" ? { asked_by: this.askedBy(s.target_id) } : {}),
                 access: s.access,
                 joined_at: s.joined_at,
               },
             ]
           : [],
       );
+  }
+
+  /**
+   * The workflow that asked a question, by name, when one did (owner, 2026-10-24, in a practice
+   * run: "Why am I getting question from Rishi Paryani?": the card said the space owner's name).
+   */
+  private askedBy(questionId: string): string | undefined {
+    const row = this.sql
+      .exec<{ name: string }>(
+        `select w.name from workflow_waits x join workflows w on w.id = x.workflow_id where x.question_id = ? limit 1`,
+        questionId,
+      )
+      .toArray()[0];
+    return row?.name;
   }
 
   async openShare(actor: Actor, shareId: string, cursor?: string): Promise<SharedOpened> {
