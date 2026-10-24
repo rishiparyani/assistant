@@ -17,6 +17,7 @@ import {
   rememberCatalog,
   saveLayout,
   savedCatalog,
+  waitingLayout,
   type Catalog,
   type CatalogEntry,
 } from "@/home";
@@ -43,8 +44,11 @@ export default function Library() {
   // Drawn at once from the catalog this device last loaded (the home just did), refreshed after.
   const saved = useMemo(() => (userId ? savedCatalog(userId) : null), [userId]);
   const [entries, setEntries] = useState<CatalogEntry[] | null>(saved?.entries ?? null);
+  // The saved copy is shown as it was arranged, never arranged again here (arranging saves a
+  // layout, and from a stale copy that could undo a change made since); a change made on this
+  // device and still waiting to be sent wins over it.
   const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(() =>
-    saved ? arrange(saved) : null,
+    saved ? (waitingLayout() ?? saved.layout) : null,
   );
   const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>(saved?.emptySpaces ?? []);
   const [note, setNote] = useState("");
@@ -72,10 +76,11 @@ export default function Library() {
   const load = useCallback(async () => {
     try {
       const cat: Catalog = await loadCatalog();
-      if (userId) rememberCatalog(userId, cat);
+      const arranged = arrange(cat);
+      if (userId) rememberCatalog(userId, { ...cat, layout: arranged });
       setEntries(cat.entries);
       setEmptySpaces(cat.emptySpaces);
-      setLayout(arrange(cat));
+      setLayout(arranged);
       setNote("");
     } catch (e) {
       // With a saved copy on screen, a failed refresh changes nothing (offline: it stays).

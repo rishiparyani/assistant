@@ -428,7 +428,7 @@ export async function loadCatalog(): Promise<Catalog> {
 }
 
 /** A layout change made on this device and not sent yet wins over what the server has. */
-function waitingLayout(): { pages: string[][]; seen: string[] } | null {
+export function waitingLayout(): { pages: string[][]; seen: string[] } | null {
   const w = [...outboxState().waiting].reverse().find((c) => c.kind === "home.layout");
   return w ? (w.body as { pages: string[][]; seen: string[] }) : null;
 }
@@ -518,8 +518,11 @@ export function arrange(cat: Catalog): { pages: string[][]; seen: string[] } {
 export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
     const cat = await loadCatalog();
-    rememberCatalog(userId, cat);
     const layout = arrange(cat);
+    // Remembered with the layout as arranged, so the library's saved copy needs no arranging
+    // (arranging saves; from a stale copy that could undo a change waiting to be sent, Codex on
+    // PR 191).
+    rememberCatalog(userId, { ...cat, layout });
     const byKey = new Map(cat.entries.map((e) => [e.key, e]));
     const pages = await Promise.all(
       layout.pages.map(async (keys, i): Promise<HomePage> => {
