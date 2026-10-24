@@ -5,6 +5,8 @@ export interface HealthResponse {
   modules: string[];
   /** Number of applied D1 migrations (proves the database is reachable and migrated). */
   migrations: number;
+  /** Whether the Worker holds its auth secret (the deploy asks before ever making one). */
+  auth_secret?: boolean;
 }
 
 export function isHealthResponse(value: unknown): value is HealthResponse {

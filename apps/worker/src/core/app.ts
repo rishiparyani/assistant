@@ -127,6 +127,7 @@ export function createApp({ modules }: AppOptions) {
         environment: c.env.ENVIRONMENT as HealthResponse["environment"],
         modules: ids,
         migrations: row?.n ?? 0,
+        auth_secret: !!c.env.BETTER_AUTH_SECRET,
       });
     } catch (err) {
       console.error("health: database check failed", err);
