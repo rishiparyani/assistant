@@ -56,10 +56,16 @@ export default function Library() {
   // Flows (owner, 2026-10-19: "how do I rehearse it? … Add a flow section"): what the app does
   // on its own, in every space, each opening on its own page to rehearse it or turn it on.
   const [flows, setFlows] = useState<{ flow: WorkflowView; space: SpaceView }[] | null>(null);
+  // Practice copies (owner, 2026-10-24, after the chat made one with no way to open it): each
+  // opens on its practice page; End erases it (two taps).
+  const [practices, setPractices] = useState<SpaceView[]>([]);
+  const [ending, setEnding] = useState<string | null>(null);
 
   const loadFlows = useCallback(async () => {
     try {
-      const spaces = (await request<SpaceView[]>("GET", "/api/spaces")).filter((sp) => !sp.practice_of);
+      const all0 = await request<SpaceView[]>("GET", "/api/spaces");
+      setPractices(all0.filter((sp) => !!sp.practice_of));
+      const spaces = all0.filter((sp) => !sp.practice_of);
       const all = await Promise.all(
         spaces.map((sp) =>
           request<WorkflowView[]>("GET", `/api/workflows?space=${encodeURIComponent(sp.id)}`)
@@ -179,6 +185,58 @@ export default function Library() {
                   </View>
                 </View>
               )}
+            </View>
+          </View>
+        ) : null}
+        {practices.length ? (
+          <View style={{ gap: 8 }}>
+            <Text style={[s.h2, { color: t.fg }]}>Practice copies</Text>
+            <Text style={[s.label, { color: t.fg2 }]}>
+              Copies to try things in. Nothing in them reaches anyone; End erases one.
+            </Text>
+            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
+              {practices.map((sp, i) => {
+                const open = () => router.push({ pathname: "/practice", params: { space: sp.id } });
+                const sure = ending === sp.id;
+                return (
+                  <View
+                    key={sp.id}
+                    style={[
+                      s.row,
+                      i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
+                    ]}
+                  >
+                    <Mark name={sp.name} tone={colourFor(sp.name)} />
+                    <Pressable accessibilityRole="link" onPress={open} style={s.words}>
+                      <Text style={[s.name, { color: t.fg }]} numberOfLines={2}>
+                        {sp.name}
+                      </Text>
+                      <Text style={[s.label, { color: t.fg2 }]}>Open to see what people would get</Text>
+                    </Pressable>
+                    <Tap
+                      accessibilityRole="button"
+                      accessibilityLabel={sure ? `Sure? End ${sp.name}` : `End ${sp.name}`}
+                      onPress={() => {
+                        if (!sure) {
+                          setEnding(sp.id);
+                          setTimeout(() => setEnding((e) => (e === sp.id ? null : e)), 4000);
+                          return;
+                        }
+                        setEnding(null);
+                        // online-only: ending a practice copy erases it on the server.
+                        void request("DELETE", `/api/spaces/${encodeURIComponent(sp.id)}/practice`)
+                          .then(() => loadFlows())
+                          .catch((e) => setNote(e instanceof Error ? e.message : String(e)));
+                      }}
+                      style={[s.btn, { backgroundColor: sure ? t.danger : t.fill }]}
+                    >
+                      <Text style={[s.btnText, { color: sure ? t.onAccent : t.fg }]}>
+                        {sure ? "Sure?" : "End"}
+                      </Text>
+                    </Tap>
+                  </View>
+                );
+              })}
             </View>
           </View>
         ) : null}

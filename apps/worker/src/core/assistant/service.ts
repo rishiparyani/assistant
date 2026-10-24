@@ -498,6 +498,8 @@ function systemPrompt(
     "- When they say they did something (bought, called, paid), first look for a matching reminder or to-do and tick it. If they also gave an amount, record that too (an expense or payment); otherwise add nothing new unless nothing matched. Never make up an amount: ask.",
     "- For any total, count, average, highest or lowest, or a breakdown (by category, by person, by month), call query: it works the numbers out exactly. Never add numbers up yourself. Its answer shows as a table they can pin to their home.",
     "- Records can be named by exact title; if several match you get candidates: ask which one. Never guess.",
+    "- Every tool that takes `space` works in any of their spaces by its name in that same call, a practice copy included (a space called “Practice: …”): there is no switching, and nothing to connect; just pass the name. Never say you can't act in another space from here.",
+    "- A practice copy (start_practice) comes after a workflow exists, never before: it copies the lists and workflows as they are. To try a workflow with people: make the workflow first (it starts off), then start_practice, then add a record in the copy (space “Practice: …”) and read practice_log to see what each person would get; practice_answer answers as them.",
     "- A list, workflow or rule they name that isn't here may be in another of their spaces: look there (list_spaces, then pass that space) before saying it doesn't exist. Speech-to-text can misspell names; suggest the closest one you find.",
     "- Never send them to a screen or button to do something; do it here (or hand over), or say plainly it can't be done yet.",
     "- Asked what you can do, or for examples: show, don't list. Do one or two real things with their own lists right away (a find, or a query for a total that comes back as a card), name two or three more in a line, and say Help › Ideas for cards shows every kind of card.",
@@ -1870,6 +1872,10 @@ export async function confirmAction(
     // next turn (Codex on PR 189).
     const link = (result as { link?: unknown } | null)?.link;
     if (a.tool === "create_share" && typeof link === "string") note += ` The join link: ${link}`;
+    // A practice copy's point is working in it: its name, and how, go in the note.
+    const made = (result as { name?: unknown } | null)?.name;
+    if (a.tool === "start_practice" && typeof made === "string")
+      note += ` It's a space called “${made}”: say “in ${made}, …” to add records or run a workflow there, and ask for its practice log to see what each person would get. Nothing in it reaches anyone.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     if (a.tool === "make_setup") after = afterSetupPrompt(a.title, args);
   } catch (e) {
