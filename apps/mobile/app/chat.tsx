@@ -859,71 +859,114 @@ function Bubble({
   onOther?: () => void;
 }) {
   const { t } = useTheme();
-  // Several questions asked together: each pick is kept here until all are made, then the
-  // answers go as one message, a line per question (the same order).
+  // Several questions asked together (the model asks all at once, one turn): the card walks
+  // through them one at a time, Claude's way (owner, 2026-10-24: "both the follow-ups come at
+  // the same time, but we work on that one after the other"). Each pick is kept here; an
+  // answered question folds to one line (tap it to change); the last pick sends every answer
+  // as one message, a line per question in the same order.
   const [picks, setPicks] = useState<Record<number, string>>({});
+  const [step, setStep] = useState(0);
   if (item.role === "choices" && item.choices) {
     const open = answered == null;
     const questions = item.choices.questions?.length ? item.choices.questions : [item.choices];
+    const many = questions.length > 1;
     const given = answered?.split("\n") ?? [];
     const pickAt = (k: number, label: string) => {
       const next = { ...picks, [k]: label };
       setPicks(next);
       if (questions.every((_, i) => next[i])) onPick?.(questions.map((_, i) => next[i]!).join("\n"));
+      else setStep(questions.findIndex((_, i) => !next[i]));
+    };
+    const backTo = (k: number) => {
+      const next = { ...picks };
+      for (const i of Object.keys(next)) if (Number(i) >= k) delete next[Number(i)];
+      setPicks(next);
+      setStep(k);
     };
     // A question reads as a question: a soft tint, no edge (design pass, 2026-10-23: the
     // chat's boxes should each say what they are at a glance).
     return (
       <View style={[s.inline, { backgroundColor: t.accentSoft, borderColor: "transparent" }]}>
-        {questions.map((q, k) => (
-          <View key={k} style={k > 0 ? s.nextQ : null}>
-            <Text style={[s.choiceQ, { color: t.fg }]}>{q.question}</Text>
-            {q.options.map((o, i) => {
-              const mine = questions.length > 1 ? given[k] : answered;
-              const picked = (!open && mine === o.label) || (open && picks[k] === o.label);
-              const row = [
-                s.choice,
-                i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
-                !open && !picked && { opacity: 0.45 },
-              ];
-              const words = (
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={[s.choiceLabel, { color: picked ? t.accent : t.fg }]}>{o.label}</Text>
-                  {o.description ? (
-                    <Text style={[type.caption, { color: t.fg2 }]}>{o.description}</Text>
-                  ) : null}
+        {questions.map((q, k) => {
+          // Still open, several questions: only the one being answered is spread out.
+          if (open && many && k > step) return null;
+          if (open && many && k < step)
+            return (
+              <Tap
+                key={k}
+                accessibilityRole="button"
+                accessibilityLabel={`${q.question} ${picks[k] ?? ""}. Change`}
+                disabled={busy}
+                onPress={() => backTo(k)}
+                haptic="selection"
+                style={[s.doneQ, { borderBottomColor: t.sep }]}
+              >
+                <View style={{ flex: 1, gap: 1 }}>
+                  <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={1}>
+                    {q.question}
+                  </Text>
+                  <Text style={[s.choiceLabel, { color: t.accent }]} numberOfLines={1}>
+                    {picks[k]}
+                  </Text>
                 </View>
-              );
-              // Answered: a record of what was picked, nothing to tap (and nothing dimmed but the rest).
-              if (!open)
-                return (
-                  <View key={o.label} style={row} accessibilityState={{ selected: picked }}>
-                    {words}
-                    {picked ? (
-                      <Text style={{ color: t.accent, fontWeight: "800", fontSize: 16 }}>✓</Text>
+                <Text style={[type.caption, { color: t.fg3, fontWeight: "600" }]}>Change</Text>
+              </Tap>
+            );
+          return (
+            <View key={k} style={k > 0 ? s.nextQ : null}>
+              {open && many ? (
+                <Text style={[type.caption, s.stepQ, { color: t.fg3 }]}>
+                  {k + 1} of {questions.length}
+                </Text>
+              ) : null}
+              <Text style={[s.choiceQ, { color: t.fg }]}>{q.question}</Text>
+              {q.options.map((o, i) => {
+                const mine = questions.length > 1 ? given[k] : answered;
+                const picked = (!open && mine === o.label) || (open && picks[k] === o.label);
+                const row = [
+                  s.choice,
+                  i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
+                  !open && !picked && { opacity: 0.45 },
+                ];
+                const words = (
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <Text style={[s.choiceLabel, { color: picked ? t.accent : t.fg }]}>{o.label}</Text>
+                    {o.description ? (
+                      <Text style={[type.caption, { color: t.fg2 }]}>{o.description}</Text>
                     ) : null}
                   </View>
                 );
-              return (
-                <Tap
-                  key={o.label}
-                  accessibilityRole="button"
-                  accessibilityLabel={o.description ? `${o.label}: ${o.description}` : o.label}
-                  accessibilityState={{ selected: picked }}
-                  disabled={busy}
-                  onPress={() => (questions.length > 1 ? pickAt(k, o.label) : onPick?.(o.label))}
-                  haptic="selection"
-                  style={row}
-                >
-                  {words}
-                  <Text style={{ color: picked ? t.accent : t.fg3, fontWeight: "700", fontSize: 16 }}>
-                    {picked ? "✓" : "›"}
-                  </Text>
-                </Tap>
-              );
-            })}
-          </View>
-        ))}
+                // Answered: a record of what was picked, nothing to tap (and nothing dimmed but the rest).
+                if (!open)
+                  return (
+                    <View key={o.label} style={row} accessibilityState={{ selected: picked }}>
+                      {words}
+                      {picked ? (
+                        <Text style={{ color: t.accent, fontWeight: "800", fontSize: 16 }}>✓</Text>
+                      ) : null}
+                    </View>
+                  );
+                return (
+                  <Tap
+                    key={o.label}
+                    accessibilityRole="button"
+                    accessibilityLabel={o.description ? `${o.label}: ${o.description}` : o.label}
+                    accessibilityState={{ selected: picked }}
+                    disabled={busy}
+                    onPress={() => (many ? pickAt(k, o.label) : onPick?.(o.label))}
+                    haptic="selection"
+                    style={row}
+                  >
+                    {words}
+                    <Text style={{ color: picked ? t.accent : t.fg3, fontWeight: "700", fontSize: 16 }}>
+                      {picked ? "✓" : "›"}
+                    </Text>
+                  </Tap>
+                );
+              })}
+            </View>
+          );
+        })}
         {open ? (
           <Tap
             accessibilityRole="button"
@@ -1055,6 +1098,17 @@ const s = StyleSheet.create({
   choice: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 52, paddingVertical: 10 },
   choiceLabel: { fontSize: 16, fontWeight: "700" },
   nextQ: { marginTop: 14 },
+  // An answered question, folded to a line while the next is open.
+  doneQ: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 48,
+    paddingVertical: 8,
+    marginBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  stepQ: { fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 2 },
   root: { flex: 1 },
   head: { height: 56, alignItems: "center", flexDirection: "row", paddingHorizontal: 8, gap: 4 },
   // The title takes the middle; a long one is cut short.
