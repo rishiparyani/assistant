@@ -1,6 +1,5 @@
-// Sign in. Google through the system sheet is wired but off until the owner's OK (security
-// change, docs/design/home-first.md §7 step 1); email/password exists only on a local test
-// server, so the simulator tests can sign in.
+// Sign in. Google through the system sheet (on in the phone builds); email/password exists only
+// on a local test server, so the simulator tests can sign in.
 import { useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@assistant/cards/native";
@@ -84,7 +83,9 @@ export default function Login() {
             onPress={() => run(signInWithGoogle)}
             style={[s.btn, { backgroundColor: t.accent }]}
           >
-            <Text style={[s.btnText, { color: t.onAccent }]}>Continue with Google</Text>
+            <Text style={[s.btnText, { color: t.onAccent }]}>
+              {busy ? "Opening Google…" : "Continue with Google"}
+            </Text>
           </Pressable>
         ) : (
           <Text style={[s.p, { color: t.fg2 }]}>
