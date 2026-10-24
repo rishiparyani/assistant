@@ -694,6 +694,13 @@ type ShareRow = {
 
 /** Records reached from the triggering one through a link (either way). */
 type LinkPath = { field_id: string; dir: "out" | "in" };
+/**
+ * People in a person field of linked records: the first link from the record, then any
+ * further links (`then`), then the person field ({Flat.Residents.App account}: the flat, its
+ * residents, their app accounts). Up to three links.
+ */
+type LinkedPeople = LinkPath & { then?: LinkPath[]; person_field_id: string };
+const MAX_HOPS = 3;
 /** Steps that need nothing but a record (also the steps inside "for each" and "if"). */
 type SimpleDef =
   | {
@@ -702,7 +709,7 @@ type SimpleDef =
       to: Person[];
       to_fields?: string[];
       /** The people in a person field of linked records ({Lineup.Player}). */
-      to_linked?: (LinkPath & { person_field_id: string })[];
+      to_linked?: LinkedPeople[];
     }
   | { do: "set"; field_id: string; value: unknown; via?: LinkPath; where?: Filter[] }
   | { do: "add"; collection_id: string; values: Record<string, unknown> };
@@ -737,7 +744,7 @@ type WorkflowDef = {
         choices: string[] | null;
         to: Person[];
         to_fields?: string[];
-        to_linked?: (LinkPath & { person_field_id: string })[];
+        to_linked?: LinkedPeople[];
         save_to: string | null;
         nudge_minutes: number | null;
         until: "all" | "first";
@@ -1322,6 +1329,16 @@ export class SpaceObject extends DurableObject<Env> {
     const person = this.practicePeople().find((p) => p.user_id === userId);
     if (!person) throw new ObjectError("not_found", "That person isn't in this rehearsal");
     return { as: { userId, source: actor.source }, person };
+  }
+
+  /** The name of the list a field belongs to. */
+  private listNameOfField(fieldId: string): string | undefined {
+    const f = this.liveField(fieldId);
+    return f
+      ? this.sql
+          .exec<{ name: string }>(`select name from collections where id = ?`, f.collection_id)
+          .toArray()[0]?.name
+      : undefined;
   }
 
   /** A made-up person who plays a role in a practice copy ("Resident (stand-in)"), by role. */
@@ -7476,7 +7493,7 @@ export class SpaceObject extends DurableObject<Env> {
         return f.id;
       };
       const to_fields: string[] = [];
-      const to_linked: (LinkPath & { person_field_id: string })[] = [];
+      const to_linked: LinkedPeople[] = [];
       for (const ref of refs) {
         const own = colFields.find((f) => f.id === ref || f.name_key === nameKey(ref));
         const dot = ref.indexOf(".");
@@ -7484,12 +7501,30 @@ export class SpaceObject extends DurableObject<Env> {
           to_fields.push(person(this.matchField(colFields, ref)));
           continue;
         }
-        const path = this.linkPath(col.id, ref.slice(0, dot));
-        const target = this.fieldRows(path.target);
+        // Follow links until the rest names a field there ({Flat.Resident}), or a further
+        // link ({Flat.Residents.App account}), up to three links.
+        const hops: LinkPath[] = [];
+        let from = col.id;
+        let rest = ref;
+        let person_field_id: string;
+        for (;;) {
+          const cut = rest.indexOf(".");
+          const path = this.linkPath(from, rest.slice(0, cut));
+          hops.push({ field_id: path.field_id, dir: path.dir });
+          const target = this.fieldRows(path.target);
+          const tail = rest.slice(cut + 1);
+          const here = target.find((f) => f.id === tail || f.name_key === nameKey(tail));
+          if (here || !tail.includes(".") || hops.length >= MAX_HOPS) {
+            person_field_id = person(this.matchField(target, tail));
+            break;
+          }
+          from = path.target;
+          rest = tail;
+        }
         to_linked.push({
-          field_id: path.field_id,
-          dir: path.dir,
-          person_field_id: person(this.matchField(target, ref.slice(dot + 1))),
+          ...hops[0]!,
+          ...(hops.length > 1 ? { then: hops.slice(1) } : {}),
+          person_field_id,
         });
       }
       if (!fixed.length && !to_fields.length && !to_linked.length)
@@ -7771,16 +7806,12 @@ export class SpaceObject extends DurableObject<Env> {
       value: f.value ?? null,
       ...this.shownValue(f),
     });
-    const peopleView = (a: {
-      to: Person[];
-      to_fields?: string[];
-      to_linked?: (LinkPath & { person_field_id: string })[];
-    }) => [
+    const peopleView = (a: { to: Person[]; to_fields?: string[]; to_linked?: LinkedPeople[] }) => [
       ...a.to,
       ...(a.to_fields ?? []).map((fid) => ({ user_id: "", name: `{${fieldName(fid)}}` })),
       ...(a.to_linked ?? []).map((l) => ({
         user_id: "",
-        name: `{${this.linkPathName(l)}.${fieldName(l.person_field_id)}}`,
+        name: `{${[l, ...(l.then ?? [])].map((h) => this.linkPathName(h)).join(".")}.${fieldName(l.person_field_id)}}`,
       })),
     ];
     const simpleView = (a: SimpleDef): SimpleStepView =>
@@ -8358,14 +8389,14 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** The people a step names: fixed ones, the record's person fields, linked records' people. */
   private peopleOf(
-    a: { to: Person[]; to_fields?: string[]; to_linked?: (LinkPath & { person_field_id: string })[] },
+    a: { to: Person[]; to_fields?: string[]; to_linked?: LinkedPeople[] },
     r: RecordRow,
   ): Person[] {
     const current = this.requireRecord(r.id);
     // In a practice copy, a role nobody the space knows fills (an empty Resident) is played
     // by a stand-in, so the run can be rehearsed all the way through.
-    const orStandIn = (got: Person[], fieldId: string): Person[] =>
-      got.length || !this.practice ? got : [this.standIn(this.liveField(fieldId)?.name ?? "Someone")];
+    const orStandIn = (got: Person[], fieldId: string, role?: string): Person[] =>
+      got.length || !this.practice ? got : [this.standIn(role ?? this.liveField(fieldId)?.name ?? "Someone")];
     const named = (a.to_fields ?? []).flatMap((fid) => {
       const v = (JSON.parse(current.values_json) as Record<string, StoredValue>)[fid];
       const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
@@ -8374,14 +8405,26 @@ export class SpaceObject extends DurableObject<Env> {
         fid,
       );
     });
+    // The records at the end of the links (each link followed from every record before it).
+    const reached = (l: LinkedPeople) => [
+      ...new Set(
+        (l.then ?? []).reduce(
+          (ids, h) => ids.flatMap((id) => this.linkedIds(h.field_id, h.dir, id)),
+          this.linkedIds(l.field_id, l.dir, r.id),
+        ),
+      ),
+    ];
     const linked = (a.to_linked ?? []).flatMap((l) =>
       orStandIn(
-        this.linkedIds(l.field_id, l.dir, r.id).flatMap((id) => {
+        reached(l).flatMap((id) => {
           const v = this.currentValues(id)[l.person_field_id];
           const p = v && typeof v === "object" && !Array.isArray(v) ? v : null;
           return p?.user_id && this.knownPerson(p.user_id) ? [{ user_id: p.user_id, name: p.name }] : [];
         }),
         l.person_field_id,
+        // Through links, the stand-in is named after the list it would be in ("Residents"),
+        // not the field ("App account").
+        l.then?.length ? this.listNameOfField(l.person_field_id) : undefined,
       ),
     );
     return [...a.to, ...named, ...linked].filter(
