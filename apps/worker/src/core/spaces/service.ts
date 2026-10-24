@@ -6,7 +6,16 @@ import type { Actor } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 
 export const spaceName = (id: string) => `space:${id}`;
-const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
+/** Who acts: the caller, or, while rehearsing, the person played (checked as them). */
+export const actorOf = (ctx: OpUserCtx): Actor => ({
+  userId: ctx.practice ? ctx.practice.as : ctx.user.id,
+  source: ctx.source,
+});
+/** The caller themself, even while rehearsing (the copy's owner, for what only they may do). */
+export const ownerActorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
+/** The practice copy's object, while rehearsing. */
+export const practiceStub = (ctx: OpUserCtx) =>
+  ctx.practice ? ctx.objects.SPACES.getByName(spaceName(ctx.practice.space)) : null;
 
 type SpaceRow = {
   id: string;
@@ -60,6 +69,14 @@ async function ensurePersonal(ctx: OpUserCtx): Promise<void> {
 }
 
 export async function mySpaces(ctx: OpUserCtx): Promise<SpaceView[]> {
+  // Rehearsing: the one space is the copy, as the person played sees it (a member of it, with
+  // their role; someone only shared with has no space, only cards). Never a personal space.
+  if (ctx.practice) {
+    const copy = (await rows(ctx)).find((s) => s.id === ctx.practice!.space);
+    if (!copy) return [];
+    const role = await practiceStub(ctx)!.practiceRoleOf(ownerActorOf(ctx), ctx.practice.as);
+    return role ? [{ ...copy, role }] : [];
+  }
   let list = await rows(ctx);
   if (!list.some((s) => s.kind === "personal")) {
     await ensurePersonal(ctx);
@@ -132,6 +149,7 @@ export async function startPractice(ctx: OpUserCtx, ref?: string): Promise<Space
 
 /** A practice copy only: the space's object refuses any other. */
 export async function practiceOf(ctx: OpUserCtx, ref: string) {
+  if (ctx.practice) throw new ObjectError("forbidden", "Not while rehearsing as someone. Tap Done first.");
   const found = await spaceOf(ctx, ref);
   if (!found.space.practice_of) throw new ObjectError("not_found", "Not a practice copy");
   return found;
@@ -174,12 +192,20 @@ export async function setSpaceInstructions(ctx: OpUserCtx, ref: string | undefin
   return { ...space, instructions: r.instructions };
 }
 
+/** Rehearsing as someone with no space of their own (only cards): their lists are none. */
+export async function practiceHasNoSpace(ctx: OpUserCtx): Promise<boolean> {
+  return !!ctx.practice && !(await mySpaces(ctx)).length;
+}
+
 /** A space of mine by id or name; my personal space when left out. Others' spaces are 404. */
 export async function spaceOf(ctx: OpUserCtx, ref?: string) {
   const list = await mySpaces(ctx);
   const hit = ref
     ? (list.find((s) => s.id === ref) ?? list.filter((s) => nameKey(s.name) === nameKey(ref)))
-    : list.find((s) => s.kind === "personal");
+    : // Rehearsing, the copy stands in for "my space"; otherwise the personal one.
+      ctx.practice
+      ? list.find((s) => s.id === ctx.practice!.space)
+      : list.find((s) => s.kind === "personal");
   const one = Array.isArray(hit)
     ? hit.length === 1
       ? hit[0]

@@ -60,11 +60,13 @@ export function Composer({
           <TextInput
             accessibilityLabel={`Ask about ${label}`}
             placeholder={
-              !assistant
-                ? "The assistant isn't on your plan"
-                : online
-                  ? "Ask or add…"
-                  : "Asking needs a connection"
+              me?.practice
+                ? `${me.user.name.split(" ")[0]} has no assistant here`
+                : !assistant
+                  ? "The assistant isn't on your plan"
+                  : online
+                    ? "Ask or add…"
+                    : "Asking needs a connection"
             }
             placeholderTextColor={t.onInk + "99"}
             value={text}

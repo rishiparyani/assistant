@@ -3,6 +3,7 @@ import type { ApiErrorBody } from "@assistant/shared";
 import { Platform } from "react-native";
 import { API_URL } from "./config.ts";
 import { cookieHeader } from "./auth.ts";
+import { practiceHeader, type PracticeAs } from "./practice-mode.ts";
 
 export class ApiError extends Error {
   constructor(
@@ -20,9 +21,25 @@ export const newKey = () =>
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-export async function request<T>(method: string, path: string, body?: unknown, key?: string): Promise<T> {
+export interface RequestOptions {
+  /**
+   * Rehearsing (src/practice-mode.ts): left out, the call is made as whoever is being played
+   * right now; null makes it as yourself (the rehearsal's own controls); a value, as that.
+   */
+  practice?: PracticeAs | null;
+}
+
+export async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  key?: string,
+  opts: RequestOptions = {},
+): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["content-type"] = "application/json";
+  const as = practiceHeader(opts.practice === undefined ? undefined : opts.practice);
+  if (as) headers["x-practice-as"] = as;
   // Every write carries a fresh key so a retried request can't happen twice.
   if (method !== "GET") headers["idempotency-key"] = key ?? newKey();
   const cookie = await cookieHeader();

@@ -17,14 +17,12 @@ import type {
   UpdateSharedRecordInput,
 } from "@assistant/shared";
 import type { OpUserCtx } from "../operations.ts";
-import type { Actor } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
 import { hashToken, newToken } from "../tokens.ts";
-import { mySpaces, spaceName, spaceOf } from "./service.ts";
+import { actorOf, mySpaces, ownerActorOf, practiceStub, spaceName, spaceOf } from "./service.ts";
 
 const PREFIX = "shr";
 const TOKEN_RE = /^shr_([0-9A-HJKMNP-TV-Z]{26})_[A-Za-z0-9_-]{43}$/;
-const actorOf = (ctx: OpUserCtx): Actor => ({ userId: ctx.user.id, source: ctx.source });
 
 /**
  * A share's link token. With an idempotency key it's derived from the key (and who asked), so
@@ -271,6 +269,12 @@ export async function joinShare(ctx: OpUserCtx, token: string) {
 }
 
 export async function sharedWithMe(ctx: OpUserCtx): Promise<SharedWithMe[]> {
+  // Rehearsing: the copy's shares to the person played (the owner's own, when playing yourself).
+  if (ctx.practice) {
+    const stub = practiceStub(ctx)!;
+    if (ctx.practice.as === ctx.user.id) return stub.sharesFor(ownerActorOf(ctx));
+    return (await stub.practiceAsView(ownerActorOf(ctx), ctx.practice.as)).cards;
+  }
   const rows = await ctx.d1
     .prepare(`select distinct space_id from shared_with where user_id = ?`)
     .bind(ctx.user.id)
@@ -283,6 +287,8 @@ export async function sharedWithMe(ctx: OpUserCtx): Promise<SharedWithMe[]> {
 
 /** The space that holds a share the caller joined; 404 otherwise. */
 async function shareStub(ctx: OpUserCtx, shareId: string) {
+  // Rehearsing: every share is the copy's (it checks the person is among its people).
+  if (ctx.practice) return { stub: practiceStub(ctx)!, spaceId: ctx.practice.space };
   const row = await ctx.d1
     .prepare(`select space_id from shared_with where user_id = ? and share_id = ?`)
     .bind(ctx.user.id, shareId)

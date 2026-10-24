@@ -12,7 +12,7 @@ import {
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import type { OpUserCtx } from "../operations.ts";
-import { spaceName, spaceOf } from "./service.ts";
+import { actorOf, practiceHasNoSpace, practiceStub, spaceName, spaceOf } from "./service.ts";
 import { resolvePeople } from "./shares.ts";
 import type { WorkflowSpec } from "./space-object.ts";
 
@@ -96,6 +96,7 @@ export const workflowOperations = [
     http: { method: "GET", path: "/workflows" },
     input: WorkflowRef.omit({ workflow_id: true }),
     handler: async (ctx, i) => {
+      if (!i.space && (await practiceHasNoSpace(ctx))) return [];
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.listWorkflows(actor);
     },
@@ -148,6 +149,8 @@ export const workflowOperations = [
     http: { method: "GET", path: "/waiting" },
     input: WaitRef.omit({ wait_id: true }),
     handler: async (ctx, i) => {
+      // Rehearsing: what the copy is waiting on from the person played, and nothing else.
+      if (ctx.practice) return practiceStub(ctx)!.listWaiting(actorOf(ctx));
       const { stub, actor } = await spaceOf(ctx, i.space);
       const mine = await stub.listWaiting(actor);
       if (i.space) return mine;

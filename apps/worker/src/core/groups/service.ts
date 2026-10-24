@@ -43,6 +43,7 @@ async function index(ctx: OpUserCtx, groupId: string, userIds: string[]) {
  * with me, and people in my groups. Never anyone else, so nobody gets messages from strangers.
  */
 export async function chatPeople(ctx: OpUserCtx): Promise<ChatPerson[]> {
+  if (ctx.practice) return [];
   const [known, sharers, groupmates] = await Promise.all([
     knownPeople(ctx),
     ctx.d1
@@ -117,6 +118,7 @@ export async function markGroupRead(ctx: OpUserCtx, id: string): Promise<{ read:
 }
 
 export async function myGroups(ctx: OpUserCtx): Promise<GroupSummary[]> {
+  if (ctx.practice) return [];
   const rows = await ctx.d1
     .prepare(`select group_id from group_members where user_id = ? limit 100`)
     .bind(ctx.user.id)

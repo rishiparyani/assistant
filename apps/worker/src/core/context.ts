@@ -1,5 +1,6 @@
 // The request context every service receives: the signed-in user, never raw env. Access
 // to a gig is decided inside that gig's own object (docs/design/gig-centric.md §3).
+import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { createDb, type Db } from "./db/client.ts";
 import type { Source } from "./db/schema.ts";
@@ -59,6 +60,41 @@ export interface UserCtx {
   };
   /** Owners' emails (ADMIN_EMAILS, lower case): they always have the assistant. */
   owners: readonly string[];
+  /**
+   * Rehearsing (docs/design/from-scratch.md §2 point 9): the whole app as one of a practice
+   * copy's people. Set from the `x-practice-as` header ("<copy id> <person id>") once the copy
+   * is the caller's own; every space call then acts as that person inside the copy and nothing
+   * else answers (`practiceAllowed` in operations.ts, `actorOf` in spaces/service.ts).
+   */
+  practice?: PracticeMode;
+}
+
+export interface PracticeMode {
+  /** The practice copy. */
+  space: string;
+  /** The space it copies. */
+  of: string;
+  /** The person played (a member, someone shared with, or a stand-in). */
+  as: string;
+}
+
+/** The header's name; the app sends it on every call while rehearsing. */
+export const PRACTICE_HEADER = "x-practice-as";
+
+/** The rehearsal a request asks for, once the copy is the caller's own; a bad header is 404. */
+async function practiceFromHeader(c: Context<AppEnv>, userId: string): Promise<PracticeMode | undefined> {
+  const raw = c.req.header(PRACTICE_HEADER)?.trim();
+  if (!raw) return undefined;
+  const m = /^([A-Za-z0-9]{1,40}) ([A-Za-z0-9:_-]{1,60})$/.exec(raw);
+  if (!m) throw new AppError("not_found", "That rehearsal isn't yours");
+  const row = await c.env.DB.prepare(
+    `select s.practice_of from spaces s join space_members m on m.space_id = s.id
+     where s.id = ? and m.user_id = ? and m.role = 'owner' and s.practice_of is not null and s.deleted_at is null`,
+  )
+    .bind(m[1], userId)
+    .first<{ practice_of: string }>();
+  if (!row) throw new AppError("not_found", "That rehearsal isn't yours");
+  return { space: m[1]!, of: row.practice_of, as: m[2]! };
 }
 
 export type TokenScope = "read" | "write";
@@ -99,7 +135,9 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) throw new AppError("unauthenticated", "Sign in required");
   const { user } = session;
-  c.set("userCtx", userCtxFor(c.env, c.get("moduleSchemas"), user, "web", null));
+  const ctx = userCtxFor(c.env, c.get("moduleSchemas"), user, "web", null);
+  const practice = await practiceFromHeader(c, user.id);
+  c.set("userCtx", practice ? { ...ctx, practice } : ctx);
   await next();
 });
 

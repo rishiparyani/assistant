@@ -23,10 +23,14 @@ const both = (content: string, name: string, args: unknown): ModelAnswer => ({
 
 /** The instructions each call got, newest last (tests check they hold still within a request). */
 export const fakeSystems: string[] = [];
+/** The tools each call was offered, newest last. */
+export const fakeTools: ToolSpec[][] = [];
 
 export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: ToolSpec[]): ModelAnswer {
   fakeSystems.push(String(messages[0]?.content ?? ""));
   if (fakeSystems.length > 50) fakeSystems.shift();
+  fakeTools.push(tools);
+  if (fakeTools.length > 50) fakeTools.shift();
   const last = messages.at(-1)!;
   // A flow's "choose" step: the option whose name appears in the record wins (sure); a record
   // that says "Test unsure" gets a low confidence; otherwise the first option, sure.

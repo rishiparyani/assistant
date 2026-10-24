@@ -10,6 +10,7 @@ import { AppError } from "./errors.ts";
 import { parse } from "./validation.ts";
 import { toAppError } from "./objects/errors.ts";
 import { recordOperation } from "./metrics.ts";
+import { practiceAllowed } from "./spaces/practice-mode.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -127,6 +128,9 @@ export function registerOperations(app: Hono<AppEnv>, ops: readonly AnyOperation
   for (const op of ops) {
     const run = async (c: Context<AppEnv>): Promise<Response> => {
       const { scopes } = c.get("userCtx");
+      // Rehearsing as someone: only the copy's own reads and uses (practice-mode.ts).
+      if (!practiceAllowed(op.id, c.get("userCtx")))
+        throw new AppError("forbidden", "Not while rehearsing as someone. Tap Done first.");
       if (scopes && op.sessionOnly)
         throw new AppError("forbidden", "Sign in to the app to do this (API tokens can't)");
       if (scopes && !scopes.includes(op.kind === "write" ? "write" : "read"))

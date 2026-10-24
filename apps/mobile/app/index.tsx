@@ -131,7 +131,8 @@ export default function Home() {
   }, [userId, load]);
   const ready = today !== null;
   useEffect(() => {
-    if (userId && ready && !tourSeen(userId)) setTouring(true);
+    // Not while rehearsing as someone: the tour is for a person's own first time.
+    if (userId && ready && !me?.practice && !tourSeen(userId)) setTouring(true);
   }, [userId, ready]);
   useEffect(() => onHomeChanged(() => void load()), [load]);
   // Live: when something changes elsewhere, load again a moment later (a burst loads once).

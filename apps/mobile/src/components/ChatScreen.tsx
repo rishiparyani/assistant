@@ -3,9 +3,19 @@
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Clipboard from "expo-clipboard";
+import { LinkNote } from "./LinkNote.tsx";
 import * as Haptics from "expo-haptics";
-import { FlatList, Platform, Pressable, StyleSheet, View, type TextInput as RNTextInput } from "react-native";
-import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
+import {
+  FlatList,
+  Keyboard,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+  type GestureResponderEvent,
+  type TextInput as RNTextInput,
+} from "react-native";
+import Animated, { FadeIn, FadeInDown, useAnimatedStyle } from "react-native-reanimated";
 import {
   Boundary,
   Markdown,
@@ -39,7 +49,7 @@ import { ApiError, isOffline, request, newKey } from "@/api";
 import { send } from "@/outbox";
 import { useLive } from "@/live-socket";
 import { radius, useTheme } from "@/theme";
-import { useKeyboardRoom } from "@/keyboard";
+import { useKeyboardHeight, useKeyboardRoom } from "@/keyboard";
 import { useSession } from "@/session";
 import { rememberChat } from "@/last-chat";
 import { savedCatalog, type CatalogEntry } from "@/home";
@@ -154,16 +164,23 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   // Cards and questions as they're made, before the turn is saved (the saved turn replaces them).
   const [draftItems, setDraftItems] = useState<ChatItem[]>([]);
   const sentKey = useRef<string | null>(null);
+  // Whether this reply was already on screen as it was written: then the saved turn takes the
+  // draft's place where it stands, with no second entrance (owner, 2026-10-25: things in the
+  // chat "appear suddenly and the chat scrolls abruptly").
+  const streamed = useRef(false);
+  const quiet = useRef(new Set<string>());
   useLive((m) => {
     if (m.chat !== chatId) return;
     if (m.type === "assistant_item" && m.key === sentKey.current && typeof m.item === "string") {
       const item = JSON.parse(m.item) as ChatItem;
+      streamed.current = true;
       setDraftItems((xs) => (xs.some((x) => x.id === item.id) ? xs : [...xs, item]));
       return;
     }
     if (m.type === "assistant_delta" && m.key === sentKey.current) {
       const part = Number(m.part);
       const text = String(m.text ?? "");
+      streamed.current = true;
       setDraft((d) => (d && d.part === part ? { part, text: d.text + text } : { part, text }));
       return;
     }
@@ -224,6 +241,26 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   // Room for the keyboard, measured when it comes up (this sheet may still be sliding in when
   // it first lays out, opened from Help or a card).
   const room = useKeyboardRoom();
+  // The room under the chat follows the keyboard frame by frame on the iPhone, so the messages
+  // and the box ride up with it instead of jumping when it starts to move.
+  const keyboard = useKeyboardHeight();
+  // The box keeps its safe-area room underneath, so the keyboard takes over from it smoothly.
+  const bottomInset = insets.bottom;
+  const lifted = useAnimatedStyle(() => ({
+    paddingBottom: Platform.OS === "ios" ? Math.max(0, keyboard.value - bottomInset) : room,
+  }));
+  // A tap on the conversation (not a drag, not a button) puts the keyboard away.
+  const touch = useRef<{ x: number; y: number; at: number } | null>(null);
+  const touchStart = (e: GestureResponderEvent) => {
+    touch.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY, at: Date.now() };
+  };
+  const touchEnd = (e: GestureResponderEvent) => {
+    const t0 = touch.current;
+    touch.current = null;
+    if (!room || !t0) return;
+    const moved = Math.abs(e.nativeEvent.pageX - t0.x) + Math.abs(e.nativeEvent.pageY - t0.y);
+    if (moved < 10 && Date.now() - t0.at < 350) Keyboard.dismiss();
+  };
   // Opened from a card: the first message from this sheet names it, whatever the chat holds.
   const attached = useRef(false);
   // The collections of the chat's space, once for every live card in the chat.
@@ -385,6 +422,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     setBusy(true);
     setDraft(null);
     setDraftItems([]);
+    streamed.current = false;
     sentKey.current = newKey();
     const sentAt = new Date().toISOString();
     try {
@@ -394,6 +432,10 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         { text: msg, model: pick },
         sentKey.current,
       );
+      if (streamed.current) {
+        const had = new Set((view?.items ?? []).map((i) => i.id));
+        for (const i of next.items) if (!had.has(i.id) && i.role !== "user") quiet.current.add(i.id);
+      }
       setView(next);
       setDraftItems([]);
       setNote("");
@@ -488,7 +530,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
 
   return (
     <View style={[s.root, { backgroundColor: t.page }]}>
-      <View style={[s.root, { paddingBottom: room }]}>
+      <Animated.View style={[s.root, lifted]}>
         {/* The top, as Claude's and ChatGPT's (owner, 2026-10-23: "the top section is pretty
             clunky"): back on the left, the title in the middle (tap: the model, what this
             chat changed), chats and a new chat on the right. Nothing else. */}
@@ -603,10 +645,16 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
               120,
             );
           }}
-          keyboardDismissMode="interactive"
+          // Any drag on the conversation, or a tap on it, puts the keyboard away (owner,
+          // 2026-10-25: pulling it down from just above the keyboard was the only way).
+          keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          onTouchStart={touchStart}
+          onTouchEnd={touchEnd}
           renderItem={({ item }) => {
-            const fresh = item.id.startsWith("local-") || Date.parse(item.created_at) > openedAt.current;
+            const fresh =
+              !quiet.current.has(item.id) &&
+              (item.id.startsWith("local-") || Date.parse(item.created_at) > openedAt.current);
             const bubble = (
               <Bubble
                 item={item}
@@ -638,9 +686,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             );
             // In the upside-down list a cell's "down" is up on screen: new messages rise in.
             return fresh ? (
-              <Animated.View entering={FadeInDown.duration(motion.enter).springify().damping(18)}>
-                {safe}
-              </Animated.View>
+              <Animated.View entering={FadeInDown.duration(motion.enter)}>{safe}</Animated.View>
             ) : (
               safe
             );
@@ -800,17 +846,32 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             </View>
           </View>
         ) : null}
-        <View style={[s.compose, { paddingBottom: room ? 8 : insets.bottom + 8 }]}>
-          <Tap
-            accessibilityRole="button"
-            accessibilityLabel="Add a CSV file"
-            onPress={() => setShowImport(true)}
-            disabled={busy}
-            scale={0.9}
-            style={[s.attach, { borderColor: t.sep, backgroundColor: t.cell }]}
-          >
-            <Text style={{ color: t.fg2, fontWeight: "800", fontSize: 20, lineHeight: 22 }}>+</Text>
-          </Tap>
+        <View style={[s.compose, { paddingBottom: insets.bottom + 8 }]}>
+          {room ? (
+            // While typing, the button beside the box puts the keyboard away.
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Hide keyboard"
+              onPress={() => Keyboard.dismiss()}
+              hitSlop={8}
+              scale={0.9}
+              style={[s.attach, { borderColor: t.sep, backgroundColor: t.cell }]}
+            >
+              <Text style={{ color: t.fg2, fontWeight: "800", fontSize: 18, lineHeight: 20 }}>⌄</Text>
+            </Tap>
+          ) : (
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="Add a CSV file"
+              onPress={() => setShowImport(true)}
+              disabled={busy}
+              hitSlop={8}
+              scale={0.9}
+              style={[s.attach, { borderColor: t.sep, backgroundColor: t.cell }]}
+            >
+              <Text style={{ color: t.fg2, fontWeight: "800", fontSize: 20, lineHeight: 22 }}>+</Text>
+            </Tap>
+          )}
           <View style={[s.inputBox, { backgroundColor: t.cell, borderColor: t.sep }]}>
             <TextInput
               ref={box}
@@ -853,7 +914,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             <Text style={{ color: t.onAccent, fontWeight: "800", fontSize: 18, lineHeight: 20 }}>↑</Text>
           </Tap>
         </View>
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -1162,7 +1223,8 @@ function Bubble({
       </View>
     );
   }
-  if (item.role === "note") return <Text style={[s.sys, { color: t.fg2 }]}>{item.text}</Text>;
+  // A link in a note (a share's join link) comes with Copy and Share.
+  if (item.role === "note") return <LinkNote text={item.text} style={[s.sys, { color: t.fg2 }]} />;
   return (
     <>
       <Pressable

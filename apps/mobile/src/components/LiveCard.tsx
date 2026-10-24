@@ -1,9 +1,10 @@
 // A live card in the chat: a record (its values), or a list / saved view drawn like a home
 // card (ticks work). Loaded when shown; "Open" hands the card to the chat as context.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Animated, {
+  FadeIn,
   FadeInDown,
   useAnimatedStyle,
   useSharedValue,
@@ -12,7 +13,7 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
-import { Tap, Text, Tick, faceOf, shown, tint, type } from "@assistant/cards/native";
+import { Tap, Text, Tick, faceOf, motion, shown, tint, type } from "@assistant/cards/native";
 import type { CollectionView, FieldView, LiveRef, RecordView } from "@assistant/shared";
 import { ApiError, isOffline } from "../api.ts";
 import { leaveChat } from "../chat-open.ts";
@@ -23,6 +24,9 @@ import { colourFor, radius, useTheme } from "../theme.ts";
 import { Card, FlowDiagram, cardHeight } from "@assistant/cards/native";
 import { UiCard } from "./UiCard.tsx";
 import { quickAddFor } from "./QuickAdd.tsx";
+
+/** Live cards as last loaded, by what they show (a few dozen, newest kept). */
+const loaded = new Map<string, LiveData>();
 
 export function LiveCard(props: {
   live: LiveRef;
@@ -52,16 +56,22 @@ function LoadedCard({
   onSay?: (text: string) => void;
 }) {
   const { t } = useTheme();
-  const [data, setData] = useState<LiveData | null>(null);
+  const key = JSON.stringify([live, space]);
+  // Shown at once from the last load (a card the chat draws again, as a reply is saved, never
+  // flashes back to a spinner and changes height: owner, 2026-10-25, "the chat scrolls abruptly").
+  const [data, setData] = useState<LiveData | null>(() => loaded.get(key) ?? null);
   const [error, setError] = useState("");
-  const key = JSON.stringify(live);
+  const first = useRef(!loaded.has(key));
   useEffect(() => {
     let gone = false;
-    setData(null);
+    setData(loaded.get(key) ?? null);
     setError("");
     loadLive(live, collections, space)
       .then((d) => {
-        if (!gone) setData(d);
+        if (gone) return;
+        loaded.set(key, d);
+        if (loaded.size > 60) loaded.delete(loaded.keys().next().value!);
+        setData(d);
       })
       .catch((e: unknown) => {
         if (gone) return;
@@ -87,6 +97,28 @@ function LoadedCard({
         <ActivityIndicator color={t.fg3} />
       </View>
     );
+  // The first time a card loads it fades in where the spinner was; after that it's just there.
+  if (first.current)
+    return (
+      <Animated.View entering={FadeIn.duration(motion.fade)}>
+        <Drawn data={data} space={space} onAsk={onAsk} onSay={onSay} />
+      </Animated.View>
+    );
+  return <Drawn data={data} space={space} onAsk={onAsk} onSay={onSay} />;
+}
+
+function Drawn({
+  data,
+  space,
+  onAsk,
+  onSay,
+}: {
+  data: LiveData;
+  space: string | null;
+  onAsk?: (title: string) => void;
+  onSay?: (text: string) => void;
+}) {
+  const { t } = useTheme();
   if (data.kind === "plain")
     return (
       <View style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}>

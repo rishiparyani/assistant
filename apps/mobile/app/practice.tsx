@@ -2,33 +2,24 @@
 // 2026-10-22 "A rehearsal is a walkthrough"): a practice copy of a space whose workflows run
 // for real, played person by person. Opened on a flow it walks the person through it: Start
 // sets it off, then "Now Priya gets this" leads to Priya's phone, answering there leads to
-// whoever is next, and when nothing is waiting it's over. Each phone is the person's app as it
-// would be (only what's shared with them, their questions, what they've been told), and acts
-// as them, checked as theirs. Nothing reaches anyone; ending it erases the copy, the real
-// space is never touched. "Behind the scenes" is the copy's lists and log.
+// whoever is next, and when nothing is waiting it's over. A person's phone is the whole app as
+// them (docs/design/from-scratch.md §2 point 9, FS3: src/practice-mode.ts, the banner in
+// app/_layout.tsx), acting as them, checked as theirs. Nothing reaches anyone; ending it erases
+// the copy, the real space is never touched. "Behind the scenes" is the copy's lists and log.
 // online-only: a rehearsal lives in its practice copy's object.
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Boundary, Card, FlowDiagram, Text } from "@assistant/cards/native";
+import { FlowDiagram, Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type {
-  CollectionView,
-  PracticeAsView,
-  PracticePerson,
-  PracticeView,
-  SharedOpened,
-  WorkflowDetail,
-  StoredValue,
-} from "@assistant/shared";
-import { ulid } from "@assistant/shared";
+import type { CollectionView, PracticePerson, PracticeView, WorkflowDetail } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
+import { playAs } from "@/components/PracticeBanner";
 import { useLive } from "@/live-socket";
-import { homeChanged, sharedCard, type HomeCard } from "@/home";
+import { homeChanged } from "@/home";
 import { useSession } from "@/session";
-import { Sheet } from "@/components/Sheet";
-import { FreeAnswer, SharedPage } from "@/components/SharedPage";
+import { FreeAnswer } from "@/components/SharedPage";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
@@ -36,7 +27,8 @@ const ME = "";
 
 export default function Practice() {
   const { t, colour } = useTheme();
-  const myId = useSession().me?.user.id ?? null;
+  const { me, refresh } = useSession();
+  const myId = me?.user.id ?? null;
   const insets = useSafeAreaInsets();
   const router = useRouter();
   // The workflow being rehearsed (from its screen): its steps and a Start button lead the way.
@@ -45,16 +37,6 @@ export default function Practice() {
   const [started, setStarted] = useState<string | null>(null);
   const [view, setView] = useState<PracticeView | null>(null);
   const [lists, setLists] = useState<CollectionView[]>([]);
-  // Who is being played: "" is you (the one practising), otherwise a person's id.
-  const [who, setWho] = useState(ME);
-  const [as, setAs] = useState<{
-    view: PracticeAsView;
-    cards: HomeCard[];
-    opened: Record<string, SharedOpened>;
-  } | null>(null);
-  // The card of theirs that's open (its share), and the sheet to switch who's played.
-  const [openShare, setOpenShare] = useState<string | null>(null);
-  const [switching, setSwitching] = useState(false);
   const [note, setNote] = useState("");
   // What went wrong with the last thing tapped: kept until the next tap (the screen reads again
   // every few seconds, which cleared it before anyone saw it; owner, 2026-10-19: "it is showing
@@ -96,33 +78,11 @@ export default function Practice() {
         ).catch(() => null);
         if (real) setRealOn(real.workflow.enabled);
       }
-      if (who) {
-        const pv = await request<PracticeAsView>("GET", `${base}/as/${enc(who)}`);
-        // Each card opened through their share, so it shows what they may see and nothing more.
-        const opened = await Promise.all(
-          pv.cards.map((c) =>
-            request<SharedOpened>("GET", `${base}/as/${enc(who)}/cards/${enc(c.share_id)}`).catch(() => null),
-          ),
-        );
-        const cards: HomeCard[] = [];
-        const byShare: Record<string, SharedOpened> = {};
-        pv.cards.forEach((c, i) => {
-          const o = opened[i];
-          if (!o) return;
-          byShare[c.share_id] = o;
-          const card = sharedCard(c, o, []);
-          // A form says what it is here: it opens in the app, as theirs.
-          if (card && o.share.kind === "form" && card.shared)
-            card.shared = { ...card.shared, fields: [{ name: "A form to fill in", display: "Tap to open" }] };
-          if (card) cards.push(card);
-        });
-        setAs({ view: pv, cards, opened: byShare });
-      } else setAs(null);
       setNote("");
     } catch (e) {
       setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
     }
-  }, [space, base, who, workflow]);
+  }, [space, base, workflow]);
   useEffect(() => {
     void load();
     // Workflows run a moment after a change; without the live connection, read again now and then.
@@ -180,20 +140,12 @@ export default function Practice() {
       : when.event === "schedule"
         ? "Start: run it now"
         : `Start: run it on the newest in ${when.collection}`;
-  // What the person being played does, through their shares (checked as theirs).
-  const asThem = `${base}/as/${enc(who)}/cards`;
-  const setAsThem = (shareId: string, recordId: string, field: string, value: StoredValue) =>
-    request("PATCH", `${asThem}/${enc(shareId)}/records/${enc(recordId)}`, { values: { [field]: value } });
-  const addAsThem = (shareId: string, section: string, values: Record<string, unknown>) =>
-    request("POST", `${asThem}/${enc(shareId)}/records`, { id: ulid(), section, values });
-  const answerAsThem = (shareId: string, answer: string) =>
-    request("POST", `${asThem}/${enc(shareId)}/answer`, { answer });
+  /** Plays a person: the whole app becomes theirs, on Today (the one practising stays "You"). */
   const play = (id: string) => {
-    setAs(null);
-    setOpenShare(null);
-    setSwitching(false);
+    if (id === ME || !space || !view || !myId) return;
+    const name = view.people.find((p) => p.user_id === id)?.name ?? id;
     setProblem("");
-    setWho(id);
+    void playAs({ space, of: view.of, as: id, name, self: myId }, refresh).then(() => router.replace("/"));
   };
 
   const end = async () => {
@@ -212,7 +164,7 @@ export default function Practice() {
   };
 
   const people = view?.people ?? [];
-  const person = people.find((p) => p.user_id === who) ?? null;
+  const who = ME;
   // The lists the flow being rehearsed works with: its own and the ones it links to. The copy
   // holds the whole space (owner, 2026-10-19: "why are these expenses list showing in this
   // rehearse window?"), but only these matter here; the rest are a tap away.
@@ -229,7 +181,6 @@ export default function Practice() {
   // Whose turn it is next among the others (yours show as questions in your own view).
   const turn = people.find((p) => p.waiting > 0) ?? null;
   // In a walkthrough, once this person has nothing left to do, one card says so and goes on.
-  const continueShown = guided && !behind && !!started && !!person && !person.waiting;
   const waitingOn = (p: PracticePerson) =>
     view?.waiting.find((w) => w.on.some((o) => o.user_id === p.user_id && o.answer === null)) ?? null;
   // The walkthrough is over once it has started and nothing waits on anyone for a few seconds
@@ -258,244 +209,15 @@ export default function Practice() {
   const said = (l: PracticeView["log"][number]) =>
     `${l.user_id === myId ? "You" : l.name} ${verb(l)}: ${l.body ?? l.title}`;
 
-  // Their app, the whole screen (owner, 2026-10-20: "use it from one role's perspective exactly
-  // as they'll be able to see it"): only what's shared with them, acting as them.
-  const theirs = openShare && as ? (as.opened[openShare] ?? null) : null;
-  const switcher = (
-    <Sheet open={switching} onClose={() => setSwitching(false)} accessibilityLabel="Play as someone else">
-      <Text style={[s.h2, { color: t.fg, marginTop: 0 }]}>Play as</Text>
-      {[{ user_id: ME, name: "You", waiting: mine.length }, ...people].map((p) => {
-        const on = who === p.user_id;
-        return (
-          <Pressable
-            key={p.user_id || "me"}
-            accessibilityRole="button"
-            accessibilityState={{ selected: on }}
-            accessibilityLabel={p.waiting ? `${p.name}, ${p.waiting} waiting` : p.name}
-            onPress={() => play(p.user_id)}
-            style={[s.person, { backgroundColor: on ? t.accentSoft : t.cell, borderColor: t.hair }]}
-          >
-            <Text style={[s.line, { color: t.fg, fontWeight: "700", flex: 1 }]} numberOfLines={1}>
-              {p.user_id ? p.name : "You (the one practising)"}
-            </Text>
-            {p.waiting ? (
-              <View style={[s.badge, { backgroundColor: t.accent }]}>
-                <Text style={[s.badgeText, { color: t.onAccent }]}>{p.waiting}</Text>
-              </View>
-            ) : null}
-            {on ? <Text style={[s.label, { color: t.fg2 }]}>Now</Text> : null}
-          </Pressable>
-        );
-      })}
-    </Sheet>
-  );
-  // The chat on every branch of this screen: playing someone, the walkthrough, behind the
-  // scenes (Codex on PR 199).
   const fab = (
     <Composer
-      about={
-        who && person
-          ? { kind: "screen", title: `${person.name}'s phone` }
-          : {
-              kind: "screen",
-              title: guided && !behind ? "Walkthrough" : guided ? "Behind the scenes" : "Practice run",
-            }
-      }
+      about={{
+        kind: "screen",
+        title: guided && !behind ? "Walkthrough" : guided ? "Behind the scenes" : "Practice run",
+      }}
       params={space ? { space } : {}}
     />
   );
-  if (who && person)
-    return (
-      <View style={[s.playRoot, { backgroundColor: t.page }]}>
-        <View style={[s.bar, { backgroundColor: t.accent, paddingTop: insets.top + 8 }]}>
-          <View style={{ flex: 1, gap: 1 }}>
-            <Text style={[s.barSmall, { color: t.onAccent }]}>PRACTISING AS</Text>
-            <Text style={[s.barName, { color: t.onAccent }]} numberOfLines={1}>
-              {person.name}
-            </Text>
-          </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Switch who you play"
-            onPress={() => setSwitching(true)}
-            style={[s.barBtn, { borderColor: t.onAccent }]}
-          >
-            <Text style={[s.btnText, { color: t.onAccent }]}>Switch</Text>
-            {turn && turn.user_id !== who ? <View style={[s.dot, { backgroundColor: t.onAccent }]} /> : null}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to you"
-            onPress={() => play(ME)}
-            style={[s.barBtn, { borderColor: t.onAccent }]}
-          >
-            <Text style={[s.btnText, { color: t.onAccent }]}>Done</Text>
-          </Pressable>
-        </View>
-        <ScrollView
-          contentContainerStyle={[s.playBody, { paddingBottom: insets.bottom + COMPOSER_ROOM }]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
-        >
-          {guided && !behind ? (
-            // The walkthrough's line: who this is, and what to do here.
-            <View style={[s.narr, { backgroundColor: t.accentSoft }]}>
-              <Text style={[s.line, { color: t.fg }]}>
-                <Text style={{ fontWeight: "800" }}>You're {first(person.name)}.</Text>{" "}
-                {/* Second person throughout: the person is playing this role (owner, 2026-10-24:
-                    "What does their notifications mean? I thought we were practicing as the
-                    resident."). */}
-                {person.waiting
-                  ? `This is your phone now. Answer what you got, as ${first(person.name)} would.`
-                  : turn
-                    ? `Nothing more for you now; it's ${first(turn.name)}'s turn.`
-                    : mine.length
-                      ? "Nothing more for you here; back to your own phone."
-                      : "This is your phone, as it is now."}
-              </Text>
-            </View>
-          ) : null}
-          {problem ? (
-            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.danger }]}>
-              <Text style={[s.line, { color: t.danger, fontWeight: "700" }]}>That didn't work</Text>
-              <Text style={[s.label, { color: t.fg }]}>{problem}</Text>
-            </View>
-          ) : null}
-          {theirs && openShare ? (
-            // One of their cards, opened as they'd open it.
-            <>
-              <Pressable accessibilityRole="button" onPress={() => setOpenShare(null)} hitSlop={10}>
-                <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>
-                  ‹ {person.name}'s home
-                </Text>
-              </Pressable>
-              <SharedPage
-                opened={theirs}
-                busy={busy}
-                run={(key, go) => void act(key, go)}
-                onSet={(recordId, field, value) => setAsThem(openShare, recordId, field, value)}
-                onAdd={async (section, values) => {
-                  await addAsThem(openShare, section, values);
-                  await load();
-                  setTimeout(() => void load(), 1500);
-                }}
-                onAnswer={(answer) => answerAsThem(openShare, answer)}
-              />
-            </>
-          ) : (
-            <>
-              <View style={{ gap: 4 }}>
-                <Text style={[s.title, { color: t.fg }]}>Hi {person.name.split(" ")[0]}</Text>
-                <Text style={[s.label, { color: t.fg2 }]}>
-                  {person.role === "member"
-                    ? `${person.name} is in this space, so they see all its lists, as you do. Here: what they've been asked and told.`
-                    : person.role === "standin"
-                      ? "Made up for this practice run: nobody fills this role yet. Whoever does will get exactly this."
-                      : `This is ${person.name}'s app: only what's shared with them, with the fields they may see.`}
-                </Text>
-              </View>
-              {turn && turn.user_id !== who ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => play(turn.user_id)}
-                  style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}
-                >
-                  <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
-                    Now it's {turn.name}'s turn
-                  </Text>
-                  <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Play as {turn.name} ›</Text>
-                </Pressable>
-              ) : mine.length ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => play(ME)}
-                  style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}
-                >
-                  <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>Now it's your turn</Text>
-                  <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Back to you ›</Text>
-                </Pressable>
-              ) : continueShown ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => play(ME)}
-                  style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}
-                >
-                  <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>Nothing more is waiting</Text>
-                  <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Continue ›</Text>
-                </Pressable>
-              ) : null}
-              {as ? (
-                <>
-                  {as.cards.length ? (
-                    as.cards.map((card) => (
-                      <Boundary key={card.id} where="practice card">
-                        <Card
-                          card={card}
-                          natural
-                          busy={busy === card.id}
-                          onOpen={() => card.shared && setOpenShare(card.shared.share_id)}
-                          onAnswer={
-                            card.waiting && card.shared
-                              ? (a) => void act(card.id, () => answerAsThem(card.shared!.share_id, a))
-                              : undefined
-                          }
-                          onTick={(record, value) => {
-                            const field = card.spec.sources[0]?.answer_field;
-                            if (field && card.shared)
-                              void act(card.id, () =>
-                                setAsThem(card.shared!.share_id, record.id, field, value),
-                              );
-                          }}
-                          onSet={(record, field, value) =>
-                            card.shared &&
-                            void act(card.id, () => setAsThem(card.shared!.share_id, record.id, field, value))
-                          }
-                        />
-                      </Boundary>
-                    ))
-                  ) : continueShown && as.view.got.length ? null : ( // the Continue card already says so
-                    <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
-                      <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
-                        {as.view.got.length
-                          ? "Nothing is waiting on you now"
-                          : "Nothing is shared with you yet"}
-                      </Text>
-                      <Text style={[s.label, { color: t.fg2 }]}>
-                        {as.view.got.length
-                          ? "What you were asked and told is below."
-                          : `Your home stays empty until something is. Ask the chat to share a list or a form with ${first(person.name)} (in the real space), then start a new practice run.`}
-                      </Text>
-                    </View>
-                  )}
-                  <Text style={[s.h2, { color: t.fg }]}>Your notifications</Text>
-                  {as.view.got.length ? (
-                    as.view.got.map((g) => (
-                      <View key={g.id} style={[s.notif, { backgroundColor: t.cell, borderColor: t.hair }]}>
-                        <Text style={[s.label, { color: t.fg, fontWeight: "700" }]}>{g.title}</Text>
-                        <Text style={[s.line, { color: t.fg }]}>{g.body ?? ""}</Text>
-                        <Text style={[s.label, { color: t.fg3 }]}>
-                          {new Date(g.at).toLocaleString("en-IN", {
-                            timeStyle: "short",
-                            dateStyle: "medium",
-                          })}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={[s.label, { color: t.fg2 }]}>None yet.</Text>
-                  )}
-                </>
-              ) : (
-                <Text style={[s.label, { color: t.fg2 }]}>Loading…</Text>
-              )}
-            </>
-          )}
-        </ScrollView>
-        {switcher}
-        {fab}
-      </View>
-    );
 
   const leave = (
     <Pressable
@@ -723,7 +445,6 @@ export default function Practice() {
           )}
           {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
         </ScrollView>
-        {switcher}
         {fab}
       </View>
     );
@@ -922,7 +643,6 @@ export default function Practice() {
         {view ? <View style={s.row}>{endBtn}</View> : null}
         {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
       </ScrollView>
-      {switcher}
       {fab}
     </View>
   );

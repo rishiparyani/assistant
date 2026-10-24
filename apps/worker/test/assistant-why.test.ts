@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import type { ChatView } from "@assistant/shared";
 import { describe as cardWords, modelFailure } from "../src/core/assistant/service.ts";
-import { fakeSystems } from "../src/core/assistant/fake-model.ts";
+import { fakeSystems, fakeTools } from "../src/core/assistant/fake-model.ts";
 import { call, json, signUp } from "./http.ts";
 
 const lastReply = async (cookie: string) => {
@@ -102,6 +102,29 @@ describe("why the assistant couldn't answer", () => {
     // The next request sees what was remembered.
     await call("/api/chat", { cookie: me.cookie, body: { text: "hi" } });
     expect(fakeSystems.at(-1)).toMatch(/Test weddings are/);
+  });
+
+  it("names the person's other spaces and lets every tool say which (owner: a society's lists went to Personal)", async () => {
+    const me = await signUp("Test Spaces");
+    const spaceParam = () =>
+      (
+        fakeTools.at(-1)!.find((t) => t.function.name === "add_record")!.function.parameters as {
+          properties: Record<string, { description?: string }>;
+        }
+      ).properties.space;
+    // One space: no choice, so the tools stay small.
+    await call("/api/chat", { cookie: me.cookie, body: { text: "hi" } });
+    expect(spaceParam()).toBeUndefined();
+    expect(fakeSystems.at(-1)).not.toMatch(/Their other spaces/);
+    expect((await call("/api/spaces", { cookie: me.cookie, body: { name: "Test building" } })).status).toBe(
+      201,
+    );
+    await call("/api/chat", { cookie: me.cookie, body: { text: "hi" } });
+    expect(fakeSystems.at(-1)).toMatch(/Their other spaces: “Test building”/);
+    expect(spaceParam()).toEqual({
+      type: "string",
+      description: 'A space\'s name; leave out for "Personal"',
+    });
   });
 
   it("takes the person's pick of model: auto, quick or careful, nothing else", async () => {

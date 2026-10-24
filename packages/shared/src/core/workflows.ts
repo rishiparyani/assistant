@@ -76,7 +76,7 @@ const NotifyAction = z.object({
     .max(10)
     .default(["me"])
     .describe(
-      '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Lineup.Player})',
+      '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Lineup.Player}); up to three links, e.g. {Flat.Residents.App account} for the app accounts of the residents of the record\'s flat',
     ),
 });
 const SetAction = z.object({
@@ -248,7 +248,7 @@ export const WorkflowActionInput = z.discriminatedUnion("do", [
       .min(1)
       .max(10)
       .describe(
-        'Who to ask: "me", people you know (names or ids), {Field} for the person in that field of the record, or {Link.Field} for the people in a person field of linked records',
+        'Who to ask: "me", people you know (names or ids), {Field} for the person in that field of the record, or {Link.Field} for the people in a person field of linked records (up to three links: {Flat.Residents.App account})',
       ),
     text: z
       .string()

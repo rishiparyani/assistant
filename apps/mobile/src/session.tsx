@@ -15,6 +15,7 @@ import { ApiError, request } from "./api.ts";
 import { signOut as authSignOut } from "./auth.ts";
 import { kv, readJson, writeJson } from "./storage.ts";
 import { clearOutbox, useOutboxFor } from "./outbox.ts";
+import { leavePractice } from "./practice-mode.ts";
 
 const KEY = "gigspree:me";
 
@@ -42,6 +43,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (e instanceof ApiError && e.status === 401) {
         // The session has ended: forget the person and everything kept for them on this device.
         clearOutbox();
+        leavePractice();
         for (const k of kv.keys("gigspree:")) kv.remove(k);
         setMe(null);
       } else if (!me) setError(e instanceof Error ? e.message : String(e));
@@ -58,6 +60,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       /* already out */
     }
     clearOutbox();
+    leavePractice();
     for (const k of kv.keys("gigspree:")) kv.remove(k);
     setMe(null);
   }, []);

@@ -135,6 +135,7 @@ export const searchOperations = [
     http: { method: "GET", path: "/search" },
     input: SearchInput,
     handler: async (ctx, i): Promise<SearchResult[]> => {
+      if (ctx.practice) return [];
       // Words always; meaning when the model answers (a few hundred ms, online only).
       const [vector] = (await embed({ ai: ctx.ai.binding, fake: ctx.ai.settings.fake }, [i.q])) ?? [];
       const [hits, spaces] = await Promise.all([indexOf(ctx).query(i.q, i.limit * 2, vector), mySpaces(ctx)]);
