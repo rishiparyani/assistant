@@ -49,6 +49,7 @@ import { outboxState } from "@/outbox";
 import { colourFor, radius, useTheme } from "@/theme";
 import { ChatAboutSheet } from "@/components/ChatAboutSheet";
 import { RecordSheet } from "@/components/RecordSheet";
+import { ListAddSheet } from "@/components/ListAddSheet";
 
 const enc = encodeURIComponent;
 const PAGE = 50;
@@ -101,6 +102,8 @@ export default function ListPage() {
   // The list's ⋯ menu: Recently deleted, the plain setup screen (hidden here on purpose,
   // decision 2026-10-15 "Chat makes, screens can fix"), the CSV file on the website.
   const [menu, setMenu] = useState(false);
+  // "+ Add": the list's own form (from-scratch.md §3 List), offline through the outbox.
+  const [adding, setAdding] = useState(false);
   const [chatAbout, setChatAbout] = useState<RecordView | null>(null);
   // A row tapped: the record opened (it used to open the chat about it; owner, 2026-10-24).
   const [opened, setOpened] = useState<RecordView | null>(null);
@@ -323,6 +326,16 @@ export default function ListPage() {
               {asSheet ? "List" : "Sheet"}
             </Text>
           </Pressable>
+          {c ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Add to ${c.name}`}
+              onPress={() => setAdding(true)}
+              style={[s.deleted, { backgroundColor: t.accent, shadowColor: t.shadow }]}
+            >
+              <Text style={{ color: t.onAccent, fontSize: 14, fontWeight: "800" }}>+ Add</Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="More"
@@ -446,6 +459,15 @@ export default function ListPage() {
           />
         )}
         <Composer about={{ kind: "list", title: c?.name ?? "this list" }} params={chatIn} />
+        {c ? (
+          <ListAddSheet
+            open={adding}
+            onClose={() => setAdding(false)}
+            collection={c}
+            space={space}
+            onAdded={(r) => setRecords((rs) => [r, ...(rs ?? [])])}
+          />
+        ) : null}
       </View>
       <Sheet open={menu} onClose={() => setMenu(false)} gap={8} accessibilityLabel="More">
         {[
