@@ -9,6 +9,7 @@ import type {
   QueryResult,
   RecordView,
   WorkflowDetail,
+  WorkflowView,
 } from "@assistant/shared";
 import { request } from "./api.ts";
 import { answerCard, cardFor, findAll, type HomeCard } from "./home.ts";
@@ -23,7 +24,15 @@ export type LiveData =
   | { kind: "answer"; card: HomeCard; ref: Extract<LiveRef, { kind: "query" }> }
   | { kind: "plain"; title: string; subtitle: string | null }
   /** A workflow in words; it opens on its own screen (to rehearse it, turn it on, see runs). */
-  | { kind: "workflow"; id: string; name: string; enabled: boolean; words: string[]; space: string | null }
+  | {
+      kind: "workflow";
+      id: string;
+      name: string;
+      enabled: boolean;
+      words: string[];
+      workflow: WorkflowView;
+      space: string | null;
+    }
   /** A setup just made: its lists (as they are now) and the cards it put on the home. */
   | {
       kind: "setup";
@@ -106,7 +115,15 @@ export async function loadLive(
     case "workflow": {
       const d = await request<WorkflowDetail>("GET", `/api/workflows/${enc(ref.workflow_id)}${inSpace}`);
       const w = d.workflow;
-      return { kind: "workflow", id: w.id, name: w.name, enabled: w.enabled, words: w.words, space };
+      return {
+        kind: "workflow",
+        id: w.id,
+        name: w.name,
+        enabled: w.enabled,
+        words: w.words,
+        workflow: w,
+        space,
+      };
     }
     case "app":
       return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null };

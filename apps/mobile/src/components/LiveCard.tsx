@@ -19,7 +19,7 @@ import { answerPinned, pinAnswer, setValue, stillShown, tick, writeValue, type H
 import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
 import { colourFor, radius, useTheme } from "../theme.ts";
-import { Card, cardHeight } from "@assistant/cards/native";
+import { Card, FlowDiagram, cardHeight } from "@assistant/cards/native";
 import { UiCard } from "./UiCard.tsx";
 import { quickAddFor } from "./QuickAdd.tsx";
 
@@ -406,14 +406,9 @@ function WorkflowCard({ data }: { data: Extract<LiveData, { kind: "workflow" }> 
         </Text>
       </View>
       <Text style={[s.title, { color: t.fg }]}>{data.name}</Text>
-      {data.words.slice(0, 4).map((w, i) => (
-        <Text key={i} style={[s.sub, { color: t.fg2 }]} numberOfLines={2}>
-          {w}
-        </Text>
-      ))}
-      {data.words.length > 4 ? (
-        <Text style={[s.sub, { color: t.fg3 }]}>and {data.words.length - 4} more</Text>
-      ) : null}
+      <View style={{ marginTop: 6 }}>
+        <FlowDiagram workflow={data.workflow} />
+      </View>
       <Text style={[s.openListText, { color: t.accent }]}>
         {data.enabled ? "Open ›" : "Rehearse or turn on ›"}
       </Text>
