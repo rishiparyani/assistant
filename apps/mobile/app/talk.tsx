@@ -17,6 +17,7 @@ import Animated, { FadeInDown } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { sendChatMessage, useChat, type GroupMessage, type Pending } from "@/chats";
+import { ChatFab } from "@/components/ChatFab";
 import { dropFailed } from "@/outbox";
 import { SaveSheet } from "@/components/SaveSheet";
 import { AskSheet } from "@/components/AskSheet";
@@ -427,6 +428,7 @@ export default function Talk() {
           void reload();
         }}
       />
+      {chat ? <ChatFab about={{ kind: "group", title: chat.name }} lift={64} /> : null}
     </View>
   );
 }

@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import { TRASH_DAYS, type TrashItem } from "@assistant/shared";
 import { Text } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
+import { ChatFab } from "@/components/ChatFab";
 import { radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
@@ -171,6 +172,7 @@ export default function Trash() {
           )}
         />
       </View>
+      <ChatFab about={{ kind: "screen", title: "Recently deleted" }} />
     </View>
   );
 }

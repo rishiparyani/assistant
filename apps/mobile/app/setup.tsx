@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { Sheet } from "@/components/Sheet";
+import { ChatFab } from "@/components/ChatFab";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -448,6 +449,11 @@ export default function Setup() {
           </Pressable>
         </View>
       </Sheet>
+      <ChatFab
+        about={
+          collection ? { kind: "list", title: collection } : { kind: "screen", title: "Fields and cards" }
+        }
+      />
     </View>
   );
 }

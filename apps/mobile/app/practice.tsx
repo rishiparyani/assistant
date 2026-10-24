@@ -23,6 +23,7 @@ import type {
 } from "@assistant/shared";
 import { ulid } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { ChatFab } from "@/components/ChatFab";
 import { useLive } from "@/live-socket";
 import { homeChanged, sharedCard, type HomeCard } from "@/home";
 import { useSession } from "@/session";
@@ -907,6 +908,10 @@ export default function Practice() {
         {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
       </ScrollView>
       {switcher}
+      <ChatFab
+        about={{ kind: "screen", title: guided ? "Behind the scenes" : "Practice run" }}
+        params={space ? { space } : {}}
+      />
     </View>
   );
 }

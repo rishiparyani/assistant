@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline, request } from "@/api";
+import { ChatFab } from "@/components/ChatFab";
 import { radius, useTheme } from "@/theme";
 
 type Connector = {
@@ -150,6 +151,7 @@ export default function Connections() {
         ))}
         {note ? <Text style={[s.empty, { color: t.danger }]}>{note}</Text> : null}
       </ScrollView>
+      <ChatFab about={{ kind: "screen", title: "Connections" }} />
     </View>
   );
 }

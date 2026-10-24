@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { Sheet } from "@/components/Sheet";
+import { ChatFab } from "@/components/ChatFab";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { isOffline } from "@/api";
@@ -120,6 +121,7 @@ export default function Chats() {
           open(id);
         }}
       />
+      <ChatFab about={{ kind: "screen", title: "Chats" }} />
     </View>
   );
 }

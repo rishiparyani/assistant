@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { openChat } from "@/chat-open";
+import { ChatFab } from "@/components/ChatFab";
 import {
   arrange,
   homeChanged,
@@ -357,6 +358,7 @@ export default function Library() {
           </Pressable>
         ) : null}
       </ScrollView>
+      <ChatFab about={{ kind: "screen", title: "Library" }} />
     </View>
   );
 }

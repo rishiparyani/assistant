@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Memory } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { ChatFab } from "@/components/ChatFab";
 import { homeChanged } from "@/home";
 import { radius, useTheme } from "@/theme";
 
@@ -124,6 +125,7 @@ export default function MemoryPage() {
         )}
       />
       {note && items?.length ? <Text style={[s.empty, { color: t.danger }]}>{note}</Text> : null}
+      <ChatFab about={{ kind: "screen", title: "What it remembers" }} />
     </View>
   );
 }
