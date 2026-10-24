@@ -155,6 +155,9 @@
     // and a minute (its trial allows five).
     "AI_FAST_CALLS_PER_DAY": "60",
     "AI_FAST_CALLS_PER_MINUTE": "4",
+    // Jev, the decision model (secret TYPESAFE_API_KEY): which version answers; "jev-latest"
+    // follows TypeSafe's current build, "jev-1.13" and the like stay fixed.
+    "JEV_MODEL": "jev-latest",
   },
   "env": {
     "production": {
@@ -250,6 +253,7 @@
         "AI_PERSON_CAP_INR": "2000",
         "AI_FAST_CALLS_PER_DAY": "60",
         "AI_FAST_CALLS_PER_MINUTE": "4",
+        "JEV_MODEL": "jev-latest",
         "USD_INR": "90",
       },
     },

@@ -19,6 +19,7 @@ const base: AiSettings = {
   anthropic: false,
   openai: false,
   gemini: false,
+  jev: null,
 };
 const ids = (ms: { id: string }[]) => ms.map((m) => m.id);
 

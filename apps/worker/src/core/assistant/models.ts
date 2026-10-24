@@ -281,6 +281,8 @@ export interface AiSettings {
   pinned?: boolean;
   /** Faster answers (Cerebras) are set up: its key is in. */
   fast: boolean;
+  /** Jev, the decision model, and which version; null when its key isn't set. */
+  jev: string | null;
   /** Cerebras calls a day, all people together (its trial credit must last the month). */
   fastCallsPerDay: number;
   /** And a minute (the trial allows five). */
