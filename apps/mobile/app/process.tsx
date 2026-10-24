@@ -99,7 +99,8 @@ export default function Process() {
         `/api/spaces/${encodeURIComponent(space ?? "Personal")}/practice`,
         {},
       );
-      router.push({ pathname: "/practice", params: { space: made.id, ...(id ? { workflow: id } : {}) } });
+      // In place of this sheet, not over it: sheets piled up (owner, 2026-10-24).
+      router.replace({ pathname: "/practice", params: { space: made.id, ...(id ? { workflow: id } : {}) } });
     } catch (e) {
       setNote(
         isOffline(e) ? "A practice copy needs a connection." : e instanceof Error ? e.message : String(e),

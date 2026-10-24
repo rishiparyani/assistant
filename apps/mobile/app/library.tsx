@@ -197,7 +197,7 @@ export default function Library() {
             </Text>
             <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
               {practices.map((sp, i) => {
-                const open = () => router.push({ pathname: "/practice", params: { space: sp.id } });
+                const open = () => router.replace({ pathname: "/practice", params: { space: sp.id } });
                 const sure = ending === sp.id;
                 return (
                   <View
