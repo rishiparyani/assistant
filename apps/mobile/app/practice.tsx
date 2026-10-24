@@ -9,7 +9,7 @@
 // online-only: a rehearsal lives in its practice copy's object.
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Boundary, Card, Text } from "@assistant/cards/native";
+import { Boundary, Card, FlowDiagram, Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
@@ -203,7 +203,8 @@ export default function Practice() {
     try {
       await request("DELETE", base);
       homeChanged();
-      router.back();
+      if (router.canGoBack()) router.back();
+      else router.replace("/");
     } catch (e) {
       setNote(isOffline(e) ? "Ending needs a connection." : e instanceof Error ? e.message : String(e));
       setBusy(null);
@@ -227,6 +228,8 @@ export default function Practice() {
   const mine = (view?.waiting ?? []).filter((w) => w.on.some((o) => o.user_id === myId && o.answer === null));
   // Whose turn it is next among the others (yours show as questions in your own view).
   const turn = people.find((p) => p.waiting > 0) ?? null;
+  // In a walkthrough, once this person has nothing left to do, one card says so and goes on.
+  const continueShown = guided && !behind && !!started && !!person && !person.waiting;
   const waitingOn = (p: PracticePerson) =>
     view?.waiting.find((w) => w.on.some((o) => o.user_id === p.user_id && o.answer === null)) ?? null;
   // The walkthrough is over once it has started and nothing waits on anyone for a few seconds
@@ -340,13 +343,16 @@ export default function Practice() {
             <View style={[s.narr, { backgroundColor: t.accentSoft }]}>
               <Text style={[s.line, { color: t.fg }]}>
                 <Text style={{ fontWeight: "800" }}>You're {first(person.name)}.</Text>{" "}
+                {/* Second person throughout: the person is playing this role (owner, 2026-10-24:
+                    "What does their notifications mean? I thought we were practicing as the
+                    resident."). */}
                 {person.waiting
-                  ? "This is their phone. Answer what they got, as they would."
+                  ? `This is your phone now. Answer what you got, as ${first(person.name)} would.`
                   : turn
-                    ? `Nothing more for ${first(person.name)} now; it's ${first(turn.name)}'s turn.`
+                    ? `Nothing more for you now; it's ${first(turn.name)}'s turn.`
                     : mine.length
-                      ? `Nothing more for ${first(person.name)} now; it's your turn.`
-                      : "This is their phone, as it is now."}
+                      ? "Nothing more for you here; back to your own phone."
+                      : "This is your phone, as it is now."}
               </Text>
             </View>
           ) : null}
@@ -409,7 +415,7 @@ export default function Practice() {
                   <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>Now it's your turn</Text>
                   <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Back to you ›</Text>
                 </Pressable>
-              ) : guided && !behind && started && !person.waiting ? (
+              ) : continueShown ? (
                 <Pressable
                   accessibilityRole="button"
                   onPress={() => play(ME)}
@@ -448,21 +454,21 @@ export default function Practice() {
                         />
                       </Boundary>
                     ))
-                  ) : (
+                  ) : continueShown && as.view.got.length ? null : ( // the Continue card already says so
                     <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
                       <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
                         {as.view.got.length
-                          ? `Nothing is waiting on ${person.name} now`
-                          : `Nothing is shared with ${person.name} yet`}
+                          ? "Nothing is waiting on you now"
+                          : "Nothing is shared with you yet"}
                       </Text>
                       <Text style={[s.label, { color: t.fg2 }]}>
                         {as.view.got.length
-                          ? "What they were asked and told is below."
-                          : "Their home stays empty until something is. Ask the chat to share a list or a form with them (in the real space), then start a new practice run."}
+                          ? "What you were asked and told is below."
+                          : `Your home stays empty until something is. Ask the chat to share a list or a form with ${first(person.name)} (in the real space), then start a new practice run.`}
                       </Text>
                     </View>
                   )}
-                  <Text style={[s.h2, { color: t.fg }]}>Their notifications</Text>
+                  <Text style={[s.h2, { color: t.fg }]}>Your notifications</Text>
                   {as.view.got.length ? (
                     as.view.got.map((g) => (
                       <View key={g.id} style={[s.notif, { backgroundColor: t.cell, borderColor: t.hair }]}>
@@ -492,7 +498,11 @@ export default function Practice() {
     );
 
   const leave = (
-    <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={10}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
+      hitSlop={10}
+    >
       <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
     </Pressable>
   );
@@ -560,16 +570,8 @@ export default function Practice() {
                 It runs for real in a practice copy. You'll play each person in turn, on their own phone.
                 Nobody is contacted; the copy is erased at the end.
               </Text>
-              <View style={{ gap: 10, marginTop: 4 }}>
-                {flow.workflow.words.map((w, i) => (
-                  <View key={i} style={s.step}>
-                    <View style={[s.stepNo, { backgroundColor: t.accentSoft }]}>
-                      <Text style={[s.stepNoText, { color: t.accent }]}>{i + 1}</Text>
-                    </View>
-                    <Text style={[s.line, { color: t.fg, flex: 1 }]}>{w}</Text>
-                  </View>
-                ))}
-              </View>
+              {/* Drawn, not listed: the sentence list read "like code" (owner, 2026-10-24). */}
+              <FlowDiagram workflow={flow.workflow} />
               {people.length ? (
                 <Text style={[s.label, { color: t.fg2 }]}>
                   Who's in it: {[...new Set(people.map((p) => p.name))].join(", ")}
@@ -808,11 +810,7 @@ export default function Practice() {
               <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
                 Rehearsing {flow.workflow.name}
               </Text>
-              {flow.workflow.words.map((w, i) => (
-                <Text key={i} style={[s.label, { color: t.fg }]}>
-                  {i + 1}. {w}
-                </Text>
-              ))}
+              <FlowDiagram workflow={flow.workflow} />
               <Text style={[s.label, { color: t.fg2 }]}>
                 {started
                   ? `Started with “${started}”. See what happened below, or start again.`
@@ -995,9 +993,6 @@ const s = StyleSheet.create({
   label: { fontSize: 13, lineHeight: 18 },
   eyebrow: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8 },
   big: { fontSize: 24, lineHeight: 30, fontWeight: "800", letterSpacing: -0.5 },
-  step: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  stepNo: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
-  stepNoText: { fontSize: 13, fontWeight: "800" },
   bigBtn: {
     minHeight: 52,
     borderRadius: 26,
