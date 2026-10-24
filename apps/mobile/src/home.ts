@@ -40,16 +40,7 @@ import { readJson, writeJson } from "./storage.ts";
 
 export type { HomeCard };
 
-export interface HomePage {
-  name: string;
-  /** The page's card keys as arranged (decision 2026-10-16 "A home you arrange"), including any
-   * that can't be shown right now; `cards` is what shows. */
-  keys: string[];
-  cards: HomeCard[];
-}
-
 // The device copy is per person: another account on the same device never sees it.
-const keyFor = (userId: string) => `gigspree:home:${userId}`;
 const catalogKeyFor = (userId: string) => `gigspree:catalog:${userId}`;
 const enc = encodeURIComponent;
 const LIST_ROWS = 12;
@@ -295,11 +286,10 @@ export async function loadSpaceCards(space: string): Promise<HomeCard[]> {
   return cardsFor(views, collections, space);
 }
 
-// --- The home you arrange (decision 2026-10-16 "A home you arrange") -----------------------
-// Like a phone's home screen: the person's own pages of cards, nothing pre-built. Every list,
-// saved view, shared thing and waiting question has a card in the library; a new one lands on
-// the last page by itself (it's "seen" from then on), and taking a card off a page leaves it
-// in the library. Lists and views are where the data lives; the pages only arrange cards.
+// --- The catalogue (docs/design/from-scratch.md, FS1) -------------------------------------
+// Everything the person could see as a card: every list, saved view, shared thing and waiting
+// question. Today (app/index.tsx, src/today.ts) sorts it by what needs the person; the library
+// lists all of it. Nobody arranges it. Lists and views are where the data lives.
 
 /** Something that can be a card, by its key in the layout ("view:p:…", "share:…", "now"). */
 export interface CatalogEntry {
@@ -319,8 +309,8 @@ export interface Catalog {
   entries: CatalogEntry[];
   waiting: WaitingItem[];
   memories: Memory[] | null;
-  /** The layout as saved (or still waiting to be sent from this device); null: never arranged. */
-  layout: { pages: string[][]; seen: string[] } | null;
+  /** The person's spaces (not practice copies), the personal one first. */
+  spaces: SpaceView[];
   /** Everything answered: keys that are gone can be cleared from the pages. */
   complete: boolean;
   /**
@@ -331,7 +321,6 @@ export interface Catalog {
 }
 
 const PERSONAL = "p";
-const PER_PAGE = 12;
 
 /** Every card the person could have, cheaply: names and where they come from, no rows. */
 export async function loadCatalog(): Promise<Catalog> {
@@ -341,7 +330,7 @@ export async function loadCatalog(): Promise<Catalog> {
       complete = false;
       return fallback;
     });
-  const [views, collections, waiting, shares, memories, spaces, groups, saved] = await Promise.all([
+  const [views, collections, waiting, shares, memories, spaces, groups] = await Promise.all([
     request<SavedView[]>("GET", "/api/views"),
     request<CollectionView[]>("GET", "/api/collections"),
     soft(request<WaitingItem[]>("GET", "/api/waiting"), [] as WaitingItem[]),
@@ -350,7 +339,6 @@ export async function loadCatalog(): Promise<Catalog> {
     request<Memory[]>("GET", "/api/memories").catch(() => null),
     soft(request<SpaceView[]>("GET", "/api/spaces"), [] as SpaceView[]),
     soft(request<GroupView[]>("GET", "/api/groups"), [] as GroupView[]),
-    request<{ pages: string[][]; seen: string[] } | null>("GET", "/api/me/home"),
   ]);
   const entries: CatalogEntry[] = [{ key: "now", title: "Now", group: "From the app", kind: "now" }];
   if (memories)
@@ -424,27 +412,12 @@ export async function loadCatalog(): Promise<Catalog> {
       kind: "wait",
       waiting: w,
     });
-  return { entries, waiting, memories, layout: waitingLayout() ?? saved, complete, emptySpaces };
+  const ordered = [...spaces.filter((sp) => !sp.practice_of)].sort((a, b) =>
+    a.kind === b.kind ? 0 : a.kind === "personal" ? -1 : 1,
+  );
+  return { entries, waiting, memories, spaces: ordered, complete, emptySpaces };
 }
 
-/** A layout change made on this device and not sent yet wins over what the server has. */
-export function waitingLayout(): { pages: string[][]; seen: string[] } | null {
-  const w = [...outboxState().waiting].reverse().find((c) => c.kind === "home.layout");
-  return w ? (w.body as { pages: string[][]; seen: string[] }) : null;
-}
-
-/** Saves the layout through the outbox (arranging works offline); the latest replaces older ones. */
-export function saveLayout(layout: { pages: string[][]; seen: string[] }) {
-  send({
-    kind: "home.layout",
-    method: "PUT",
-    path: "/api/me/home",
-    body: { pages: layout.pages.filter((p) => p.length).slice(0, 20), seen: layout.seen.slice(-2000) },
-    label: "Arrange the home",
-  });
-}
-
-/** The card for one entry, with its rows (its key is its id). Null when it can't be read now. */
 export async function cardOf(e: CatalogEntry, cat: Catalog): Promise<HomeCard | null> {
   const keyed = (c: HomeCard | null) => (c ? { ...c, id: e.key } : null);
   try {
@@ -473,114 +446,6 @@ export async function cardOf(e: CatalogEntry, cat: Catalog): Promise<HomeCard | 
   } catch {
     return null;
   }
-}
-
-/**
- * The layout to show: the saved one with what's new added on the last page (and answered
- * questions or gone cards cleared), or, the first time, what the old home showed: Now and the
- * pinned cards on one page (nothing at all for someone new). Saved when it changed.
- */
-export function arrange(cat: Catalog): { pages: string[][]; seen: string[] } {
-  const keys = new Set(cat.entries.map((e) => e.key));
-  if (!cat.layout) {
-    const was = cat.entries.filter(
-      (e) => (e.kind === "view" && e.view!.pinned && !e.space) || e.kind === "share" || e.kind === "wait",
-    );
-    const first = was.length ? ["now", ...was.map((e) => e.key)] : [];
-    const layout = { pages: first.length ? [first.slice(0, 40)] : [], seen: [...keys] };
-    saveLayout(layout);
-    return layout;
-  }
-  const seen = new Set(cat.layout.seen);
-  let changed = false;
-  // A question that was answered goes; anything else gone goes only when everything was read.
-  let pages = cat.layout.pages.map((p) =>
-    p.filter((k) => keys.has(k) || (!cat.complete && !k.startsWith("wait:"))),
-  );
-  if (pages.flat().length !== cat.layout.pages.flat().length) changed = true;
-  const fresh = cat.entries.filter((e) => !seen.has(e.key) && e.kind !== "now");
-  if (fresh.length) {
-    changed = true;
-    for (const e of fresh) {
-      seen.add(e.key);
-      const last = pages[pages.length - 1];
-      if (last && last.length < PER_PAGE) last.push(e.key);
-      else pages = [...pages, [e.key]];
-    }
-  }
-  pages = pages.filter((p) => p.length);
-  // A home with nothing on it while there are cards to show is never right (owner, 2026-10-24:
-  // "My home just became empty out of nowhere"): every key was in `seen`, so nothing came back
-  // by itself. Put the cards back: the pinned views, shares and questions, else every list.
-  if (!pages.some((p) => p.some((k) => k !== "now"))) {
-    const back = firstPage(cat);
-    if (back.length) {
-      pages = [back.slice(0, PER_PAGE)];
-      changed = true;
-    }
-  }
-  const layout = { pages, seen: [...seen] };
-  if (changed) saveLayout(layout);
-  return layout;
-}
-
-/** What a home shows when it has to be rebuilt: Now, then what was pinned, shared or asked, else every list. */
-function firstPage(cat: Catalog): string[] {
-  const was = cat.entries.filter(
-    (e) => (e.kind === "view" && e.view!.pinned) || e.kind === "share" || e.kind === "wait",
-  );
-  const lists = was.length ? was : cat.entries.filter((e) => e.kind === "list" || e.kind === "view");
-  return lists.length ? ["now", ...lists.map((e) => e.key)] : [];
-}
-
-/** Loads the home: the catalog, the arranged pages, each card with its rows; the device copy offline. */
-export async function loadHome(userId: string): Promise<HomePage[]> {
-  try {
-    const cat = await loadCatalog();
-    const layout = arrange(cat);
-    // Remembered with the layout as arranged, so the library's saved copy needs no arranging
-    // (arranging saves; from a stale copy that could undo a change waiting to be sent, Codex on
-    // PR 191).
-    rememberCatalog(userId, { ...cat, layout });
-    const byKey = new Map(cat.entries.map((e) => [e.key, e]));
-    const pages = await Promise.all(
-      layout.pages.map(async (keys, i): Promise<HomePage> => {
-        const cards = await Promise.all(keys.map((k) => (byKey.has(k) ? cardOf(byKey.get(k)!, cat) : null)));
-        return { name: `Page ${i + 1}`, keys, cards: cards.filter((c): c is HomeCard => !!c) };
-      }),
-    );
-    lastSeen = layout.seen;
-    // Every list, for the bar's search (it finds lists whether or not they have a card).
-    const lists = new Map<string, { id: string; name: string; space?: string; space_name?: string }>();
-    for (const e of cat.entries)
-      if (e.collection && !lists.has(e.collection.id))
-        lists.set(e.collection.id, {
-          id: e.collection.id,
-          name: e.collection.name,
-          ...(e.space ? { space: e.space, space_name: e.group } : {}),
-        });
-    lastLists = [...lists.values()];
-    writeJson(keyFor(userId), pages);
-    return pages;
-  } catch (e) {
-    const saved = readJson<HomePage[]>(keyFor(userId));
-    if (saved) return saved;
-    throw e;
-  }
-}
-
-let lastLists: { id: string; name: string; space?: string; space_name?: string }[] = [];
-/** Every list the person has (from the last load), for the bar's search. */
-export const homeLists = () => lastLists;
-
-/** Every card key the home has shown (kept with the layout when the pages change on screen). */
-let lastSeen: string[] = [];
-/** Saves the pages as they are on screen now. */
-export function savePages(pages: HomePage[]) {
-  saveLayout({
-    pages: pages.map((p) => p.keys),
-    seen: lastSeen.length ? lastSeen : pages.flatMap((p) => p.keys),
-  });
 }
 
 function withWaitingViewChanges(views: SavedView[]): SavedView[] {
@@ -925,16 +790,6 @@ export function nudgeWaiting(w: WaitingItem): Promise<WaitingItem> {
   return request<WaitingItem>("POST", `/api/waiting/${enc(w.id)}/nudge${space}`);
 }
 
-/** Keeps the device copy in step with what the screen shows after a change. */
-/** The home as it was last shown on this device (offline-first rule 17: shown first, refreshed after). */
-export function savedHome(userId: string): HomePage[] | null {
-  return readJson<HomePage[]>(keyFor(userId));
-}
-
-export function rememberHome(userId: string, pages: HomePage[]) {
-  writeJson(keyFor(userId), pages);
-}
-
 /**
  * The catalog as this device last loaded it (the home loads it on every open), so the library
  * draws at once from it and refreshes after (offline-first rule 17; owner, 2026-10-24: the
@@ -950,12 +805,12 @@ export function rememberCatalog(userId: string, cat: Catalog) {
 }
 
 /**
- * The views on the home as this device last showed it: the chat's "Pin to home" buttons check
- * it, so a card already pinned says so when its chat is opened again.
+ * The views marked pinned as this device last loaded them: the chat's "Pin" buttons check it,
+ * so a card already pinned says so when its chat is opened again.
  */
 export function pinnedViews(userId: string | null): SavedView[] {
   if (!userId) return [];
-  return (savedHome(userId) ?? []).flatMap((p) => p.cards).flatMap((c) => (c.view ? [c.view] : []));
+  return (savedCatalog(userId)?.entries ?? []).flatMap((e) => (e.view?.pinned ? [e.view] : []));
 }
 
 /** The same text for the same content whatever order its keys arrive in (the server stores
@@ -1093,9 +948,4 @@ export function saveOrder(cards: HomeCard[]): HomeCard[] {
     viewChange(card, { position }, "Move");
     return { ...card, view: { ...card.view, position } };
   });
-}
-
-/** The same card on every page it appears on (Now shows some of My cards' cards). */
-export function replaceCard(pages: HomePage[], next: HomeCard): HomePage[] {
-  return pages.map((p) => ({ ...p, cards: p.cards.map((c) => (c.id === next.id ? next : c)) }));
 }

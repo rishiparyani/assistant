@@ -1,7 +1,6 @@
-// The library (decision 2026-10-16 "A home you arrange"): every card the person could have,
-// like a phone's app library. Each says whether it's on the home (which page) and adds or
-// removes it there; a list's card opens the whole list. Lists and views are where the data
-// lives; this only changes what the home shows.
+// The library (docs/design/from-scratch.md, FS1): everything the person has, in one place:
+// every list and view, what's shared with them, the flows, and practice copies. A row opens the
+// list. Nothing is added to or arranged on Today from here: Today sorts itself.
 // online-only: the library reads every space, share, question and flow; it needs a connection.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -12,22 +11,11 @@ import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { openChat } from "@/chat-open";
 import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
-import {
-  arrange,
-  homeChanged,
-  loadCatalog,
-  rememberCatalog,
-  saveLayout,
-  savedCatalog,
-  waitingLayout,
-  type Catalog,
-  type CatalogEntry,
-} from "@/home";
+import { loadCatalog, rememberCatalog, savedCatalog, type Catalog, type CatalogEntry } from "@/home";
 import { useSession } from "@/session";
 import { Mark } from "@/components/Mark";
 import { colourFor, radius, useTheme } from "@/theme";
 
-const PER_PAGE = 12;
 const KIND: Record<CatalogEntry["kind"], string> = {
   view: "A saved view",
   list: "A whole list",
@@ -46,12 +34,6 @@ export default function Library() {
   // Drawn at once from the catalog this device last loaded (the home just did), refreshed after.
   const saved = useMemo(() => (userId ? savedCatalog(userId) : null), [userId]);
   const [entries, setEntries] = useState<CatalogEntry[] | null>(saved?.entries ?? null);
-  // The saved copy is shown as it was arranged, never arranged again here (arranging saves a
-  // layout, and from a stale copy that could undo a change made since); a change made on this
-  // device and still waiting to be sent wins over it.
-  const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(() =>
-    saved ? (waitingLayout() ?? saved.layout) : null,
-  );
   const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>(saved?.emptySpaces ?? []);
   const [note, setNote] = useState("");
   // Flows (owner, 2026-10-19: "how do I rehearse it? … Add a flow section"): what the app does
@@ -84,11 +66,9 @@ export default function Library() {
   const load = useCallback(async () => {
     try {
       const cat: Catalog = await loadCatalog();
-      const arranged = arrange(cat);
-      if (userId) rememberCatalog(userId, { ...cat, layout: arranged });
+      if (userId) rememberCatalog(userId, cat);
       setEntries(cat.entries);
       setEmptySpaces(cat.emptySpaces);
-      setLayout(arranged);
       setNote("");
     } catch (e) {
       // With a saved copy on screen, a failed refresh changes nothing (offline: it stays).
@@ -101,24 +81,6 @@ export default function Library() {
     void loadFlows();
   }, [load, loadFlows]);
 
-  const change = (pages: string[][]) => {
-    if (!layout) return;
-    const next = { pages: pages.filter((p) => p.length), seen: layout.seen };
-    setLayout(next);
-    saveLayout(next);
-    homeChanged();
-  };
-  const add = (key: string) => {
-    if (!layout) return;
-    const pages = layout.pages.map((p) => [...p]);
-    const last = pages[pages.length - 1];
-    if (last && last.length < PER_PAGE) last.push(key);
-    else pages.push([key]);
-    change(pages);
-  };
-  const remove = (key: string) => layout && change(layout.pages.map((p) => p.filter((k) => k !== key)));
-  const pageOf = (key: string) => (layout ? layout.pages.findIndex((p) => p.includes(key)) : -1);
-
   const groups = new Map<string, CatalogEntry[]>();
   for (const e of entries ?? []) groups.set(e.group, [...(groups.get(e.group) ?? []), e]);
 
@@ -127,9 +89,7 @@ export default function Library() {
       <View style={s.head}>
         <View style={{ flex: 1, gap: 2 }}>
           <Text style={[s.title, { color: t.fg }]}>Library</Text>
-          <Text style={[s.label, { color: t.fg2 }]}>
-            Every card and flow. Add a card to your home, or take it off.
-          </Text>
+          <Text style={[s.label, { color: t.fg2 }]}>Every list, view and flow you have, in one place.</Text>
         </View>
         <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={10}>
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
@@ -262,7 +222,6 @@ export default function Library() {
               <Text style={[s.h2, { color: t.fg }]}>{group}</Text>
               <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
                 {list.map((e, i) => {
-                  const at = pageOf(e.key);
                   const opens = e.collection ? e.collection.id : null;
                   return (
                     <View
@@ -293,28 +252,9 @@ export default function Library() {
                           {e.title}
                         </Text>
                         <Text style={[s.label, { color: t.fg2 }]} numberOfLines={1}>
-                          {at >= 0 ? `On page ${at + 1}` : KIND[e.kind]}
+                          {KIND[e.kind]}
                         </Text>
                       </Pressable>
-                      {at >= 0 ? (
-                        <Tap
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${e.title} from home`}
-                          onPress={() => remove(e.key)}
-                          style={[s.btn, { backgroundColor: t.fill }]}
-                        >
-                          <Text style={[s.btnText, { color: t.fg }]}>Remove</Text>
-                        </Tap>
-                      ) : (
-                        <Tap
-                          accessibilityRole="button"
-                          accessibilityLabel={`Add ${e.title} to home`}
-                          onPress={() => add(e.key)}
-                          style={[s.btn, { backgroundColor: t.accent }]}
-                        >
-                          <Text style={[s.btnText, { color: t.onAccent }]}>Add</Text>
-                        </Tap>
-                      )}
                     </View>
                   );
                 })}

@@ -1,52 +1,32 @@
-// The home (docs/design/home-first.md §2; decision 2026-10-16 "A home you arrange"): the
-// person's own pages of cards, nothing pre-built, the chat bar under them. Hold a card to move
-// it, remove it or open its menu; the library has every card. Empty: a blank canvas and "Start
-// building". Ticks work offline; the chat is one tap away.
+// Today (docs/design/from-scratch.md §2.2 and §3, FS1; approved 2026-10-24): the first screen,
+// sorted by what needs the person: questions and forms first, then what's coming up across
+// every space, then chats, then spaces with their lists. Nobody arranges it, so it can never go
+// blank. The switcher under the greeting is a shortcut (the three spaces used last, then More),
+// not a filter people need. The bar at the bottom is the chat.
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AppState,
-  Linking,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  View,
-} from "react-native";
-import { Text } from "@assistant/cards/native";
-import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Boundary, Card, Skeleton, Tap, Text, TextInput } from "@assistant/cards/native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { nextUp, type CardSize } from "@assistant/cards";
-import type { RecordView, StoredValue } from "@assistant/shared";
-import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
-import { CardMenu } from "@/components/CardMenu";
-import { CardFull } from "@/components/CardFull";
 import { RecordSheet } from "@/components/RecordSheet";
-import { UiCard, homeUi } from "@/components/UiCard";
-import { quickAddFor } from "@/components/QuickAdd";
 import { HomeBar } from "@/components/HomeBar";
 import { HelpSheet } from "@/components/HelpSheet";
+import { Sheet } from "@/components/Sheet";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
 import { API_URL } from "@/config";
+import { answerWaiting, nudgeWaiting, onHomeChanged, type HomeCard } from "@/home";
 import {
-  answerWaiting,
-  loadHome,
-  savedHome,
-  nudgeWaiting,
-  rememberHome,
-  replaceCard,
-  homeLists,
-  resize,
-  savePages,
-  setValue,
-  stillShown,
-  tick,
-  type HomeCard,
-  type HomePage,
-  onHomeChanged,
-} from "@/home";
+  loadToday,
+  recentSpaces,
+  savedToday,
+  tileOf,
+  touchSpace,
+  whenWords,
+  type SpaceRow,
+  type Today,
+  type UpNextItem,
+} from "@/today";
 import { dropFailed, outboxState, subscribe } from "@/outbox";
 import { useSession } from "@/session";
 import { useChats } from "@/chats";
@@ -60,14 +40,18 @@ import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
 const SIDE = 16;
-/** From this width the home is one dashboard (four columns) instead of swipeable pages. */
-const WIDE = 900;
-const DASH_MAX = 1180;
+/** On a laptop Today keeps a readable column. */
+const COLUMN = 760;
+/** The personal space's id in the catalogue. */
+const PERSONAL = "p";
+const ALL = "all";
+/** How many spaces the switcher shows before More. */
+const RECENT = 3;
 
 export default function Home() {
   const { me, loaded, refresh } = useSession();
   const { t } = useTheme();
-  // The clock the greeting, the date and Next up read: moves on at every minute.
+  // The clock the greeting and Up next read: moves on at every minute.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     let id: ReturnType<typeof setTimeout>;
@@ -79,54 +63,40 @@ export default function Home() {
     return () => clearTimeout(id);
   }, []);
   const insets = useSafeAreaInsets();
-  // The bar rides up with the keyboard (the owner, 2026-10-16: "the keyboard covers it"), moving
-  // with it as it slides, not ahead of it (2026-10-17).
-  // Only for the bar's own box: a box in a card (a field to fill in) brought the bar up over the
-  // card instead (owner, 2026-10-19: "I tapped on the widget's text box, but the search bar came
-  // up"); the bar then stays down under the keyboard and the page scrolls the box into view.
+  // The bar rides up with the keyboard, for its own box only (owner, 2026-10-16 and 2026-10-19).
   const keyboard = useKeyboardHeight();
   const barFocused = useSharedValue(false);
   const lift = useAnimatedStyle(() => ({
     paddingBottom: Math.max(barFocused.value ? keyboard.value : 0, insets.bottom) + 10,
   }));
   const router = useRouter();
-  // Less the chat panel when it is open beside the home (a wide website window).
+  // Less the chat panel when it is open beside the screen (a wide website window).
   const width = useContentWidth();
-  const [pages, setPages] = useState<HomePage[] | null>(null);
+  const [today, setToday] = useState<Today | null>(null);
   // True while what's on screen is the device's saved copy and the fresh one is on its way.
   const [stale, setStale] = useState(false);
   const [error, setError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(0);
-  const [menu, setMenu] = useState<HomeCard | null>(null);
-  // A card opened up to its full height (owner, 2026-10-18), by id so it follows the home's data.
-  const [fullId, setFullId] = useState<string | null>(null);
-  // A row tapped on a card (or the full card): that record, opened (owner, 2026-10-24).
-  const [opened, setOpened] = useState<{ card: HomeCard; r: RecordView } | null>(null);
-  const list = useRef<FlatList<HomePage>>(null);
+  const [space, setSpace] = useState(ALL);
+  const [more, setMore] = useState(false);
+  const [find, setFind] = useState("");
+  // A row tapped under Up next: that record, opened (owner, 2026-10-24).
+  const [opened, setOpened] = useState<UpNextItem | null>(null);
   const [failed, setFailed] = useState(() => outboxState().failed);
+  const [busyCard, setBusyCard] = useState<string | null>(null);
   const userId = me?.user.id ?? null;
   useTestLaunch();
   usePendingPath();
-  // Guidance (decision 2026-10-13 "Guide people, no presets"): the first-run tour lights up
-  // the real parts of the home; Help ("?") takes it again, and has ideas and "How do I…?".
-  // One bar asks and searches (decision 2026-10-16 "One bar"): both tour steps point at it.
+  // Guidance (decision 2026-10-13 "Guide people, no presets"): the first-run tour lights up the
+  // real parts of the screen; Help ("?") takes it again, and has ideas and "How do I…?".
   const barRef = useRef<View>(null);
-  const tourRefs = {
-    chat: barRef,
-    cards: useRef<View>(null),
-    pages: useRef<View>(null),
-    search: barRef,
-    help: useRef<View>(null),
-  } satisfies TourRefs;
+  const tourRefs = { chat: barRef, search: barRef, help: useRef<View>(null) } satisfies TourRefs;
   const [touring, setTouring] = useState(false);
   const [help, setHelp] = useState(false);
 
-  // Loaded while changes were still waiting to be sent (offline): load again once they are,
-  // so the screen shows what the server now has.
+  // Loaded while changes were still waiting to be sent (offline): load again once they are.
   const loadedWithWaiting = useRef(false);
-  // Every load also asks who I am again (the assistant switch can change while the app is
-  // open); kept in a ref so a fresh `me` doesn't make `load` a new function and load again.
+  // Every load also asks who I am again (the assistant switch can change while the app is open).
   const refreshMe = useRef(refresh);
   refreshMe.current = refresh;
   const load = useCallback(async () => {
@@ -134,7 +104,7 @@ export default function Home() {
     try {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
       void refreshMe.current();
-      setPages(await loadHome(userId));
+      setToday(await loadToday(userId));
       setStale(false);
       setError("");
     } catch (e) {
@@ -148,26 +118,22 @@ export default function Home() {
       );
     }
   }, [userId]);
-  // The saved home shows in the first frame (the owner, 2026-10-16: "the upper screen is
-  // empty… a user might not know it's loading"); the fresh one replaces it when it arrives.
+  // The saved copy shows in the first frame; the fresh one replaces it when it arrives.
   useEffect(() => {
     if (!userId) return;
-    const saved = savedHome(userId);
+    const saved = savedToday(userId);
     if (saved) {
-      setPages((p) => p ?? saved);
+      setToday((p) => p ?? saved);
       setStale(true);
     }
     void load();
   }, [userId, load]);
-  // The tour, once per person on this device, when the home has loaded.
-  const homeReady = pages !== null;
+  const ready = today !== null;
   useEffect(() => {
-    if (userId && homeReady && !tourSeen(userId)) setTouring(true);
-  }, [userId, homeReady]);
+    if (userId && ready && !tourSeen(userId)) setTouring(true);
+  }, [userId, ready]);
   useEffect(() => onHomeChanged(() => void load()), [load]);
-  // Live: when something on my cards changes elsewhere (another phone, a bandmate), load again,
-  // a moment later so a burst of changes loads once. Not while my own changes are still on their
-  // way (that load follows when they're sent).
+  // Live: when something changes elsewhere, load again a moment later (a burst loads once).
   const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useLive((m) => {
     if (m.type !== "space_changed" && m.type !== "reconnected") return;
@@ -182,7 +148,7 @@ export default function Home() {
     });
     return () => sub.remove();
   }, [userId, load]);
-  // A change the server refused: say so, and show the home as the server has it.
+  // A change the server refused: say so, and show Today as the server has it.
   const waitingBefore = useRef(outboxState().waiting.length);
   useEffect(
     () =>
@@ -197,100 +163,55 @@ export default function Home() {
       }),
     [load],
   );
-
-  // Every change to the pages shows at once and is kept on the device. Worked out from the
-  // latest pages here (not in a state updater: the changes also queue outbox sends).
-  const pagesRef = useRef<HomePage[] | null>(null);
-  pagesRef.current = pages;
-  const update = useCallback(
-    (fn: (prev: HomePage[]) => HomePage[]) => {
-      const prev = pagesRef.current;
-      if (!prev) return;
-      const next = fn(prev);
-      pagesRef.current = next;
-      setPages(next);
-      if (userId) rememberHome(userId, next);
-    },
-    [userId],
-  );
-
-  // Chats with something unread (the dot on the Chats button); refreshes on live pings.
-  const unread = (useChats().chats ?? []).filter((c) => c.unread > 0).length;
-  // What's typed in the bar; while there's something, matches show above it over a scrim.
-  // `?q=` opens the home with the bar already searching, the keyboard up (a link from Siri or
-  // a shortcut; the simulator run checks the bar clears the keyboard this way).
+  // Chats with people, by activity (the hook keeps them fresh on live pings).
+  const chats = useChats().chats ?? [];
+  // `?q=` opens Today with the bar already searching, the keyboard up (a link from Siri).
   const { q: startQuery } = useLocalSearchParams<{ q?: string }>();
   const [barText, setBarText] = useState(startQuery ?? "");
-  const [busyCard, setBusyCard] = useState<string | null>(null);
 
-  // No hook below this line (the signed-out home crashed on the phone and the web, 2026-10-15:
-  // a useState after this return made the first render one hook longer than the next).
+  // The switcher: Everything, the spaces used last, More.
+  const recent = useMemo(() => {
+    const all = today?.spaces ?? [];
+    const used = userId ? recentSpaces(userId) : [];
+    const picked: SpaceRow[] = [];
+    for (const id of used) {
+      const sp = all.find((x) => x.id === id);
+      if (sp && !picked.includes(sp)) picked.push(sp);
+      if (picked.length >= RECENT) break;
+    }
+    for (const sp of all) {
+      if (picked.length >= RECENT) break;
+      if (!picked.includes(sp)) picked.push(sp);
+    }
+    return picked;
+  }, [today, userId]);
+
+  // No hook below this line (the signed-out screen crashed on the phone and the web, 2026-10-15).
   if (loaded && !me) return <Redirect href="/login" />;
 
-  const onTick = (card: HomeCard) => (record: Parameters<typeof tick>[1], value: boolean) => {
-    update((prev) => {
-      const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
-      const records = current.records.map((r) => (r.id === record.id ? tick(current, r, value) : r));
-      return replaceCard(prev, { ...current, records });
-    });
-    // Ticked off a card that only shows what's open ("Today"): it stays a beat, struck
-    // through with its box filled, then slides away (the motion demo the owner approved).
-    const field = card.spec.sources[0]?.answer_field;
-    const after = field ? { ...record, values: { ...record.values, [field]: value } } : record;
-    if (value && !stillShown(card, after, userId))
-      setTimeout(
-        () =>
-          update((prev) => {
-            const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id);
-            if (!current) return prev;
-            const records = current.records.filter(
-              (r) => r.id !== record.id || stillShown(current, r, userId),
-            );
-            return replaceCard(prev, { ...current, records });
-          }),
-        650,
-      );
-  };
-  const onSet = (card: HomeCard) => (record: Parameters<typeof tick>[1], field: string, value: StoredValue) =>
-    update((prev) => {
-      const current = prev.flatMap((p) => p.cards).find((c) => c.id === card.id) ?? card;
-      // A row the change takes out of the card's filters leaves it ("Paid" on "Unpaid").
-      const records = current.records.flatMap((r) => {
-        if (r.id !== record.id) return [r];
-        const next = setValue(current, r, field, value);
-        return stillShown(current, next, userId) ? [next] : [];
-      });
-      return replaceCard(prev, { ...current, records });
-    });
   const assistant = me?.assistant !== false;
-  // online-only: the website's shared pages (a form to fill in, a card's parts) open in the browser.
-  const openOnWeb = (card: HomeCard) =>
-    card.shared && void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(card.shared.share_id)}`);
-  const ask = (card: HomeCard, prompt?: string) => {
-    // No assistant (a collaborator): a shared card opens on the website instead of in the chat.
-    if (!assistant && card.shared) return openOnWeb(card);
-    if (!assistant) return;
-    // A space's card opens that space's chat (decision 2026-10-16 "Spaces").
-    openChat(router, {
-      card: card.spec.title,
-      ...(prompt ? { ask: prompt } : {}),
-      ...(card.space ? { space: card.space } : {}),
-    });
+  const pick = (id: string) => {
+    setSpace(id);
+    if (userId) touchSpace(userId, id);
+    setMore(false);
+    setFind("");
   };
-  /** A whole list, on its own screen (its saved view chosen when the card is one). */
-  const openList = (collection: string, view?: string, space?: string) =>
+  const inSpace = (id: string | undefined) => space === ALL || (id ?? PERSONAL) === space;
+  /** A whole list, on its own screen (its saved view chosen when the row is one). */
+  const openList = (collection: string, view?: string, spaceId?: string) =>
     router.push({
       pathname: "/list",
-      params: { collection, ...(view ? { view } : {}), ...(space ? { space } : {}) },
+      params: { collection, ...(view ? { view } : {}), ...(spaceId ? { space: spaceId } : {}) },
     });
-  // Process cards: my answer, or a nudge; then the home reads again (the run went on).
+  // online-only: the website's shared pages (a form to fill in) open in the browser.
+  const openOnWeb = (card: HomeCard) =>
+    card.shared && void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(card.shared.share_id)}`);
+  // Process cards: my answer, or a nudge; then Today reads again (the run went on).
   const processAction = (card: HomeCard, go: () => Promise<unknown>) => async () => {
     setBusyCard(card.id);
     try {
       await go();
       await load();
-      // The run goes on from the space's alarm a moment later (it may ask the next question):
-      // read once more so the next step shows without a pull.
       setTimeout(() => void load(), 1500);
     } catch (e) {
       setError(isOffline(e) ? "Answering needs a connection." : e instanceof Error ? e.message : String(e));
@@ -298,317 +219,293 @@ export default function Home() {
       setBusyCard(null);
     }
   };
-  // Arranging (decision 2026-10-16 "A home you arrange"): the pages change on screen at once
-  // and the layout is saved through the outbox; the cards' data never changes.
-  const arrangeTo = (fn: (prev: HomePage[]) => HomePage[]) =>
-    update((prev) => {
-      const next = fn(prev).filter((p) => p.keys.length);
-      savePages(next);
-      return next;
-    });
-  const menuActions = {
-    ask,
-    resize: (card: HomeCard, size: CardSize) => update((prev) => replaceCard(prev, resize(card, size))),
-    unpin: (card: HomeCard) =>
-      arrangeTo((prev) =>
-        prev.map((p) => ({
-          ...p,
-          keys: p.keys.filter((k) => k !== card.id),
-          cards: p.cards.filter((c) => c.id !== card.id),
-        })),
-      ),
-    where: (card: HomeCard) => {
-      const i = (pagesRef.current ?? []).findIndex((p) => p.keys.includes(card.id));
-      return i < 0 ? null : { page: i, pages: pagesRef.current!.length };
-    },
-    move: (card: HomeCard, by: 1 | -1) =>
-      arrangeTo((prev) => {
-        const from = prev.findIndex((p) => p.keys.includes(card.id));
-        if (from < 0) return prev;
-        const to = from + by;
-        if (to < 0) return prev;
-        const next = prev.map((p) => ({
-          ...p,
-          keys: p.keys.filter((k) => k !== card.id),
-          cards: p.cards.filter((c) => c.id !== card.id),
-        }));
-        if (to >= next.length) next.push({ name: `Page ${next.length + 1}`, keys: [], cards: [] });
-        next[to] = { ...next[to]!, keys: [...next[to]!.keys, card.id], cards: [...next[to]!.cards, card] };
-        return next;
-      }),
-  };
-  const reorder = (pageIndex: number) => (from: number, to: number) =>
-    update((prev) =>
-      prev.map((p, i) => {
-        if (i !== pageIndex) return p;
-        const cards = [...p.cards];
-        const [moved] = cards.splice(from, 1);
-        if (moved) cards.splice(to, 0, moved);
-        // Keys that can't show right now keep their place at the end.
-        const shown = new Set(cards.map((c) => c.id));
-        return { ...p, cards, keys: [...cards.map((c) => c.id), ...p.keys.filter((k) => !shown.has(k))] };
-      }),
-    );
-  const dropped = () => pagesRef.current && savePages(pagesRef.current);
 
-  // A laptop or a wide window (home-first.md §2 point 17): the pages flatten into one
-  // dashboard, four columns of cards, the same cards and data; the chat stays one tap away.
-  const wide = width >= WIDE;
-  const pageWidth = wide ? Math.min(width, DASH_MAX) : width;
-  const gridWidth = pageWidth - SIDE * 2;
-  const refreshControl = (
-    <RefreshControl
-      refreshing={refreshing}
-      onRefresh={async () => {
-        setRefreshing(true);
-        await load();
-        setRefreshing(false);
-      }}
-      tintColor={t.fg2}
-    />
-  );
-  // The soonest thing coming up across every card (decision 2026-10-13 "A warmer home").
-  const next = nextUp(
-    (pages ?? []).flatMap((p) => p.cards),
-    now,
-  );
-  // Before anything has loaded: the greeting and the date (nothing to wait for) over soft
-  // placeholder cards, never a blank page. Loaded with no pages at all: the blank canvas.
-  const loading = pages === null;
-  const blank = !!pages && !pages.some((p) => p.cards.length);
-  const shownPages: HomePage[] = pages?.length ? pages : [{ name: "Page 1", keys: [], cards: [] }];
-  const header = (
-    <View style={s.greetRow}>
-      <View style={s.greet}>
-        <Text style={[s.eyebrow, { color: t.fg2 }]}>
-          {todayWords(new Date(now))}
-          {stale ? "  ·  Updating…" : ""}
-        </Text>
-        <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
-      </View>
-      {/* Every card there is (decision 2026-10-16 "A home you arrange"): add one back here. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Library: every card"
-        onPress={() => router.push("/library")}
-        style={({ pressed }) => [
-          s.searchBtn,
-          { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
-        ]}
-      >
-        <View style={s.gridIcon}>
-          {[0, 1, 2, 3].map((i) => (
-            <View key={i} style={[s.gridDot, { borderColor: t.fg }]} />
-          ))}
-        </View>
-      </Pressable>
-      {/* Chats with people (decision 2026-10-13 "Chats with people"), with a dot when
-          something's unread. */}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={unread ? `Chats, ${unread} with new messages` : "Chats"}
-        onPress={() => router.push("/chats")}
-        style={({ pressed }) => [
-          s.searchBtn,
-          { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
-        ]}
-      >
-        <View style={[s.bubbleIcon, { borderColor: t.fg }]} />
-        {unread ? (
-          <View style={[s.unread, { backgroundColor: t.accent, borderColor: t.cell }]}>
-            <Text style={[s.unreadText, { color: t.onAccent }]}>{unread > 9 ? "9+" : unread}</Text>
-          </View>
-        ) : null}
-      </Pressable>
-    </View>
-  );
-  const renderPage = (item: HomePage, index: number) => (
-    <View key={`page-${index}`} style={{ gap: 12 }}>
-      {index === 0 ? header : null}
-      {loading ? (
-        <Skeleton />
-      ) : blank ? (
-        // Nothing yet: a blank canvas and one way in (the owner, 2026-10-16: "a blank canvas…
-        // a button which says start building, and that opens a chat").
-        <View style={[s.canvas, { borderColor: t.hair }]}>
-          <Text style={[s.canvasTitle, { color: t.fg }]}>
-            {error || (assistant ? "Your home is empty" : "Nothing shared with you yet")}
-          </Text>
-          <Text style={[s.sub, { color: t.fg2, textAlign: "center" }]}>
-            {assistant
-              ? "Tell the chat what you want to keep track of. What you set up gets a card here, and you arrange them the way you like."
-              : "When someone shares a list, a card or a question with you, it shows here."}
-          </Text>
-          {assistant && !error ? (
-            <Tap
-              accessibilityRole="button"
-              onPress={() =>
-                openChat(router, {
-                  ask: "I'd like to start building. Ask me what I want to keep track of, then set it up.",
-                  send: "1",
-                })
-              }
-              style={[s.startBtn, { backgroundColor: t.accent }]}
-            >
-              <Text style={[s.startText, { color: t.onAccent }]}>Start building</Text>
-            </Tap>
-          ) : null}
-          <Pressable accessibilityRole="link" onPress={() => router.push("/library")} hitSlop={8}>
-            <Text style={[s.listMeta, { color: t.accent }]}>Library ›</Text>
+  const needs = (today?.needs ?? []).filter((c) => (c.waiting ? inSpace(c.waiting.space_id) : space === ALL));
+  const upnext = (today?.upnext ?? []).filter((u) => inSpace(u.space));
+  const spaces = (today?.spaces ?? []).filter((sp) => inSpace(sp.id === PERSONAL ? undefined : sp.id));
+  const shownChats = space === ALL ? chats : [];
+  const wide = width >= COLUMN + SIDE * 2;
+  const loading = today === null;
+
+  const section = (title: string, aside?: string, onAside?: () => void) => (
+    <View style={s.sec}>
+      <Text style={[s.secTitle, { color: t.fg }]}>{title}</Text>
+      {aside ? (
+        onAside ? (
+          <Pressable accessibilityRole="link" onPress={onAside} hitSlop={8}>
+            <Text style={[s.secAside, { color: t.accent }]}>{aside}</Text>
           </Pressable>
-        </View>
-      ) : item.cards.length ? (
-        <View ref={index === (wide ? 0 : page) ? tourRefs.cards : undefined} collapsable={false}>
-          <CardGrid
-            cards={item.cards}
-            width={gridWidth}
-            arrangeable
-            onHold={setMenu}
-            onReorder={reorder(index)}
-            onDrop={dropped}
-            renderCard={(card, canOpen, natural) =>
-              card.id === "now" ? (
-                // Now (a card like any other since 2026-10-16): the soonest thing coming up.
-                next ? (
-                  <View style={natural ? null : s.nowSlot}>
-                    <HeroCard next={next} now={now} onOpen={() => canOpen() && ask(next.card)} />
-                  </View>
-                ) : (
-                  <View
-                    style={[
-                      s.nowEmpty,
-                      natural && { flex: 0, minHeight: 96 },
-                      { backgroundColor: t.cell, borderColor: t.hair },
-                    ]}
-                  >
-                    <Text style={[s.eyebrow, { color: t.fg2 }]}>NOW</Text>
-                    <Text style={[s.sub, { color: t.fg }]}>Nothing coming up on your cards.</Text>
-                  </View>
-                )
-              ) : card.view?.card?.ui ? (
-                // A card the assistant designed and the person pinned: it draws itself. Its
-                // parts take the taps (tabs, boxes), so the corner button opens it up (owner,
-                // 2026-10-19: "why is this money dashboard not expandable?").
-                <View>
-                  <Boundary where="home card">
-                    <UiCard live={homeUi(card)!} />
-                  </Boundary>
-                  <Tap
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${card.spec.title}`}
-                    onPress={() => canOpen() && setFullId(card.id)}
-                    haptic="light"
-                    hitSlop={6}
-                    style={[s.openBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
-                  >
-                    <Text style={[s.openIcon, { color: t.fg2 }]}>⤢</Text>
-                  </Tap>
-                </View>
-              ) : (
-                <Boundary where="home card">
-                  <Card
-                    card={card}
-                    natural={natural}
-                    footer={quickAddFor(card, (c) => update((prev) => replaceCard(prev, c)))}
-                    onTick={onTick(card)}
-                    onSet={onSet(card)}
-                    onOpenRecord={card.collection && !card.shared ? (r) => setOpened({ card, r }) : undefined}
-                    onSeeAll={
-                      card.collection && !card.shared && !card.waiting && !card.memory
-                        ? () => canOpen() && openList(card.collection!.id, card.view?.id, card.space)
-                        : undefined
-                    }
-                    onOpen={() =>
-                      canOpen() &&
-                      (card.memory
-                        ? router.push("/memory")
-                        : card.waiting
-                          ? router.push({
-                              pathname: "/process",
-                              params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
-                            })
-                          : card.shared?.kind === "form"
-                            ? openOnWeb(card)
-                            : setFullId(card.id))
-                    }
-                    onAnswer={
-                      card.waiting
-                        ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
-                        : undefined
-                    }
-                    onNudge={
-                      card.waiting?.share_id
-                        ? undefined
-                        : card.waiting
-                          ? processAction(card, () => nudgeWaiting(card.waiting!))
-                          : undefined
-                    }
-                    busy={busyCard === card.id}
-                  />
-                </Boundary>
-              )
-            }
-          />
-        </View>
+        ) : (
+          <Text style={[s.secAside, { color: t.fg3 }]}>{aside}</Text>
+        )
       ) : null}
     </View>
   );
-  return (
-    <View style={[s.root, { backgroundColor: t.canvas }]}>
-      {wide ? (
-        <ScrollView
-          contentContainerStyle={{
-            width: pageWidth,
-            alignSelf: "center",
-            paddingTop: insets.top + 20,
-            paddingHorizontal: SIDE,
-            paddingBottom: insets.bottom + 150,
-            gap: 28,
-          }}
-          refreshControl={refreshControl}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
+  const header = (
+    <View style={{ gap: 6 }}>
+      <View style={s.greetRow}>
+        <View style={s.greet}>
+          <Text style={[s.eyebrow, { color: t.fg2 }]}>
+            {todayWords(new Date(now))}
+            {stale ? "  ·  Updating…" : ""}
+          </Text>
+          <Text style={[s.h2, { color: t.fg }]}>{greeting(me?.user.name, new Date(now))}</Text>
+        </View>
+        {/* The library: every list, workflow and practice copy, by space. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Library"
+          onPress={() => router.push("/library")}
+          style={({ pressed }) => [
+            s.roundBtn,
+            { backgroundColor: t.cell, shadowColor: t.shadow, opacity: pressed ? 0.85 : 1 },
+          ]}
         >
-          {shownPages.map(renderPage)}
-        </ScrollView>
+          <View style={s.gridIcon}>
+            {[0, 1, 2, 3].map((i) => (
+              <View key={i} style={[s.gridDot, { borderColor: t.fg }]} />
+            ))}
+          </View>
+        </Pressable>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.pills}>
+        {[{ id: ALL, name: "Everything" }, ...recent].map((sp) => (
+          <Pressable
+            key={sp.id}
+            accessibilityRole="button"
+            accessibilityState={{ selected: space === sp.id }}
+            onPress={() => pick(sp.id)}
+            style={[
+              s.pill,
+              space === sp.id
+                ? { backgroundColor: t.accentSoft, borderColor: t.accentSoft }
+                : { backgroundColor: t.cell, borderColor: t.hair },
+            ]}
+          >
+            <Text style={[s.pillText, { color: space === sp.id ? t.accent : t.fg2 }]}>{sp.name}</Text>
+          </Pressable>
+        ))}
+        {(today?.spaces.length ?? 0) > RECENT ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="More spaces"
+            onPress={() => setMore(true)}
+            style={[s.pill, { backgroundColor: t.cell, borderColor: t.hair }]}
+          >
+            <Text style={[s.pillText, { color: t.fg2 }]}>More · {today!.spaces.length}</Text>
+          </Pressable>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
+
+  const body = loading ? (
+    <View style={{ gap: 12 }}>
+      {error ? <Text style={[s.sub, { color: t.danger }]}>{error}</Text> : null}
+      <Skeleton />
+    </View>
+  ) : (
+    <View style={{ gap: 4 }}>
+      {error ? <Text style={[s.sub, { color: t.danger }]}>{error}</Text> : null}
+      {section("Needs you", needs.length ? String(needs.length) : undefined)}
+      {needs.length ? (
+        <View style={{ gap: 10 }}>
+          {needs.map((card) => (
+            <Boundary key={card.id} where="needs you">
+              <Card
+                card={card}
+                natural
+                onOpen={() =>
+                  card.waiting
+                    ? router.push({
+                        pathname: "/process",
+                        params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
+                      })
+                    : card.shared?.kind === "form"
+                      ? openOnWeb(card)
+                      : undefined
+                }
+                onAnswer={
+                  card.waiting
+                    ? (answer) => void processAction(card, () => answerWaiting(card.waiting!, answer))()
+                    : undefined
+                }
+                onNudge={
+                  card.waiting?.share_id
+                    ? undefined
+                    : card.waiting
+                      ? processAction(card, () => nudgeWaiting(card.waiting!))
+                      : undefined
+                }
+                busy={busyCard === card.id}
+              />
+            </Boundary>
+          ))}
+        </View>
       ) : (
-        <FlatList
-          ref={list}
-          data={shownPages}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(_, i) => `page-${i}`}
-          // The dots and the bar follow the page as it moves (a trackpad on the web never
-          // sends a momentum end), settled again when the swipe ends.
-          scrollEventThrottle={100}
-          onScroll={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
-          onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / pageWidth))}
-          renderItem={({ item, index }) => (
-            <ScrollView
-              // The page starts under the clock and battery, so a scrolled page doesn't pass
-              // under them (owner's screenshot, 2026-10-19).
-              style={{ width: pageWidth, marginTop: insets.top }}
-              contentContainerStyle={{
-                paddingTop: 12,
-                paddingHorizontal: SIDE,
-                paddingBottom: insets.bottom + 150,
-                gap: 10,
-              }}
-              refreshControl={refreshControl}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              automaticallyAdjustKeyboardInsets
-            >
-              {renderPage(item, index)}
-            </ScrollView>
-          )}
-        />
+        <Text style={[s.empty, { color: t.fg3 }]}>Nothing is waiting on you.</Text>
       )}
 
+      {section("Up next", "7 days")}
+      {upnext.length ? (
+        upnext.map((u) => {
+          const tile = tileOf(u);
+          return (
+            <Pressable
+              key={u.key}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${u.title}`}
+              onPress={() => setOpened(u)}
+              style={({ pressed }) => [s.row, { borderBottomColor: t.hair, opacity: pressed ? 0.7 : 1 }]}
+            >
+              <View style={[s.tile, { backgroundColor: t.accentSoft }]}>
+                <Text style={[s.tileDow, { color: t.accent }]}>{tile.dow}</Text>
+                <Text style={[s.tileDay, { color: t.accent }]}>{tile.day}</Text>
+              </View>
+              <View style={s.words}>
+                <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+                  {u.title}
+                </Text>
+                <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+                  {u.sub}
+                </Text>
+              </View>
+              <Text style={[s.rowEnd, { color: t.fg3 }]}>{whenWords(u, now)}</Text>
+            </Pressable>
+          );
+        })
+      ) : (
+        <Text style={[s.empty, { color: t.fg3 }]}>
+          {space === ALL ? "Nothing dated in the next week." : "Nothing dated here in the next week."}
+        </Text>
+      )}
+
+      {space === ALL ? (
+        <>
+          {section("Chats", "All chats ›", () => router.push("/chats"))}
+          {shownChats.length ? (
+            shownChats.slice(0, 5).map((c) => (
+              <Pressable
+                key={c.id}
+                accessibilityRole="button"
+                accessibilityLabel={c.unread ? `${c.name}, ${c.unread} new` : c.name}
+                onPress={() => router.push({ pathname: "/talk", params: { id: c.id } })}
+                style={({ pressed }) => [s.row, { borderBottomColor: t.hair, opacity: pressed ? 0.7 : 1 }]}
+              >
+                <View style={[s.ava, { backgroundColor: t.accentSoft }]}>
+                  <Text style={[s.avaText, { color: t.accent }]}>
+                    {c.name.trim().charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={s.words}>
+                  <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+                    {c.name}
+                  </Text>
+                  <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+                    {c.last ? `${c.last.author}: ${c.last.text}` : "No messages yet"}
+                  </Text>
+                </View>
+                {c.unread ? (
+                  <View style={[s.badge, { backgroundColor: t.accent }]}>
+                    <Text style={[s.badgeText, { color: t.onAccent }]}>{c.unread > 9 ? "9+" : c.unread}</Text>
+                  </View>
+                ) : (
+                  <Text style={[s.rowEnd, { color: t.fg3 }]}>{ago(c.updated_at, now)}</Text>
+                )}
+              </Pressable>
+            ))
+          ) : (
+            <Text style={[s.empty, { color: t.fg3 }]}>No chats with people yet.</Text>
+          )}
+        </>
+      ) : null}
+
+      {section(
+        "Spaces",
+        assistant ? "New, in the chat ›" : undefined,
+        assistant ? () => openChat(router, { ask: "I'd like to start a new space for " }) : undefined,
+      )}
+      {spaces.map((sp) => (
+        <View key={sp.id} style={{ gap: 0 }}>
+          <View style={s.spaceHead}>
+            <Text style={[s.spaceName, { color: t.fg }]}>{sp.name}</Text>
+            <Text style={[s.secAside, { color: t.fg3 }]}>
+              {sp.lists.length
+                ? `${sp.lists.length} list${sp.lists.length === 1 ? "" : "s"}`
+                : "no lists yet"}
+            </Text>
+          </View>
+          {sp.lists.map((l) => (
+            <Pressable
+              key={l.key}
+              accessibilityRole="button"
+              onPress={() => openList(l.collection, l.view, sp.personal ? undefined : sp.id)}
+              style={({ pressed }) => [s.row, { borderBottomColor: t.hair, opacity: pressed ? 0.7 : 1 }]}
+            >
+              <View style={[s.dot, { backgroundColor: t.accent }]} />
+              <View style={s.words}>
+                <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+                  {l.title}
+                </Text>
+              </View>
+              <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
+            </Pressable>
+          ))}
+          {!sp.lists.length && assistant ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                openChat(router, {
+                  ask: `I'd like to set up the lists for ${sp.name}. Ask me what I want to keep track of.`,
+                  send: "1",
+                  ...(sp.personal ? {} : { space: sp.id }),
+                })
+              }
+              style={({ pressed }) => [s.row, { borderBottomColor: t.hair, opacity: pressed ? 0.7 : 1 }]}
+            >
+              <View style={[s.dot, { backgroundColor: t.fg3 }]} />
+              <View style={s.words}>
+                <Text style={[s.rowTitle, { color: t.accent }]}>Start building</Text>
+              </View>
+            </Pressable>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+
+  return (
+    <View style={[s.root, { backgroundColor: t.canvas }]}>
+      <ScrollView
+        style={{ marginTop: insets.top }}
+        contentContainerStyle={{
+          width: wide ? COLUMN + SIDE * 2 : "100%",
+          alignSelf: "center",
+          paddingTop: 12,
+          paddingHorizontal: SIDE,
+          paddingBottom: insets.bottom + 150,
+          gap: 14,
+        }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              await load();
+              setRefreshing(false);
+            }}
+            tintColor={t.fg2}
+          />
+        }
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets
+      >
+        {header}
+        {body}
+      </ScrollView>
+
       {barText.trim() ? (
-        // While searching from the bar: a tap anywhere on the page closes the matches.
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Close search"
@@ -617,9 +514,6 @@ export default function Home() {
         />
       ) : null}
       <Animated.View style={[s.bottom, { backgroundColor: t.canvas }, lift]} pointerEvents="box-none">
-        {/* A soft fade above the bar's area instead of a hard edge across what's above it
-            (owner, 2026-10-17: "the panel surrounding the search bar … it's not looking neat"):
-            thin strips of the page colour, clearer towards the top (no gradient library). */}
         <View pointerEvents="none" style={s.fade}>
           {FADE.map((o, i) => (
             <View key={i} style={{ flex: 1, backgroundColor: t.canvas, opacity: o }} />
@@ -638,14 +532,6 @@ export default function Home() {
             <Text style={{ color: t.accent, fontWeight: "700", fontSize: 13 }}>OK</Text>
           </Pressable>
         ) : null}
-        <View ref={tourRefs.pages} collapsable={false} style={s.dots}>
-          {(wide || shownPages.length < 2 ? [] : shownPages).map((p, i) => (
-            <View
-              key={`dot-${i}`}
-              style={[s.dotI, { backgroundColor: i === page ? t.accent : t.fg3, width: i === page ? 18 : 7 }]}
-            />
-          ))}
-        </View>
         <View style={[s.barRow, wide && s.wideRow]}>
           <Tap
             ref={tourRefs.help}
@@ -653,7 +539,7 @@ export default function Home() {
             accessibilityLabel="Help"
             onPress={() => setHelp(true)}
             scale={0.92}
-            style={[s.searchBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.roundBtn, { backgroundColor: t.cell, shadowColor: t.shadow }]}
           >
             <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
           </Tap>
@@ -666,22 +552,27 @@ export default function Home() {
             onFocusChange={(on) => {
               barFocused.value = on;
             }}
-            cards={(pages ?? []).flatMap((p) => p.cards)}
-            lists={homeLists()}
-            onAsk={(words, space) => openChat(router, { ask: words, send: "1", ...(space ? { space } : {}) })}
-            onOpenChat={(space) => {
-              // Back to the chat last open (any space) while it's fresh, else the page's own.
+            cards={today?.needs ?? []}
+            lists={today?.lists ?? []}
+            space={
+              space !== ALL && space !== PERSONAL
+                ? { id: space, name: recent.find((x) => x.id === space)?.name ?? "" }
+                : undefined
+            }
+            onAsk={(words, sp) => openChat(router, { ask: words, send: "1", ...(sp ? { space: sp } : {}) })}
+            onOpenChat={(sp) => {
               const last = userId ? lastChat(userId) : null;
-              openChat(router, last ? { id: last } : space ? { space } : {});
+              openChat(router, last ? { id: last } : sp ? { space: sp } : {});
             }}
             onOpenCard={(card) =>
-              card.collection && !card.shared
-                ? openList(card.collection.id, card.view?.id, card.space)
-                : assistant
-                  ? ask(card)
-                  : openOnWeb(card)
+              card.waiting
+                ? router.push({
+                    pathname: "/process",
+                    params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
+                  })
+                : openOnWeb(card)
             }
-            onOpenList={(id, space) => openList(id, undefined, space)}
+            onOpenList={(id, sp) => openList(id, undefined, sp)}
             onOpenHit={(hit, q) => {
               if (hit.kind === "message") {
                 router.push({ pathname: "/talk", params: { id: hit.group_id, message: hit.message_id, q } });
@@ -692,14 +583,13 @@ export default function Home() {
                 return;
               }
               if (hit.kind === "item") {
-                const inSpace = hit.space_id ? { space: hit.space_id } : {};
+                const inSp = hit.space_id ? { space: hit.space_id } : {};
                 if (hit.what === "list" || hit.what === "view")
                   openList(hit.collection_id!, hit.what === "view" ? hit.id : undefined, hit.space_id);
                 else if (hit.what === "workflow")
-                  router.push({ pathname: "/process", params: { id: hit.id, ...inSpace } });
-                else if (hit.what === "space") openChat(router, inSpace);
+                  router.push({ pathname: "/process", params: { id: hit.id, ...inSp } });
+                else if (hit.what === "space") openChat(router, inSp);
                 else if (hit.what === "memory") router.push("/memory");
-                // Something shared with me opens as its shared page, like its card.
                 else void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(hit.id)}`);
                 return;
               }
@@ -709,50 +599,17 @@ export default function Home() {
           />
         </View>
       </Animated.View>
-      <CardMenu card={menu} onClose={() => setMenu(null)} actions={menuActions} />
-      {(() => {
-        const full = fullId
-          ? ((pages ?? []).flatMap((p) => p.cards).find((c) => c.id === fullId) ?? null)
-          : null;
-        const close = () => setFullId(null);
-        return (
-          <CardFull
-            card={full}
-            footer={quickAddFor(full, (c) => update((prev) => replaceCard(prev, c)))}
-            onClose={close}
-            onTick={full ? onTick(full) : undefined}
-            onSet={full ? onSet(full) : undefined}
-            onOpenRecord={full?.collection && !full.shared ? (r) => setOpened({ card: full, r }) : undefined}
-            onOpenList={
-              full?.collection && !full.shared
-                ? () => {
-                    close();
-                    openList(full.collection!.id, full.view?.id, full.space);
-                  }
-                : undefined
-            }
-            onAsk={
-              full && (assistant || full.shared)
-                ? () => {
-                    close();
-                    ask(full);
-                  }
-                : undefined
-            }
-          />
-        );
-      })()}
+
       <RecordSheet
-        record={opened?.r ?? null}
-        collection={opened?.card.collection ?? null}
+        record={opened?.record ?? null}
+        collection={opened?.collection ?? null}
         onClose={() => setOpened(null)}
         onOpenList={
-          opened?.card.collection
+          opened
             ? () => {
                 const o = opened;
                 setOpened(null);
-                setFullId(null);
-                openList(o.card.collection!.id, o.card.view?.id, o.card.space);
+                openList(o.collection.id, o.view, o.space);
               }
             : undefined
         }
@@ -761,23 +618,60 @@ export default function Home() {
             ? () => {
                 const o = opened;
                 setOpened(null);
-                setFullId(null);
-                openChat(router, o.card.space ? { space: o.card.space } : {}, {
+                openChat(router, o.space ? { space: o.space } : {}, {
                   kind: "record",
-                  title: o.r.title,
-                  in: o.card.collection?.name ?? "",
+                  title: o.record.title,
+                  in: o.collection.name,
                 });
               }
             : undefined
         }
       />
+      {/* More: every space, by last use, with a search (design §4). */}
+      <Sheet open={more} onClose={() => setMore(false)} accessibilityLabel="Your spaces" keyboard>
+        <Text style={[s.sheetTitle, { color: t.fg }]}>Your spaces</Text>
+        <TextInput
+          accessibilityLabel="Find a space"
+          placeholder="Find a space"
+          placeholderTextColor={t.fg3}
+          value={find}
+          onChangeText={setFind}
+          style={[s.find, { color: t.fg, backgroundColor: t.fill }]}
+        />
+        <View style={{ gap: 6 }}>
+          {[
+            { id: ALL, name: "Everything", lists: [] as SpaceRow["lists"], personal: false },
+            ...(today?.spaces ?? []),
+          ]
+            .filter((sp) => !find.trim() || sp.name.toLowerCase().includes(find.trim().toLowerCase()))
+            .map((sp) => (
+              <Tap
+                key={sp.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: space === sp.id }}
+                onPress={() => pick(sp.id)}
+                scale={0.985}
+                style={[s.spaceRow, { backgroundColor: space === sp.id ? t.accentSoft : t.cell }]}
+              >
+                <Text style={[s.rowTitle, { color: space === sp.id ? t.accent : t.fg }]}>{sp.name}</Text>
+                <Text style={[s.rowSub, { color: t.fg2 }]}>
+                  {sp.id === ALL
+                    ? "Every space at once"
+                    : sp.lists.length
+                      ? `${sp.lists.length} ${sp.lists.length === 1 ? "list" : "lists"}`
+                      : "No lists yet"}
+                </Text>
+              </Tap>
+            ))}
+        </View>
+      </Sheet>
       <HelpSheet
         open={help}
         onClose={() => setHelp(false)}
         actions={[
           {
             title: "Take the tour again",
-            text: "A quick look around the home, under a minute",
+            text: "A quick look around, under a minute",
             go: () => {
               if (userId) resetTour(userId);
               setTouring(true);
@@ -807,18 +701,14 @@ export default function Home() {
       />
       {touring && userId ? (
         <Tour
-          steps={tourSteps({
-            assistant,
-            cards: (pages ?? []).some((p) => p.cards.length > 0),
-            pages: !wide && (pages ?? []).length > 1,
-          })}
+          steps={tourSteps({ assistant, cards: false, pages: false })}
           refs={tourRefs}
           onDone={() => {
             markTourSeen(userId);
             setTouring(false);
           }}
           onStart={
-            assistant && !(pages ?? []).some((p) => p.cards.length > 0)
+            assistant && !(today?.spaces ?? []).some((sp) => sp.lists.length)
               ? {
                   label: "Tell me about your week",
                   go: () => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } }),
@@ -837,107 +727,78 @@ const FADE = Array.from({ length: 12 }, (_, i) => ((i + 1) / 12) ** 1.6);
 
 const s = StyleSheet.create({
   root: { flex: 1 },
-  pageHead: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    justifyContent: "space-between",
-    gap: 10,
-    paddingHorizontal: 4,
-  },
   h2: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },
   greet: { flex: 1, gap: 2, paddingHorizontal: 4 },
   greetRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  bubbleIcon: { width: 20, height: 16, borderRadius: 6, borderWidth: 2, borderBottomLeftRadius: 2 },
-  // The library's icon: four small squares, like a grid of cards.
   gridIcon: { width: 18, height: 18, flexDirection: "row", flexWrap: "wrap", gap: 3 },
   gridDot: { width: 7.5, height: 7.5, borderRadius: 2, borderWidth: 1.75 },
-  canvas: {
-    marginTop: 40,
-    paddingVertical: 44,
-    paddingHorizontal: 24,
-    borderRadius: radius.card,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    alignItems: "center",
-    gap: 14,
-  },
-  canvasTitle: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4, textAlign: "center" },
-  startBtn: {
-    minHeight: 52,
-    paddingHorizontal: 28,
-    borderRadius: 26,
-    justifyContent: "center",
-    marginTop: 6,
-  },
-  startText: { fontSize: 17, fontWeight: "800" },
-  nowSlot: { flex: 1, overflow: "hidden" },
-  nowEmpty: {
-    flex: 1,
-    borderRadius: radius.card,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
-    gap: 6,
-    justifyContent: "center",
-  },
-  unread: {
-    position: "absolute",
-    top: -2,
-    right: -2,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 5,
-    borderRadius: 10,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  unreadText: { fontSize: 10, fontWeight: "800" },
-  heroWide: { maxWidth: 560 },
-  lists: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  practice: {
-    borderRadius: radius.card,
-    padding: 14,
-    gap: 4,
-    borderWidth: StyleSheet.hairlineWidth,
-    minHeight: 44,
-  },
-  listTile: {
-    minHeight: 104,
-    borderRadius: radius.card,
-    padding: 14,
-    gap: 6,
+  pills: { flexDirection: "row", gap: 6, paddingVertical: 4, paddingHorizontal: 2 },
+  pill: { minHeight: 36, paddingHorizontal: 13, borderRadius: 18, borderWidth: 1, justifyContent: "center" },
+  pillText: { fontSize: 13.5, fontWeight: "700" },
+  sec: {
+    flexDirection: "row",
+    alignItems: "baseline",
     justifyContent: "space-between",
-    shadowOpacity: 1,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 2,
+    marginTop: 16,
+    marginBottom: 6,
   },
-  listName: { fontSize: 17, fontWeight: "800", letterSpacing: -0.3 },
-  listMeta: { fontSize: 12.5, fontWeight: "700" },
-  eyebrow: { fontSize: 13, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },
-  metaText: { fontSize: 12, fontWeight: "600" },
-  empty: {
-    borderRadius: radius.card,
-    padding: 24,
-    borderWidth: StyleSheet.hairlineWidth,
+  secTitle: { fontSize: 15, fontWeight: "800", letterSpacing: -0.2 },
+  secAside: { fontSize: 12.5, fontWeight: "700" },
+  empty: { fontSize: 13.5, paddingVertical: 10 },
+  row: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 12,
+    minHeight: 52,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  sub: { fontSize: 14, textAlign: "center" },
-  fade: { position: "absolute", left: 0, right: 0, top: -FADE_HEIGHT, height: FADE_HEIGHT },
-  openBtn: {
-    position: "absolute",
-    top: 10,
-    right: 10,
+  words: { flex: 1, minWidth: 0, gap: 1 },
+  rowTitle: { fontSize: 15.5, fontWeight: "600" },
+  rowSub: { fontSize: 12.5, fontWeight: "500" },
+  rowEnd: { fontSize: 12.5, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  tile: { width: 44, height: 48, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  tileDow: { fontSize: 9.5, fontWeight: "800", letterSpacing: 0.6 },
+  tileDay: { fontSize: 19, fontWeight: "800", letterSpacing: -0.5, lineHeight: 22 },
+  dot: { width: 10, height: 10, borderRadius: 5, marginHorizontal: 17 },
+  ava: {
     width: 38,
     height: 38,
     borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 0.35,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    marginHorizontal: 3,
   },
-  openIcon: { fontSize: 18, fontWeight: "700", lineHeight: 20 },
+  avaText: { fontSize: 14, fontWeight: "800" },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: { fontSize: 11, fontWeight: "800" },
+  spaceHead: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
+  spaceName: { fontSize: 14, fontWeight: "800", letterSpacing: 0.2, textTransform: "uppercase" },
+  eyebrow: { fontSize: 13, fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase" },
+  sub: { fontSize: 14 },
+  sheetTitle: { fontSize: 20, fontWeight: "800", letterSpacing: -0.4 },
+  find: { minHeight: 44, borderRadius: 22, paddingHorizontal: 16, fontSize: 16 },
+  spaceRow: {
+    minHeight: 56,
+    borderRadius: radius.row,
+    paddingHorizontal: 14,
+    justifyContent: "center",
+    gap: 2,
+  },
+  fade: { position: "absolute", left: 0, right: 0, top: -FADE_HEIGHT, height: FADE_HEIGHT },
   bottom: {
     position: "absolute",
     left: 0,
@@ -948,11 +809,8 @@ const s = StyleSheet.create({
     paddingTop: 8,
     paddingHorizontal: 21,
   },
-  /** On a laptop the bar keeps a phone's width, centred under the dashboard. */
   wideRow: { alignSelf: "center", width: "100%", maxWidth: 640 },
-  dots: { flexDirection: "row", gap: 6, alignItems: "center" },
-  dotI: { height: 7, borderRadius: 4 },
-  searchBtn: {
+  roundBtn: {
     width: 48,
     height: 48,
     borderRadius: 24,
@@ -990,4 +848,15 @@ function greeting(name: string | undefined, now = new Date()): string {
   const part = h < 5 ? "Hello" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
   const first = name?.trim().split(/\s+/)[0];
   return first ? `${part}, ${first}` : part;
+}
+
+/** "4 min", "2 h", "3 d". */
+function ago(iso: string, now: number): string {
+  const ms = now - Date.parse(iso);
+  if (!(ms > 0)) return "";
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${Math.max(1, m)} min`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} h`;
+  return `${Math.floor(h / 24)} d`;
 }
