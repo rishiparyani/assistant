@@ -460,6 +460,9 @@ export function Card({
                   accessibilityLabel={onOpenRecord ? `Open ${r.title}` : undefined}
                   disabled={!onOpenRecord}
                   onPress={() => onOpenRecord?.(r)}
+                  // A 32 px row is too thin a target: the slop takes a plain row to 44 without
+                  // changing how many rows a fixed-size card fits (Codex on PR 197).
+                  hitSlop={onOpenRecord ? { top: 6, bottom: 6 } : undefined}
                   style={({ pressed }) => [
                     s.row,
                     under && s.rowStack,
