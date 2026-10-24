@@ -9,7 +9,7 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import { setAppFont } from "@assistant/cards/native";
-import { WIDE, closeChatPanel, useChatPanel } from "@/chat-open";
+import { PANEL_WIDTH, WIDE, closeChatPanel, useChatPanel } from "@/chat-open";
 import { ChatScreen } from "./chat";
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -81,7 +81,11 @@ export default function Layout() {
   // 2026-10-24; decision "The chat from any screen"); it opens from any screen's bar.
   const { width } = useWindowDimensions();
   const panel = useChatPanel();
-  const sideChat = Platform.OS === "web" && width >= WIDE && panel.open;
+  // The panel stays the same element whether it sits beside the screen (a wide window) or
+  // over it (the window shrunk with it open), so its draft and state survive a resize and a
+  // message sent on open isn't sent again (Codex on PR 193).
+  const sideChat = Platform.OS === "web" && panel.open;
+  const beside = width >= WIDE;
   if (!fontsLoaded && !fontError && !waited) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.canvas }}>
@@ -111,7 +115,13 @@ export default function Layout() {
             </Stack>
           </View>
           {sideChat ? (
-            <View style={{ width: 440, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.sep }}>
+            <View
+              style={
+                beside
+                  ? { width: PANEL_WIDTH, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.sep }
+                  : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
+              }
+            >
               <ChatScreen key={panel.nonce} params={panel.params} embedded onClose={closeChatPanel} />
             </View>
           ) : null}

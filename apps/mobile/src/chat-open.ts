@@ -5,7 +5,7 @@
 // without being told. On a wide website window the chat opens as a panel beside the screen
 // instead of over it (the website is the app, 2026-10-22).
 import { useSyncExternalStore } from "react";
-import { Dimensions, Platform } from "react-native";
+import { Dimensions, Platform, useWindowDimensions } from "react-native";
 
 export interface ChatAbout {
   kind: "list" | "record" | "workflow" | "space" | "group" | "card";
@@ -80,6 +80,19 @@ export function useChatPanel() {
   );
 }
 export const closeChatPanel = () => setPanel({ ...panel, open: false });
+
+/** The panel's width beside the screen. */
+export const PANEL_WIDTH = 440;
+
+/**
+ * The width a screen has for itself: the window's, less the chat panel when it is open beside
+ * it (the home lays its dashboard out from this, Codex on PR 193).
+ */
+export function useContentWidth(): number {
+  const { width } = useWindowDimensions();
+  const open = useChatPanel().open;
+  return Platform.OS === "web" && open && width >= WIDE ? width - PANEL_WIDTH : width;
+}
 
 /** Opens the chat with these parameters: the panel on a wide window, the chat screen otherwise. */
 export function openChat(

@@ -13,7 +13,6 @@ import {
   ScrollView,
   StyleSheet,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { Text } from "@assistant/cards/native";
 import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
@@ -55,7 +54,7 @@ import { useKeyboardHeight } from "@/keyboard";
 import { lastChat } from "@/last-chat";
 import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
-import { openChat } from "@/chat-open";
+import { openChat, useContentWidth } from "@/chat-open";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
@@ -90,7 +89,8 @@ export default function Home() {
     paddingBottom: Math.max(barFocused.value ? keyboard.value : 0, insets.bottom) + 10,
   }));
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  // Less the chat panel when it is open beside the home (a wide website window).
+  const width = useContentWidth();
   const [pages, setPages] = useState<HomePage[] | null>(null);
   // True while what's on screen is the device's saved copy and the fresh one is on its way.
   const [stale, setStale] = useState(false);
