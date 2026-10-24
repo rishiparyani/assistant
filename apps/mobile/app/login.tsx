@@ -1,11 +1,11 @@
-// Sign in. Google through the system sheet is wired but off until the owner's OK (security
-// change, docs/design/home-first.md §7 step 1); email/password exists only on a local test
-// server, so the simulator tests can sign in.
+// Sign in. Google through the system sheet (on in the phone builds); email/password exists only
+// on a local test server, so the simulator tests can sign in.
 import { useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ApiError, request } from "@/api";
 import { signInWithEmail, signInWithGoogle } from "@/auth";
 import { API_URL } from "@/config";
 import { useSession } from "@/session";
@@ -41,6 +41,17 @@ export default function Login() {
     setError("");
     try {
       await fn();
+      // Signed in, but the account doesn't open: say so, instead of a screen that stays put.
+      try {
+        await request("GET", "/api/me");
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401)
+          throw new Error(
+            "Signed in, but the app couldn't open your account. Try again; if it keeps happening, tell the app team.",
+            { cause: e },
+          );
+        throw e;
+      }
       await finish();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -84,7 +95,9 @@ export default function Login() {
             onPress={() => run(signInWithGoogle)}
             style={[s.btn, { backgroundColor: t.accent }]}
           >
-            <Text style={[s.btnText, { color: t.onAccent }]}>Continue with Google</Text>
+            <Text style={[s.btnText, { color: t.onAccent }]}>
+              {busy ? "Opening Google…" : "Continue with Google"}
+            </Text>
           </Pressable>
         ) : (
           <Text style={[s.p, { color: t.fg2 }]}>

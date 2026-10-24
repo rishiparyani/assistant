@@ -1,5 +1,6 @@
 // The app's only way to reach the backend. No business logic here.
 import type { ApiErrorBody } from "@assistant/shared";
+import { Platform } from "react-native";
 import { API_URL } from "./config.ts";
 import { cookieHeader } from "./auth.ts";
 
@@ -28,12 +29,18 @@ export async function request<T>(method: string, path: string, body?: unknown, k
   if (cookie) headers.cookie = cookie;
   // State-changing requests must name the app as their origin (the Worker checks it).
   headers.origin = API_URL;
+  // On the phone the session travels only in the cookie header above, never from the system's
+  // cookie jar: on iOS the jar's cookies replace a hand-set cookie header, and the jar holds no
+  // session after a Google sign-in (that arrived through the sign-in sheet) but does hold the
+  // sign-in's short-lived state cookie, so every call came back "not signed in" (owner,
+  // 2026-10-24, TestFlight). The website's browser keeps its own cookie.
+  const credentials: RequestCredentials = Platform.OS === "web" ? "include" : "omit";
   let res: Response;
   try {
     res = await fetch(API_URL + path, {
       method,
       headers,
-      credentials: "include",
+      credentials,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {

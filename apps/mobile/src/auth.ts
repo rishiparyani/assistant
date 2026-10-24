@@ -69,12 +69,18 @@ export async function cookieHeader(): Promise<string> {
   }
 }
 
-/** Google through the system sign-in sheet (security change: waits for the owner's OK). */
+/** Google through the system sign-in sheet. */
 export async function signInWithGoogle() {
-  await authClient.signIn.social({
+  const res = await authClient.signIn.social({
     provider: "google",
     callbackURL: Platform.OS === "web" ? "/" : `${APP_SCHEME}://`,
   });
+  // The client returns errors instead of throwing them; the screen shows them.
+  if (res.error) throw new Error(res.error.message ?? `Couldn't reach the sign-in (${res.error.status})`);
+  // On the phone the sheet closes without a word when the person cancels, Google refuses, or
+  // the app isn't handed the session; say so, instead of a screen that does nothing.
+  if (Platform.OS !== "web" && !(await cookieHeader()))
+    throw new Error("Sign-in didn't finish. Try again; if it keeps happening, tell the app team.");
 }
 
 /** Local test server only (email/password exists only on localhost). */
