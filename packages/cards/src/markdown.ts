@@ -88,3 +88,53 @@ export function blocksOf(text: string): Block[] {
   flush();
   return blocks;
 }
+
+/**
+ * What a quoted example line can do when tapped (owner, 2026-10-24: "perform an action
+ * instead of just pasting that same message"). The model writes the words, then, when the
+ * example only shows a saved view or list, {"show": "<its name>"}; when it adds one record,
+ * {"add": "<the list>", "<Field>": "<value>", …}. Anything else is words for the box.
+ */
+export type ExampleAct =
+  { kind: "show"; name: string } | { kind: "add"; list: string; values: Record<string, string> };
+
+export interface Example {
+  /** The message as it would be sent: no quote marks, no action. */
+  words: string;
+  act: ExampleAct | null;
+}
+
+/** A quote's text without the quote marks around it. */
+export function unquote(text: string): string {
+  return text
+    .trim()
+    .replace(/^[“"']+/, "")
+    .replace(/[”"'.]+$/, "")
+    .trim();
+}
+
+export function exampleOf(line: string): Example {
+  const m = /^(.*?)\s*(\{[\s\S]*\})\s*$/.exec(line);
+  if (!m) return { words: unquote(line), act: null };
+  let raw: unknown;
+  // A line ending in braces is never a natural message: the words are what comes before them,
+  // whether or not the braces parse.
+  const words = unquote(m[1]!);
+  try {
+    raw = JSON.parse(m[2]!);
+  } catch {
+    return { words, act: null };
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { words, act: null };
+  const o = raw as Record<string, unknown>;
+  if (typeof o.show === "string" && o.show.trim())
+    return { words, act: { kind: "show", name: o.show.trim() } };
+  if (typeof o.add === "string" && o.add.trim()) {
+    const values: Record<string, string> = {};
+    for (const [k, v] of Object.entries(o))
+      if (k !== "add" && (typeof v === "string" || typeof v === "number" || typeof v === "boolean"))
+        values[k] = String(v);
+    return { words, act: { kind: "add", list: o.add.trim(), values } };
+  }
+  return { words, act: null };
+}
