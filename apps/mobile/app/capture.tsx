@@ -7,6 +7,7 @@ import { Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline, request } from "@/api";
+import { openChat } from "@/chat-open";
 import { newId, send } from "@/outbox";
 import { radius, useTheme } from "@/theme";
 
@@ -82,9 +83,7 @@ export default function Capture() {
       {text ? (
         <Pressable
           accessibilityRole="button"
-          onPress={() =>
-            router.replace({ pathname: "/chat", params: { ask: `About what I just added: ${text}. ` } })
-          }
+          onPress={() => openChat(router, { ask: `About what I just added: ${text}. ` })}
           style={[s.btn, { backgroundColor: t.fill }]}
         >
           <Text style={[s.btnText, { color: t.accent }]}>Ask the chat about it</Text>

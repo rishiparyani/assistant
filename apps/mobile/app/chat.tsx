@@ -44,6 +44,7 @@ import { useKeyboardRoom } from "@/keyboard";
 import { useSession } from "@/session";
 import { rememberChat } from "@/last-chat";
 import { savedCatalog, type CatalogEntry } from "@/home";
+import { aboutLabel, aboutWords, parseAbout, type ChatParams } from "@/chat-open";
 
 const MAIN = "main";
 
@@ -96,24 +97,34 @@ const SUGGEST = [
   "Pin my expenses to the home",
 ];
 
-export default function Chat() {
+/** The chat as a screen (pushed as a sheet over the app). */
+export default function ChatRoute() {
+  const params = useLocalSearchParams<Record<keyof ChatParams, string>>();
+  return <ChatScreen params={params} />;
+}
+
+/**
+ * The chat itself: a screen, or (embedded) the panel beside the screen on a wide website window
+ * (owner, 2026-10-24: the chat "could get the context from that screen"; decision "The chat
+ * from any screen").
+ */
+export function ChatScreen({
+  params,
+  embedded = false,
+  onClose,
+}: {
+  params: ChatParams;
+  embedded?: boolean;
+  onClose?: () => void;
+}) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const {
-    card,
-    ask,
-    id,
-    send: sendNow,
-    space,
-  } = useLocalSearchParams<{
-    card?: string;
-    ask?: string;
-    id?: string;
-    send?: string;
-    /** Open the current chat of this space (decision 2026-10-16 "Spaces"). */
-    space?: string;
-  }>();
+  // card: a home card's title; ask: words for the box (send=1: sent at once); id: which chat;
+  // space: open the current chat of this space (decision 2026-10-16 "Spaces"); about: what the
+  // screen it was opened from shows, as a chip the person can tap away.
+  const { card, ask, id, send: sendNow, space } = params;
+  const [about, setAbout] = useState(() => parseAbout(params.about));
   const [view, setView] = useState<ChatView | null>(null);
   // Which chat is open (decision 2026-10-16 "Chats like Claude"): the one asked for, else the
   // current one (the server picks: the latest if used in the last two hours, else a new one).
@@ -368,8 +379,15 @@ export default function Chat() {
   const say = async (raw: string) => {
     const body = raw.trim();
     if (!body || busy || !chatId) return;
-    const msg = card && !attached.current ? `About "${card}": ${body}` : body;
+    // What the chat was opened about goes at the front of the first message, in words.
+    const msg =
+      card && !attached.current
+        ? `About "${card}": ${body}`
+        : about && !attached.current
+          ? aboutWords(about) + body
+          : body;
     attached.current = true;
+    setAbout(null);
     setText("");
     const mine: ChatItem = {
       id: `local-${Date.now()}`,
@@ -494,7 +512,7 @@ export default function Chat() {
           <Tap
             accessibilityRole="button"
             accessibilityLabel="Back"
-            onPress={() => router.back()}
+            onPress={() => (embedded && onClose ? onClose() : router.back())}
             scale={0.9}
             hitSlop={8}
             style={s.tool}
@@ -780,6 +798,24 @@ export default function Chat() {
             void say(uploadedWords(file));
           }}
         />
+        {about ? (
+          <View style={s.aboutRow}>
+            <View style={[s.about, { backgroundColor: t.accentSoft }]}>
+              <Text style={[type.caption, { color: t.accent, fontWeight: "700" }]} numberOfLines={1}>
+                About: {aboutLabel(about)}
+              </Text>
+              <Tap
+                accessibilityRole="button"
+                accessibilityLabel="Not about this"
+                onPress={() => setAbout(null)}
+                hitSlop={12}
+                style={s.aboutOff}
+              >
+                <Text style={{ color: t.accent, fontWeight: "800", fontSize: 14, lineHeight: 16 }}>✕</Text>
+              </Tap>
+            </View>
+          </View>
+        ) : null}
         <View style={[s.compose, { paddingBottom: room ? 8 : insets.bottom + 8 }]}>
           <Tap
             accessibilityRole="button"
@@ -796,7 +832,9 @@ export default function Chat() {
               ref={box}
               autoFocus={!!ask}
               accessibilityLabel="Message Gigspree"
-              placeholder={card ? `Ask about ${card}` : "Ask, add or arrange"}
+              placeholder={
+                about ? `Ask about ${about.title}` : card ? `Ask about ${card}` : "Ask, add or arrange"
+              }
               placeholderTextColor={t.fg2}
               value={text}
               onChangeText={setText}
@@ -1256,6 +1294,18 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     justifyContent: "center",
   },
+  aboutRow: { paddingHorizontal: 16, paddingTop: 6, flexDirection: "row" },
+  about: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    height: 32,
+    paddingLeft: 12,
+    paddingRight: 6,
+    borderRadius: 16,
+    maxWidth: "100%",
+  },
+  aboutOff: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
   compose: {
     flexDirection: "row",
     alignItems: "flex-end",

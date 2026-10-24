@@ -10,6 +10,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { openChat } from "@/chat-open";
 import {
   arrange,
   homeChanged,
@@ -265,12 +266,7 @@ export default function Library() {
                   <Tap
                     accessibilityRole="button"
                     accessibilityLabel={`Start building ${sp.name}`}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/chat",
-                        params: { space: sp.id, ask: "Set up the lists for this space" },
-                      })
-                    }
+                    onPress={() => openChat(router, { space: sp.id, ask: "Set up the lists for this space" })}
                     style={[s.btn, { backgroundColor: t.accent }]}
                   >
                     <Text style={[s.btnText, { color: t.onAccent }]}>Start</Text>
