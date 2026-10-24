@@ -509,9 +509,28 @@ export function arrange(cat: Catalog): { pages: string[][]; seen: string[] } {
     }
   }
   pages = pages.filter((p) => p.length);
+  // A home with nothing on it while there are cards to show is never right (owner, 2026-10-24:
+  // "My home just became empty out of nowhere"): every key was in `seen`, so nothing came back
+  // by itself. Put the cards back: the pinned views, shares and questions, else every list.
+  if (!pages.some((p) => p.some((k) => k !== "now"))) {
+    const back = firstPage(cat);
+    if (back.length) {
+      pages = [back.slice(0, PER_PAGE)];
+      changed = true;
+    }
+  }
   const layout = { pages, seen: [...seen] };
   if (changed) saveLayout(layout);
   return layout;
+}
+
+/** What a home shows when it has to be rebuilt: Now, then what was pinned, shared or asked, else every list. */
+function firstPage(cat: Catalog): string[] {
+  const was = cat.entries.filter(
+    (e) => (e.kind === "view" && e.view!.pinned) || e.kind === "share" || e.kind === "wait",
+  );
+  const lists = was.length ? was : cat.entries.filter((e) => e.kind === "list" || e.kind === "view");
+  return lists.length ? ["now", ...lists.map((e) => e.key)] : [];
 }
 
 /** Loads the home: the catalog, the arranged pages, each card with its rows; the device copy offline. */
