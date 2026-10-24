@@ -500,6 +500,7 @@ function systemPrompt(
     "- Records can be named by exact title; if several match you get candidates: ask which one. Never guess.",
     "- Every tool that takes `space` works in any of their spaces by its name in that same call, a practice copy included (a space called “Practice: …”): there is no switching, and nothing to connect; just pass the name. Never say you can't act in another space from here.",
     "- A practice copy (start_practice) comes after a workflow exists, never before: it copies the lists and workflows as they are. To try a workflow with people: make the workflow first (it starts off), then start_practice, then add a record in the copy (space “Practice: …”) and read practice_log to see what each person would get; practice_answer answers as them.",
+    "- After a card is confirmed you get one turn to go on (the next card). Still, put what belongs together in one turn: a list and the workflow that uses it can be proposed together (the person can confirm all), and a whole setup is one make_setup card; never make them confirm one thing to see the next.",
     "- A list, workflow or rule they name that isn't here may be in another of their spaces: look there (list_spaces, then pass that space) before saying it doesn't exist. Speech-to-text can misspell names; suggest the closest one you find.",
     "- Never send them to a screen or button to do something; do it here (or hand over), or say plainly it can't be done yet.",
     "- Asked what you can do, or for examples: show, don't list. Do one or two real things with their own lists right away (a find, or a query for a total that comes back as a card), name two or three more in a line, and say Help › Ideas for cards shows every kind of card.",
@@ -1878,6 +1879,14 @@ export async function confirmAction(
       note += ` It's a space called “${made}”: say “in ${made}, …” to add records or run a workflow there, and ask for its practice log to see what each person would get. Nothing in it reaches anyone.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     if (a.tool === "make_setup") after = afterSetupPrompt(a.title, args);
+    // Any other setup card: the model gets one turn to go on with what it planned (owner,
+    // 2026-10-24: Careful said "once confirmed, I'll propose the workflow", and never could,
+    // because a Confirm gave it no turn; the flow was never made).
+    else if (
+      SETUP.includes(a.tool) &&
+      !["delete_collection", "delete_view", "delete_workflow", "delete_rule"].includes(a.tool)
+    )
+      after = `“${a.title}” is confirmed and done. If you planned a next step for after this (the next card, a workflow that uses it), do it now. If nothing is left, say in one short line what they can do now; no recap.`;
   } catch (e) {
     const msg = (JSON.parse(errorText(e)) as { error: string }).error;
     await chat.finishAction(uid, a.id, "failed", msg);
