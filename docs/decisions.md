@@ -934,6 +934,13 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Group chats:** a copy is not tied to any chat, and a workflow tells or asks people by name, never the group chat itself. So copying a chat's space and practising there puts what each member would have got in the copy's log; the group sees nothing.
 - **Not yet:** playing as another person through every screen (what Rahul would see), made-up stand-ins for people the space doesn't know yet, and ending a copy by itself after a week.
 
+## 2026-10-24: Jev decides (owner: "just enable Jev, and we are in the testing mode… For now, let's keep it all for me"; "don't build any cap or anything")
+
+- **What:** Jev, TypeSafe AI's decision model, makes the app's own picks: a flow's Choose step and the suggested action on a message. It answers one typed question (which of these options, and how sure) rather than writing; that is the shape those two places already had, so the everyday model's prompt stays as the fallback when Jev is off, not for this person, or fails.
+- **Who, and no cap, for now:** owners only (the `ADMIN_EMAILS` list), which today is the owner alone; no daily cap on Jev calls, by the owner's word, while it is only them. Both are revisited before anyone else gets it. Every call is still logged to the budget (`jev:<model>`), at no cost here since TypeSafe bills it, so the admin counts show what it did.
+- **Pinned by a var:** `JEV_MODEL` names the version; `jev-latest` for now, a fixed one once the owner has seen it work.
+- **The wire format comes from TypeSafe's own SDK**, not from a prose doc: the build container cannot reach TypeSafe's hosts, so the request and answer shapes were read from `@typesafe-ai/sdk` 0.7 on npm and are covered by a test with a stubbed network.
+
 ## 2026-10-24: Pills that act (owner, on the tappable examples: "can we perform an action instead of just pasting that same message in the chat… our expenses will be reduced")
 
 - **What:** when the model writes an example message as a quote, it can say what a tap does, once, in the same turn: show a saved view or list (its card appears under the pill, no message) or add one record to a list (the list's add form opens filled in, for the person to change and save). Anything that needs the model's judgment (a workflow, a rule, a question) stays a plain pill that puts the words in the box.
@@ -945,8 +952,6 @@ Not doing: raw spreadsheet cells, user-written code, AI-written pages. They woul
 - **Not a floating bubble:** on a phone it always covers something, it reads as a support widget, and a panel that grows ends up a sheet anyway. Instead the home's chat bar is present on every screen that has something to be about (a list, a workflow; more as they come), in the same place, with the screen leaving room for it.
 - **The screen's context travels with the tap:** each screen says what it shows (a kind and a name, never pixels). The chat shows it as a chip the person can tap away, and puts it in words at the front of their first message, which is all the model needs (names resolve in the chat's space). No silent assumptions: what the assistant takes as context is always on screen.
 - **A wide window gets a panel:** on the website at 1024 and up the chat opens beside the screen (like Claude's own panel), not over it; the phone keeps the iOS page sheet. A half-height sheet for the chat was tried before and broke with the keyboard, so it stays full.
-
-> > > > > > > aa8ebe2 (feat(mobile): the chat from any screen, with the screen's context; a side panel on wide windows)
 
 ## 2026-10-23: Sheets the iOS way (owner, on the Claude app's usage sheet: "this is very intuitive. But our app… I have to pull it from the little bar… Can we make it exactly like this iOS feature?")
 

@@ -36,6 +36,12 @@ ANTHROPIC_API_KEY=
 OPENAI_API_KEY=
 GEMINI_API_KEY=
 
+# Optional: Jev, TypeSafe AI's decision model (typesafe.ai → API keys), for the app's own picks
+# (a flow's Choose step, suggested actions); owners only for now. In prod/dev this is the GitHub
+# secret TYPESAFE_API_KEY. Never commit it. JEV_MODEL (a wrangler var) pins a version; the
+# default is jev-latest.
+TYPESAFE_API_KEY=
+
 # Optional: encrypts the nightly backup (any long random string, e.g. `openssl rand -base64 32`).
 # Keep it in your password manager: a restore needs the same key. Without it, backups are
 # gzipped JSON in your private Drive.

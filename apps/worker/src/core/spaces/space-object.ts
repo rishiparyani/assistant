@@ -149,7 +149,7 @@ import { searchOf, type SearchDoc } from "../search/search-object.ts";
 import { embed } from "../search/embed.ts";
 import type { NewNotification } from "../push/inbox.ts";
 import type { ChatMessage } from "../assistant/client.ts";
-import { parseVerdict, systemAsk } from "../assistant/system-call.ts";
+import { decide, type Verdict } from "../assistant/decide.ts";
 
 /** A burst of writes waits this long, then pings everyone once. */
 const LIVE_DELAY_MS = 500;
@@ -8135,7 +8135,7 @@ export class SpaceObject extends DurableObject<Env> {
       const picked = sure
         ? (a.options.find((o) => nameKey(o.label) === nameKey(verdict.label!)) ?? null)
         : null;
-      const pct = `${Math.round(verdict.confidence * 100)}% sure`;
+      const pct = `${Math.round(verdict.confidence * 100)}% sure${verdict.by === "jev" ? ", Jev" : ""}`;
       const did = [
         picked
           ? `Picked “${picked.label}” (${pct})`
@@ -8182,17 +8182,12 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /**
-   * The pick itself: the everyday model reads the record's fields and the options and answers
-   * with one option and how sure it is (a decision model such as Jev would slot in here).
-   * Billed to the flow's maker like a chat message; never more than the caps allow. A failure
-   * is "not sure", so the unsure steps run.
+   * The pick itself: Jev (the decision model) when it's on for the flow's maker, else the
+   * everyday model reads the record's fields and the options and answers with one option and
+   * how sure it is. Billed to the flow's maker like a chat message; never more than the caps
+   * allow. A failure is "not sure", so the unsure steps run.
    */
-  private async decide(
-    w: WorkflowRow,
-    question: string,
-    labels: string[],
-    r: RecordRow,
-  ): Promise<{ label: string | null; confidence: number; why: string }> {
+  private async decide(w: WorkflowRow, question: string, labels: string[], r: RecordRow): Promise<Verdict> {
     const fields = this.fieldRows(r.collection_id).filter((f) => !toField(f).options.personal);
     const state = fields
       .map((f) => `${f.name}: ${this.fillTemplate(`{${f.name}}`, r)}`)
@@ -8208,9 +8203,7 @@ export class SpaceObject extends DurableObject<Env> {
       },
     ];
     const userId = w.created_by ?? "";
-    const { content, why } = await systemAsk(this.env, userId, messages, DECIDE_MAX_OUTPUT);
-    if (content === null) return { label: null, confidence: 0, why };
-    return parseVerdict(content, labels);
+    return decide(this.env, userId, { state, question, labels, messages, maxOutput: DECIDE_MAX_OUTPUT });
   }
 
   /**

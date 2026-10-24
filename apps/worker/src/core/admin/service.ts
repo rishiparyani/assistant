@@ -93,6 +93,14 @@ async function aiSection(ctx: AdminCtx, settings: AiSettings): Promise<AdminSect
         tone: settings.fast && v.fast_calls_today >= settings.fastCallsPerDay ? "warn" : "ok",
       },
       {
+        label: "Jev decides",
+        value: settings.jev ? `On · ${settings.jev}` : "Off",
+        hint: settings.jev
+          ? "owners only; a flow's Choose step and suggested actions; no cap for now"
+          : "needs TYPESAFE_API_KEY (docs/setup.md)",
+        tone: "ok",
+      },
+      {
         label: "Claude models",
         value: settings.anthropic
           ? `${labelOf(settings.everydayModel) ?? "GLM"} / ${labelOf(settings.setupModel) ?? "off"}`

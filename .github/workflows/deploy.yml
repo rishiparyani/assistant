@@ -159,6 +159,8 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # Jev, TypeSafe AI's decision model, for the app's own picks (docs/setup.md); optional.
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: |
           # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
           existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
@@ -182,6 +184,9 @@ jobs:
           fi
           if [ -n "$CEREBRAS_API_KEY" ]; then
             printf '%s' "$CEREBRAS_API_KEY" | pnpm exec wrangler secret put CEREBRAS_API_KEY --name "$WORKER_NAME" > /dev/null
+          fi
+          if [ -n "$TYPESAFE_API_KEY" ]; then
+            printf '%s' "$TYPESAFE_API_KEY" | pnpm exec wrangler secret put TYPESAFE_API_KEY --name "$WORKER_NAME" > /dev/null
           fi
           if [ -n "$ANTHROPIC_API_KEY" ]; then
             printf '%s' "$ANTHROPIC_API_KEY" | pnpm exec wrangler secret put ANTHROPIC_API_KEY --name "$WORKER_NAME" > /dev/null

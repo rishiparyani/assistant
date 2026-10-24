@@ -170,6 +170,7 @@ export function aiSettings(env: Env): AiSettings {
     anthropic: !!vars.ANTHROPIC_API_KEY?.trim(),
     openai: !!vars.OPENAI_API_KEY?.trim(),
     gemini: !!vars.GEMINI_API_KEY?.trim(),
+    jev: vars.TYPESAFE_API_KEY?.trim() ? vars.JEV_MODEL?.trim() || "jev-latest" : null,
   };
 }
 
