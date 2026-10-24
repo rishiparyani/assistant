@@ -443,7 +443,7 @@ export default function Home() {
       {section(
         "Spaces",
         assistant ? "New, in the chat ›" : undefined,
-        assistant ? () => openChat(router, { ask: "I'd like to start a new space for " }) : undefined,
+        assistant ? () => openChat({ ask: "I'd like to start a new space for " }) : undefined,
       )}
       {spaces.map((sp) => (
         <View key={sp.id} style={{ gap: 0 }}>
@@ -475,7 +475,7 @@ export default function Home() {
             <Pressable
               accessibilityRole="button"
               onPress={() =>
-                openChat(router, {
+                openChat({
                   ask: `I'd like to set up the lists for ${sp.name}. Ask me what I want to keep track of.`,
                   send: "1",
                   ...(sp.personal ? {} : { space: sp.id }),
@@ -579,10 +579,10 @@ export default function Home() {
                 ? { id: space, name: recent.find((x) => x.id === space)?.name ?? "" }
                 : undefined
             }
-            onAsk={(words, sp) => openChat(router, { ask: words, send: "1", ...(sp ? { space: sp } : {}) })}
+            onAsk={(words, sp) => openChat({ ask: words, send: "1", ...(sp ? { space: sp } : {}) })}
             onOpenChat={(sp) => {
               const last = userId ? lastChat(userId) : null;
-              openChat(router, last ? { id: last } : sp ? { space: sp } : {});
+              openChat(last ? { id: last } : sp ? { space: sp } : {});
             }}
             onOpenCard={(card) =>
               card.waiting
@@ -599,7 +599,7 @@ export default function Home() {
                 return;
               }
               if (hit.kind === "conversation") {
-                openChat(router, { id: hit.chat_id });
+                openChat({ id: hit.chat_id });
                 return;
               }
               if (hit.kind === "item") {
@@ -608,12 +608,12 @@ export default function Home() {
                   openList(hit.collection_id!, hit.what === "view" ? hit.id : undefined, hit.space_id);
                 else if (hit.what === "workflow")
                   router.push({ pathname: "/process", params: { id: hit.id, ...inSp } });
-                else if (hit.what === "space") openChat(router, inSp);
+                else if (hit.what === "space") openChat(inSp);
                 else if (hit.what === "memory") router.push("/memory");
                 else void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(hit.id)}`);
                 return;
               }
-              if (assistant) openChat(router, {}, { kind: "record", title: hit.title, in: hit.collection });
+              if (assistant) openChat({}, { kind: "record", title: hit.title, in: hit.collection });
               else openList(hit.collection_id);
             }}
           />
@@ -638,7 +638,7 @@ export default function Home() {
             ? () => {
                 const o = opened;
                 setOpened(null);
-                openChat(router, o.space ? { space: o.space } : {}, {
+                openChat(o.space ? { space: o.space } : {}, {
                   kind: "record",
                   title: o.record.title,
                   in: o.collection.name,
@@ -707,13 +707,12 @@ export default function Home() {
                 {
                   title: "How do I…?",
                   text: "Ask in the chat, in your own words",
-                  go: () => openChat(router, { ask: "How do I " }),
+                  go: () => openChat({ ask: "How do I " }),
                 },
                 {
                   title: "Quick and Careful",
                   text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
-                  go: () =>
-                    openChat(router, { ask: "What do you do as Quick, and what as Careful?", send: "1" }),
+                  go: () => openChat({ ask: "What do you do as Quick, and what as Careful?", send: "1" }),
                 },
               ]
             : []),
@@ -731,7 +730,7 @@ export default function Home() {
             assistant && !(today?.spaces ?? []).some((sp) => sp.lists.length)
               ? {
                   label: "Tell me about your week",
-                  go: () => router.push({ pathname: "/chat", params: { ask: "Here's my week: " } }),
+                  go: () => openChat({ ask: "Here's my week: " }),
                 }
               : undefined
           }

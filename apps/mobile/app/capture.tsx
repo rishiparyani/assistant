@@ -83,7 +83,7 @@ export default function Capture() {
       {text ? (
         <Pressable
           accessibilityRole="button"
-          onPress={() => openChat(router, { ask: `About what I just added: ${text}. ` })}
+          onPress={() => openChat({ ask: `About what I just added: ${text}. ` })}
           style={[s.btn, { backgroundColor: t.fill }]}
         >
           <Text style={[s.btnText, { color: t.accent }]}>Ask the chat about it</Text>

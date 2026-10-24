@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Modal, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import {
   useFonts,
   Manrope_400Regular,
@@ -10,7 +10,7 @@ import {
 } from "@expo-google-fonts/manrope";
 import { setAppFont } from "@assistant/cards/native";
 import { PANEL_WIDTH, WIDE, closeChatPanel, useChatPanel } from "@/chat-open";
-import { ChatScreen } from "./chat";
+import { ChatScreen } from "@/components/ChatScreen";
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -77,13 +77,13 @@ export default function Layout() {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, []);
   setAppFont(fontsLoaded && !fontError);
-  // On a wide website window the chat sits beside the screen, like Claude's own panel (owner,
-  // 2026-10-24; decision "The chat from any screen"); it opens from any screen's bar.
+  // The chat (docs/design/from-scratch.md §3 "Chat sheet"): one for the whole app, opened from
+  // any screen's composer. On the phone it is a sheet over the screen; on the website it sits
+  // beside the screen on a wide window (like Claude's own panel) and over it on a narrow one.
+  // The website's panel stays the same element whether beside or over, so its draft and state
+  // survive a resize and a message sent on open isn't sent again (Codex on PR 193).
   const { width } = useWindowDimensions();
   const panel = useChatPanel();
-  // The panel stays the same element whether it sits beside the screen (a wide window) or
-  // over it (the window shrunk with it open), so its draft and state survive a resize and a
-  // message sent on open isn't sent again (Codex on PR 193).
   const sideChat = Platform.OS === "web" && panel.open;
   const beside = width >= WIDE;
   if (!fontsLoaded && !fontError && !waited) return null;
@@ -97,16 +97,15 @@ export default function Layout() {
             <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
-              {/* A page sheet (UIKit's own), not a form sheet with custom detents: the form sheet
-              laid its content out wrong once the keyboard had been up (bubbles under the
-              header, under the message box). */}
-              <Stack.Screen name="chat" options={{ presentation: "modal" }} />
-              <Stack.Screen name="memory" options={{ presentation: "modal" }} />
-              <Stack.Screen name="library" options={{ presentation: "modal" }} />
-              <Stack.Screen name="capture" options={{ presentation: "modal" }} />
-              <Stack.Screen name="process" options={{ presentation: "modal" }} />
-              <Stack.Screen name="connections" options={{ presentation: "modal" }} />
-              {/* A whole list: slides in from the right, back is a swipe. */}
+              {/* Every other screen is pushed (slides in from the right, back is a swipe): the
+              chat sheet is the one sheet, and nothing opens over a sheet (from-scratch.md §2
+              "nothing stacks"). /chat is an address only; it opens the sheet over Today. */}
+              <Stack.Screen name="chat" />
+              <Stack.Screen name="memory" />
+              <Stack.Screen name="library" />
+              <Stack.Screen name="capture" />
+              <Stack.Screen name="process" />
+              <Stack.Screen name="connections" />
               <Stack.Screen name="list" />
               <Stack.Screen name="trash" />
               {/* Chats with people, and one chat: pushed like the list. */}
@@ -122,10 +121,24 @@ export default function Layout() {
                   : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
               }
             >
-              <ChatScreen key={panel.nonce} params={panel.params} embedded onClose={closeChatPanel} />
+              <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
             </View>
           ) : null}
         </View>
+        {Platform.OS !== "web" ? (
+          // The phone's chat sheet: the system's page sheet (a pull down or Back closes it),
+          // over whatever screen the composer was on.
+          <Modal
+            visible={panel.open}
+            presentationStyle="pageSheet"
+            animationType="slide"
+            onRequestClose={closeChatPanel}
+          >
+            <View style={{ flex: 1, backgroundColor: t.page }}>
+              <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
+            </View>
+          </Modal>
+        ) : null}
       </SessionProvider>
     </GestureHandlerRootView>
   );
