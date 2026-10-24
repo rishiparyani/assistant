@@ -83,6 +83,13 @@ export function useChatPanel() {
   );
 }
 export const closeChatPanel = () => setPanel({ ...panel, open: false });
+/**
+ * Before the chat opens a screen (a list, a workflow): the sheet goes away so the screen is
+ * seen; the panel beside the screen on a wide window stays.
+ */
+export const leaveChat = () => {
+  if (!wideNow()) closeChatPanel();
+};
 
 /** The panel's width beside the screen. */
 export const PANEL_WIDTH = 440;

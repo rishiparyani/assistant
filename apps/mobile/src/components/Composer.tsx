@@ -89,6 +89,7 @@ export function Composer({
           disabled={!assistant || !online}
           scale={0.88}
           haptic="light"
+          hitSlop={6}
           style={[s.send, { backgroundColor: assistant && online ? t.accent : t.fill }]}
         >
           {q ? (

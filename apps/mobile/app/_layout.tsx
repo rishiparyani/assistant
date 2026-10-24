@@ -132,6 +132,7 @@ export default function Layout() {
             visible={panel.open}
             presentationStyle="pageSheet"
             animationType="slide"
+            allowSwipeDismissal
             onRequestClose={closeChatPanel}
           >
             <View style={{ flex: 1, backgroundColor: t.page }}>
