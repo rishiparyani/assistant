@@ -3,6 +3,7 @@
 // typed offline wait in the outbox and go when the connection is back.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Clipboard from "expo-clipboard";
+import { LinkNote } from "./LinkNote.tsx";
 import * as Haptics from "expo-haptics";
 import { FlatList, Platform, Pressable, StyleSheet, View, type TextInput as RNTextInput } from "react-native";
 import Animated, { FadeIn, FadeInDown } from "react-native-reanimated";
@@ -1162,7 +1163,8 @@ function Bubble({
       </View>
     );
   }
-  if (item.role === "note") return <Text style={[s.sys, { color: t.fg2 }]}>{item.text}</Text>;
+  // A link in a note (a share's join link) comes with Copy and Share.
+  if (item.role === "note") return <LinkNote text={item.text} style={[s.sys, { color: t.fg2 }]} />;
   return (
     <>
       <Pressable
