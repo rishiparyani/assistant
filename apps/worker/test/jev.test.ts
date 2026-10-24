@@ -34,6 +34,7 @@ describe("Jev", () => {
     );
     expect(got).toEqual({ label: "Add to Bills", confidence: 0.91, usage: { input: 40, output: 0 } });
     expect(seen.url).toBe(`${JEV_BASE}/v1/systemone`);
+    expect(seen.init?.signal).toBeInstanceOf(AbortSignal);
     const headers = seen.init?.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer test-key");
     expect(JSON.parse(String(seen.init?.body))).toEqual({
@@ -66,5 +67,24 @@ describe("Jev", () => {
         stub(401, { error: "no" }, seen),
       ),
     ).rejects.toThrow("Jev answered 401");
+  });
+
+  it("gives up on a body that never arrives once its deadline passes", async () => {
+    // The provider accepts and answers the headers, then stalls: the read ends with the
+    // request's own deadline, so the caller can fall back to the everyday model.
+    const stalled = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal;
+      const body = new ReadableStream({
+        start(controller) {
+          signal.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    const started = Date.now();
+    await expect(
+      askJev("k", "jev-latest", { state: "x", question: "q", labels: ["A"] }, stalled, 80),
+    ).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });

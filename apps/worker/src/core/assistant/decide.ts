@@ -13,6 +13,21 @@ import { parseVerdict, systemAsk } from "./system-call.ts";
 import type { ChatMessage } from "./client.ts";
 
 export const JEV_BASE = "https://api.typesafe.ai";
+/** How long one Jev decision may take, headers and body together. */
+export const JEV_TIMEOUT_MS = 30_000;
+
+/** The response body read under the same deadline as the request. */
+function readWithin(res: Response, signal: AbortSignal): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error("Jev timed out"));
+    if (signal.aborted) return onAbort();
+    signal.addEventListener("abort", onAbort, { once: true });
+    res
+      .json()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
 export const JEV_DEFAULT_MODEL = "jev-latest";
 
 export interface Verdict {
@@ -51,9 +66,15 @@ export async function askJev(
   model: string,
   q: { state: string; question: string; labels: string[] },
   fetchFn: typeof fetch = fetch,
+  timeoutMs = JEV_TIMEOUT_MS,
 ): Promise<{ label: string | null; confidence: number; usage: { input: number; output: number } }> {
   const criteria = Object.fromEntries(q.labels.map((l) => [l, null]));
+  // A deadline on the whole exchange (headers and body), like the other model clients: a stalled
+  // provider must not hold up the space's alarm (its due jobs, search sync, live pings); the
+  // caller then falls back to the everyday model (Codex on PR 196).
+  const signal = AbortSignal.timeout(timeoutMs);
   const res = await fetchFn(`${JEV_BASE}/v1/systemone`, {
+    signal,
     method: "POST",
     headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
     body: JSON.stringify({
@@ -63,7 +84,7 @@ export async function askJev(
     }),
   });
   if (!res.ok) throw new Error(`Jev answered ${res.status}`);
-  const got = (await res.json()) as {
+  const got = (await readWithin(res, signal)) as {
     answers?: { pick?: { choice?: unknown; confidence?: unknown } };
     usage?: { input_tokens?: number | null; output_tokens?: number | null };
   };
