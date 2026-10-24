@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { Sheet } from "@/components/Sheet";
-import { ChatFab } from "@/components/ChatFab";
+import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
@@ -158,7 +158,9 @@ export default function Setup() {
           </Text>
         </View>
         {note ? <Text style={[s.note, { color: t.fg2 }]}>{note}</Text> : null}
-        <ScrollView contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: insets.bottom + 40 }}>
+        <ScrollView
+          contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: insets.bottom + CHAT_FAB_ROOM }}
+        >
           <View style={[s.card, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
             <Text style={[s.section, { color: t.fg2 }]}>FIELDS</Text>
             {(c?.fields ?? []).map((f) => (

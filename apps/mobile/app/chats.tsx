@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { Sheet } from "@/components/Sheet";
-import { ChatFab } from "@/components/ChatFab";
+import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { isOffline } from "@/api";
@@ -61,7 +61,11 @@ export default function Chats() {
         <FlatList
           data={chats ?? []}
           keyExtractor={(c) => c.id}
-          contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 40, gap: 8 }}
+          contentContainerStyle={{
+            paddingHorizontal: 16,
+            paddingBottom: insets.bottom + CHAT_FAB_ROOM,
+            gap: 8,
+          }}
           refreshControl={
             <RefreshControl
               refreshing={pulling}
