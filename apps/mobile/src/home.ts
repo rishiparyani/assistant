@@ -50,6 +50,7 @@ export interface HomePage {
 
 // The device copy is per person: another account on the same device never sees it.
 const keyFor = (userId: string) => `gigspree:home:${userId}`;
+const catalogKeyFor = (userId: string) => `gigspree:catalog:${userId}`;
 const enc = encodeURIComponent;
 const LIST_ROWS = 12;
 const MAX_PAGES = 25;
@@ -386,18 +387,25 @@ export async function loadCatalog(): Promise<Catalog> {
   const chatHomes = new Set(groups.map((g) => g.space_id).filter((x): x is string => !!x));
   const own = spaces.filter((sp) => sp.kind !== "personal" && !chatHomes.has(sp.id) && !sp.practice_of);
   const emptySpaces: { id: string; name: string }[] = [];
-  for (const sp of own.slice(0, MAX_PAGES)) {
-    const q = `?space=${enc(sp.id)}`;
-    const got = await Promise.all([
-      request<SavedView[]>("GET", `/api/views${q}`),
-      request<CollectionView[]>("GET", `/api/collections${q}`),
-    ]).catch(() => {
-      complete = false;
-      return null;
-    });
+  // Every space at once, not one after another (owner, 2026-10-24: the library "takes a long
+  // time to load").
+  const perSpace = await Promise.all(
+    own.slice(0, MAX_PAGES).map((sp) => {
+      const q = `?space=${enc(sp.id)}`;
+      return Promise.all([
+        request<SavedView[]>("GET", `/api/views${q}`),
+        request<CollectionView[]>("GET", `/api/collections${q}`),
+      ]).catch(() => {
+        complete = false;
+        return null;
+      });
+    }),
+  );
+  own.slice(0, MAX_PAGES).forEach((sp, i) => {
+    const got = perSpace[i];
     if (got) add(got[0], got[1], sp.id, sp.name);
     if (got && !got[1].length) emptySpaces.push({ id: sp.id, name: sp.name });
-  }
+  });
   const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
   for (const sh of shares)
     if (!fromProcess.has(sh.share_id))
@@ -420,7 +428,7 @@ export async function loadCatalog(): Promise<Catalog> {
 }
 
 /** A layout change made on this device and not sent yet wins over what the server has. */
-function waitingLayout(): { pages: string[][]; seen: string[] } | null {
+export function waitingLayout(): { pages: string[][]; seen: string[] } | null {
   const w = [...outboxState().waiting].reverse().find((c) => c.kind === "home.layout");
   return w ? (w.body as { pages: string[][]; seen: string[] }) : null;
 }
@@ -511,6 +519,10 @@ export async function loadHome(userId: string): Promise<HomePage[]> {
   try {
     const cat = await loadCatalog();
     const layout = arrange(cat);
+    // Remembered with the layout as arranged, so the library's saved copy needs no arranging
+    // (arranging saves; from a stale copy that could undo a change waiting to be sent, Codex on
+    // PR 191).
+    rememberCatalog(userId, { ...cat, layout });
     const byKey = new Map(cat.entries.map((e) => [e.key, e]));
     const pages = await Promise.all(
       layout.pages.map(async (keys, i): Promise<HomePage> => {
@@ -902,6 +914,20 @@ export function savedHome(userId: string): HomePage[] | null {
 
 export function rememberHome(userId: string, pages: HomePage[]) {
   writeJson(keyFor(userId), pages);
+}
+
+/**
+ * The catalog as this device last loaded it (the home loads it on every open), so the library
+ * draws at once from it and refreshes after (offline-first rule 17; owner, 2026-10-24: the
+ * library "takes a long time to load").
+ */
+export function savedCatalog(userId: string): Catalog | null {
+  const cat = readJson<Catalog>(catalogKeyFor(userId));
+  return cat && Array.isArray(cat.entries) ? cat : null;
+}
+
+export function rememberCatalog(userId: string, cat: Catalog) {
+  if (cat.complete) writeJson(catalogKeyFor(userId), cat);
 }
 
 /**
