@@ -5,6 +5,7 @@ import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ApiError, request } from "@/api";
 import { signInWithEmail, signInWithGoogle } from "@/auth";
 import { API_URL } from "@/config";
 import { useSession } from "@/session";
@@ -40,6 +41,16 @@ export default function Login() {
     setError("");
     try {
       await fn();
+      // Signed in, but the account doesn't open: say so, instead of a screen that stays put.
+      try {
+        await request("GET", "/api/me");
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401)
+          throw new Error(
+            "Signed in, but the app couldn't open your account. Try again; if it keeps happening, tell the app team.",
+          );
+        throw e;
+      }
       await finish();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
