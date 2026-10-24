@@ -46,19 +46,22 @@ export function AddForm({
   fields,
   name,
   button = "Add",
+  initial,
   onAdd,
 }: {
   fields: AddField[];
   /** What it adds to (for the button's spoken label). */
   name: string;
   button?: string;
+  /** Filled in already (a pill that acts), by field id; the person changes what they like. */
+  initial?: Record<string, unknown>;
   onAdd: (
     send: Record<string, unknown>,
     values: Record<string, StoredValue>,
   ) => string | void | Promise<string | void>;
 }) {
   const { t } = useTheme();
-  const [form, setForm] = useState<Record<string, unknown>>({});
+  const [form, setForm] = useState<Record<string, unknown>>(initial ?? {});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);

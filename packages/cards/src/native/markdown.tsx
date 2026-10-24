@@ -3,8 +3,10 @@
 // native text, never the asterisks. Headings step down in size with room above them, lists
 // hang their bullets, a quote is an example message to try (tap puts it in the box), inline
 // code is a small chip, a rule is a hairline. Nothing here is a link or a script.
+import { useState, type ReactNode } from "react";
 import { StyleSheet, View, type StyleProp, type TextStyle } from "react-native";
-import { blocksOf, spansOf } from "../markdown.ts";
+import { blocksOf, exampleOf, spansOf, type ExampleAct } from "../markdown.ts";
+export type { ExampleAct } from "../markdown.ts";
 import { Tap } from "./press.tsx";
 import { Text } from "./text.tsx";
 import { useTheme } from "./theme.ts";
@@ -30,28 +32,28 @@ function Inline({ line, style }: { line: string; style: StyleProp<TextStyle> }) 
   );
 }
 
-/** A quote's text without the quote marks around it: the message as it would be sent. */
-function unquote(text: string): string {
-  return text
-    .trim()
-    .replace(/^[“"']+/, "")
-    .replace(/[”"'.]+$/, "")
-    .trim();
-}
-
 /** Marked-up text as native paragraphs, headings, lists and quotes, in the given text style. */
 export function Markdown({
   text,
   style,
   onTry,
+  onAct,
 }: {
   text: string;
   style: StyleProp<TextStyle>;
   /** A quoted example message was tapped: put it in the box (the chat passes this). */
   onTry?: (text: string) => void;
+  /**
+   * A pill that acts (owner, 2026-10-24: a tap does the thing, no model call): "show" returns
+   * what to draw under the pill (a live card), "add" opens a form and returns true. Null or
+   * false: nothing by that name here, so the words go to the box as a plain pill would.
+   */
+  onAct?: (act: ExampleAct, words: string) => ReactNode | boolean | null;
 }) {
   const { t } = useTheme();
   const blocks = blocksOf(text);
+  // What a "show" pill opened under itself, by its place in the text; a second tap closes it.
+  const [shown, setShown] = useState<Record<string, ReactNode>>({});
   // Plain text (no marks, one paragraph) draws as one Text, as before.
   if (blocks.length === 1 && blocks[0]!.kind === "p" && !/[*`_#>]/.test(text))
     return <Text style={style}>{text}</Text>;
@@ -66,26 +68,57 @@ export function Markdown({
         if (b.kind === "q")
           return (
             <View key={i} style={s.quotes}>
-              {b.lines.map((line, n) =>
-                onTry ? (
-                  <Tap
-                    key={n}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Try: ${unquote(line)}`}
-                    accessibilityHint="Puts it in the message box"
-                    onPress={() => onTry(unquote(line))}
-                    haptic="selection"
-                    style={[s.try, { backgroundColor: t.fill, borderColor: t.hair }]}
-                  >
-                    <Text style={[s.tryMark, { color: t.accent }]}>›</Text>
-                    <Inline line={unquote(line)} style={[style, s.tryText, { color: t.fg }]} />
-                  </Tap>
-                ) : (
-                  <View key={n} style={[s.quote, { borderLeftColor: t.fill2 }]}>
-                    <Inline line={line} style={[style, { color: t.fg2 }]} />
+              {b.lines.map((line, n) => {
+                const ex = exampleOf(line);
+                if (!onTry)
+                  return (
+                    <View key={n} style={[s.quote, { borderLeftColor: t.fill2 }]}>
+                      <Inline line={ex.words} style={[style, { color: t.fg2 }]} />
+                    </View>
+                  );
+                const at = `${i}:${n}`;
+                const open = shown[at];
+                const tag =
+                  ex.act?.kind === "show" ? (open ? "Hide" : "Show") : ex.act?.kind === "add" ? "Add" : null;
+                const press = () => {
+                  if (ex.act && onAct) {
+                    if (ex.act.kind === "show" && open) {
+                      setShown((m) => ({ ...m, [at]: null }));
+                      return;
+                    }
+                    const got = onAct(ex.act, ex.words);
+                    if (got === true) return;
+                    if (got) {
+                      setShown((m) => ({ ...m, [at]: got }));
+                      return;
+                    }
+                  }
+                  onTry(ex.words);
+                };
+                return (
+                  <View key={n} style={s.quotes}>
+                    <Tap
+                      accessibilityRole="button"
+                      accessibilityLabel={`${tag ?? "Try"}: ${ex.words}`}
+                      accessibilityHint={
+                        ex.act?.kind === "show"
+                          ? "Shows it here"
+                          : ex.act?.kind === "add"
+                            ? "Opens the add form, filled in"
+                            : "Puts it in the message box"
+                      }
+                      onPress={press}
+                      haptic="selection"
+                      style={[s.try, { backgroundColor: t.fill, borderColor: t.hair }]}
+                    >
+                      <Text style={[s.tryMark, { color: t.accent }]}>{ex.act ? "▸" : "›"}</Text>
+                      <Inline line={ex.words} style={[style, s.tryText, { color: t.fg }]} />
+                      {tag ? <Text style={[s.tryTag, { color: t.accent }]}>{tag}</Text> : null}
+                    </Tap>
+                    {open ? <View style={s.under}>{open}</View> : null}
                   </View>
-                ),
-              )}
+                );
+              })}
             </View>
           );
         if (b.kind === "p") return <Inline key={i} line={b.lines.join("\n")} style={style} />;
@@ -133,6 +166,8 @@ const s = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   tryMark: { fontSize: 15, fontWeight: "800", lineHeight: 22 },
+  tryTag: { fontSize: 12, fontWeight: "800", lineHeight: 22, letterSpacing: 0.3, marginLeft: 4 },
+  under: { marginTop: 2 },
   tryText: { fontSize: 15, lineHeight: 22, flexShrink: 1 },
   code: { fontFamily: "Menlo", borderRadius: 4, paddingHorizontal: 3 },
 });

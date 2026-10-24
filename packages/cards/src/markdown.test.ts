@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { blocksOf, spansOf } from "./markdown.ts";
+import { blocksOf, exampleOf, spansOf } from "./markdown.ts";
 
 describe("the assistant's Markdown", () => {
   it("reads bold, italics and code, and leaves lone marks alone", () => {
@@ -37,5 +37,22 @@ describe("the assistant's Markdown", () => {
       { kind: "hr" },
       { kind: "p", lines: ["after"] },
     ]);
+  });
+
+  it("reads what an example line does when tapped", () => {
+    expect(exampleOf("“Add flat 101”")).toEqual({ words: "Add flat 101", act: null });
+    expect(exampleOf('“Show overdue dues” {"show": "Outstanding maintenance"}')).toEqual({
+      words: "Show overdue dues",
+      act: { kind: "show", name: "Outstanding maintenance" },
+    });
+    expect(
+      exampleOf('“Add flat A-101, resident Neha Shah” {"add":"Flats","Flat":"A-101","Resident":"Neha Shah"}'),
+    ).toEqual({
+      words: "Add flat A-101, resident Neha Shah",
+      act: { kind: "add", list: "Flats", values: { Flat: "A-101", Resident: "Neha Shah" } },
+    });
+    // Broken or unknown JSON: the words alone, as a plain pill.
+    expect(exampleOf('“Remind me” {"show": }')).toEqual({ words: "Remind me", act: null });
+    expect(exampleOf('“Remind me” {"remind": "x"}')).toEqual({ words: "Remind me", act: null });
   });
 });

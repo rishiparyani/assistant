@@ -158,6 +158,19 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     throw new ModelError(`${model.label}: 429 Too Many Requests for "Test private words"`);
   const has = (name: string) => tools.some((t) => t.function.name === name);
   // "Test: delete record <id>": a delete card for that record.
+  // "Test: pills for <List>": examples that act (show the list's card; open its add form).
+  if (lastUser.startsWith("Test: pills for ")) {
+    const list = lastUser.slice("Test: pills for ".length).trim();
+    return say(
+      [
+        "Two things to try:",
+        "",
+        `> “Show ${list}” {"show": "${list}"}`,
+        `> “Add one to ${list}” {"add": "${list}", "Title": "Test one"}`,
+        "> “Remind me tomorrow”",
+      ].join("\n"),
+    );
+  }
   if (lastUser.startsWith("Test: delete record "))
     return call("delete_record", { record_id: lastUser.slice("Test: delete record ".length) });
   // "Test: share <record id> with <name>": a share card for that record.

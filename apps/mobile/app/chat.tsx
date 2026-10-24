@@ -1,7 +1,7 @@
 // The chat, one pull away from the home. Opened from a card it knows which one (and a card's
 // menu can start the message: "Share this with "). Confirm cards are answered here. Messages
 // typed offline wait in the outbox and go when the connection is back.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { FlatList, Platform, Pressable, StyleSheet, View, type TextInput as RNTextInput } from "react-native";
@@ -10,6 +10,7 @@ import {
   Boundary,
   Markdown,
   Tap,
+  type ExampleAct,
   Text,
   TextInput,
   ThinkingDots,
@@ -29,6 +30,7 @@ import {
 } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
+import { AddRecordSheet, addableFields } from "@/components/AddRecordSheet";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { SetupCard, setupOf } from "@/components/SetupCard";
@@ -41,6 +43,7 @@ import { radius, useTheme } from "@/theme";
 import { useKeyboardRoom } from "@/keyboard";
 import { useSession } from "@/session";
 import { rememberChat } from "@/last-chat";
+import { savedCatalog, type CatalogEntry } from "@/home";
 
 const MAIN = "main";
 
@@ -249,6 +252,62 @@ export default function Chat() {
     });
     return collections.current;
   }, []);
+  // Pills that act (owner, 2026-10-24: "perform an action instead of just pasting that same
+  // message"): the model names a saved view or list, or a list and values; the app finds it in
+  // the catalog this device holds (no model call) and shows the card here, or opens the list's
+  // add form filled in. Nothing by that name: the words go to the box, as a plain pill would.
+  const [adding, setAdding] = useState<{ entry: CatalogEntry; values: Record<string, string> } | null>(null);
+  const act = useCallback(
+    (a: ExampleAct, _words: string): ReactNode | boolean | null => {
+      const cat = myId ? savedCatalog(myId) : null;
+      if (!cat) return null;
+      const same = (x: string, y: string) => x.trim().toLowerCase() === y.trim().toLowerCase();
+      // This chat's space first; else the one space that has it. Two spaces with the same
+      // name: nothing is picked (no silent guess on a name, AGENTS.md; Codex on PR 192), so
+      // the words go to the box and the model asks which.
+      const inSpace = (e: CatalogEntry) => (e.space ?? null) === chatSpace;
+      const pick = (ok: (e: CatalogEntry) => boolean) => {
+        const here = cat.entries.find((e) => ok(e) && inSpace(e));
+        if (here) return here;
+        const spaces = new Set(cat.entries.filter(ok).map((e) => e.space ?? ""));
+        return spaces.size === 1 ? (cat.entries.find(ok) ?? null) : null;
+      };
+      if (a.kind === "show") {
+        const e =
+          pick((x) => x.kind === "view" && !!x.view && same(x.view.name, a.name)) ??
+          pick(
+            (x) =>
+              (x.kind === "view" || x.kind === "list") && !!x.collection && same(x.collection.name, a.name),
+          );
+        if (!e) return null;
+        const live: LiveRef =
+          e.kind === "view" && e.view
+            ? { kind: "view", view_id: e.view.id }
+            : { kind: "list", collection_id: e.collection!.id, title: e.collection!.name, query: {} };
+        // The card's list comes with the entry (its own space), not from this chat's space.
+        const own = e.collection;
+        return (
+          <LiveCard
+            live={live}
+            collections={own ? async () => [own] : getCollections}
+            space={e.space ?? null}
+            onAsk={(title) => setText((t) => t || `About "${title}": `)}
+          />
+        );
+      }
+      const e = pick(
+        (x) => (x.kind === "view" || x.kind === "list") && !!x.collection && same(x.collection.name, a.list),
+      );
+      if (!e?.collection) return null;
+      // A required field the sheet can't fill (a link, a person): the add would fail after
+      // "Added", so the words go to the box and the model does it (Codex on PR 192).
+      const fillable = new Set(addableFields(e.collection).map((f) => f.id));
+      if (e.collection.fields.some((f) => f.required && !fillable.has(f.id))) return null;
+      setAdding({ entry: e, values: a.values });
+      return true;
+    },
+    [myId, chatSpace, getCollections],
+  );
 
   const openChat = useCallback(
     (which: string | null) => {
@@ -495,6 +554,14 @@ export default function Chat() {
             </Tap>
           </View>
         </View>
+        <AddRecordSheet
+          open={!!adding}
+          onClose={() => setAdding(null)}
+          collection={adding?.entry.collection ?? null}
+          space={adding?.entry.space ?? null}
+          where={adding?.entry.space ? adding.entry.group : null}
+          values={adding?.values ?? {}}
+        />
         <ModelSheet
           open={showModel}
           pick={pick}
@@ -551,6 +618,7 @@ export default function Chat() {
                   setText(words);
                   box.current?.focus();
                 }}
+                onAct={act}
                 answered={answers.get(item.id)}
                 onPick={(label) => void say(label)}
                 onOther={() => box.current?.focus()}
@@ -837,6 +905,7 @@ function Bubble({
   space,
   onAsk,
   onSay,
+  onAct,
   answered,
   onPick,
   onOther,
@@ -852,6 +921,8 @@ function Bubble({
   onAsk: (title: string) => void;
   /** Words put in the box by a card (a next step), for the person to finish. */
   onSay?: (text: string) => void;
+  /** A pill that acts (show a card here, open an add form); see Markdown's onAct. */
+  onAct?: (act: ExampleAct, words: string) => ReactNode | boolean | null;
   /** A question with answers to tap: what the person answered (undefined/null: not yet). */
   answered?: string | null;
   onPick?: (label: string) => void;
@@ -1081,7 +1152,7 @@ function Bubble({
         }}
         style={s.reply}
       >
-        <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} onTry={onSay} />
+        <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} onTry={onSay} onAct={onAct} />
       </Pressable>
       {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
       {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
