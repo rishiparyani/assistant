@@ -1397,7 +1397,13 @@ export class SpaceObject extends DurableObject<Env> {
       else if (f.type === "boolean") out[f.id] = false;
       else if (f.type === "choice" && o.choices?.length) out[f.id] = o.choices[0];
       else if (f.type === "multi_choice" && o.choices?.length) out[f.id] = [o.choices[0]];
-      else if (f.type === "link") {
+      // A person the record must name (a required Resident): the role's stand-in, who then
+      // gets the questions and messages, as an empty field would (owner, 2026-10-24: Start
+      // failed with "Resident is required").
+      else if (f.type === "person" && f.required && this.practice) {
+        const p = this.standIn(f.name);
+        out[f.id] = { user_id: p.user_id, name: p.name };
+      } else if (f.type === "link") {
         const first = this.sql
           .exec<{ id: string }>(
             o.target

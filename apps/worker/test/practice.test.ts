@@ -355,6 +355,51 @@ describe("practice copies", () => {
     );
   });
 
+  it("starts a workflow whose record must name a person: the role's stand-in fills it", async () => {
+    const owner = await signUp("Test Owner");
+    const madeList = await api(owner)("/collections", {
+      body: {
+        name: "Requests",
+        fields: [
+          { name: "Visitor", type: "text" },
+          { name: "Resident", type: "person", required: true },
+          { name: "Status", type: "choice", options: { choices: ["Waiting", "Approved"] } },
+        ],
+      },
+    });
+    expect([madeList.status, await madeList.clone().text()]).toEqual([201, expect.any(String)]);
+    const madeWf = await api(owner)("/workflows", {
+      body: {
+        name: "Test approval",
+        when: { event: "added", collection: "Requests" },
+        then: [
+          {
+            do: "ask",
+            who: ["{Resident}"],
+            text: "{Visitor} is here. Allow entry?",
+            choices: ["Approved", "Waiting"],
+            save_to: "Status",
+            until: "first",
+          },
+        ],
+        enabled: false,
+      },
+    });
+    expect([madeWf.status, await madeWf.clone().text()]).toEqual([201, expect.any(String)]);
+    const wf = await json<WorkflowView>(madeWf);
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    // Start used to fail with "Resident is required" (owner, 2026-10-24).
+    const started = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id } });
+    expect([started.status, await started.clone().text()]).toEqual([200, expect.any(String)]);
+    expect((await json<{ record: { title: string } }>(started)).record.title).toBe("Sample visitor");
+    const view = async () => json<PracticeView>(await api(owner)(base));
+    expect(
+      await until(async () => (await view()).people.some((p) => p.role === "standin" && p.waiting === 1)),
+    ).toBe(true);
+    expect((await view()).people.find((p) => p.role === "standin")?.name).toBe("Resident (stand-in)");
+  });
+
   it("starts a workflow whose record needs a link to an empty list: a sample is made there too", async () => {
     const owner = await signUp("Test Owner");
     await api(owner)("/collections", {
