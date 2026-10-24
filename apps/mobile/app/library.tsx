@@ -226,7 +226,15 @@ export default function Library() {
                         // online-only: ending a practice copy erases it on the server.
                         void request("DELETE", `/api/spaces/${encodeURIComponent(sp.id)}/practice`)
                           .then(() => loadFlows())
-                          .catch((e) => setNote(e instanceof Error ? e.message : String(e)));
+                          .catch((e) =>
+                            setNote(
+                              isOffline(e)
+                                ? "Ending a practice copy needs a connection."
+                                : e instanceof Error
+                                  ? e.message
+                                  : String(e),
+                            ),
+                          );
                       }}
                       style={[s.btn, { backgroundColor: sure ? t.danger : t.fill }]}
                     >
@@ -239,6 +247,11 @@ export default function Library() {
               })}
             </View>
           </View>
+        ) : null}
+        {entries && note ? (
+          // An action that failed after the library loaded (ending a practice copy): say so here,
+          // not only on the loading screen.
+          <Text style={[s.label, { color: t.danger }]}>{note}</Text>
         ) : null}
         {!entries ? (
           <Text style={[s.label, { color: note ? t.danger : t.fg2 }]}>{note || "Loading…"}</Text>
