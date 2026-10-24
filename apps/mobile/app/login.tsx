@@ -48,6 +48,7 @@ export default function Login() {
         if (e instanceof ApiError && e.status === 401)
           throw new Error(
             "Signed in, but the app couldn't open your account. Try again; if it keeps happening, tell the app team.",
+            { cause: e },
           );
         throw e;
       }
