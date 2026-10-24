@@ -3,14 +3,24 @@
 // removes it there; a list's card opens the whole list. Lists and views are where the data
 // lives; this only changes what the home shows.
 // online-only: the library reads every space, share, question and flow; it needs a connection.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Tap, Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
-import { arrange, homeChanged, loadCatalog, saveLayout, type CatalogEntry } from "@/home";
+import {
+  arrange,
+  homeChanged,
+  loadCatalog,
+  rememberCatalog,
+  saveLayout,
+  savedCatalog,
+  type Catalog,
+  type CatalogEntry,
+} from "@/home";
+import { useSession } from "@/session";
 import { Mark } from "@/components/Mark";
 import { colourFor, radius, useTheme } from "@/theme";
 
@@ -28,9 +38,15 @@ export default function Library() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [entries, setEntries] = useState<CatalogEntry[] | null>(null);
-  const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(null);
-  const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>([]);
+  const { me } = useSession();
+  const userId = me?.user.id ?? null;
+  // Drawn at once from the catalog this device last loaded (the home just did), refreshed after.
+  const saved = useMemo(() => (userId ? savedCatalog(userId) : null), [userId]);
+  const [entries, setEntries] = useState<CatalogEntry[] | null>(saved?.entries ?? null);
+  const [layout, setLayout] = useState<{ pages: string[][]; seen: string[] } | null>(() =>
+    saved ? arrange(saved) : null,
+  );
+  const [emptySpaces, setEmptySpaces] = useState<{ id: string; name: string }[]>(saved?.emptySpaces ?? []);
   const [note, setNote] = useState("");
   // Flows (owner, 2026-10-19: "how do I rehearse it? … Add a flow section"): what the app does
   // on its own, in every space, each opening on its own page to rehearse it or turn it on.
@@ -55,15 +71,18 @@ export default function Library() {
 
   const load = useCallback(async () => {
     try {
-      const cat = await loadCatalog();
+      const cat: Catalog = await loadCatalog();
+      if (userId) rememberCatalog(userId, cat);
       setEntries(cat.entries);
       setEmptySpaces(cat.emptySpaces);
       setLayout(arrange(cat));
       setNote("");
     } catch (e) {
+      // With a saved copy on screen, a failed refresh changes nothing (offline: it stays).
+      if (saved) return;
       setNote(isOffline(e) ? "The library needs a connection." : e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [userId, saved]);
   useEffect(() => {
     void load();
     void loadFlows();
