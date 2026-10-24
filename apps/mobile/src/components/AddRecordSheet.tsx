@@ -41,6 +41,7 @@ export function AddRecordSheet({
   onClose,
   collection,
   space,
+  where,
   values,
 }: {
   open: boolean;
@@ -48,6 +49,8 @@ export function AddRecordSheet({
   collection: CollectionView | null;
   /** The space the list is in (null: the person's own). */
   space: string | null;
+  /** That space's name, shown when it isn't the person's own, so they see where it goes. */
+  where?: string | null;
   values: Record<string, string>;
 }) {
   const { t } = useTheme();
@@ -57,7 +60,9 @@ export function AddRecordSheet({
       {collection ? (
         <View style={s.box}>
           <Text style={[type.title, { color: t.fg }]}>Add to {collection.name}</Text>
-          <Text style={[type.caption, { color: t.fg2 }]}>Change what you like, then Add.</Text>
+          <Text style={[type.caption, { color: t.fg2 }]}>
+            {where ? `In ${where}. ` : ""}Change what you like, then Add.
+          </Text>
           <AddForm
             fields={fields}
             name={collection.name}

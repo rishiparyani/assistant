@@ -30,7 +30,7 @@ import {
 } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
-import { AddRecordSheet } from "@/components/AddRecordSheet";
+import { AddRecordSheet, addableFields } from "@/components/AddRecordSheet";
 import { ImportSheet, uploadedWords } from "@/components/ImportSheet";
 import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { SetupCard, setupOf } from "@/components/SetupCard";
@@ -262,10 +262,16 @@ export default function Chat() {
       const cat = myId ? savedCatalog(myId) : null;
       if (!cat) return null;
       const same = (x: string, y: string) => x.trim().toLowerCase() === y.trim().toLowerCase();
-      // This chat's space first, then any.
+      // This chat's space first; else the one space that has it. Two spaces with the same
+      // name: nothing is picked (no silent guess on a name, AGENTS.md; Codex on PR 192), so
+      // the words go to the box and the model asks which.
       const inSpace = (e: CatalogEntry) => (e.space ?? null) === chatSpace;
-      const pick = (ok: (e: CatalogEntry) => boolean) =>
-        cat.entries.find((e) => ok(e) && inSpace(e)) ?? cat.entries.find(ok) ?? null;
+      const pick = (ok: (e: CatalogEntry) => boolean) => {
+        const here = cat.entries.find((e) => ok(e) && inSpace(e));
+        if (here) return here;
+        const spaces = new Set(cat.entries.filter(ok).map((e) => e.space ?? ""));
+        return spaces.size === 1 ? (cat.entries.find(ok) ?? null) : null;
+      };
       if (a.kind === "show") {
         const e =
           pick((x) => x.kind === "view" && !!x.view && same(x.view.name, a.name)) ??
@@ -278,10 +284,12 @@ export default function Chat() {
           e.kind === "view" && e.view
             ? { kind: "view", view_id: e.view.id }
             : { kind: "list", collection_id: e.collection!.id, title: e.collection!.name, query: {} };
+        // The card's list comes with the entry (its own space), not from this chat's space.
+        const own = e.collection;
         return (
           <LiveCard
             live={live}
-            collections={getCollections}
+            collections={own ? async () => [own] : getCollections}
             space={e.space ?? null}
             onAsk={(title) => setText((t) => t || `About "${title}": `)}
           />
@@ -291,6 +299,10 @@ export default function Chat() {
         (x) => (x.kind === "view" || x.kind === "list") && !!x.collection && same(x.collection.name, a.list),
       );
       if (!e?.collection) return null;
+      // A required field the sheet can't fill (a link, a person): the add would fail after
+      // "Added", so the words go to the box and the model does it (Codex on PR 192).
+      const fillable = new Set(addableFields(e.collection).map((f) => f.id));
+      if (e.collection.fields.some((f) => f.required && !fillable.has(f.id))) return null;
       setAdding({ entry: e, values: a.values });
       return true;
     },
@@ -547,6 +559,7 @@ export default function Chat() {
           onClose={() => setAdding(null)}
           collection={adding?.entry.collection ?? null}
           space={adding?.entry.space ?? null}
+          where={adding?.entry.space ? adding.entry.group : null}
           values={adding?.values ?? {}}
         />
         <ModelSheet
