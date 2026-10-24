@@ -39,6 +39,8 @@ import {
 } from "@assistant/cards/native";
 import { Boundary, Tap } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
+import { openChat } from "@/chat-open";
+import { ChatBar } from "@/components/ChatBar";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
@@ -289,8 +291,11 @@ export default function ListPage() {
         )
       : null;
   const listColour = colour(colourFor(c?.name ?? ""));
-  const askAbout = (text: string) =>
-    router.push({ pathname: "/chat", params: { ask: text, ...(space ? { space } : {}) } });
+  // The chat about this list, or one of its records (the chip says which; decision 2026-10-24
+  // "The chat from any screen").
+  const chatIn = space ? { space } : {};
+  const askList = () => openChat(router, chatIn, { kind: "list", title: c?.name ?? "" });
+  const askRecord = (title: string) => openChat(router, chatIn, { kind: "record", title, in: c?.name ?? "" });
 
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 6 }]}>
@@ -386,7 +391,7 @@ export default function ListPage() {
                 records={records ?? []}
                 colour={listColour}
                 onSet={onSetCell}
-                onOpen={(r) => askAbout(`About "${r.title}": `)}
+                onOpen={(r) => askRecord(r.title)}
               />
             </View>
             {cursor ? (
@@ -430,7 +435,7 @@ export default function ListPage() {
                     tickField={tickField}
                     colour={listColour}
                     onTick={onTick}
-                    onOpen={() => askAbout(`About “${item.r.title}” in ${c.name}: `)}
+                    onOpen={() => askRecord(item.r.title)}
                     onHold={() => setHeld(item.r)}
                   />
                 </Boundary>
@@ -438,21 +443,11 @@ export default function ListPage() {
             }
           />
         )}
-        <View style={[s.bottom, { paddingBottom: insets.bottom + 10, backgroundColor: t.page }]}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Ask about ${c?.name ?? "this list"}`}
-            onPress={() => askAbout(`${c?.name ?? ""}: `)}
-            style={[s.bar, { backgroundColor: t.ink, shadowColor: t.shadow }]}
-          >
-            <Text style={[s.barText, { color: t.onInk }]} numberOfLines={1}>
-              Add to {c?.name ?? "this list"} or ask about it…
-            </Text>
-            <View style={[s.send, { backgroundColor: t.accent }]}>
-              <Text style={{ color: t.onAccent, fontSize: 17, fontWeight: "800", lineHeight: 19 }}>↑</Text>
-            </View>
-          </Pressable>
-        </View>
+        <ChatBar
+          label={`Add to ${c?.name ?? "this list"} or ask about it…`}
+          hint={`Ask about ${c?.name ?? "this list"}`}
+          onPress={askList}
+        />
       </View>
       <Sheet open={menu} onClose={() => setMenu(false)} gap={8} accessibilityLabel="More">
         {[
@@ -497,7 +492,7 @@ export default function ListPage() {
         {[
           {
             label: "Ask about this",
-            run: () => held && c && askAbout(`About “${held.title}” in ${c.name}: `),
+            run: () => held && c && askRecord(held.title),
           },
           { label: "Chat with people about this", run: () => setChatAbout(held) },
         ].map((x) => (
@@ -788,20 +783,4 @@ const s = StyleSheet.create({
   callout: { marginTop: 4, padding: 8, borderRadius: 12, overflow: "hidden", fontSize: 13 },
   action: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, justifyContent: "center" },
   actionText: { fontSize: 13, fontWeight: "800" },
-  bottom: { position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 8, paddingHorizontal: 16 },
-  bar: {
-    height: 52,
-    borderRadius: 26,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingLeft: 18,
-    paddingRight: 9,
-    shadowOpacity: 1,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
-  },
-  barText: { flex: 1, fontSize: 15, fontWeight: "600", opacity: 0.75 },
-  send: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center" },
 });

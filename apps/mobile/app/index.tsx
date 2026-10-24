@@ -13,7 +13,6 @@ import {
   ScrollView,
   StyleSheet,
   View,
-  useWindowDimensions,
 } from "react-native";
 import { Text } from "@assistant/cards/native";
 import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
@@ -55,6 +54,7 @@ import { useKeyboardHeight } from "@/keyboard";
 import { lastChat } from "@/last-chat";
 import { radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
+import { openChat, useContentWidth } from "@/chat-open";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
@@ -89,7 +89,8 @@ export default function Home() {
     paddingBottom: Math.max(barFocused.value ? keyboard.value : 0, insets.bottom) + 10,
   }));
   const router = useRouter();
-  const { width } = useWindowDimensions();
+  // Less the chat panel when it is open beside the home (a wide website window).
+  const width = useContentWidth();
   const [pages, setPages] = useState<HomePage[] | null>(null);
   // True while what's on screen is the device's saved copy and the fresh one is on its way.
   const [stale, setStale] = useState(false);
@@ -267,13 +268,10 @@ export default function Home() {
     if (!assistant && card.shared) return openOnWeb(card);
     if (!assistant) return;
     // A space's card opens that space's chat (decision 2026-10-16 "Spaces").
-    router.push({
-      pathname: "/chat",
-      params: {
-        card: card.spec.title,
-        ...(prompt ? { ask: prompt } : {}),
-        ...(card.space ? { space: card.space } : {}),
-      },
+    openChat(router, {
+      card: card.spec.title,
+      ...(prompt ? { ask: prompt } : {}),
+      ...(card.space ? { space: card.space } : {}),
     });
   };
   /** A whole list, on its own screen (its saved view chosen when the card is one). */
@@ -442,12 +440,9 @@ export default function Home() {
             <Tap
               accessibilityRole="button"
               onPress={() =>
-                router.push({
-                  pathname: "/chat",
-                  params: {
-                    ask: "I'd like to start building. Ask me what I want to keep track of, then set it up.",
-                    send: "1",
-                  },
+                openChat(router, {
+                  ask: "I'd like to start building. Ask me what I want to keep track of, then set it up.",
+                  send: "1",
                 })
               }
               style={[s.startBtn, { backgroundColor: t.accent }]}
@@ -669,16 +664,11 @@ export default function Home() {
             }}
             cards={(pages ?? []).flatMap((p) => p.cards)}
             lists={homeLists()}
-            onAsk={(words, space) =>
-              router.push({
-                pathname: "/chat",
-                params: { ask: words, send: "1", ...(space ? { space } : {}) },
-              })
-            }
+            onAsk={(words, space) => openChat(router, { ask: words, send: "1", ...(space ? { space } : {}) })}
             onOpenChat={(space) => {
               // Back to the chat last open (any space) while it's fresh, else the page's own.
               const last = userId ? lastChat(userId) : null;
-              router.push({ pathname: "/chat", params: last ? { id: last } : space ? { space } : {} });
+              openChat(router, last ? { id: last } : space ? { space } : {});
             }}
             onOpenCard={(card) =>
               card.collection && !card.shared
@@ -694,7 +684,7 @@ export default function Home() {
                 return;
               }
               if (hit.kind === "conversation") {
-                router.push({ pathname: "/chat", params: { id: hit.chat_id } });
+                openChat(router, { id: hit.chat_id });
                 return;
               }
               if (hit.kind === "item") {
@@ -703,17 +693,13 @@ export default function Home() {
                   openList(hit.collection_id!, hit.what === "view" ? hit.id : undefined, hit.space_id);
                 else if (hit.what === "workflow")
                   router.push({ pathname: "/process", params: { id: hit.id, ...inSpace } });
-                else if (hit.what === "space") router.push({ pathname: "/chat", params: inSpace });
+                else if (hit.what === "space") openChat(router, inSpace);
                 else if (hit.what === "memory") router.push("/memory");
                 // Something shared with me opens as its shared page, like its card.
                 else void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(hit.id)}`);
                 return;
               }
-              if (assistant)
-                router.push({
-                  pathname: "/chat",
-                  params: { ask: `About "${hit.title}" in ${hit.collection}: ` },
-                });
+              if (assistant) openChat(router, {}, { kind: "record", title: hit.title, in: hit.collection });
               else openList(hit.collection_id);
             }}
           />
@@ -773,16 +759,13 @@ export default function Home() {
                 {
                   title: "How do I…?",
                   text: "Ask in the chat, in your own words",
-                  go: () => router.push({ pathname: "/chat", params: { ask: "How do I " } }),
+                  go: () => openChat(router, { ask: "How do I " }),
                 },
                 {
                   title: "Quick and Careful",
                   text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
                   go: () =>
-                    router.push({
-                      pathname: "/chat",
-                      params: { ask: "What do you do as Quick, and what as Careful?", send: "1" },
-                    }),
+                    openChat(router, { ask: "What do you do as Quick, and what as Careful?", send: "1" }),
                 },
               ]
             : []),

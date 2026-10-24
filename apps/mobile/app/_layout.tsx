@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Platform } from "react-native";
+import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import {
   useFonts,
   Manrope_400Regular,
@@ -9,6 +9,8 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import { setAppFont } from "@assistant/cards/native";
+import { PANEL_WIDTH, WIDE, closeChatPanel, useChatPanel } from "@/chat-open";
+import { ChatScreen } from "./chat";
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -75,31 +77,55 @@ export default function Layout() {
     navigator.serviceWorker.register("/sw.js").catch(() => {});
   }, []);
   setAppFont(fontsLoaded && !fontError);
+  // On a wide website window the chat sits beside the screen, like Claude's own panel (owner,
+  // 2026-10-24; decision "The chat from any screen"); it opens from any screen's bar.
+  const { width } = useWindowDimensions();
+  const panel = useChatPanel();
+  // The panel stays the same element whether it sits beside the screen (a wide window) or
+  // over it (the window shrunk with it open), so its draft and state survive a resize and a
+  // message sent on open isn't sent again (Codex on PR 193).
+  const sideChat = Platform.OS === "web" && panel.open;
+  const beside = width >= WIDE;
   if (!fontsLoaded && !fontError && !waited) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.canvas }}>
       <SessionProvider>
         <StatusBar style={dark ? "light" : "dark"} />
         <SessionGate />
-        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
-          {/* A page sheet (UIKit's own), not a form sheet with custom detents: the form sheet
+        <View style={{ flex: 1, flexDirection: "row" }}>
+          <View style={{ flex: 1 }}>
+            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
+              <Stack.Screen name="index" />
+              <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
+              {/* A page sheet (UIKit's own), not a form sheet with custom detents: the form sheet
               laid its content out wrong once the keyboard had been up (bubbles under the
               header, under the message box). */}
-          <Stack.Screen name="chat" options={{ presentation: "modal" }} />
-          <Stack.Screen name="memory" options={{ presentation: "modal" }} />
-          <Stack.Screen name="library" options={{ presentation: "modal" }} />
-          <Stack.Screen name="capture" options={{ presentation: "modal" }} />
-          <Stack.Screen name="process" options={{ presentation: "modal" }} />
-          <Stack.Screen name="connections" options={{ presentation: "modal" }} />
-          {/* A whole list: slides in from the right, back is a swipe. */}
-          <Stack.Screen name="list" />
-          <Stack.Screen name="trash" />
-          {/* Chats with people, and one chat: pushed like the list. */}
-          <Stack.Screen name="chats" />
-          <Stack.Screen name="talk" />
-        </Stack>
+              <Stack.Screen name="chat" options={{ presentation: "modal" }} />
+              <Stack.Screen name="memory" options={{ presentation: "modal" }} />
+              <Stack.Screen name="library" options={{ presentation: "modal" }} />
+              <Stack.Screen name="capture" options={{ presentation: "modal" }} />
+              <Stack.Screen name="process" options={{ presentation: "modal" }} />
+              <Stack.Screen name="connections" options={{ presentation: "modal" }} />
+              {/* A whole list: slides in from the right, back is a swipe. */}
+              <Stack.Screen name="list" />
+              <Stack.Screen name="trash" />
+              {/* Chats with people, and one chat: pushed like the list. */}
+              <Stack.Screen name="chats" />
+              <Stack.Screen name="talk" />
+            </Stack>
+          </View>
+          {sideChat ? (
+            <View
+              style={
+                beside
+                  ? { width: PANEL_WIDTH, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.sep }
+                  : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
+              }
+            >
+              <ChatScreen key={panel.nonce} params={panel.params} embedded onClose={closeChatPanel} />
+            </View>
+          ) : null}
+        </View>
       </SessionProvider>
     </GestureHandlerRootView>
   );
