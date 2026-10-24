@@ -17,9 +17,12 @@ export function CardFull({
   onSet,
   onOpenList,
   onAsk,
+  onOpenRecord,
 }: {
   /** The card as the home has it now (a tick shows here and there at once); null: closed. */
   card: HomeCard | null;
+  /** A row was tapped: open that record. */
+  onOpenRecord?: (record: RecordView) => void;
   /** Under the rows, inside the card (its add box). */
   footer?: ReactNode;
   onClose: () => void;
@@ -55,7 +58,14 @@ export function CardFull({
               {homeUi(card) ? (
                 <UiCard live={homeUi(card)!} />
               ) : (
-                <Card card={card} fit onTick={onTick} onSet={onSet} footer={footer} />
+                <Card
+                  card={card}
+                  fit
+                  onTick={onTick}
+                  onSet={onSet}
+                  footer={footer}
+                  onOpenRecord={onOpenRecord}
+                />
               )}
             </Boundary>
           </ScrollView>

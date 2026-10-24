@@ -19,10 +19,11 @@ import { Boundary, Skeleton, Tap } from "@assistant/cards/native";
 import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { nextUp, type CardSize } from "@assistant/cards";
-import type { StoredValue } from "@assistant/shared";
+import type { RecordView, StoredValue } from "@assistant/shared";
 import { Card, CardGrid, HeroCard } from "@assistant/cards/native";
 import { CardMenu } from "@/components/CardMenu";
 import { CardFull } from "@/components/CardFull";
+import { RecordSheet } from "@/components/RecordSheet";
 import { UiCard, homeUi } from "@/components/UiCard";
 import { quickAddFor } from "@/components/QuickAdd";
 import { HomeBar } from "@/components/HomeBar";
@@ -100,6 +101,8 @@ export default function Home() {
   const [menu, setMenu] = useState<HomeCard | null>(null);
   // A card opened up to its full height (owner, 2026-10-18), by id so it follows the home's data.
   const [fullId, setFullId] = useState<string | null>(null);
+  // A row tapped on a card (or the full card): that record, opened (owner, 2026-10-24).
+  const [opened, setOpened] = useState<{ card: HomeCard; r: RecordView } | null>(null);
   const list = useRef<FlatList<HomePage>>(null);
   const [failed, setFailed] = useState(() => outboxState().failed);
   const userId = me?.user.id ?? null;
@@ -509,6 +512,7 @@ export default function Home() {
                     footer={quickAddFor(card, (c) => update((prev) => replaceCard(prev, c)))}
                     onTick={onTick(card)}
                     onSet={onSet(card)}
+                    onOpenRecord={card.collection && !card.shared ? (r) => setOpened({ card, r }) : undefined}
                     onSeeAll={
                       card.collection && !card.shared && !card.waiting && !card.memory
                         ? () => canOpen() && openList(card.collection!.id, card.view?.id, card.space)
@@ -718,6 +722,7 @@ export default function Home() {
             onClose={close}
             onTick={full ? onTick(full) : undefined}
             onSet={full ? onSet(full) : undefined}
+            onOpenRecord={full?.collection && !full.shared ? (r) => setOpened({ card: full, r }) : undefined}
             onOpenList={
               full?.collection && !full.shared
                 ? () => {
@@ -737,6 +742,35 @@ export default function Home() {
           />
         );
       })()}
+      <RecordSheet
+        record={opened?.r ?? null}
+        collection={opened?.card.collection ?? null}
+        onClose={() => setOpened(null)}
+        onOpenList={
+          opened?.card.collection
+            ? () => {
+                const o = opened;
+                setOpened(null);
+                setFullId(null);
+                openList(o.card.collection!.id, o.card.view?.id, o.card.space);
+              }
+            : undefined
+        }
+        onAsk={
+          opened && assistant
+            ? () => {
+                const o = opened;
+                setOpened(null);
+                setFullId(null);
+                openChat(router, o.card.space ? { space: o.card.space } : {}, {
+                  kind: "record",
+                  title: o.r.title,
+                  in: o.card.collection?.name ?? "",
+                });
+              }
+            : undefined
+        }
+      />
       <HelpSheet
         open={help}
         onClose={() => setHelp(false)}

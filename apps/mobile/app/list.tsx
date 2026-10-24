@@ -48,6 +48,7 @@ import { useLive } from "@/live-socket";
 import { outboxState } from "@/outbox";
 import { colourFor, radius, useTheme } from "@/theme";
 import { ChatAboutSheet } from "@/components/ChatAboutSheet";
+import { RecordSheet } from "@/components/RecordSheet";
 
 const enc = encodeURIComponent;
 const PAGE = 50;
@@ -101,6 +102,8 @@ export default function ListPage() {
   // decision 2026-10-15 "Chat makes, screens can fix"), the CSV file on the website.
   const [menu, setMenu] = useState(false);
   const [chatAbout, setChatAbout] = useState<RecordView | null>(null);
+  // A row tapped: the record opened (it used to open the chat about it; owner, 2026-10-24).
+  const [opened, setOpened] = useState<RecordView | null>(null);
 
   // The list and its saved views (the chips).
   const loadList = useCallback(async () => {
@@ -391,7 +394,7 @@ export default function ListPage() {
                 records={records ?? []}
                 colour={listColour}
                 onSet={onSetCell}
-                onOpen={(r) => askRecord(r.title)}
+                onOpen={(r) => setOpened(r)}
               />
             </View>
             {cursor ? (
@@ -435,7 +438,7 @@ export default function ListPage() {
                     tickField={tickField}
                     colour={listColour}
                     onTick={onTick}
-                    onOpen={() => askRecord(item.r.title)}
+                    onOpen={() => setOpened(item.r)}
                     onHold={() => setHeld(item.r)}
                   />
                 </Boundary>
@@ -510,6 +513,16 @@ export default function ListPage() {
           </Tap>
         ))}
       </Sheet>
+      <RecordSheet
+        record={opened}
+        collection={c ?? null}
+        onClose={() => setOpened(null)}
+        onAsk={() => {
+          const r = opened;
+          setOpened(null);
+          if (r) askRecord(r.title);
+        }}
+      />
       <ChatAboutSheet
         record={chatAbout}
         onClose={() => setChatAbout(null)}

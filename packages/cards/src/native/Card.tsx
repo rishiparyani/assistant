@@ -23,6 +23,7 @@ export function Card({
   onTick,
   onSet,
   onOpen,
+  onOpenRecord,
   onAnswer,
   onNudge,
   onSeeAll,
@@ -42,6 +43,8 @@ export function Card({
   /** A control on a row changed a field (switches, chips, steppers, stars, sliders, buttons). */
   onSet?: (record: RecordView, fieldId: string, value: StoredValue) => void;
   onOpen?: () => void;
+  /** A row was tapped: open that record (the home, the full card); none: rows aren't tappable. */
+  onOpenRecord?: (record: RecordView) => void;
   /** Process cards: my answer to what it waits on me for, or a nudge to the others. */
   onAnswer?: (answer: string) => void;
   onNudge?: () => void;
@@ -445,16 +448,42 @@ export function Card({
           </View>
         ) : (
           <View style={[s.list, un]}>
-            {card.records.slice(0, upTo(ROWS[size])).map((r) => (
-              <View key={r.id} style={[s.row, { borderBottomColor: t.sep }]}>
-                <Text style={[s.rowText, { color: t.fg }]} numberOfLines={1}>
-                  {r.title}
-                </Text>
-                <Text style={[s.end, { color: t.fg2 }]} numberOfLines={1}>
-                  {secondLine(card, r)}
-                </Text>
-              </View>
-            ))}
+            {card.records.slice(0, upTo(ROWS[size])).map((r) => {
+              const second = secondLine(card, r);
+              // A long second value (a description) goes under the title, never beside it: beside,
+              // it squeezed the title to "Sam…" (owner, 2026-10-24). A short one keeps the end.
+              const under = second.length > 24;
+              return (
+                <Pressable
+                  key={r.id}
+                  accessibilityRole={onOpenRecord ? "button" : undefined}
+                  accessibilityLabel={onOpenRecord ? `Open ${r.title}` : undefined}
+                  disabled={!onOpenRecord}
+                  onPress={() => onOpenRecord?.(r)}
+                  // A 32 px row is too thin a target: the slop takes a plain row to 44 without
+                  // changing how many rows a fixed-size card fits (Codex on PR 197).
+                  hitSlop={onOpenRecord ? { top: 6, bottom: 6 } : undefined}
+                  style={({ pressed }) => [
+                    s.row,
+                    under && s.rowStack,
+                    { borderBottomColor: t.sep },
+                    pressed && onOpenRecord ? { opacity: 0.6 } : null,
+                  ]}
+                >
+                  <Text style={[under ? s.rowTitleStack : s.rowText, { color: t.fg }]} numberOfLines={1}>
+                    {r.title}
+                  </Text>
+                  {second ? (
+                    <Text
+                      style={[under ? s.rowUnder : s.end, { color: t.fg2 }]}
+                      numberOfLines={under ? (fit ? 3 : 1) : 1}
+                    >
+                      {second}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
             {card.records.length === 0 ? (
               <Text style={[s.sub, { color: t.fg2 }]}>{emptyWords(card)}</Text>
             ) : null}
@@ -726,7 +755,10 @@ const s = StyleSheet.create({
     minHeight: 32,
   },
   rowText: { flex: 1, fontSize: 15 },
-  end: { fontSize: 11.5, fontVariant: ["tabular-nums"] },
+  rowStack: { flexDirection: "column", alignItems: "stretch", gap: 2, paddingVertical: 4 },
+  rowTitleStack: { fontSize: 15, fontWeight: "600" },
+  rowUnder: { fontSize: 12.5, lineHeight: 17 },
+  end: { fontSize: 11.5, fontVariant: ["tabular-nums"], flexShrink: 1, maxWidth: "45%" },
   tickHit: { width: 30, height: 30, alignItems: "center", justifyContent: "center" },
   compact: { padding: 11, gap: 2, justifyContent: "space-between" },
   compactWide: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14 },
