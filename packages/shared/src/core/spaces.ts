@@ -1546,6 +1546,8 @@ export interface SharedWithMe {
   kind: ShareKind;
   title: string;
   owner: string;
+  /** A question a workflow asked: the workflow's name (the card says who asked, not the space owner). */
+  asked_by?: string;
   access: ShareAccess;
   joined_at: string;
 }

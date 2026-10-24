@@ -686,7 +686,7 @@ export function sharedCard(share: SharedWithMe, o: SharedOpened, waiting: Waitin
         id: share.share_id,
         space_id: "",
         workflow_id: "",
-        workflow: `Question from ${share.owner}`,
+        workflow: `Question from ${share.asked_by ?? share.owner}`,
         record_id: "",
         record: "",
         text: o.text,
