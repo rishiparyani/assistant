@@ -4,7 +4,7 @@
 // online-only: a process's state lives in its space's object.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { Text, TextInput } from "@assistant/cards/native";
+import { FlowDiagram, Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Rehearsal, RehearsalAnswer, WaitingItem, WorkflowDetail } from "@assistant/shared";
@@ -151,11 +151,9 @@ export default function Process() {
               {detail.workflow.enabled ? "On" : "Off"} · ran {detail.workflow.runs} time
               {detail.workflow.runs === 1 ? "" : "s"}
             </Text>
-            {detail.workflow.words.map((w, i) => (
-              <Text key={i} style={[s.line, { color: t.fg }]}>
-                {i + 1}. {w}
-              </Text>
-            ))}
+            <View style={{ marginTop: 6 }}>
+              <FlowDiagram workflow={detail.workflow} />
+            </View>
             <View style={s.row}>
               <Pressable
                 accessibilityRole="button"
