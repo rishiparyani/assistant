@@ -38,7 +38,7 @@ import { AppError } from "../errors.ts";
 import { toAppError } from "../objects/errors.ts";
 import { operationContext, type AnyOperation, type OpUserCtx } from "../operations.ts";
 import { parse } from "../validation.ts";
-import { spaceOf } from "../spaces/service.ts";
+import { mySpaces, spaceOf } from "../spaces/service.ts";
 import { resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed, fasterAnswers, isAdminCtx, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
@@ -143,7 +143,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-19b";
+export const PROMPT_VERSION = "2026-10-24a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -368,11 +368,18 @@ const ChoicesArgs = z
     };
   });
 
-function toolSpec(op: AnyOperation, chatHome: ChatHomeRef | null = null): ToolSpec {
+function toolSpec(
+  op: AnyOperation,
+  chatHome: ChatHomeRef | null = null,
+  /** The chat's space, when the person has others to reach (null: only one, so no choice). */
+  here: string | null = null,
+): ToolSpec {
   const schema = z.toJSONSchema(op.input, { io: "input", unrepresentable: "any" }) as Record<string, unknown>;
   delete schema.$schema;
-  // The space defaults to Personal; leaving it out keeps the tools small. Asked about a chat
-  // with a home, the tools that take a space say how to reach the chat's lists.
+  // The space defaults to the chat's own; with only one space, leaving it out keeps the tools
+  // small. Asked about a chat with a home, the tools that take a space say how to reach the
+  // chat's lists. With several spaces, a short name field (owner, 2026-10-25: a society's lists
+  // went to Personal instead of "Building", because the tools had no way to say where).
   const props = { ...((schema.properties as Record<string, unknown>) ?? {}) };
   if (chatHome && props.space)
     props.space = {
@@ -380,6 +387,8 @@ function toolSpec(op: AnyOperation, chatHome: ChatHomeRef | null = null): ToolSp
       enum: [chatHome.id],
       description: `"${chatHome.id}" for the lists of the chat "${chatHome.name}"; leave out for the person's own lists`,
     };
+  else if (here && props.space)
+    props.space = { type: "string", description: `A space's name; leave out for "${here}"` };
   else delete props.space;
   return {
     type: "function",
@@ -396,13 +405,16 @@ function toolsFor(
   ops: readonly AnyOperation[],
   connected: ReadonlySet<string> = new Set(),
   chatHome: ChatHomeRef | null = null,
+  here: string | null = null,
 ): { specs: ToolSpec[]; allowed: Set<string> } {
   const names = level === 1 ? EVERYDAY : [...EVERYDAY, ...SETUP];
   // Apps' actions, offered by the apps themselves (core never names them); a connector's
   // only when the person has connected it.
   const fromApps = ops.filter((o) => offered(o, level, connected)).map((o) => o.tool);
   const allowed = new Set([...names, ...fromApps]);
-  const specs = ops.filter((o) => allowed.has(o.tool) && !o.sessionOnly).map((o) => toolSpec(o, chatHome));
+  const specs = ops
+    .filter((o) => allowed.has(o.tool) && !o.sessionOnly)
+    .map((o) => toolSpec(o, chatHome, here));
   specs.push(level === 1 ? HAND_OVER : HAND_BACK, ASK_CHOICES, SHOW_CARD);
   return { specs, allowed };
 }
@@ -469,7 +481,13 @@ function systemPrompt(
   ops: readonly AnyOperation[] = [],
   connected: ReadonlySet<string> = new Set(),
   chatHome: ChatHome | null = null,
-  space: { id: string; name: string; personal: boolean; instructions: string } | null = null,
+  space: {
+    id: string;
+    name: string;
+    personal: boolean;
+    instructions: string;
+    others?: string[];
+  } | null = null,
 ): string {
   const apps = ops.flatMap((o) =>
     o.assistant?.hint && offered(o, level, connected) ? [`- ${o.assistant.hint}`] : [],
@@ -488,6 +506,11 @@ function systemPrompt(
       ? `You're in their space "${space.name}" (one of several, like a home, a trip or a team; each has its own lists, chats and memory). Tools work in this space unless you pass another. Its collections:`
       : "Their collections:",
     setupSummary(cols) || "(none yet)",
+    ...(space?.others?.length
+      ? [
+          `Their other spaces: ${space.others.map((n) => `“${n}”`).join(", ")}. Lists, workflows and records for one of them go there: pass space with its name on every tool call for it (a new space too, once it's made). When a new setup could belong to more than one and they haven't said which, ask with ask_choices before proposing it.`,
+        ]
+      : []),
     ...(apps.length ? ["Apps they have:", ...apps] : []),
     "- If they ask for a note, a reminder, an event or an expense and that list isn't there yet, start it with start_list (it's made at once and shown to them), then add the record.",
     "- To change several records the same way (raise every fee by 10%, mark all of last month paid), use change_records once with filters and a value or a formula: one card for all of them, never one card per record. A file they uploaded goes in with import_records (preview_import first when unsure where columns go).",
@@ -1292,11 +1315,14 @@ async function answerMessage(
   const { space, stub, actor } = await spaceOf(ctx, chatSpaceId ?? undefined);
   const inSpace = space.kind === "personal" ? null : space.id;
   let cols = await stub.collections(actor);
+  // The person's other spaces, by name, so a setup for one of them goes there.
+  const others = (await mySpaces(ctx)).filter((x) => x.id !== space.id && !x.practice_of).map((x) => x.name);
   const spaceWords = {
     id: space.id,
     name: space.name,
     personal: space.kind === "personal",
     instructions: await stub.instructions(actor).catch(() => ""),
+    others,
   };
   // The chat's home, read as this person (a member who joined a moment ago may not be in yet).
   const chatHome: ChatHome | null = home
@@ -1328,7 +1354,7 @@ async function answerMessage(
   let promptLevel: Level = level;
   const stream = streamer(ctx, chatId, requestKey);
   steps: for (let step = 0; step < MAX_STEPS; step++) {
-    const { specs, allowed } = toolsFor(level, ops, connected, chatHome);
+    const { specs, allowed } = toolsFor(level, ops, connected, chatHome, others.length ? space.name : null);
     if (level !== promptLevel) {
       for (const m of turn) delete m.opaque;
       promptLevel = level;
