@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { openChat } from "@/chat-open";
+import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import {
   arrange,
   homeChanged,
@@ -134,7 +135,7 @@ export default function Library() {
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 18 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 18 }}>
         {flows ? (
           <View style={{ gap: 8 }}>
             <Text style={[s.h2, { color: t.fg }]}>Flows</Text>
@@ -357,6 +358,7 @@ export default function Library() {
           </Pressable>
         ) : null}
       </ScrollView>
+      <ChatFab about={{ kind: "screen", title: "Library" }} />
     </View>
   );
 }

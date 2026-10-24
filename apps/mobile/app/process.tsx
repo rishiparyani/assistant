@@ -9,8 +9,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Rehearsal, RehearsalAnswer, WaitingItem, WorkflowDetail } from "@assistant/shared";
 import { isOffline, request } from "@/api";
-import { openChat } from "@/chat-open";
-import { CHAT_BAR_ROOM, ChatBar } from "@/components/ChatBar";
+import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import { answerWaiting, homeChanged, nudgeWaiting } from "@/home";
 import { radius, useTheme } from "@/theme";
 
@@ -144,7 +143,7 @@ export default function Process() {
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_BAR_ROOM, gap: 14 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 14 }}>
         {detail ? (
           <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
             <Text style={[s.label, { color: t.fg2 }]}>
@@ -375,11 +374,7 @@ export default function Process() {
           <Text style={[s.label, { color: t.danger }]}>{note}</Text>
         ) : null}
       </ScrollView>
-      <ChatBar
-        label={`Ask about ${title}…`}
-        hint={`Ask about ${title}`}
-        onPress={() => openChat(router, space ? { space } : {}, { kind: "workflow", title })}
-      />
+      <ChatFab about={{ kind: "workflow", title }} params={space ? { space } : {}} />
     </View>
   );
 }

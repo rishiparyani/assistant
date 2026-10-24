@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import { TRASH_DAYS, type TrashItem } from "@assistant/shared";
 import { Text } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
+import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import { radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
@@ -83,7 +84,7 @@ export default function Trash() {
         <FlatList
           data={items ?? []}
           keyExtractor={(x) => x.record_id}
-          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + 24, gap: 10 }}
+          contentContainerStyle={{ padding: 16, paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 10 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -171,6 +172,7 @@ export default function Trash() {
           )}
         />
       </View>
+      <ChatFab about={{ kind: "screen", title: "Recently deleted" }} />
     </View>
   );
 }

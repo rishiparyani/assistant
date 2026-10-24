@@ -1,5 +1,6 @@
 // Opening the chat from any screen, with what that screen shows (owner, 2026-10-24: "whichever
-// screen we open from, maybe the chat could get the context from that screen"). The screen says
+// screen we open from, maybe the chat could get the context from that screen"; the floating
+// button `ChatFab` is on every screen). The screen says
 // what it is about (a kind and a name, never the pixels); the chat shows it as a chip the person
 // can tap away, and puts it in words at the front of their first message, so the model knows
 // without being told. On a wide website window the chat opens as a panel beside the screen
@@ -8,7 +9,7 @@ import { useSyncExternalStore } from "react";
 import { Dimensions, Platform, useWindowDimensions } from "react-native";
 
 export interface ChatAbout {
-  kind: "list" | "record" | "workflow" | "space" | "group" | "card";
+  kind: "list" | "record" | "workflow" | "space" | "group" | "card" | "screen";
   title: string;
   /** A record's list (shown as "in Flats"). */
   in?: string;
@@ -38,6 +39,8 @@ export function aboutWords(a: ChatAbout): string {
       return `About the space “${a.title}”: `;
     case "group":
       return `About the chat “${a.title}”: `;
+    case "screen":
+      return `On the ${a.title} screen: `;
     default:
       return `About the card “${a.title}”: `;
   }

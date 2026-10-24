@@ -23,6 +23,7 @@ import type {
 } from "@assistant/shared";
 import { ulid } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import { useLive } from "@/live-socket";
 import { homeChanged, sharedCard, type HomeCard } from "@/home";
 import { useSession } from "@/session";
@@ -285,6 +286,21 @@ export default function Practice() {
       })}
     </Sheet>
   );
+  // The chat on every branch of this screen: playing someone, the walkthrough, behind the
+  // scenes (Codex on PR 199).
+  const fab = (
+    <ChatFab
+      about={
+        who && person
+          ? { kind: "screen", title: `${person.name}'s phone` }
+          : {
+              kind: "screen",
+              title: guided && !behind ? "Walkthrough" : guided ? "Behind the scenes" : "Practice run",
+            }
+      }
+      params={space ? { space } : {}}
+    />
+  );
   if (who && person)
     return (
       <View style={[s.playRoot, { backgroundColor: t.page }]}>
@@ -314,7 +330,7 @@ export default function Practice() {
           </Pressable>
         </View>
         <ScrollView
-          contentContainerStyle={[s.playBody, { paddingBottom: insets.bottom + 24 }]}
+          contentContainerStyle={[s.playBody, { paddingBottom: insets.bottom + CHAT_FAB_ROOM }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
@@ -471,6 +487,7 @@ export default function Practice() {
           )}
         </ScrollView>
         {switcher}
+        {fab}
       </View>
     );
 
@@ -527,7 +544,7 @@ export default function Practice() {
           </Text>
           {leave}
         </View>
-        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 14 }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 14 }}>
           {problem ? (
             <View style={[s.card, { backgroundColor: t.cell, borderColor: t.danger }]}>
               <Text style={[s.line, { color: t.danger, fontWeight: "700" }]}>That didn't work</Text>
@@ -705,6 +722,7 @@ export default function Practice() {
           {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
         </ScrollView>
         {switcher}
+        {fab}
       </View>
     );
 
@@ -757,7 +775,7 @@ export default function Practice() {
         })}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 14 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 14 }}>
         {problem ? (
           <View style={[s.card, { backgroundColor: t.cell, borderColor: t.danger }]}>
             <Text style={[s.line, { color: t.danger, fontWeight: "700" }]}>That didn't work</Text>
@@ -907,6 +925,7 @@ export default function Practice() {
         {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
       </ScrollView>
       {switcher}
+      {fab}
     </View>
   );
 }

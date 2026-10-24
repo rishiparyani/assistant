@@ -40,7 +40,7 @@ import {
 import { Boundary, Tap } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
 import { openChat } from "@/chat-open";
-import { ChatBar } from "@/components/ChatBar";
+import { ChatFab } from "@/components/ChatFab";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
@@ -297,7 +297,6 @@ export default function ListPage() {
   // The chat about this list, or one of its records (the chip says which; decision 2026-10-24
   // "The chat from any screen").
   const chatIn = space ? { space } : {};
-  const askList = () => openChat(router, chatIn, { kind: "list", title: c?.name ?? "" });
   const askRecord = (title: string) => openChat(router, chatIn, { kind: "record", title, in: c?.name ?? "" });
 
   return (
@@ -446,11 +445,7 @@ export default function ListPage() {
             }
           />
         )}
-        <ChatBar
-          label={`Add to ${c?.name ?? "this list"} or ask about it…`}
-          hint={`Ask about ${c?.name ?? "this list"}`}
-          onPress={askList}
-        />
+        <ChatFab about={{ kind: "list", title: c?.name ?? "this list" }} params={chatIn} />
       </View>
       <Sheet open={menu} onClose={() => setMenu(false)} gap={8} accessibilityLabel="More">
         {[
