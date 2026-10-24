@@ -1,10 +1,9 @@
-// Opening the chat from any screen, with what that screen shows (owner, 2026-10-24: "whichever
-// screen we open from, maybe the chat could get the context from that screen"; the floating
-// button `ChatFab` is on every screen). The screen says
-// what it is about (a kind and a name, never the pixels); the chat shows it as a chip the person
-// can tap away, and puts it in words at the front of their first message, so the model knows
-// without being told. On a wide website window the chat opens as a panel beside the screen
-// instead of over it (the website is the app, 2026-10-22).
+// Opening the chat from any screen (docs/design/from-scratch.md §2 "one composer", §3 "Chat
+// sheet"): every screen has the composer at the bottom; a tap raises the chat as a sheet over
+// that screen (a panel beside it on a wide website window). The screen says what it is about
+// (a kind and a name, never the pixels); the chat shows it as a chip the person can tap away,
+// and puts it in words at the front of their first message, so the model knows without being
+// told.
 import { useSyncExternalStore } from "react";
 import { Dimensions, Platform, useWindowDimensions } from "react-native";
 
@@ -65,7 +64,8 @@ export function parseAbout(raw: string | undefined): ChatAbout | null {
 export const WIDE = 1024;
 export const wideNow = () => Platform.OS === "web" && Dimensions.get("window").width >= WIDE;
 
-// The panel on a wide window: open or not, and what it opened with (a new open remounts it).
+// The chat: open or not, and what it opened with (a new open remounts it). One for the whole
+// app, hosted by the layout: a sheet over the screen, or the panel beside it on a wide window.
 let panel: { open: boolean; params: ChatParams; nonce: number } = { open: false, params: {}, nonce: 0 };
 const listeners = new Set<() => void>();
 const setPanel = (next: typeof panel) => {
@@ -83,6 +83,13 @@ export function useChatPanel() {
   );
 }
 export const closeChatPanel = () => setPanel({ ...panel, open: false });
+/**
+ * Before the chat opens a screen (a list, a workflow): the sheet goes away so the screen is
+ * seen; the panel beside the screen on a wide window stays.
+ */
+export const leaveChat = () => {
+  if (!wideNow()) closeChatPanel();
+};
 
 /** The panel's width beside the screen. */
 export const PANEL_WIDTH = 440;
@@ -97,20 +104,12 @@ export function useContentWidth(): number {
   return Platform.OS === "web" && open && width >= WIDE ? width - PANEL_WIDTH : width;
 }
 
-/** Opens the chat with these parameters: the panel on a wide window, the chat screen otherwise. */
-export function openChat(
-  router: { push: (to: { pathname: "/chat"; params: Record<string, string> }) => void },
-  params: ChatParams = {},
-  about?: ChatAbout | null,
-) {
+/** Opens the chat with these parameters, over the screen it was opened from. */
+export function openChat(params: ChatParams = {}, about?: ChatAbout | null) {
   const all: ChatParams = { ...params, ...(about ? { about: JSON.stringify(about) } : {}) };
   const clean = Object.fromEntries(Object.entries(all).filter(([, v]) => v !== undefined)) as Record<
     string,
     string
   >;
-  if (wideNow()) {
-    setPanel({ open: true, params: clean, nonce: panel.nonce + 1 });
-    return;
-  }
-  router.push({ pathname: "/chat", params: clean });
+  setPanel({ open: true, params: clean, nonce: panel.nonce + 1 });
 }

@@ -13,7 +13,8 @@ import {
   View,
 } from "react-native";
 import { Sheet } from "@/components/Sheet";
-import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
+import { openChat } from "@/chat-open";
+import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { isOffline } from "@/api";
@@ -63,7 +64,7 @@ export default function Chats() {
           keyExtractor={(c) => c.id}
           contentContainerStyle={{
             paddingHorizontal: 16,
-            paddingBottom: insets.bottom + CHAT_FAB_ROOM,
+            paddingBottom: insets.bottom + COMPOSER_ROOM,
             gap: 8,
           }}
           refreshControl={
@@ -81,7 +82,7 @@ export default function Chats() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Your assistant, only you see it"
-                  onPress={() => router.push("/chat")}
+                  onPress={() => openChat({}, { kind: "screen", title: "Chats" })}
                   style={({ pressed }) => [s.row, { backgroundColor: t.cell }, pressed && s.pressed]}
                 >
                   <View style={[s.avatar, s.gs, { backgroundColor: t.hero }]}>
@@ -125,7 +126,7 @@ export default function Chats() {
           open(id);
         }}
       />
-      <ChatFab about={{ kind: "screen", title: "Chats" }} />
+      <Composer about={{ kind: "screen", title: "Chats" }} />
     </View>
   );
 }

@@ -40,7 +40,7 @@ import {
 import { Boundary, Tap } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
 import { openChat } from "@/chat-open";
-import { ChatFab } from "@/components/ChatFab";
+import { Composer } from "@/components/Composer";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
 import { readJson, writeJson } from "@/storage";
@@ -297,7 +297,7 @@ export default function ListPage() {
   // The chat about this list, or one of its records (the chip says which; decision 2026-10-24
   // "The chat from any screen").
   const chatIn = space ? { space } : {};
-  const askRecord = (title: string) => openChat(router, chatIn, { kind: "record", title, in: c?.name ?? "" });
+  const askRecord = (title: string) => openChat(chatIn, { kind: "record", title, in: c?.name ?? "" });
 
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 6 }]}>
@@ -445,7 +445,7 @@ export default function ListPage() {
             }
           />
         )}
-        <ChatFab about={{ kind: "list", title: c?.name ?? "this list" }} params={chatIn} />
+        <Composer about={{ kind: "list", title: c?.name ?? "this list" }} params={chatIn} />
       </View>
       <Sheet open={menu} onClose={() => setMenu(false)} gap={8} accessibilityLabel="More">
         {[

@@ -14,6 +14,11 @@ on:
       - ".github/workflows/spike-*.yml"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
+    inputs:
+      rotate_auth_secret:
+        description: "Make a new BETTER_AUTH_SECRET (signs everyone out; then run Repair auth keys)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -161,9 +166,19 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           # Jev, TypeSafe AI's decision model, for the app's own picks (docs/setup.md); optional.
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+          ROTATE_AUTH_SECRET: ${{ inputs.rotate_auth_secret }}
         run: |
-          # Fail if listing fails: guessing would regenerate the secret and sign everyone out.
-          existing="$(pnpm exec wrangler secret list --name "$WORKER_NAME")"
+          # Whether the Worker already holds its auth secret is asked of the Worker itself
+          # (/api/health says so, never the value): a secret listing once came back without
+          # it and the deploy made a new one, signing everyone out (2026-10-24).
+          has_auth_secret() {
+            for i in 1 2 3 4 5 6; do
+              out="$(curl -fsS --max-time 20 "$APP_URL/api/health" 2>/dev/null)" && break
+              sleep 10
+            done
+            printf '%s' "$out" | jq -e '.ok == true' > /dev/null || { echo "::error::The app didn't answer its health check; not touching BETTER_AUTH_SECRET."; exit 1; }
+            printf '%s' "$out" | jq -e '.auth_secret == true' > /dev/null
+          }
           printf '%s' "$GOOGLE_CLIENT_ID" | pnpm exec wrangler secret put GOOGLE_CLIENT_ID --name "$WORKER_NAME" > /dev/null
           printf '%s' "$GOOGLE_CLIENT_SECRET" | pnpm exec wrangler secret put GOOGLE_CLIENT_SECRET --name "$WORKER_NAME" > /dev/null
           if [ -n "$ADMIN_EMAILS" ]; then
@@ -197,8 +212,11 @@ jobs:
           if [ -n "$GEMINI_API_KEY" ]; then
             printf '%s' "$GEMINI_API_KEY" | pnpm exec wrangler secret put GEMINI_API_KEY --name "$WORKER_NAME" > /dev/null
           fi
-          # Generated once per Worker, never printed or stored in GitHub (docs/setup.md).
-          if ! printf '%s' "$existing" | grep -q 'BETTER_AUTH_SECRET'; then
+          # Generated once per Worker, never printed or stored in GitHub (docs/setup.md), and
+          # never again by itself: a new one signs everyone out and leaves the JWKS key
+          # unreadable. It is made only when the Worker says it has none (a fresh one), or
+          # when a run asks for a rotation (then run "Repair auth keys" after).
+          if [ "$ROTATE_AUTH_SECRET" = "true" ] || ! has_auth_secret; then
             openssl rand -base64 32 | tr -d '\n' | pnpm exec wrangler secret put BETTER_AUTH_SECRET --name "$WORKER_NAME" > /dev/null
             echo "Generated BETTER_AUTH_SECRET."
           fi

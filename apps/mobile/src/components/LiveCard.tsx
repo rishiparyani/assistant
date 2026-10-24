@@ -15,6 +15,7 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-
 import { Tap, Text, Tick, faceOf, shown, tint, type } from "@assistant/cards/native";
 import type { CollectionView, FieldView, LiveRef, RecordView } from "@assistant/shared";
 import { ApiError, isOffline } from "../api.ts";
+import { leaveChat } from "../chat-open.ts";
 import { answerPinned, pinAnswer, setValue, stillShown, tick, writeValue, type HomeCard } from "../home.ts";
 import { useSession } from "../session.tsx";
 import { loadLive, type LiveData } from "../live.ts";
@@ -200,7 +201,10 @@ function RecordsWidget({ items, onAsk }: { items: RecordItem[]; onAsk?: (title: 
         ["text", "choice", "link", "person"].includes(f.type),
     )
     .slice(0, 2);
-  const open = () => router.push({ pathname: "/list", params: { collection: collection.id } });
+  const open = () => {
+    leaveChat();
+    router.push({ pathname: "/list", params: { collection: collection.id } });
+  };
   const toggle = (item: RecordItem) => {
     if (!doneField) return;
     void Haptics.selectionAsync().catch(() => undefined);
@@ -370,7 +374,10 @@ function OpenList({ collection, view, more }: { collection: string; view?: strin
   return (
     <Pressable
       accessibilityRole="link"
-      onPress={() => router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } })}
+      onPress={() => {
+        leaveChat();
+        router.push({ pathname: "/list", params: { collection, ...(view ? { view } : {}) } });
+      }}
       hitSlop={8}
       style={s.openList}
     >
@@ -391,12 +398,13 @@ function WorkflowCard({ data }: { data: Extract<LiveData, { kind: "workflow" }> 
       accessibilityRole="link"
       accessibilityLabel={`Open ${data.name}`}
       accessibilityHint="Shows the workflow, to rehearse it or turn it on"
-      onPress={() =>
+      onPress={() => {
+        leaveChat();
         router.push({
           pathname: "/process",
           params: { id: data.id, ...(data.space ? { space: data.space } : {}) },
-        })
-      }
+        });
+      }}
       scale={0.99}
       style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}
     >
@@ -452,7 +460,10 @@ function SetupMadeCard({
             key={l.id}
             accessibilityRole="link"
             accessibilityLabel={`Open ${l.name}`}
-            onPress={() => router.push({ pathname: "/list", params: { collection: l.id, ...inSpace } })}
+            onPress={() => {
+              leaveChat();
+              router.push({ pathname: "/list", params: { collection: l.id, ...inSpace } });
+            }}
             style={[s.chip, { backgroundColor: cardTint(colourFor(l.name)), borderColor: t.hair }]}
           >
             <View style={[s.dot, { backgroundColor: colour(colourFor(l.name)) }]} />
@@ -481,7 +492,10 @@ function SetupMadeCard({
         {onHome.length ? (
           <Pressable
             accessibilityRole="link"
-            onPress={() => router.navigate("/")}
+            onPress={() => {
+              leaveChat();
+              router.navigate("/");
+            }}
             hitSlop={8}
             style={s.openList}
           >

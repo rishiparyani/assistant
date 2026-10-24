@@ -11,7 +11,7 @@ import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { API_URL } from "@/config";
 import { openChat } from "@/chat-open";
-import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
+import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { loadCatalog, rememberCatalog, savedCatalog, type Catalog, type CatalogEntry } from "@/home";
 import { useSession } from "@/session";
 import { Mark } from "@/components/Mark";
@@ -96,7 +96,7 @@ export default function Library() {
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 18 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + COMPOSER_ROOM, gap: 18 }}>
         {flows ? (
           <View style={{ gap: 8 }}>
             <Text style={[s.h2, { color: t.fg }]}>Flows</Text>
@@ -283,7 +283,7 @@ export default function Library() {
                   <Tap
                     accessibilityRole="button"
                     accessibilityLabel={`Start building ${sp.name}`}
-                    onPress={() => openChat(router, { space: sp.id, ask: "Set up the lists for this space" })}
+                    onPress={() => openChat({ space: sp.id, ask: "Set up the lists for this space" })}
                     style={[s.btn, { backgroundColor: t.accent }]}
                   >
                     <Text style={[s.btnText, { color: t.onAccent }]}>Start</Text>
@@ -303,7 +303,7 @@ export default function Library() {
           </Pressable>
         ) : null}
       </ScrollView>
-      <ChatFab about={{ kind: "screen", title: "Library" }} />
+      <Composer about={{ kind: "screen", title: "Library" }} />
     </View>
   );
 }

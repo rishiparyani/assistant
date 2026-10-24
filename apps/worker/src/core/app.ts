@@ -108,8 +108,11 @@ export function createApp({ modules }: AppOptions) {
         400,
       );
     }
-    console.error("unhandled error", err);
-    return c.json({ error: { code: "internal", message: "Something went wrong" } }, 500);
+    // A short reference the person can quote; the log line (Workers Logs in the Cloudflare
+    // dashboard) carries it with the route and the error, never the request's data.
+    const ref = Math.random().toString(36).slice(2, 8);
+    console.error(`unhandled error ref=${ref} ${c.req.method} ${c.req.path}`, err);
+    return c.json({ error: { code: "internal", message: `Something went wrong (ref ${ref})` } }, 500);
   });
 
   // The test-phase reset (decision 2026-10-16 "Start over from a GitHub job"): a 404 unless
@@ -124,6 +127,7 @@ export function createApp({ modules }: AppOptions) {
         environment: c.env.ENVIRONMENT as HealthResponse["environment"],
         modules: ids,
         migrations: row?.n ?? 0,
+        auth_secret: !!c.env.BETTER_AUTH_SECRET,
       });
     } catch (err) {
       console.error("health: database check failed", err);

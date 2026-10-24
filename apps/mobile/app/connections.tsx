@@ -9,7 +9,7 @@ import { useRouter } from "expo-router";
 import * as WebBrowser from "expo-web-browser";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isOffline, request } from "@/api";
-import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
+import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { radius, useTheme } from "@/theme";
 
 type Connector = {
@@ -93,7 +93,7 @@ export default function Connections() {
         Accounts the assistant can use for you. It reads them when you ask; anything it adds waits for your
         tap.
       </Text>
-      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + CHAT_FAB_ROOM, gap: 10 }}>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + COMPOSER_ROOM, gap: 10 }}>
         {items === null ? <Text style={[s.empty, { color: t.fg2 }]}>Loading…</Text> : null}
         {(items ?? []).map((c) => (
           <View key={c.kind} style={[s.item, { backgroundColor: t.cell, borderColor: t.hair }]}>
@@ -151,7 +151,7 @@ export default function Connections() {
         ))}
         {note ? <Text style={[s.empty, { color: t.danger }]}>{note}</Text> : null}
       </ScrollView>
-      <ChatFab about={{ kind: "screen", title: "Connections" }} />
+      <Composer about={{ kind: "screen", title: "Connections" }} />
     </View>
   );
 }
