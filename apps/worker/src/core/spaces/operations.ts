@@ -58,6 +58,7 @@ import {
   spaceOf,
   spaceSettings,
   startPractice,
+  practiceHasNoSpace,
 } from "./service.ts";
 
 export const spaceOperations = [
@@ -261,6 +262,7 @@ export const spaceOperations = [
     http: { method: "GET", path: "/collections" },
     input: SpaceRef,
     handler: async (ctx, i) => {
+      if (!i.space && (await practiceHasNoSpace(ctx))) return [];
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.collections(actor);
     },
@@ -592,6 +594,7 @@ export const spaceOperations = [
     http: { method: "GET", path: "/views" },
     input: SpaceRef,
     handler: async (ctx, i) => {
+      if (!i.space && (await practiceHasNoSpace(ctx))) return [];
       const { stub, actor } = await spaceOf(ctx, i.space);
       return stub.views(actor);
     },

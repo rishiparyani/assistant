@@ -12,6 +12,7 @@ import { isOffline, request } from "@/api";
 import { API_URL } from "@/config";
 import { openChat } from "@/chat-open";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
+import { playAs } from "@/components/PracticeBanner";
 import { loadCatalog, rememberCatalog, savedCatalog, type Catalog, type CatalogEntry } from "@/home";
 import { useSession } from "@/session";
 import { Mark } from "@/components/Mark";
@@ -30,7 +31,7 @@ export default function Library() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { me } = useSession();
+  const { me, refresh } = useSession();
   const userId = me?.user.id ?? null;
   // Drawn at once from the catalog this device last loaded (the home just did), refreshed after.
   const saved = useMemo(() => (userId ? savedCatalog(userId) : null), [userId]);
@@ -158,7 +159,20 @@ export default function Library() {
             </Text>
             <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
               {practices.map((sp, i) => {
-                const open = () => router.replace({ pathname: "/practice", params: { space: sp.id } });
+                // The copy as the whole app, as yourself; Switch on the banner plays its people.
+                const open = () =>
+                  me &&
+                  sp.practice_of &&
+                  void playAs(
+                    {
+                      space: sp.id,
+                      of: sp.practice_of,
+                      as: me.user.id,
+                      name: me.user.name,
+                      self: me.user.id,
+                    },
+                    refresh,
+                  ).then(() => router.replace("/"));
                 const sure = ending === sp.id;
                 return (
                   <View
@@ -173,7 +187,9 @@ export default function Library() {
                       <Text style={[s.name, { color: t.fg }]} numberOfLines={2}>
                         {sp.name}
                       </Text>
-                      <Text style={[s.label, { color: t.fg2 }]}>Open to see what people would get</Text>
+                      <Text style={[s.label, { color: t.fg2 }]}>
+                        Open: the app as it is in the copy; Switch plays its people
+                      </Text>
                     </Pressable>
                     <Tap
                       accessibilityRole="button"

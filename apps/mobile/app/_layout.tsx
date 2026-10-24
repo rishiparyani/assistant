@@ -11,8 +11,11 @@ import {
 import { setAppFont } from "@assistant/cards/native";
 import { PANEL_WIDTH, WIDE, closeChatPanel, useChatPanel } from "@/chat-open";
 import { ChatScreen } from "@/components/ChatScreen";
+import { PracticeBanner } from "@/components/PracticeBanner";
+import { usePracticeMode } from "@/practice-mode";
 import { Stack, useGlobalSearchParams, usePathname, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaInsetsContext, useSafeAreaInsets } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { API_URL, LOCAL } from "@/config";
 import { SessionProvider, useSession } from "@/session";
@@ -86,45 +89,56 @@ export default function Layout() {
   const panel = useChatPanel();
   const sideChat = Platform.OS === "web" && panel.open;
   const beside = width >= WIDE;
+  // Rehearsing as someone (from-scratch.md §2 point 9): a banner across the top of the whole app.
+  const practising = !!usePracticeMode();
+  // The banner takes the top safe area; the screens under it start right below it.
+  const insets = useSafeAreaInsets();
   if (!fontsLoaded && !fontError && !waited) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.canvas }}>
       <SessionProvider>
         <StatusBar style={dark ? "light" : "dark"} />
         <SessionGate />
-        <View style={{ flex: 1, flexDirection: "row" }}>
-          <View style={{ flex: 1 }}>
-            <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
-              <Stack.Screen name="index" />
-              <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
-              {/* Every other screen is pushed (slides in from the right, back is a swipe): the
+        {practising ? <PracticeBanner /> : null}
+        <SafeAreaInsetsContext.Provider value={practising ? { ...insets, top: 0 } : insets}>
+          <View style={{ flex: 1, flexDirection: "row" }}>
+            <View style={{ flex: 1 }}>
+              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
+                <Stack.Screen name="index" />
+                <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
+                {/* Every other screen is pushed (slides in from the right, back is a swipe): the
               chat sheet is the one sheet, and nothing opens over a sheet (from-scratch.md §2
               "nothing stacks"). /chat is an address only; it opens the sheet over Today. */}
-              <Stack.Screen name="chat" />
-              <Stack.Screen name="memory" />
-              <Stack.Screen name="library" />
-              <Stack.Screen name="capture" />
-              <Stack.Screen name="process" />
-              <Stack.Screen name="connections" />
-              <Stack.Screen name="list" />
-              <Stack.Screen name="trash" />
-              {/* Chats with people, and one chat: pushed like the list. */}
-              <Stack.Screen name="chats" />
-              <Stack.Screen name="talk" />
-            </Stack>
-          </View>
-          {sideChat ? (
-            <View
-              style={
-                beside
-                  ? { width: PANEL_WIDTH, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: t.sep }
-                  : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
-              }
-            >
-              <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
+                <Stack.Screen name="chat" />
+                <Stack.Screen name="memory" />
+                <Stack.Screen name="library" />
+                <Stack.Screen name="capture" />
+                <Stack.Screen name="process" />
+                <Stack.Screen name="connections" />
+                <Stack.Screen name="list" />
+                <Stack.Screen name="trash" />
+                {/* Chats with people, and one chat: pushed like the list. */}
+                <Stack.Screen name="chats" />
+                <Stack.Screen name="talk" />
+              </Stack>
             </View>
-          ) : null}
-        </View>
+            {sideChat ? (
+              <View
+                style={
+                  beside
+                    ? {
+                        width: PANEL_WIDTH,
+                        borderLeftWidth: StyleSheet.hairlineWidth,
+                        borderLeftColor: t.sep,
+                      }
+                    : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
+                }
+              >
+                <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
+              </View>
+            ) : null}
+          </View>
+        </SafeAreaInsetsContext.Provider>
         {Platform.OS !== "web" ? (
           // The phone's chat sheet: the system's page sheet (a pull down or Back closes it),
           // over whatever screen the composer was on.

@@ -2064,6 +2064,7 @@ export async function deleteChat(ctx: OpUserCtx, chatId: string): Promise<{ dele
 // --- Memory -----------------------------------------------------------------------------------
 
 export async function listMemories(ctx: OpUserCtx): Promise<Memory[]> {
+  if (ctx.practice) return [];
   return chatOf(ctx).memories(ctx.user.id, null, true);
 }
 

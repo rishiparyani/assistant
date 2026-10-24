@@ -1427,6 +1427,25 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** What one person sees in a rehearsal: what's shared with them, and what they've had. */
+  /** Who a rehearsal plays (practice copies only, by the one practising). */
+  async practiceWho(actor: Actor, userId: string): Promise<PracticePerson> {
+    return this.practiceAs(actor, userId).person;
+  }
+
+  /**
+   * The role a person played has in the copy (a member's), or null when they only have cards
+   * shared with them (or are made up). The one practising is its owner.
+   */
+  async practiceRoleOf(actor: Actor, userId: string): Promise<Role | null> {
+    this.canArrange(actor);
+    if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    if (userId === actor.userId) return "owner";
+    return (
+      this.sql.exec<{ role: Role }>(`select role from members where user_id = ?`, userId).toArray()[0]
+        ?.role ?? null
+    );
+  }
+
   async practiceAsView(actor: Actor, userId: string): Promise<PracticeAsView> {
     const { as, person } = this.practiceAs(actor, userId);
     return {
