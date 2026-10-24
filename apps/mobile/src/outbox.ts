@@ -5,6 +5,7 @@
 import { AppState, Platform } from "react-native";
 import { ApiError, request } from "./api.ts";
 import { kv, readJson, writeJson } from "./storage.ts";
+import { practiceMode, type PracticeAs } from "./practice-mode.ts";
 
 export interface Change {
   /** Also the Idempotency-Key. */
@@ -15,6 +16,11 @@ export interface Change {
   body: unknown;
   label: string;
   at: number;
+  /**
+   * The rehearsal it was made in (src/practice-mode.ts), or null for your own app: replayed
+   * as made, so an edit queued in a practice copy never lands on the real list after Done.
+   */
+  practice?: PracticeAs | null;
 }
 export interface FailedChange extends Change {
   reason: string;
@@ -62,7 +68,7 @@ export const newId = () =>
  * that did reach the server before the connection dropped isn't applied twice.
  */
 export function send(c: Omit<Change, "id" | "at"> & { id?: string }): Change {
-  const change: Change = { ...c, id: c.id ?? newId(), at: Date.now() };
+  const change: Change = { practice: practiceMode(), ...c, id: c.id ?? newId(), at: Date.now() };
   state.waiting.push(change);
   save();
   notify();
@@ -78,7 +84,7 @@ export async function flush(): Promise<void> {
     while (state.waiting.length) {
       const c = state.waiting[0]!;
       try {
-        await request(c.method, c.path, c.body, c.id);
+        await request(c.method, c.path, c.body, c.id, { practice: c.practice ?? null });
         state.waiting.shift();
       } catch (e) {
         if (e instanceof ApiError && e.status === 0) break; // offline: try again later

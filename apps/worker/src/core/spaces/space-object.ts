@@ -1163,8 +1163,8 @@ export class SpaceObject extends DurableObject<Env> {
       );
       // The space's other members are played, not let in: only the person practising is in it.
       const others = this.sql
-        .exec<{ user_id: string; name: string }>(
-          `select user_id, name from members where user_id != ?`,
+        .exec<{ user_id: string; name: string; role: Role }>(
+          `select user_id, name, role from members where user_id != ?`,
           init.owner.user_id,
         )
         .toArray();
@@ -1235,8 +1235,29 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** The space's other members when the copy was made (played in the rehearsal, never let in). */
-  private practiceMembers(): { user_id: string; name: string }[] {
-    return JSON.parse(getMeta(this.sql, "practice_members") ?? "[]") as { user_id: string; name: string }[];
+  private practiceMembers(): { user_id: string; name: string; role?: Role }[] {
+    return JSON.parse(getMeta(this.sql, "practice_members") ?? "[]") as {
+      user_id: string;
+      name: string;
+      role?: Role;
+    }[];
+  }
+
+  /**
+   * A person's role here: a member's, or, in a practice copy, the role a played member has in
+   * the space it copies (saved when the copy was made; copies made before roles were saved
+   * treat them as editors). Only the copy's owner reaches it as them (the rehearsal header is
+   * checked against the copy's owner in context.ts), so nobody real is let in.
+   */
+  private memberRole(userId: string | null): Role | null {
+    if (!userId) return null;
+    const row = this.sql
+      .exec<{ role: Role }>(`select role from members where user_id = ?`, userId)
+      .toArray()[0];
+    if (row) return row.role;
+    if (!this.practice) return null;
+    const played = this.practiceMembers().find((m) => m.user_id === userId);
+    return played ? (played.role ?? "editor") : null;
   }
 
   /** Everyone a rehearsal plays: the space's other members, and everyone something is shared with. */
@@ -1440,10 +1461,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.canArrange(actor);
     if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
     if (userId === actor.userId) return "owner";
-    return (
-      this.sql.exec<{ role: Role }>(`select role from members where user_id = ?`, userId).toArray()[0]
-        ?.role ?? null
-    );
+    return this.memberRole(userId);
   }
 
   async practiceAsView(actor: Actor, userId: string): Promise<PracticeAsView> {
@@ -1669,11 +1687,9 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   private role(actor: Actor): Role {
-    const row = actor.userId
-      ? this.sql.exec<{ role: Role }>(`select role from members where user_id = ?`, actor.userId).toArray()[0]
-      : undefined;
-    if (!row) throw new ObjectError("not_found", "Space not found");
-    return row.role;
+    const role = this.memberRole(actor.userId);
+    if (!role) throw new ObjectError("not_found", "Space not found");
+    return role;
   }
   private canWrite(actor: Actor) {
     if (this.role(actor) === "viewer") throw new ObjectError("forbidden", "You can only view this space");
@@ -4308,7 +4324,7 @@ export class SpaceObject extends DurableObject<Env> {
   /** Someone in the space or in one of its shares (the only people a record can point at). */
   private knownPerson(userId: string): boolean {
     return (
-      this.sql.exec(`select 1 from members where user_id = ?`, userId).toArray().length > 0 ||
+      this.memberRole(userId) !== null ||
       this.sql.exec(`select 1 from share_people where user_id = ? limit 1`, userId).toArray().length > 0 ||
       // In a practice copy, the space's members are still people it knows (they're played).
       (this.practice && this.practiceMembers().some((m) => m.user_id === userId))
@@ -8918,8 +8934,7 @@ export class SpaceObject extends DurableObject<Env> {
   /** What's waiting on people: everything for a member, their own asks for anyone else. */
   async listWaiting(actor: Actor): Promise<WaitingItem[]> {
     if (!actor.userId) return [];
-    const member =
-      this.sql.exec(`select 1 from members where user_id = ?`, actor.userId).toArray().length > 0;
+    const member = this.memberRole(actor.userId) !== null;
     const rows = this.sql
       .exec<WaitRow>(
         `select * from workflow_waits where next_nudge_at is null or next_nudge_at != 'resumed' order by asked_at desc limit 200`,
@@ -9643,7 +9658,7 @@ export class SpaceObject extends DurableObject<Env> {
       (this.sql
         .exec(`select 1 from share_people where share_id = ? and user_id = ?`, s.id, actor.userId)
         .toArray().length > 0 ||
-        this.sql.exec(`select 1 from members where user_id = ?`, actor.userId).toArray().length > 0);
+        this.memberRole(actor.userId) !== null);
     if (!allowed) throw new ObjectError("not_found", "Share not found");
     return s;
   }

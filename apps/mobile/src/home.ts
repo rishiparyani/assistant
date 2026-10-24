@@ -37,6 +37,7 @@ import {
 import { ApiError, request } from "./api.ts";
 import { outboxState, send } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
+import { practiceMode } from "./practice-mode.ts";
 
 export type { HomeCard };
 
@@ -373,7 +374,12 @@ export async function loadCatalog(): Promise<Catalog> {
   add(views, collections, undefined, "Your lists");
   // The person's other spaces (not a chat's home: that lives in the chat; not a practice run).
   const chatHomes = new Set(groups.map((g) => g.space_id).filter((x): x is string => !!x));
-  const own = spaces.filter((sp) => sp.kind !== "personal" && !chatHomes.has(sp.id) && !sp.practice_of);
+  // Practice copies stay out of the catalogue, except the one being rehearsed (its lists are
+  // the app while rehearsing; from-scratch.md §2 point 9).
+  const rehearsing = practiceMode()?.space;
+  const own = spaces.filter(
+    (sp) => sp.kind !== "personal" && !chatHomes.has(sp.id) && (!sp.practice_of || sp.id === rehearsing),
+  );
   const emptySpaces: { id: string; name: string }[] = [];
   // Every space at once, not one after another (owner, 2026-10-24: the library "takes a long
   // time to load").
@@ -412,8 +418,8 @@ export async function loadCatalog(): Promise<Catalog> {
       kind: "wait",
       waiting: w,
     });
-  const ordered = [...spaces.filter((sp) => !sp.practice_of)].sort((a, b) =>
-    a.kind === b.kind ? 0 : a.kind === "personal" ? -1 : 1,
+  const ordered = [...spaces.filter((sp) => !sp.practice_of || sp.id === practiceMode()?.space)].sort(
+    (a, b) => (a.kind === b.kind ? 0 : a.kind === "personal" ? -1 : 1),
   );
   return { entries, waiting, memories, spaces: ordered, complete, emptySpaces };
 }

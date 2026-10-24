@@ -2,8 +2,11 @@
 // `x-practice-as` header the whole API answers as one of a practice copy's people, from the
 // copy only. Fake data only.
 import { describe, expect, it } from "vitest";
+import { ulid } from "@assistant/shared";
 import type {
+  CollectionView,
   CreatedShare,
+  GroupView,
   MeResponse,
   PracticeView,
   RecordView,
@@ -118,5 +121,46 @@ describe("rehearsing as a person", () => {
     )!;
     expect((await api(owner, `${personal.id} ${id("Rahul Test")}`)("/me")).status).toBe(404);
     expect((await api(owner, "nonsense")("/me")).status).toBe(404);
+  });
+
+  it("plays a member of the real space with their role in the copy, and keeps them out of it for real", async () => {
+    const owner = await signUp("Test Owner");
+    const note = await json<RecordView>(
+      await api(owner)("/collections/Notes/records", { body: { values: { Title: "Test trip ideas" } } }),
+    );
+    const { link } = await json<CreatedShare>(await api(owner)("/shares", { body: { record_id: note.id } }));
+    const asha = await signUp("Test Asha");
+    await api(asha)("/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    const g = await json<GroupView>(
+      await api(owner)("/groups", { body: { id: ulid(), name: "Test Family", people: ["Test Asha"] } }),
+    );
+    const home = await json<GroupView>(await api(owner)(`/groups/${g.id}/home`, { method: "POST" }));
+    await api(owner)("/lists/start", { body: { space: home.space_id, kind: "reminders" } });
+    expect(
+      await until(async () => (await api(asha)(`/collections?space=${home.space_id}`)).status === 200),
+    ).toBe(true);
+    const practice = await json<SpaceView>(
+      await api(owner)(`/spaces/${home.space_id}/practice`, { body: {} }),
+    );
+    const v = await json<PracticeView>(await api(owner)(`/spaces/${practice.id}/practice`));
+    const ashaId = v.people.find((p) => p.name === "Test Asha")!.user_id;
+    expect(v.people.find((p) => p.user_id === ashaId)!.role).toBe("member");
+    const asAsha = api(owner, `${practice.id} ${ashaId}`);
+
+    // As Asha: the copy is her space, with her role there, and its lists are hers to use.
+    const spaces = await json<SpaceView[]>(await asAsha("/spaces"));
+    expect(spaces.map((sp) => [sp.id, sp.role])).toEqual([[practice.id, "editor"]]);
+    const lists = await json<CollectionView[]>(await asAsha("/collections"));
+    expect(lists.map((c) => c.name)).toContain("Reminders");
+    expect(
+      (
+        await asAsha("/collections/Reminders/records", {
+          body: { space: practice.id, values: { Title: "Test pack chargers" } },
+        })
+      ).status,
+    ).toBeLessThan(300);
+
+    // Asha herself still can't reach the copy.
+    expect((await api(asha)(`/collections?space=${practice.id}`)).status).toBe(404);
   });
 });
