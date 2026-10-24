@@ -4,7 +4,15 @@
 // blank. Read from the catalogue the library also uses; the device keeps the last copy
 // (offline-first rule 17) and shows it first.
 import type { CollectionView, RecordView, SpaceView } from "@assistant/shared";
-import { cardOf, findAll, loadCatalog, type Catalog, type CatalogEntry, type HomeCard } from "./home.ts";
+import {
+  cardOf,
+  findAll,
+  loadCatalog,
+  rememberCatalog,
+  type Catalog,
+  type CatalogEntry,
+  type HomeCard,
+} from "./home.ts";
 import { readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
@@ -21,6 +29,8 @@ export interface UpNextItem {
   space?: string;
   spaceName: string;
   view?: string;
+  /** A record on a card shared with me: it has no list of mine to open. */
+  shared?: boolean;
 }
 
 export interface SpaceList {
@@ -41,6 +51,8 @@ export interface Today {
   /** Process questions waiting on me first, then the rest, then questions and forms shared with me. */
   needs: HomeCard[];
   upnext: UpNextItem[];
+  /** Lists and records shared with me, as cards (the only way to open them on the phone). */
+  shared: HomeCard[];
   spaces: SpaceRow[];
   /** Every list, for the bar's search. */
   lists: { id: string; name: string; space?: string; space_name?: string }[];
@@ -66,7 +78,9 @@ const rememberToday = (userId: string, t: Today) => {
 
 export async function loadToday(userId: string): Promise<Today> {
   const cat = await loadCatalog();
-  const [needs, upnext] = await Promise.all([needsOf(cat), upNextOf(cat)]);
+  // The library and the chat's action pills read the same catalogue from the device.
+  rememberCatalog(userId, cat);
+  const [needs, upnext, shared] = await Promise.all([needsOf(cat), upNextOf(cat), sharedOf(cat)]);
   const spaces = spacesOf(cat);
   const lists = new Map<string, Today["lists"][number]>();
   for (const e of cat.entries)
@@ -76,7 +90,7 @@ export async function loadToday(userId: string): Promise<Today> {
         name: e.collection.name,
         ...(e.space ? { space: e.space, space_name: e.group } : {}),
       });
-  const today: Today = { needs, upnext, spaces, lists: [...lists.values()], complete: cat.complete };
+  const today: Today = { needs, upnext, shared, spaces, lists: [...lists.values()], complete: cat.complete };
   rememberToday(userId, today);
   return today;
 }
@@ -93,6 +107,30 @@ async function needsOf(cat: Catalog): Promise<HomeCard[]> {
   return cards.filter((c): c is HomeCard => !!c);
 }
 
+/** A record on a shared card, for the record sheet. */
+export function sharedItem(card: HomeCard, record: RecordView): UpNextItem {
+  return {
+    key: `${card.id}:${record.id}`,
+    at: 0,
+    allDay: true,
+    title: record.title,
+    sub: card.spec.title,
+    collection: card.collection!,
+    record,
+    spaceName: card.shared?.owner ?? "Shared with you",
+    shared: true,
+  };
+}
+
+/** Lists and records shared with me (questions and forms are in Needs you). */
+async function sharedOf(cat: Catalog): Promise<HomeCard[]> {
+  const shares = cat.entries.filter(
+    (e) => e.kind === "share" && (e.share!.kind === "view" || e.share!.kind === "card"),
+  );
+  const cards = await Promise.all(shares.map((e) => cardOf(e, cat)));
+  return cards.filter((c): c is HomeCard => !!c);
+}
+
 /** Records with a date in the next seven days, across every list that has a date, soonest first. */
 async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
   const seen = new Set<string>();
@@ -106,13 +144,19 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
     sources.push({ e, field: f.id, type: f.type as "date" | "datetime" });
   }
   const now = Date.now();
+  // Times are stored as UTC ISO text, so "from now on" is a text comparison; a day has no
+  // time, so today's all-day records stay (the period starts at today's midnight).
+  const fromNow = new Date(now).toISOString();
   const found = await Promise.all(
-    sources.map(async ({ e, field }) => {
+    sources.map(async ({ e, field, type }) => {
       try {
         const records = await findAll(
           e.collection!.id,
           {
-            filters: [{ field, op: "period", value: "next_7_days" }],
+            filters: [
+              { field, op: "period", value: "next_7_days" },
+              ...(type === "datetime" ? [{ field, op: "gte", value: fromNow }] : []),
+            ],
             sort: { field, dir: "asc" },
             ...(e.space ? { space: e.space } : {}),
           },

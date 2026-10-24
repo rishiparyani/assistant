@@ -3,12 +3,13 @@
 // list. Nothing is added to or arranged on Today from here: Today sorts itself.
 // online-only: the library reads every space, share, question and flow; it needs a connection.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Tap, Text } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { API_URL } from "@/config";
 import { openChat } from "@/chat-open";
 import { CHAT_FAB_ROOM, ChatFab } from "@/components/ChatFab";
 import { loadCatalog, rememberCatalog, savedCatalog, type Catalog, type CatalogEntry } from "@/home";
@@ -223,6 +224,8 @@ export default function Library() {
               <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
                 {list.map((e, i) => {
                   const opens = e.collection ? e.collection.id : null;
+                  // online-only: a thing shared with me opens on the website's shared page.
+                  const shared = e.kind === "share" ? e.share!.share_id : null;
                   return (
                     <View
                       key={e.key}
@@ -233,19 +236,21 @@ export default function Library() {
                     >
                       <Mark name={e.title} tone={colourFor(e.collection?.name ?? e.title)} />
                       <Pressable
-                        accessibilityRole={opens ? "link" : "text"}
-                        disabled={!opens}
-                        onPress={() =>
-                          opens &&
-                          router.push({
-                            pathname: "/list",
-                            params: {
-                              collection: opens,
-                              ...(e.view ? { view: e.view.id } : {}),
-                              ...(e.space ? { space: e.space } : {}),
-                            },
-                          })
-                        }
+                        accessibilityRole={opens || shared ? "link" : "text"}
+                        disabled={!opens && !shared}
+                        onPress={() => {
+                          if (opens)
+                            router.push({
+                              pathname: "/list",
+                              params: {
+                                collection: opens,
+                                ...(e.view ? { view: e.view.id } : {}),
+                                ...(e.space ? { space: e.space } : {}),
+                              },
+                            });
+                          else if (shared)
+                            void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(shared)}`);
+                        }}
                         style={s.words}
                       >
                         <Text style={[s.name, { color: t.fg }]} numberOfLines={2}>

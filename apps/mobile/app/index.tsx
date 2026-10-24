@@ -20,6 +20,7 @@ import {
   loadToday,
   recentSpaces,
   savedToday,
+  sharedItem,
   tileOf,
   touchSpace,
   whenWords,
@@ -220,6 +221,7 @@ export default function Home() {
     }
   };
 
+  const shared = today?.shared ?? [];
   const needs = (today?.needs ?? []).filter((c) => (c.waiting ? inSpace(c.waiting.space_id) : space === ALL));
   const upnext = (today?.upnext ?? []).filter((u) => inSpace(u.space));
   const spaces = (today?.spaces ?? []).filter((sp) => inSpace(sp.id === PERSONAL ? undefined : sp.id));
@@ -345,6 +347,24 @@ export default function Home() {
       ) : (
         <Text style={[s.empty, { color: t.fg3 }]}>Nothing is waiting on you.</Text>
       )}
+
+      {space === ALL && shared.length ? (
+        <>
+          {section("Shared with you", String(shared.length))}
+          <View style={{ gap: 10 }}>
+            {shared.map((card) => (
+              <Boundary key={card.id} where="shared with you">
+                <Card
+                  card={card}
+                  natural
+                  onOpen={() => openOnWeb(card)}
+                  onOpenRecord={(record) => setOpened(sharedItem(card, record))}
+                />
+              </Boundary>
+            ))}
+          </View>
+        </>
+      ) : null}
 
       {section("Up next", "7 days")}
       {upnext.length ? (
@@ -605,7 +625,7 @@ export default function Home() {
         collection={opened?.collection ?? null}
         onClose={() => setOpened(null)}
         onOpenList={
-          opened
+          opened && !opened.shared
             ? () => {
                 const o = opened;
                 setOpened(null);
