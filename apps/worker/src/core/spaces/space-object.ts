@@ -82,6 +82,7 @@ import {
   type HomeLayout,
   type PracticeAsView,
   type PracticePerson,
+  type SpacePerson,
   type WorkflowEvent,
   type WaitingItem,
   type WorkflowRun,
@@ -6860,6 +6861,40 @@ export class SpaceObject extends DurableObject<Env> {
       });
       return this.shareView(s);
     });
+  }
+
+  /**
+   * The space's page (FS4): its members with their roles, then, for those who can change the
+   * space, the people something is shared with and what. Viewers see the members only.
+   */
+  async spacePeople(actor: Actor): Promise<SpacePerson[]> {
+    const role = this.role(actor);
+    const out = new Map<string, SpacePerson>();
+    for (const m of this.sql
+      .exec<{ user_id: string; name: string; role: SpacePerson["role"] }>(
+        `select user_id, name, role from members order by added_at`,
+      )
+      .toArray())
+      out.set(m.user_id, { user_id: m.user_id, name: m.name, role: m.role, shares: [] });
+    // A practice copy plays the real space's members with their roles.
+    if (this.practice)
+      for (const m of this.practiceMembers())
+        if (!out.has(m.user_id))
+          out.set(m.user_id, { user_id: m.user_id, name: m.name, role: m.role ?? "editor", shares: [] });
+    if (role !== "viewer")
+      for (const s of this.sql
+        .exec<ShareRow>(`select * from shares where revoked_at is null order by created_at`)
+        .toArray()) {
+        const v = this.shareView(s);
+        for (const p of v.people) {
+          const got = out.get(p.user_id);
+          if (got) {
+            if (got.role === "shared") got.shares.push(v.title);
+          } else out.set(p.user_id, { user_id: p.user_id, name: p.name, role: "shared", shares: [v.title] });
+        }
+      }
+    const rank = { owner: 0, editor: 1, viewer: 2, shared: 3 } as const;
+    return [...out.values()].sort((a, b) => rank[a.role] - rank[b.role] || a.name.localeCompare(b.name));
   }
 
   /** People I know here: everyone in this space or one of its shares (viewers: members), but me. */

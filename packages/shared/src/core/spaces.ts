@@ -110,6 +110,18 @@ export interface SpaceView {
   practice_of?: string | null;
 }
 
+/**
+ * Someone on a space's page (FS4): a member with their role, or someone a list, form or card
+ * is shared with ("shared"), with what they were given.
+ */
+export interface SpacePerson {
+  user_id: string;
+  name: string;
+  role: "owner" | "editor" | "viewer" | "shared";
+  /** What's shared with them, by title (people who aren't members). */
+  shares: string[];
+}
+
 /** One space with how the person wants things done in it (decision 2026-10-16 "Spaces"). */
 export interface SpaceSettings extends SpaceView {
   /** Their own words, up to 1,500 characters; the assistant reads them in that space's chats. */

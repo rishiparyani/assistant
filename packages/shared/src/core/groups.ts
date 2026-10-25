@@ -135,6 +135,8 @@ export interface GroupSummary {
   unread: number;
   last: { author: string; text: string; at: string } | null;
   updated_at: string;
+  /** The chat's home (a shared space), once an admin has started it: the chat is that space's. */
+  space_id: string | null;
 }
 
 export interface GroupView {

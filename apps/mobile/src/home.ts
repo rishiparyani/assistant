@@ -21,7 +21,7 @@ import {
   formatDateIST,
   formatDateTimeIST,
   type CollectionView,
-  type GroupView,
+  type GroupSummary,
   type LiveRef,
   type QueryResult,
   type FindResult,
@@ -339,7 +339,7 @@ export async function loadCatalog(): Promise<Catalog> {
     // null: no assistant for this person (or offline): no memory card.
     request<Memory[]>("GET", "/api/memories").catch(() => null),
     soft(request<SpaceView[]>("GET", "/api/spaces"), [] as SpaceView[]),
-    soft(request<GroupView[]>("GET", "/api/groups"), [] as GroupView[]),
+    soft(request<GroupSummary[]>("GET", "/api/groups"), [] as GroupSummary[]),
   ]);
   const entries: CatalogEntry[] = [{ key: "now", title: "Now", group: "From the app", kind: "now" }];
   if (memories)
@@ -372,14 +372,13 @@ export async function loadCatalog(): Promise<Catalog> {
         });
   };
   add(views, collections, undefined, "Your lists");
-  // The person's other spaces (not a chat's home: that lives in the chat; not a practice run).
+  // The person's other spaces, a chat's home among them (FS4: a chat is part of its space; a
+  // home with no lists yet isn't shown as a space), never a practice run.
   const chatHomes = new Set(groups.map((g) => g.space_id).filter((x): x is string => !!x));
   // Practice copies stay out of the catalogue, except the one being rehearsed (its lists are
   // the app while rehearsing; from-scratch.md §2 point 9).
   const rehearsing = practiceMode()?.space;
-  const own = spaces.filter(
-    (sp) => sp.kind !== "personal" && !chatHomes.has(sp.id) && (!sp.practice_of || sp.id === rehearsing),
-  );
+  const own = spaces.filter((sp) => sp.kind !== "personal" && (!sp.practice_of || sp.id === rehearsing));
   const emptySpaces: { id: string; name: string }[] = [];
   // Every space at once, not one after another (owner, 2026-10-24: the library "takes a long
   // time to load").
@@ -398,7 +397,7 @@ export async function loadCatalog(): Promise<Catalog> {
   own.slice(0, MAX_PAGES).forEach((sp, i) => {
     const got = perSpace[i];
     if (got) add(got[0], got[1], sp.id, sp.name);
-    if (got && !got[1].length) emptySpaces.push({ id: sp.id, name: sp.name });
+    if (got && !got[1].length && !chatHomes.has(sp.id)) emptySpaces.push({ id: sp.id, name: sp.name });
   });
   const fromProcess = new Set(waiting.map((w) => w.share_id).filter((x): x is string => !!x));
   for (const sh of shares)
@@ -418,9 +417,13 @@ export async function loadCatalog(): Promise<Catalog> {
       kind: "wait",
       waiting: w,
     });
-  const ordered = [...spaces.filter((sp) => !sp.practice_of || sp.id === practiceMode()?.space)].sort(
-    (a, b) => (a.kind === b.kind ? 0 : a.kind === "personal" ? -1 : 1),
-  );
+  const listed = new Set(entries.map((e) => e.space).filter(Boolean));
+  const ordered = [
+    ...spaces.filter(
+      (sp) =>
+        (!sp.practice_of || sp.id === practiceMode()?.space) && (!chatHomes.has(sp.id) || listed.has(sp.id)),
+    ),
+  ].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "personal" ? -1 : 1));
   return { entries, waiting, memories, spaces: ordered, complete, emptySpaces };
 }
 

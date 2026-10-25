@@ -41,7 +41,10 @@ export interface SpaceList {
 }
 
 export interface SpaceRow {
+  /** "p" for the personal space (the catalogue's key), else the space's id. */
   id: string;
+  /** The space's own id, the personal one's too (for its page's calls). */
+  spaceId: string;
   name: string;
   personal: boolean;
   lists: SpaceList[];
@@ -216,6 +219,7 @@ function subOf(e: CatalogEntry, r: RecordView, dateField: string): string {
 function spacesOf(cat: Catalog): SpaceRow[] {
   const rows: SpaceRow[] = cat.spaces.map((sp: SpaceView) => ({
     id: sp.kind === "personal" ? PERSONAL : sp.id,
+    spaceId: sp.id,
     name: sp.kind === "personal" ? "Personal" : sp.name,
     personal: sp.kind === "personal",
     lists: [],

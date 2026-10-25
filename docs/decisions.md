@@ -1299,3 +1299,11 @@ Adding a row is using a list, not making one, so it belongs on the screen ("Chat
 ## 2026-10-24: The assistant's tools name the space (owner, 2026-10-25: "when I created the visitor thing, it … created the list in my personal space instead of the building space")
 
 The tools offered to the model had no `space` option (dropped in #129 to keep them small), so in the main chat everything went to Personal. When the person has more than one space, each tool that takes a space now offers a short `space` field (a space's name, left out for the chat's own), and the instructions list the other spaces by name: a setup for one goes there, and when it could be either, the assistant asks first. With only one space nothing changes, so most people's tools stay as small as before. Costs a few tokens per tool for people with several spaces.
+
+## 2026-10-25: Space pages, and chats per space (FS4; the owner in conversation, 2026-10-25)
+
+- **A space has a page**: what needs you there, what's coming up there, its chats, its lists, its workflows and its people with their roles. Today stays everything; the chips that narrowed Today are gone (the owner: "would we really need the chips on top?"), and Today's Spaces section opens each space's page.
+- **A chat is a space only once it has things.** A group chat or a chat with one person that is just talk stays a chat; when it has a list, a workflow or a screen it shows under Spaces too. Keeps the Spaces section short however many chats someone has.
+- **Several group chats per space** (amends from-scratch.md §1 "Chat: a space's one conversation"). A space has its main chat for everyone; members can start more for a topic, for everyone or for some people. All of a space's chats use its lists, workflows and people.
+- **The AI reads a chat like ChatGPT or Claude do**: the whole conversation up to what the model holds, plus a running summary of what's older, folded in when it outgrows the budget. New chat starts fresh. In group chats the AI runs only when someone uses it (a save suggestion, a private question, the catch-up), never on every message by itself; the space's owner pays, as agreed.
+- **Many chats stay tidy**: Today shows only chats that need you or were used lately; All chats has search, filters (unread, groups, people, spaces), pin, archive and mute.

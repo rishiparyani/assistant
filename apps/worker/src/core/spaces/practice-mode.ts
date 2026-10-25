@@ -8,6 +8,7 @@ import type { PracticeMode, UserCtx } from "../context.ts";
 export const PRACTICE_OPS: ReadonlySet<string> = new Set([
   "core.get_me",
   "core.list_spaces",
+  "core.space_people",
   "core.list_collections",
   "core.describe_collection",
   "core.find_records",
