@@ -18,6 +18,7 @@ import {
 import Animated, { FadeIn, FadeInDown, useAnimatedStyle } from "react-native-reanimated";
 import {
   Boundary,
+  FlowDiagram,
   Markdown,
   Tap,
   type ExampleAct,
@@ -1166,7 +1167,18 @@ function Bubble({
         ]}
       >
         <Text style={[s.cardTitle, { color: t.accent }]}>{waiting ? `To confirm · ${title}` : title}</Text>
-        {item.card && setupOf(item.card.tool, item.card.args) ? (
+        {item.card?.flow ? (
+          // A workflow drawn as its diagram, field names as names, never {braces} (owner,
+          // 2026-10-25: "It asked me in a diagrammatic way. So why did it convert it into this
+          // text format?"). The last line says it's saved off and how to rehearse it.
+          <>
+            <Text style={[s.bubText, { color: t.fg, fontWeight: "700" }]}>{item.card.flow.name}</Text>
+            <FlowDiagram workflow={item.card.flow} />
+            <Text style={[type.caption, { color: t.fg2 }]}>
+              Saved off: you turn it on from its page. Say “rehearse it” to try it first.
+            </Text>
+          </>
+        ) : item.card && setupOf(item.card.tool, item.card.args) ? (
           // A setup drawn, not listed (owner, 2026-10-24: "a little too much to read").
           <SetupCard tool={item.card.tool} args={item.card.args} />
         ) : (

@@ -4,6 +4,7 @@
 import { z } from "zod";
 import { clientId, optionalText } from "./fields.ts";
 import type { RuleView } from "./rules.ts";
+import type { WorkflowView } from "./workflows.ts";
 import { isDateOnly, toUtcIso } from "./dates.ts";
 import { formatINR, parseINR } from "./money.ts";
 import { FORMULA_HELP } from "./formula.ts";
@@ -1316,6 +1317,8 @@ export interface ChatItem {
     args?: Record<string, unknown>;
     /** Whether the app may change the arguments before Confirm (setup cards). */
     editable?: boolean;
+    /** A workflow card: the workflow as it would be made, drawn as its diagram. */
+    flow?: WorkflowView;
   };
   /** Which level answered (1 everyday, 2 smart, 3 best). */
   level?: number;

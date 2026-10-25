@@ -7391,6 +7391,29 @@ export class SpaceObject extends DurableObject<Env> {
     });
   }
 
+  /**
+   * A workflow checked as it would be made, nothing kept: what its card draws before Confirm,
+   * and anything that can't work comes back to the assistant now, not after the tap.
+   */
+  async previewWorkflow(actor: Actor, spec: WorkflowSpec): Promise<WorkflowView> {
+    this.canArrange(actor);
+    const { collectionId, def } = this.resolveWorkflow(spec);
+    const ts = nowIso();
+    return this.workflowView({
+      id: "",
+      name: spec.name,
+      collection_id: collectionId,
+      def_json: JSON.stringify(def),
+      enabled: spec.enabled ? 1 : 0,
+      run_count: 0,
+      last_run_at: null,
+      created_by: actor.userId,
+      created_at: ts,
+      updated_at: ts,
+      deleted_at: null,
+    });
+  }
+
   /** Turns a workflow on (it starts watching; dates already set are scheduled) or off. */
   async setWorkflowEnabled(
     actor: Actor,
@@ -7776,7 +7799,10 @@ export class SpaceObject extends DurableObject<Env> {
                 `${f.name} is a choice field (${allowed.join(", ")}); the answers to tap must be among its choices`,
               );
             // Several people's answers don't fit one choice: keep the first, or use a text field.
-            if (a.until !== "first" && (a.to.length > 1 || who.to_fields || who.to_linked))
+            // One person field ({Guard}) holds one person, so it's one answer (owner, 2026-10-25:
+            // "Ask {Guard} … keep it in Status" was refused on Confirm).
+            const asked = a.to.length + (who.to_fields?.length ?? 0) + (who.to_linked ? 2 : 0);
+            if (a.until !== "first" && asked > 1)
               throw new ObjectError(
                 "validation_failed",
                 `${f.name} keeps one answer: ask one person, wait for the first answer ("until": "first"), or keep the answers in a text field`,
