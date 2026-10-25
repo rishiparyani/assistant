@@ -2,7 +2,7 @@
 // space, plus what only a space has: its chats, its workflows and its people. Today's Spaces
 // section opens it. Reads what Today keeps on the device first (offline-first rule 17), and keeps
 // the workflows and people it last read, so it opens with no connection.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Boundary, Card, Text } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -11,7 +11,8 @@ import type { SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { RecordSheet } from "@/components/RecordSheet";
-import { answerWaiting, nudgeWaiting, type HomeCard } from "@/home";
+import { answerWaiting, nudgeWaiting, onHomeChanged, type HomeCard } from "@/home";
+import { useLive } from "@/live-socket";
 import { loadToday, savedToday, tileOf, touchSpace, whenWords, type Today, type UpNextItem } from "@/today";
 import { useChats } from "@/chats";
 import { openChat } from "@/chat-open";
@@ -90,6 +91,15 @@ export default function SpacePage() {
   useEffect(() => {
     void load();
   }, [load]);
+  // What the chat or anyone else changes shows here too (Codex, PR 205): "Start building"
+  // reveals its lists once they're made. A burst of changes loads once.
+  useEffect(() => onHomeChanged(() => void load()), [load]);
+  const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useLive((m) => {
+    if (m.type !== "space_changed" && m.type !== "reconnected") return;
+    clearTimeout(liveLoad.current);
+    liveLoad.current = setTimeout(() => void load(), 400);
+  });
 
   const personal = id === PERSONAL;
   const name = row?.name ?? (personal ? "Personal" : "Space");

@@ -21,6 +21,7 @@ import {
   savedToday,
   sharedItem,
   tileOf,
+  UP_NEXT,
   whenWords,
   type Today,
   type UpNextItem,
@@ -200,7 +201,7 @@ export default function Home() {
 
   const shared = today?.shared ?? [];
   const needs = today?.needs ?? [];
-  const upnext = today?.upnext ?? [];
+  const upnext = (today?.upnext ?? []).slice(0, UP_NEXT);
   const wide = width >= COLUMN + SIDE * 2;
   const loading = today === null;
 
