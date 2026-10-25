@@ -112,4 +112,35 @@ describe("flows through links", () => {
     });
     expect(bad.status).toBe(400);
   });
+
+  it("asks one person field ({Guard}) and keeps the answer in a choice field, all answers or first", async () => {
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Visitors",
+        fields: [
+          { name: "Visitor name", type: "text" },
+          { name: "Guard", type: "person" },
+          { name: "Status", type: "choice", options: { choices: ["Pending", "Checked in", "Rejected"] } },
+        ],
+      },
+    });
+    const res = await api(owner)("/workflows", {
+      body: {
+        name: "Gate entry",
+        when: { event: "added", collection: "Visitors" },
+        then: [
+          {
+            do: "ask",
+            who: ["{Guard}"],
+            text: "Let {Visitor name} in?",
+            choices: ["Checked in", "Rejected"],
+            save_to: "Status",
+          },
+        ],
+        enabled: false,
+      },
+    });
+    expect(res.status).toBe(201);
+  });
 });

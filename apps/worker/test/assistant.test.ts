@@ -244,6 +244,36 @@ describe("chat", () => {
     expect((await find(me, "Expenses")).items).toEqual([]);
   });
 
+  it("previews a proposed workflow (its diagram, nothing made), and refuses one that can't work", async () => {
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const spaces = await json<{ id: string }[]>(await call("/api/spaces", { cookie: me.cookie }));
+    const stub = env.SPACES.getByName(`space:${spaces[0]!.id}`);
+    const actor = { userId: me.id, source: "web" as const };
+    const spec = (field: string) => ({
+      name: "Test note alert",
+      when: { event: "added" as const, collection: "Notes", offset_minutes: 0 },
+      check: [],
+      wait_minutes: 0,
+      then: [{ do: "set" as const, field, value: true }],
+      enabled: false,
+    });
+    const flow = await stub.previewWorkflow(actor, spec("Pinned"));
+    expect(flow).toMatchObject({ name: "Test note alert", enabled: false, when: { collection: "Notes" } });
+    // Inside the object, so the refusal isn't an unhandled error crossing the test's boundary.
+    const refusal = await runInDurableObject(stub, async (raw) => {
+      try {
+        await (raw as unknown as SpaceObject).previewWorkflow(actor, spec("Nope"));
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : String(e);
+      }
+    });
+    expect(refusal).toContain("Nope");
+    const made = await json<{ name: string }[]>(await call("/api/workflows", { cookie: me.cookie }));
+    expect(made.map((w) => w.name)).not.toContain("Test note alert");
+  });
+
   it("cancels a card without running it", async () => {
     const me = await signUp("Test Owner");
     const card = (await say(me, "Test: spent 450 on groceries")).items.find((i) => i.role === "card")!;

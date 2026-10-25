@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   type ChangeRecordsSpec,
   type ImportSpec,
+  CreateWorkflowInput,
   MakeSetupInput,
   nameKey,
   setupWords,
@@ -39,6 +40,7 @@ import { toAppError } from "../objects/errors.ts";
 import { operationContext, type AnyOperation, type OpUserCtx } from "../operations.ts";
 import { parse } from "../validation.ts";
 import { mySpaces, spaceOf } from "../spaces/service.ts";
+import { workflowSpec } from "../spaces/workflow-operations.ts";
 import { resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed, fasterAnswers, isAdminCtx, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
@@ -1464,6 +1466,7 @@ async function answerMessage(
             tool: result.card.tool,
             title: result.card.title,
             details: result.card.details,
+            ...(result.card.flow ? { flow: result.card.flow } : {}),
             status: "waiting",
             ...(EDITABLE_CARDS.has(result.card.tool) ? { args: result.card.args, editable: true } : {}),
           },
@@ -1549,7 +1552,13 @@ type ToolResult =
   | {
       kind: "card";
       text: string;
-      card: { tool: string; args: Record<string, unknown>; title: string; details: string[] };
+      card: {
+        tool: string;
+        args: Record<string, unknown>;
+        title: string;
+        details: string[];
+        flow?: WorkflowView;
+      };
     }
   | { kind: "hand_over" | "hand_back"; text: string }
   | { kind: "choices"; text: string; choices: z.output<typeof ChoicesArgs> };
@@ -1648,7 +1657,11 @@ async function runTool(
         args = { ...args, people: people.map((p) => p.user_id) };
         shown = { ...args, people: people.map((p) => p.name) };
       }
-      let card = { tool: name, args, ...describe(name, shown, target) };
+      let card: Extract<ToolResult, { kind: "card" }>["card"] = {
+        tool: name,
+        args,
+        ...describe(name, shown, target),
+      };
       // A setup: made and undone on the spot, so a part that can't work (a quick add on a
       // link, a formula over a missing field) comes back to the model now, not after the tap
       // (the owner, 2026-10-16: "Failed. A quick add can't fill in Flat" on a Confirm).
@@ -1665,6 +1678,15 @@ async function runTool(
           rules: i.rules,
           views: i.views,
         });
+      }
+      // A workflow: checked now as it would be made (a step that can't work comes back to the
+      // model, not after the tap), and the card draws it as its diagram (owner, 2026-10-25:
+      // "It asked me in a diagrammatic way. So why did it convert it into this text format?").
+      if (name === "create_workflow") {
+        const i = input as z.output<typeof CreateWorkflowInput>;
+        const { stub, actor } = await spaceOf(ctx, i.space);
+        const flow = await stub.previewWorkflow(actor, await workflowSpec(ctx, { ...i, enabled: false }));
+        card = { ...card, flow };
       }
       // An import: the card says what list, what goes where, the first rows, what can't be read.
       if (name === "import_records") {

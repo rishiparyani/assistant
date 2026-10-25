@@ -2,7 +2,7 @@
 // model sees (including tool calls and results), what the screen shows, confirm cards
 // waiting for a tap, and whether a setup is in progress. Only its owner can read it.
 import { DurableObject } from "cloudflare:workers";
-import { ulid, type ChatChoices, type ChatItem, type LiveRef } from "@assistant/shared";
+import { ulid, type ChatChoices, type ChatItem, type LiveRef, type WorkflowView } from "@assistant/shared";
 import {
   BASE_TABLES,
   audit,
@@ -116,6 +116,8 @@ const MIGRATIONS: Migrations = [
    alter table memories add column space_id text;`,
   // A question with answers to tap (decision 2026-10-17 "Questions with answers to tap").
   `alter table messages add column choices_json text;`,
+  // A workflow card draws its diagram (owner, 2026-10-25): the workflow as it would be made.
+  `alter table actions add column flow_json text;`,
 ];
 
 export type ConnectorRow = {
@@ -556,19 +558,26 @@ export class ChatObject extends DurableObject<Env> {
 
   async addAction(
     userId: string,
-    a: { tool: string; args: Record<string, unknown>; title: string; details: string[] },
+    a: {
+      tool: string;
+      args: Record<string, unknown>;
+      title: string;
+      details: string[];
+      flow?: WorkflowView;
+    },
     /** How long it can be tapped; the confirm-card default when left out. */
     ttlMinutes: number | null = null,
   ): Promise<string> {
     this.own(userId);
     const id = ulid();
     this.sql.exec(
-      `insert into actions (id, tool, args_json, title, details_json, status, created_at, expires_at) values (?, ?, ?, ?, ?, 'waiting', ?, ?)`,
+      `insert into actions (id, tool, args_json, title, details_json, flow_json, status, created_at, expires_at) values (?, ?, ?, ?, ?, ?, 'waiting', ?, ?)`,
       id,
       a.tool,
       JSON.stringify(a.args),
       a.title,
       JSON.stringify(a.details),
+      a.flow ? JSON.stringify(a.flow) : null,
       nowIso(),
       ttlMinutes ? new Date(Date.now() + ttlMinutes * 60_000).toISOString() : null,
     );
@@ -1059,6 +1068,13 @@ export class ChatObject extends DurableObject<Env> {
     };
   }
 
+  private flowOf(actionId: string): { flow?: WorkflowView } {
+    const f = this.sql
+      .exec<{ flow_json: string | null }>(`select flow_json from actions where id = ?`, actionId)
+      .toArray()[0]?.flow_json;
+    return f ? { flow: JSON.parse(f) as WorkflowView } : {};
+  }
+
   private itemOf(r: MessageRow): ChatItem {
     const item: ChatItem = {
       id: r.id,
@@ -1076,12 +1092,18 @@ export class ChatObject extends DurableObject<Env> {
         tool: a.tool,
         title: a.title,
         details: a.details,
+        // A workflow card's diagram (kept apart from the action: it's only drawn, never run).
+        ...this.flowOf(a.id),
         status:
           a.status === "waiting" && expired(a) ? "expired" : a.status === "running" ? "waiting" : a.status,
         ...(a.result ? { result: a.result } : {}),
-        // A setup still waiting can be changed by hand before Confirm.
-        ...(a.status === "waiting" && !expired(a) && EDITABLE_CARDS.has(a.tool)
-          ? { args: JSON.parse(a.args_json) as Record<string, unknown>, editable: true }
+        // A setup keeps its arguments, so the app draws it (not a list of lines) once it's done
+        // too (owner, 2026-10-25); only one still waiting can be changed by hand before Confirm.
+        ...(EDITABLE_CARDS.has(a.tool)
+          ? {
+              args: JSON.parse(a.args_json) as Record<string, unknown>,
+              ...(a.status === "waiting" && !expired(a) ? { editable: true } : {}),
+            }
           : {}),
       };
     }
