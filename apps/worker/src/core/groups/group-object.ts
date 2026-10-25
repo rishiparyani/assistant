@@ -539,6 +539,7 @@ export class GroupObject extends DurableObject<Env> {
       unread,
       last: last ? { author: last.author, text: last.text.slice(0, 120), at: last.created_at } : null,
       updated_at: g.updated_at,
+      space_id: g.space_id ?? null,
     };
   }
 

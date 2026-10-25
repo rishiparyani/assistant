@@ -245,6 +245,18 @@ export const spaceOperations = [
     handler: (ctx, i) => spaceSettings(ctx, i.space),
   }),
   defineOperation({
+    id: "core.space_people",
+    tool: "space_people",
+    description: "Who is in a space and their role, and who something in it is shared with.",
+    kind: "read",
+    http: { method: "GET", path: "/spaces/:space/people" },
+    input: SpaceRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.spacePeople(actor);
+    },
+  }),
+  defineOperation({
     id: "core.space_instructions",
     tool: "set_space_instructions",
     description:

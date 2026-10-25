@@ -41,7 +41,10 @@ export interface SpaceList {
 }
 
 export interface SpaceRow {
+  /** "p" for the personal space (the catalogue's key), else the space's id. */
   id: string;
+  /** The space's own id, the personal one's too (for its page's calls). */
+  spaceId: string;
   name: string;
   personal: boolean;
   lists: SpaceList[];
@@ -61,7 +64,8 @@ export interface Today {
 
 const IST = 330 * 60_000;
 const DAY = 86_400_000;
-const UP_NEXT = 12;
+/** How many Today shows; the whole week is kept, so a space's page finds its own (Codex, PR 205). */
+export const UP_NEXT = 12;
 const PER_LIST = 6;
 
 /** The key the catalogue gives the personal space's entries. */
@@ -190,10 +194,7 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
       }
     }),
   );
-  return found
-    .flat()
-    .sort((a, b) => a.at - b.at)
-    .slice(0, UP_NEXT);
+  return found.flat().sort((a, b) => a.at - b.at);
 }
 
 const istDay = (ms: number) => Math.floor((ms + IST) / DAY);
@@ -216,6 +217,7 @@ function subOf(e: CatalogEntry, r: RecordView, dateField: string): string {
 function spacesOf(cat: Catalog): SpaceRow[] {
   const rows: SpaceRow[] = cat.spaces.map((sp: SpaceView) => ({
     id: sp.kind === "personal" ? PERSONAL : sp.id,
+    spaceId: sp.id,
     name: sp.kind === "personal" ? "Personal" : sp.name,
     personal: sp.kind === "personal",
     lists: [],
