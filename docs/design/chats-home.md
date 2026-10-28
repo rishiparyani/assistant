@@ -50,7 +50,7 @@ Still open: gestures (swipe to archive or reply, long-press menus), real photos,
 3. Spaces with Chats · Lists · Flows · People; several chats per space, private ones; the AI's full context plus summary. **Done.**
 4. Answer cards (6) from the fixed blocks. **Done**: tappable bars that drill in, a bill splitter and the assistant taught both (the rest was already in the A2UI cards).
 5. The assistant at work (7). **Done** as a flow's screen laid out as a job (state and an on/off switch that warns when it would close waiting questions, Needs your OK, Waiting on others, What it did, How it works folded).
-6. Two panes on a laptop.
+6. Two panes on a laptop. **Done** (website, 1024 px and wider).
 7. The account switcher (below).
 
 ## Other things discussed on 2026-10-27/28

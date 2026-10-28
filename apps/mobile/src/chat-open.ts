@@ -94,14 +94,23 @@ export const leaveChat = () => {
 /** The panel's width beside the screen. */
 export const PANEL_WIDTH = 440;
 
+/** Two panes (chats-home.md, the polished look): on a laptop's website the chats stay on the
+ *  left and what's opened shows on the right. */
+export const SIDEBAR_WIDTH = 360;
+export function useTwoPanes(): boolean {
+  const { width } = useWindowDimensions();
+  return Platform.OS === "web" && width >= WIDE;
+}
+
 /**
- * The width a screen has for itself: the window's, less the chat panel when it is open beside
- * it (the home lays its dashboard out from this, Codex on PR 193).
+ * The width a screen has for itself: the window's, less the chats beside it and the chat panel
+ * when it is open beside it (the home lays its dashboard out from this, Codex on PR 193).
  */
 export function useContentWidth(): number {
   const { width } = useWindowDimensions();
   const open = useChatPanel().open;
-  return Platform.OS === "web" && open && width >= WIDE ? width - PANEL_WIDTH : width;
+  const wide = Platform.OS === "web" && width >= WIDE;
+  return width - (wide ? SIDEBAR_WIDTH : 0) - (wide && open ? PANEL_WIDTH : 0);
 }
 
 /** Opens the chat with these parameters, over the screen it was opened from. */

@@ -9,7 +9,8 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import { setAppFont } from "@assistant/cards/native";
-import { PANEL_WIDTH, WIDE, closeChatPanel, useChatPanel } from "@/chat-open";
+import { PANEL_WIDTH, SIDEBAR_WIDTH, WIDE, closeChatPanel, useChatPanel, useTwoPanes } from "@/chat-open";
+import { ChatsHome } from "./index";
 import { ChatScreen } from "@/components/ChatScreen";
 import { PracticeBanner } from "@/components/PracticeBanner";
 import { usePracticeMode } from "@/practice-mode";
@@ -54,6 +55,22 @@ function SessionGate() {
     router.replace({ pathname: "/login", params: next && next !== "/" ? { next } : {} });
   }, [loaded, me, path, params, segments, router]);
   return null;
+}
+
+/** The chats on the left of two panes (a laptop's website), once someone is signed in. */
+function Sidebar() {
+  const { t } = useTheme();
+  const { me } = useSession();
+  const path = usePathname();
+  const two = useTwoPanes();
+  if (!two || !me || path === "/login" || path === "/test") return null;
+  return (
+    <View
+      style={{ width: SIDEBAR_WIDTH, borderRightWidth: StyleSheet.hairlineWidth, borderRightColor: t.sep }}
+    >
+      <ChatsHome pane />
+    </View>
+  );
 }
 
 export default function Layout() {
@@ -102,6 +119,7 @@ export default function Layout() {
         {practising ? <PracticeBanner /> : null}
         <SafeAreaInsetsContext.Provider value={practising ? { ...insets, top: 0 } : insets}>
           <View style={{ flex: 1, flexDirection: "row" }}>
+            <Sidebar />
             <View style={{ flex: 1 }}>
               <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
                 <Stack.Screen name="index" />
