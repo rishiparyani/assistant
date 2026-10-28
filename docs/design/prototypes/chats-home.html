@@ -1,0 +1,699 @@
+<title>Gigspree Chats Prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700;6..12,800&family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&display=swap">
+<style>
+/* Layout: a phone-sized app in the middle of the page, a short guide beside it on wide screens; on a phone it fills the screen. */
+:root {
+  --page: #E6EEEC; --app: #FFFFFF; --chat: #EFF5F4; --cell: #FFFFFF; --ink: #102A27; --ink2: #56706B; --hair: #E1EAE8;
+  --brand: #0F766E; --brand2: #0B5B55; --brandSoft: #DDF3EF; --onBrand: #FFFFFF; --glow: #7FE3D3;
+  --wait: #92400E; --waitSoft: #FFF4DE; --waitEdge: #F6C76B; --good: #0F7A4F; --danger: #B42318;
+  --me: #0F766E; --onMe: #FFFFFF; --them: #FFFFFF; --head: #0F766E; --onHead: #FFFFFF; --dark: #102A27; --onDark: #FFFFFF;
+  --a1: #FCE7F3; --a1t: #9D174D; --a2: #E0E7FF; --a2t: #3730A3; --a3: #FEF3C7; --a3t: #92400E;
+  --body: "Nunito Sans", "Segoe UI", system-ui, sans-serif; --display: "Bricolage Grotesque", "Nunito Sans", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #0A1614; --app: #0F1E1C; --chat: #0B1917; --cell: #16302C; --ink: #E7F2EF; --ink2: #9BB5AF; --hair: #22403B;
+  --brand: #2DD4BF; --brand2: #5EEAD4; --brandSoft: #134E48; --onBrand: #062420; --glow: #7FE3D3;
+  --wait: #FCD34D; --waitSoft: #3A2E12; --waitEdge: #A16207; --good: #4ADE80; --danger: #F87171;
+  --me: #0F766E; --onMe: #FFFFFF; --them: #16302C; --head: #11352F; --onHead: #E7F2EF; --dark: #E7F2EF; --onDark: #0F1E1C;
+  --a1: #4A1D33; --a1t: #F9A8D4; --a2: #262A5A; --a2t: #A5B4FC; --a3: #3F3212; --a3t: #FCD34D; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --page: #0A1614; --app: #0F1E1C; --chat: #0B1917; --cell: #16302C; --ink: #E7F2EF; --ink2: #9BB5AF; --hair: #22403B;
+  --brand: #2DD4BF; --brand2: #5EEAD4; --brandSoft: #134E48; --onBrand: #062420; --glow: #7FE3D3;
+  --wait: #FCD34D; --waitSoft: #3A2E12; --waitEdge: #A16207; --good: #4ADE80; --danger: #F87171;
+  --me: #0F766E; --onMe: #FFFFFF; --them: #16302C; --head: #11352F; --onHead: #E7F2EF; --dark: #E7F2EF; --onDark: #0F1E1C;
+  --a1: #4A1D33; --a1t: #F9A8D4; --a2: #262A5A; --a2t: #A5B4FC; --a3: #3F3212; --a3t: #FCD34D; color-scheme: dark; }
+html, body { height: 100%; }
+body { background: var(--page); color: var(--ink); font: 15px/1.45 var(--body); }
+.wrap { min-height: 100%; box-sizing: border-box; display: flex; gap: 32px; justify-content: center; align-items: flex-start; padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.guide { width: 300px; display: flex; flex-direction: column; gap: 14px; padding-top: 12px; }
+.guide h1 { font: 800 28px/1.1 var(--display); margin: 0; letter-spacing: -0.02em; text-wrap: balance; }
+.guide p, .guide li { color: var(--ink2); margin: 0; }
+.guide ol { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.guide .row { display: flex; gap: 8px; flex-wrap: wrap; }
+.phone { width: 390px; max-width: 100%; height: 844px; max-height: calc(100vh - 48px); min-height: 640px; background: var(--app); border-radius: 36px; box-shadow: 0 0 0 10px var(--dark), 0 24px 60px rgba(0,0,0,0.25); overflow: hidden; position: relative; display: flex; flex-direction: column; }
+@media (max-width: 760px) {
+  .guide { display: none; }
+  .wrap { padding: 0; }
+  .phone { width: 100%; height: 100%; max-height: none; min-height: 0; border-radius: 0; box-shadow: none; }
+  html, body { overflow: hidden; }
+  .wrap { height: 100%; }
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--brand2); outline-offset: 2px; }
+.btn { min-height: 44px; border: 0; border-radius: 22px; padding: 0 18px; font-weight: 800; font-size: 15px; }
+.btn.primary { background: var(--brand); color: var(--onBrand); }
+.btn.soft { background: var(--chat); color: var(--ink); }
+.btn.ghost { background: transparent; color: var(--brand); padding: 0 8px; }
+.pill { min-height: 36px; border-radius: 18px; padding: 0 14px; border: 1px solid var(--hair); background: var(--cell); font-size: 13px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; }
+.pill.on { background: var(--brand); color: var(--onBrand); border-color: var(--brand); }
+.head { background: var(--head); color: var(--onHead); padding: 14px 12px 10px; display: flex; flex-direction: column; gap: 8px; flex: none; }
+.head .bar { display: flex; align-items: center; gap: 6px; min-height: 44px; }
+.icon { width: 44px; height: 44px; border: 0; background: transparent; color: inherit; display: inline-flex; align-items: center; justify-content: center; border-radius: 22px; flex: none; }
+.title { font: 800 19px/1.2 var(--display); }
+.sub { font-size: 12px; opacity: 0.85; }
+.scroll { flex: 1; overflow-y: auto; min-height: 0; }
+.ava { width: 46px; height: 46px; border-radius: 23px; display: flex; align-items: center; justify-content: center; font: 800 18px var(--display); flex: none; }
+.ava.sm { width: 32px; height: 32px; border-radius: 16px; font-size: 13px; }
+.row { display: flex; align-items: center; gap: 12px; }
+.chatrow { width: 100%; border: 0; background: transparent; padding: 10px 16px; text-align: left; display: flex; gap: 12px; align-items: center; }
+.chatrow .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--hair); padding-bottom: 10px; }
+.chatrow .top, .chatrow .bot { display: flex; justify-content: space-between; gap: 8px; }
+.name { font-size: 16px; font-weight: 800; }
+.last { font-size: 14px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.time { font-size: 12px; color: var(--ink2); white-space: nowrap; }
+.time.new { color: var(--brand); font-weight: 800; }
+.badge { min-width: 22px; height: 22px; border-radius: 11px; background: var(--brand); color: var(--onBrand); font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; padding: 0 6px; box-sizing: border-box; flex: none; }
+.tag { font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.wait { background: var(--waitSoft); border-radius: 16px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.wait .tag { color: var(--wait); }
+.msgs { padding: 14px 12px 18px; display: flex; flex-direction: column; gap: 8px; background: var(--chat); min-height: 100%; box-sizing: border-box; }
+.b { max-width: 80%; border-radius: 16px; padding: 8px 12px; font-size: 15px; display: flex; flex-direction: column; gap: 4px; }
+.b.them { align-self: flex-start; background: var(--them); border-top-left-radius: 4px; }
+.b.me { align-self: flex-end; background: var(--me); color: var(--onMe); border-top-right-radius: 4px; }
+.b .who { font-size: 12px; font-weight: 800; }
+.card { background: var(--cell); border-radius: 18px; padding: 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.card.wide { align-self: stretch; }
+.card.waiting { border: 2px solid var(--waitEdge); }
+.big { font: 800 30px/1.05 var(--display); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.muted { color: var(--ink2); font-size: 13px; }
+.barbtn { border: 0; background: transparent; padding: 0; text-align: left; display: flex; flex-direction: column; gap: 4px; min-height: 44px; justify-content: center; width: 100%; }
+.track { height: 10px; border-radius: 5px; background: var(--chat); display: block; }
+.fill { height: 10px; border-radius: 5px; display: block; }
+.line { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.composer { flex: none; padding: 8px 10px 12px; display: flex; gap: 8px; align-items: center; background: var(--chat); border-top: 1px solid var(--hair); }
+.composer input { flex: 1; min-height: 46px; border-radius: 23px; border: 1px solid var(--hair); background: var(--cell); color: var(--ink); padding: 0 16px; font: 16px var(--body); min-width: 0; }
+.round { width: 46px; height: 46px; border-radius: 23px; border: 0; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.round.brand { background: var(--brand); color: var(--onBrand); }
+.round.dark { background: var(--dark); color: var(--glow); font-weight: 800; }
+.suggest { display: flex; gap: 6px; overflow-x: auto; padding: 8px 10px 0; background: var(--chat); flex: none; }
+.suggest .pill { white-space: nowrap; }
+.tabs { display: flex; gap: 2px; overflow-x: auto; }
+.tab { border: 0; background: transparent; color: var(--onHead); opacity: 0.8; padding: 10px 12px; font-weight: 800; font-size: 14px; border-bottom: 3px solid transparent; white-space: nowrap; min-height: 44px; }
+.tab.on { opacity: 1; border-bottom-color: var(--glow); }
+.topics { display: flex; gap: 6px; overflow-x: auto; padding: 8px 12px; background: var(--app); border-bottom: 1px solid var(--hair); flex: none; }
+.list { display: flex; flex-direction: column; background: var(--app); }
+.li { width: 100%; border: 0; background: transparent; text-align: left; padding: 12px 16px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--hair); min-height: 56px; box-sizing: border-box; }
+.li .t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.li .t b { font-size: 15px; }
+.st { font-size: 12px; font-weight: 800; padding: 3px 8px; border-radius: 10px; white-space: nowrap; }
+.st.w { background: var(--waitSoft); color: var(--wait); }
+.st.g { background: var(--brandSoft); color: var(--brand2); }
+.st.n { background: var(--chat); color: var(--ink2); }
+.sheetback { position: absolute; inset: 0; background: rgba(0,0,0,0.35); display: flex; flex-direction: column; justify-content: flex-end; z-index: 5; }
+.sheet { background: var(--app); border-radius: 22px 22px 0 0; padding: 8px 16px 20px; display: flex; flex-direction: column; gap: 12px; max-height: 88%; overflow-y: auto; }
+.grab { align-self: center; width: 44px; height: 5px; border-radius: 3px; background: var(--hair); border: 0; margin: 4px 0; min-height: 5px; }
+label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; flex-direction: column; gap: 6px; }
+.field { min-height: 46px; border-radius: 12px; border: 1px solid var(--hair); background: var(--cell); color: var(--ink); padding: 0 12px; font: 16px var(--body); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.flow { display: flex; flex-direction: column; }
+.step { display: flex; gap: 10px; }
+.step .rail { width: 12px; display: flex; flex-direction: column; align-items: center; flex: none; }
+.step .dot { width: 12px; height: 12px; border-radius: 6px; flex: none; margin-top: 3px; }
+.step .stem { flex: 1; width: 2px; background: var(--hair); }
+.step .txt { padding-bottom: 12px; font-size: 14px; }
+.aicard { margin: 12px 14px 4px; width: calc(100% - 28px); border: 0; border-radius: 20px; background: var(--dark); color: var(--onDark); padding: 14px; display: flex; align-items: center; gap: 12px; }
+.aiicon { width: 44px; height: 44px; border-radius: 14px; background: var(--glow); color: #0B2420; display: flex; align-items: center; justify-content: center; font-size: 20px; font-weight: 800; flex: none; }
+.sechead { font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink2); padding: 16px 16px 6px; }
+.spacecard { margin: 6px 14px; width: calc(100% - 28px); box-sizing: border-box; border: 2px solid; border-radius: 20px; background: var(--cell); padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.sq { width: 44px; height: 44px; border-radius: 12px; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font: 800 18px var(--display); flex: none; }
+.stat { font-size: 12px; font-weight: 800; padding: 5px 10px; border-radius: 12px; background: var(--chat); color: var(--ink2); }
+.stat.w { background: var(--waitSoft); color: var(--wait); }
+.spacelast { display: flex; gap: 8px; width: 100%; border-top: 1px solid var(--hair); padding-top: 8px; text-align: left; }
+.stack { display: flex; align-items: center; justify-content: center; width: 58px; flex: none; }
+.spacerow { margin: 6px 10px; width: calc(100% - 20px); padding: 12px 12px 12px 4px; border-radius: 18px; }
+.spacerow .meta { border-bottom: 0; padding-bottom: 0; }
+.spacerow .stat { background: var(--cell); }
+.spacerow .stat.w { background: var(--waitSoft); }
+.chatrow:not(.spacerow) .meta { padding-bottom: 10px; }
+.spacerow .sq { width: 46px; height: 46px; border-radius: 14px; }
+.stack .ava.sm { width: 30px; height: 30px; font-size: 11px; }
+:root[data-palette="peacock"] { --brand: #0B6A88; --brand2: #08516A; --brandSoft: #DCEFF5; --head: #0B6A88; --glow: #FF9F86; --me: #0B6A88; }
+@media (prefers-color-scheme: dark) { :root[data-palette="peacock"]:not([data-theme="light"]) { --brand: #4FC3E3; --brand2: #8ADAF0; --brandSoft: #123A47; --head: #0E3442; --glow: #FF9F86; --me: #0B6A88; --onBrand: #062430; }
+}
+:root[data-theme="dark"][data-palette="peacock"] { --brand: #4FC3E3; --brand2: #8ADAF0; --brandSoft: #123A47; --head: #0E3442; --glow: #FF9F86; --me: #0B6A88; --onBrand: #062430; }
+:root[data-palette="marigold"] { --brand: #B9450B; --brand2: #8F3508; --brandSoft: #FDEBD9; --head: #1E2230; --glow: #FFC145; --me: #1E2230; }
+@media (prefers-color-scheme: dark) { :root[data-palette="marigold"]:not([data-theme="light"]) { --brand: #FFA94D; --brand2: #FFC98A; --brandSoft: #3D2A14; --head: #1A1D27; --glow: #FFC145; --me: #5A3A12; --onBrand: #2A1600; }
+}
+:root[data-theme="dark"][data-palette="marigold"] { --brand: #FFA94D; --brand2: #FFC98A; --brandSoft: #3D2A14; --head: #1A1D27; --glow: #FFC145; --me: #5A3A12; --onBrand: #2A1600; }
+:root[data-palette="leaf"] { --brand: #2B7A3D; --brand2: #1F5C2D; --brandSoft: #E2F3E5; --head: #1F5C2D; --glow: #B7F4C2; --me: #2B7A3D; }
+@media (prefers-color-scheme: dark) { :root[data-palette="leaf"]:not([data-theme="light"]) { --brand: #6FD48A; --brand2: #A3E8B3; --brandSoft: #16351F; --head: #14301C; --glow: #B7F4C2; --me: #2B7A3D; --onBrand: #06240F; }
+}
+:root[data-theme="dark"][data-palette="leaf"] { --brand: #6FD48A; --brand2: #A3E8B3; --brandSoft: #16351F; --head: #14301C; --glow: #B7F4C2; --me: #2B7A3D; --onBrand: #06240F; }
+:root[data-palette="jamun"] { --brand: #6E2E91; --brand2: #521F6E; --brandSoft: #F3E9F9; --head: #4D2166; --glow: #F5C2FF; --me: #6E2E91; --onBrand: #FFFFFF; --page: #EDE6F2; --app: #FFFFFF; --chat: #F7F2FA; --cell: #FFFFFF; --ink: #1E1424; --ink2: #6B5C74; --hair: #ECE3F1; --them: #FFFFFF; --dark: #1E1424; --onDark: #FFFFFF; }
+@media (prefers-color-scheme: dark) { :root[data-palette="jamun"]:not([data-theme="light"]) { --brand: #D7A6F2; --brand2: #EBCBFA; --brandSoft: #3A2149; --head: #1C1123; --glow: #F5C2FF; --me: #6E2E91; --onBrand: #24102F; --page: #0C070F; --app: #150D1A; --chat: #110A15; --cell: #21162B; --ink: #F2EAF6; --ink2: #B3A3BD; --hair: #33243D; --them: #21162B; --dark: #F2EAF6; --onDark: #150D1A; color-scheme: dark; }
+}
+:root[data-theme="dark"][data-palette="jamun"] { --brand: #D7A6F2; --brand2: #EBCBFA; --brandSoft: #3A2149; --head: #1C1123; --glow: #F5C2FF; --me: #6E2E91; --onBrand: #24102F; --page: #0C070F; --app: #150D1A; --chat: #110A15; --cell: #21162B; --ink: #F2EAF6; --ink2: #B3A3BD; --hair: #33243D; --them: #21162B; --dark: #F2EAF6; --onDark: #150D1A; color-scheme: dark; }
+.headlight { background: var(--app); color: var(--ink); padding: 16px 12px 8px 16px; display: flex; align-items: center; gap: 4px; flex: none; border-bottom: 1px solid var(--hair); }
+.headlight .title { font-size: 28px; flex: 1; }
+.homelist { min-height: calc(100% + 60px); }
+.pullsearch { height: 60px; box-sizing: border-box; padding: 8px 14px; display: flex; align-items: center; }
+.pullsearch input { flex: 1; min-height: 44px; border-radius: 22px; border: 0; background: var(--chat); color: var(--ink); padding: 0 16px 0 40px; font: 16px var(--body); }
+.pullsearch .ic { position: absolute; margin-left: 12px; color: var(--ink2); display: flex; }
+.swatch { width: 100%; border: 2px solid var(--hair); background: var(--cell); border-radius: 16px; padding: 12px; display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.swatch.on { border-color: var(--ink); }
+.sw { display: flex; } .sw span { width: 26px; height: 26px; border-radius: 13px; box-shadow: 0 0 0 2px var(--cell); }
+.sw span + span { margin-left: -8px; }
+.needbar { margin: 10px 14px 0; width: calc(100% - 28px); border: 0; border-radius: 16px; background: var(--waitSoft); color: var(--ink); padding: 10px 12px; display: flex; align-items: center; gap: 12px; min-height: 56px; }
+.needn { min-width: 30px; height: 30px; border-radius: 15px; background: var(--waitEdge); color: #3A2600; font-weight: 800; display: flex; align-items: center; justify-content: center; flex: none; }
+
+/* ---------- Polished look ---------- */
+.hsq { display: none; }
+.screen { flex: 1; display: flex; flex-direction: column; min-height: 0; position: relative; }
+.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; padding: 24px; color: var(--ink2); }
+:root[data-look="polished"] .name, :root[data-look="polished"] .li .t b { font-family: var(--display); font-weight: 700; letter-spacing: -0.01em; }
+:root[data-look="polished"] .head { background: var(--app) !important; color: var(--ink); border-bottom: 1px solid var(--hair); padding: 8px 8px 0; gap: 4px; }
+:root[data-look="polished"] .head .sub { color: var(--ink2); opacity: 1; }
+:root[data-look="polished"] .head .title { font-size: 21px; }
+:root[data-look="polished"] .hsq { display: flex; width: 40px; height: 40px; border-radius: 12px; color: #FFFFFF; align-items: center; justify-content: center; font: 800 17px var(--display); flex: none; margin-right: 4px; }
+:root[data-look="polished"] .tabs { margin: 2px 8px 10px; background: var(--chat); border-radius: 12px; padding: 3px; gap: 2px; }
+:root[data-look="polished"] .tab { flex: 1; color: var(--ink2); opacity: 1; border-bottom: 0; border-radius: 10px; min-height: 38px; font-size: 13px; padding: 0 6px; }
+:root[data-look="polished"] .tab.on { background: var(--cell); color: var(--ink); box-shadow: 0 1px 3px rgba(20,10,30,0.12); }
+:root[data-look="polished"] .headlight { border-bottom: 0; padding: 18px 10px 6px 18px; transition: padding 0.2s; }
+:root[data-look="polished"] .headlight .title { font-size: 36px; letter-spacing: -0.03em; transition: font-size 0.2s ease; }
+:root[data-look="polished"] .headlight.small { border-bottom: 1px solid var(--hair); padding-top: 10px; }
+:root[data-look="polished"] .headlight.small .title { font-size: 21px; }
+:root[data-look="polished"] .card { box-shadow: none; border: 1px solid var(--hair); border-radius: 22px; padding: 14px 16px; }
+:root[data-look="polished"] .card.waiting { border: 1.5px solid var(--waitEdge); background: linear-gradient(var(--waitSoft), var(--waitSoft)) top / 100% 0 no-repeat, var(--cell); }
+:root[data-look="polished"] .card > .tag:first-child { display: flex; align-items: center; gap: 7px; padding-bottom: 9px; margin-bottom: 2px; border-bottom: 1px solid var(--hair); }
+:root[data-look="polished"] .card > .tag:first-child::before { content: ""; width: 8px; height: 8px; border-radius: 4px; background: currentColor; flex: none; }
+:root[data-look="polished"] .msgs { gap: 6px; padding-top: 18px; }
+:root[data-look="polished"] .b { border-radius: 20px; padding: 9px 14px; }
+:root[data-look="polished"] .b.them { border: 1px solid var(--hair); border-top-left-radius: 6px; }
+:root[data-look="polished"] .b.me { border-top-right-radius: 6px; }
+:root[data-look="polished"] .ava { background-image: linear-gradient(150deg, rgba(255,255,255,0.45), rgba(255,255,255,0) 60%); box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05); }
+:root[data-look="polished"] .sq, :root[data-look="polished"] .hsq { background-image: linear-gradient(150deg, rgba(255,255,255,0.28), rgba(255,255,255,0) 65%); }
+:root[data-look="polished"] .spacerow { border-radius: 22px; }
+:root[data-look="polished"] .chatrow.sel { background: var(--brandSoft); border-radius: 18px; }
+:root[data-look="polished"] .composer { background: var(--app); }
+:root[data-look="polished"] .composer input { background: var(--chat); border-color: transparent; }
+:root[data-look="polished"] .needbar { border: 1.5px solid var(--waitEdge); }
+:root[data-look="polished"] .pill { border-color: transparent; background: var(--chat); }
+:root[data-look="polished"] .pill.on { background: var(--brand); }
+:root[data-look="polished"] .sheet { border-radius: 28px 28px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,0.18); }
+:root[data-look="polished"] .toast { border-radius: 18px; }
+:root[data-look="polished"] button { transition: transform 0.12s ease, background-color 0.2s ease; }
+:root[data-look="polished"] button:active { transform: scale(0.97); }
+@media (prefers-reduced-motion: no-preference) {
+  :root[data-look="polished"] .enter-fwd { animation: inR 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  :root[data-look="polished"] .enter-back { animation: inL 0.32s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  :root[data-look="polished"] .sheet.rise { animation: rise 0.42s cubic-bezier(0.18, 1.2, 0.4, 1); }
+  @keyframes inR { from { transform: translateX(28%); opacity: 0.4; } to { transform: none; opacity: 1; } }
+  @keyframes inL { from { transform: translateX(-18%); opacity: 0.5; } to { transform: none; opacity: 1; } }
+  @keyframes rise { from { transform: translateY(100%); } to { transform: none; } }
+}
+/* Two panes on a laptop: chats on the left, the open chat on the right. */
+.phone.desk { width: min(1180px, calc(100vw - 320px)); flex-direction: row; border-radius: 22px; }
+.phone.desk .pane { display: flex; flex-direction: column; min-height: 0; position: relative; overflow: hidden; }
+.phone.desk .pane.left { width: 380px; flex: none; border-right: 1px solid var(--hair); }
+.phone.desk .pane.right { flex: 1; min-width: 0; background: var(--chat); }
+@media (min-width: 1000px) { :root[data-look="polished"] .guide { width: 240px; } }
+
+.toast { position: absolute; left: 16px; right: 16px; bottom: 90px; background: var(--dark); color: var(--onDark); border-radius: 14px; padding: 12px 14px; font-size: 14px; font-weight: 700; z-index: 6; }
+.fab { position: absolute; right: 16px; bottom: 20px; width: 56px; height: 56px; border-radius: 18px; border: 0; background: var(--brand); color: var(--onBrand); display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,0.2); z-index: 2; }
+.dark-hero { background: var(--dark); color: var(--onDark); border-radius: 20px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.dark-hero .muted { color: inherit; opacity: 0.75; }
+@media (prefers-reduced-motion: no-preference) { .pop { animation: pop 0.22s ease-out; } @keyframes pop { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } } }
+</style>
+
+<div class="wrap">
+  <aside class="guide">
+    <h1>Gigspree, chats first</h1>
+    <p>A clickable prototype of options 2, 6 and 7: chats are the home, answers in the chat work like small apps, and you can see the assistant at work. Made-up data; nothing is saved.</p>
+    <ol>
+      <li>Pull the list down for search. The two-dot button (top right) has colours and the Now / Polished switch.</li><li>Tap "things need you" at the top and work through them.</li>
+      <li>Open <b>Building</b>: its Chat tab lists its chats (Committee is private to 4 people); in Everyone, save Arjun's message as a complaint, open Visitors and add one.</li>
+      <li>In Building › Flows, open <b>Collect November dues</b>.</li>
+      <li>Open <b>Assistant</b>: tap the bars, change the split, try the suggestion chips or type "spent 450 on chai".</li>
+      <li>Open <b>Family</b> and settle up.</li>
+    </ol>
+    <div class="row">
+      <button class="pill" data-act="theme" data-arg="light" type="button">Light</button>
+      <button class="pill" data-act="theme" data-arg="dark" type="button">Dark</button>
+      <button class="pill" data-act="restart" type="button">Start over</button>
+    </div>
+  </aside>
+  <main class="phone" id="app" aria-live="polite"></main>
+</div>
+
+<script>
+(function () {
+  var I = {
+    back: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>',
+    search: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>',
+    send: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
+    plus: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+    edit: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+    hash: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M5 9h14M5 15h14M10 4L8 20M16 4l-2 16"/></svg>',
+    lock: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+    chev: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>'
+  };
+  var inr = function (n) { return '₹' + Math.round(n).toLocaleString('en-IN'); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  function fresh() {
+    return {
+      stack: [{ s: 'home' }], filter: 'all', sheet: null, toast: '',
+      visitor: null, saved: false, notThat: false, caught: false,
+      tab: 'chat', ftab: 'chat', topic: 'everyone',
+      visitors: [
+        { id: 'v1', name: 'Ravi Kumar', flat: 'B-204', purpose: 'Guest', status: 'Waiting', at: '7:41 pm' },
+        { id: 'v2', name: 'Courier', flat: 'A-101', purpose: 'Delivery', status: 'Inside', at: '7:20 pm' },
+        { id: 'v3', name: 'Sunita', flat: 'A-207', purpose: 'Cleaning', status: 'Inside', at: '9:00 am' },
+        { id: 'v4', name: 'Plumber', flat: 'B-110', purpose: 'Repair', status: 'Left', at: '11:10 am' }
+      ],
+      visFilter: 'all', draft: { name: '', flat: 'B-204', purpose: 'Guest' },
+      cat: null, who: { You: true, Priya: true, Dev: true }, tip: 10, splitSaved: false, choice: null,
+      extra: [], wfDone: false, settled: false, potluck: false, voted: null,
+      job: { paused: false, ask: 'waiting', detail: false },
+      lift: [{ who: 'Neha · A-101', text: 'Technician says the motor needs a new belt.' }, { who: 'You', text: 'Approve ₹8,000 for the repair?', me: true }]
+    };
+  }
+  var st = fresh();
+  var palette = 'jamun';
+  try { palette = localStorage.getItem('gs-palette2') || 'jamun'; } catch (e) {}
+  function setPalette(p) { palette = p; if (p === 'teal') document.documentElement.removeAttribute('data-palette'); else document.documentElement.setAttribute('data-palette', p); try { localStorage.setItem('gs-palette2', p); } catch (e) {} }
+  setPalette(palette);
+  var look = 'polished';
+  try { look = localStorage.getItem('gs-look') || 'polished'; } catch (e) {}
+  function setLook(l) { look = l; document.documentElement.setAttribute('data-look', l); try { localStorage.setItem('gs-look', l); } catch (e) {} }
+  setLook(look);
+  var app = document.getElementById('app');
+  function top() { return st.stack[st.stack.length - 1]; }
+  function go(s, arg) { if (desk() && st.stack.length > 1 && isRoot(s)) st.stack = [st.stack[0]]; st.stack.push({ s: s, arg: arg }); st.sheet = null; st.nav = 'fwd'; render(true); }
+  function back() { if (st.stack.length > 1) st.stack.pop(); st.sheet = null; st.nav = 'back'; render(true); }
+  function isRoot(s) { return ['assistant', 'building', 'family', 'priya', 'cricket', 'needs'].indexOf(s) > -1; }
+  function desk() { return look === 'polished' && window.innerWidth >= 1000; }
+  function toast(t) { st.toast = t; render(); clearTimeout(toast.id); toast.id = setTimeout(function () { st.toast = ''; render(); }, 2200); }
+
+  // ---------- screens ----------
+  function home() {
+    var f = st.filter;
+    var spaces = [
+      { id: 'building', name: 'Building', color: 'var(--brand)', soft: 'var(--brandSoft)', ink: 'var(--brand2)', letter: 'B', unread: st.caught ? 0 : 3, time: '7:42 pm',
+        stats: [[st.visitor === null ? 'wait' : 'ok', st.visitor === null ? '1 waiting on you' : 'Nothing waiting'], ['', (st.visitor === 'yes' ? 4 : 3) + ' inside now'], ['', (st.saved ? 3 : 2) + ' complaints']],
+        last: st.caught ? 'You: Thanks Neha!' : 'Neha: Lift is working again!', people: '12 people · 3 lists · 2 flows' },
+      { id: 'family', name: 'Family', color: 'var(--a1t)', soft: 'var(--a1)', ink: 'var(--a1t)', letter: 'F', unread: 1, time: '6:10 pm',
+        stats: [['', 'Potluck Fri · 6 of 9'], ['', st.settled ? 'All settled' : 'You owe ₹129']],
+        last: "Mom: I'll bring the kheer on Friday", people: '6 people · 2 lists' }
+    ];
+    var chats = [
+      { id: 'priya', name: 'Priya', kind: 'person', last: st.settled ? 'You: Sent ₹129, thanks!' : 'You owe ₹129 for the cab', time: st.settled ? 'now' : 'Yesterday', faces: [['P', 'var(--a2)', 'var(--a2t)']] },
+      { id: 'cricket', name: 'Sunday cricket', kind: 'group', last: 'Dev: 7 am at the ground?', time: 'Mon', faces: [['D', 'var(--a3)', 'var(--a3t)'], ['K', 'var(--a2)', 'var(--a2t)'], ['+9', 'var(--chat)', 'var(--ink2)']] }
+    ];
+    var showSpaces = f === 'all' || f === 'spaces' || (f === 'unread');
+    var showChats = f === 'all' || f === 'chats';
+    var nd = needList();
+    var waiting = nd.length ? '<button type="button" class="needbar pop" data-act="go" data-arg="needs"><span class="needn">' + nd.length + '</span><span style="flex:1;min-width:0;display:flex;flex-direction:column;text-align:left"><b>' + (nd.length === 1 ? '1 thing needs you' : nd.length + ' things need you') + '</b><span class="last">' + esc(nd[0].title) + '</span></span>' + I.chev + '</button>' : '';
+    var h = '<div class="headlight"><span class="title">Chats</span>' +
+      '<button type="button" class="icon" aria-label="Search" data-act="search">' + I.search + '</button>' +
+      '<button type="button" class="icon" aria-label="Colours" data-act="sheet" data-arg="colours"><span class="sw"><span style="background:var(--brand)"></span><span style="background:var(--glow)"></span></span></button></div>' +
+      '<div class="scroll"><div class="homelist"><div class="pullsearch"><span class="ic">' + I.search + '</span><input id="homeq" type="search" aria-label="Search chats, people and lists" placeholder="Search chats, people and lists" autocomplete="off"></div>' + waiting +
+      '<div class="row" style="gap:6px;padding:12px 14px 4px;overflow-x:auto">' + ['all:All', 'unread:Unread', 'spaces:Spaces', 'chats:Chats'].map(function (p) { var k = p.split(':'); return '<button type="button" class="pill' + (f === k[0] ? ' on' : '') + '" data-act="filter" data-arg="' + k[0] + '">' + k[1] + '</button>'; }).join('') + '</div>';
+    // The assistant: one dark card of its own, never a chat row.
+    if (f === 'all') h += '<button type="button" class="aicard" data-act="open" data-arg="assistant"><span class="aiicon">✦</span><span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;text-align:left"><b style="font-size:16px">Assistant</b><span style="font-size:14px;opacity:0.8">This week: electricity ₹2,340 Mon, society meeting Wed</span></span>' + I.chev + '</button>';
+    // One list, newest activity first (the assistant stays pinned above it); each kind keeps its own look.
+    var items = spaces.map(function (x) { return { kind: 'space', x: x, at: x.id === 'building' ? (st.caught ? 1 : 2) : 4 }; })
+      .concat(chats.map(function (c) { return { kind: c.kind, x: c, at: c.id === 'priya' ? (st.settled ? 0 : 5) : 6 }; }))
+      .filter(function (it) {
+        if (f === 'all') return true;
+        if (f === 'unread') return it.kind === 'space' && it.x.unread;
+        if (f === 'spaces') return it.kind === 'space';
+        return it.kind !== 'space';
+      })
+      .sort(function (a, b) { return a.at - b.at; });
+    h += '<div style="height:6px"></div>' + items.map(function (it) {
+      var x = it.x;
+      if (it.kind === 'space')
+        return '<button type="button" class="chatrow spacerow' + (openId() === x.id ? ' sel' : '') + '" data-name="' + esc((x.name + ' ' + x.last).toLowerCase()) + '" data-act="open" data-arg="' + x.id + '" style="background:' + x.soft + '"><span class="stack"><span class="sq" style="background:' + x.color + '">' + x.letter + '</span></span><span class="meta" style="gap:6px"><span class="top"><span class="name">' + x.name + ' <span class="muted" style="font-weight:600">· space</span></span><span class="time' + (x.unread ? ' new' : '') + '">' + x.time + '</span></span>' +
+          '<span class="chips">' + x.stats.map(function (s) { return '<span class="stat' + (s[0] === 'wait' ? ' w' : '') + '">' + s[1] + '</span>'; }).join('') + '</span>' +
+          '<span class="bot"><span class="last">' + esc(x.last) + '</span>' + (x.unread ? '<span class="badge">' + x.unread + '</span>' : '') + '</span></span></button>';
+      var faces = x.faces.length === 1 ? '<span class="stack"><span class="ava" style="background:' + x.faces[0][1] + ';color:' + x.faces[0][2] + '">' + x.faces[0][0] + '</span></span>'
+        : '<span class="stack">' + x.faces.map(function (y, i) { return '<span class="ava sm" style="background:' + y[1] + ';color:' + y[2] + ';' + (i ? 'margin-left:-12px;' : '') + 'box-shadow:0 0 0 2px var(--app)">' + y[0] + '</span>'; }).join('') + '</span>';
+      return '<button type="button" class="chatrow' + (openId() === x.id ? ' sel' : '') + '" data-name="' + esc((x.name + ' ' + x.last).toLowerCase()) + '" data-act="open" data-arg="' + x.id + '">' + faces + '<span class="meta"><span class="top"><span class="name" style="font-size:15px">' + x.name + '</span><span class="time">' + x.time + '</span></span><span class="bot"><span class="last">' + esc(x.last) + '</span></span></span></button>';
+    }).join('');
+    h += '<p class="muted" style="margin:14px 16px 100px;padding-right:72px">A group chat becomes a space once it has lists. Archived · 4</p></div></div>' +
+      '<button type="button" class="fab" aria-label="New chat or space" data-act="sheet" data-arg="new">' + I.edit + '</button>';
+    return h;
+  }
+
+
+  function openId() { return desk() && st.stack[1] ? st.stack[1].s : null; }
+  function needList() {
+    var l = [];
+    if (st.visitor === null) l.push({ id: 'visitor', where: 'Building · Visitor approval', title: 'Ravi Kumar is at the gate for B-204' });
+    if (st.job.ask === 'waiting') l.push({ id: 'dues', where: 'Building · Collect dues', title: 'Send a second reminder to 14 flats?' });
+    if (!st.voted) l.push({ id: 'poll', where: 'Building › Committee', title: 'Vote: repaint with Shree Painters, ₹1.8 lakh?' });
+    if (!st.potluck) l.push({ id: 'potluck', where: 'Family · Diwali potluck', title: 'Say what you will bring on Friday' });
+    return l;
+  }
+  function pollCard() {
+    return '<div class="card wide"><span class="tag" style="color:var(--wait)">Vote · ' + (st.voted ? '4 of 4' : '3 of 4') + ' voted</span><b>Repaint with Shree Painters, ₹1.8 lakh?</b>' +
+      (st.voted ? '<b style="color:var(--good)">You voted ' + st.voted + '. Passed 4 to 0.</b>' : '<div class="row"><button type="button" class="btn primary" style="flex:1" data-act="vote" data-arg="Yes">Yes</button><button type="button" class="btn soft" style="flex:1" data-act="vote" data-arg="No">No</button></div>') + '</div>';
+  }
+  function needs() {
+    var l = needList();
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span style="display:flex;flex-direction:column;flex:1"><span class="title">Needs you</span><span class="sub">' + (l.length ? l.length + ' waiting, oldest first' : 'All done') + '</span></span></div></div><div class="scroll"><div class="msgs" style="gap:12px">';
+    if (!l.length) h += '<div class="card wide"><b>You are all caught up.</b><span class="muted">New questions and approvals show up here and on the bar at the top of Chats.</span></div>';
+    l.forEach(function (n) {
+      var acts = n.id === 'visitor' ? '<button class="btn primary" style="flex:1" data-act="visitor" data-arg="yes" type="button">Let in</button><button class="btn soft" style="flex:1" data-act="visitor" data-arg="no" type="button">Not now</button>'
+        : n.id === 'dues' ? '<button class="btn primary" style="flex:1" data-act="jobsend" type="button">Send to 14</button><button class="btn soft" style="flex:1" data-act="go" data-arg="job" type="button">See the job</button>'
+        : n.id === 'poll' ? '<button class="btn primary" style="flex:1" data-act="vote" data-arg="Yes" type="button">Yes</button><button class="btn soft" style="flex:1" data-act="vote" data-arg="No" type="button">No</button>'
+        : '<button class="btn primary" style="flex:1" data-act="potluck" type="button">I\'ll bring sweets</button><button class="btn soft" style="flex:1" data-act="go" data-arg="familychat" type="button">Open the chat</button>';
+      h += '<div class="card wide waiting pop"><span class="tag" style="color:var(--wait)">' + n.where + '</span><b style="font-size:16px">' + n.title + '</b><div class="row">' + acts + '</div></div>';
+    });
+    return h + '</div></div>';
+  }
+  function msgCardVisitor() {
+    if (st.visitor === null)
+      return '<div class="card waiting wide pop"><span class="tag" style="color:var(--wait)">Visitor approval · for you</span><b style="font-size:16px">Ravi Kumar is at the gate for B-204</b><span class="muted">Guest · asked 6 min ago · only you can answer</span><div class="row"><button class="btn primary" style="flex:1" data-act="visitor" data-arg="yes" type="button">Let in</button><button class="btn soft" style="flex:1" data-act="visitor" data-arg="no" type="button">Not now</button></div></div>';
+    return '<div class="card wide pop"><span class="tag" style="color:var(--good)">Visitor approval</span><b>Ravi Kumar, B-204: ' + (st.visitor === 'yes' ? 'let in' : 'not let in') + ' by you</b><span class="muted">Everyone sees this. The guard has been told.</span></div>';
+  }
+
+  function building() {
+    var tabs = [['chat', 'Chats · 3'], ['lists', 'Lists · 3'], ['flows', 'Flows · 2'], ['people', 'People · 12']];
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span class="hsq" style="background:var(--brand)">B</span><span style="display:flex;flex-direction:column;flex:1"><span class="title">Building</span><span class="sub">12 people · you\'re an admin</span></span></div><div class="tabs" role="tablist">' +
+      tabs.map(function (t) { return '<button type="button" role="tab" class="tab' + (st.tab === t[0] ? ' on' : '') + '" aria-selected="' + (st.tab === t[0]) + '" data-act="tab" data-arg="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div></div>';
+    if (st.tab === 'chat') {
+      var rows = [
+        ['everyone', 'Everyone', 'All 12 people', st.caught ? 'You: Thanks Neha!' : 'Neha: Lift is working again!', st.caught ? 0 : 3, '7:42 pm', false],
+        ['lift', 'Lift repair', 'All 12 people', 'You: Approve ₹8,000 for the repair?', 0, '6:05 pm', false],
+        ['committee', 'Committee', '4 people · private', 'Arjun: Repainting quotes are in', 1, 'Mon', true]
+      ];
+      h += '<div class="scroll"><div class="list">' + rows.map(function (r) {
+        return '<button type="button" class="li" data-act="topicopen" data-arg="' + r[0] + '"><span class="ava sm" style="background:' + (r[6] ? 'var(--a2)' : 'var(--brandSoft)') + ';color:' + (r[6] ? 'var(--a2t)' : 'var(--brand2)') + '">' + (r[6] ? I.lock : I.hash) + '</span>' +
+          '<span class="t"><span class="line"><b>' + r[1] + '</b><span class="time' + (r[4] ? ' new' : '') + '">' + r[5] + '</span></span><span class="muted">' + r[2] + '</span><span class="line"><span class="last" style="flex:1">' + esc(r[3]) + '</span>' + (r[4] ? '<span class="badge">' + r[4] + '</span>' : '') + '</span></span></button>';
+      }).join('') +
+        '<button type="button" class="li" data-act="sheet" data-arg="topic"><span class="ava sm" style="background:var(--chat);color:var(--ink2)">' + I.plus + '</span><span class="t"><b>New chat in Building</b><span class="muted">For a topic, for everyone or some people</span></span></button></div>' +
+        '<p class="muted" style="margin:12px 16px">Every chat here can use Building\'s lists. A private chat is seen only by its people.</p></div>';
+    } else if (st.tab === 'lists') {
+      h += '<div class="scroll"><div class="list">' + [['Visitors', '128 · 1 waiting', 'visitors'], ['Complaints', st.saved ? '15 · 3 open' : '14 · 2 open', ''], ['Flats', '42', '']].map(function (l) {
+        return '<button type="button" class="li" data-act="' + (l[2] ? 'go' : 'toast') + '" data-arg="' + (l[2] || 'This list opens like Visitors') + '"><span class="ava sm" style="background:var(--brandSoft);color:var(--brand2)">' + l[0][0] + '</span><span class="t"><b>' + l[0] + '</b><span class="muted">' + l[1] + '</span></span>' + I.chev + '</button>';
+      }).join('') + '</div><p class="muted" style="margin:12px 16px">New lists are made in the chat: "keep a list of parking stickers".</p></div>';
+    } else if (st.tab === 'flows') {
+      h += '<div class="scroll"><div class="list"><button type="button" class="li" data-act="toast" data-arg="Opens its diagram, Try it and what it did"><span class="ava sm" style="background:var(--brandSoft);color:var(--brand2)">V</span><span class="t"><b>Visitor approval</b><span class="muted">Ask the flat, tell the guard</span></span><span class="st g">On</span></button>' +
+        '<button type="button" class="li" data-act="go" data-arg="job"><span class="ava sm" style="background:var(--waitSoft);color:var(--wait)">₹</span><span class="t"><b>Collect November dues</b><span class="muted">' + (st.job.paused ? 'Paused' : 'Working') + ' · 28 of 42 paid' + (st.job.ask === 'waiting' ? ' · needs your OK' : '') + '</span></span>' + I.chev + '</button></div></div>';
+    } else {
+      h += '<div class="scroll"><div class="list">' + [['You', 'Admin', 'Y'], ['Neha · A-101', 'Admin · resident', 'N'], ['Arjun · B-110', 'Resident', 'A'], ['Sanjay', 'Guard · sees visitors only', 'S'], ['Mehta · A-103', 'Resident', 'M']].map(function (p) {
+        return '<div class="li"><span class="ava sm" style="background:var(--chat);color:var(--ink2)">' + p[2] + '</span><span class="t"><b>' + p[0] + '</b><span class="muted">' + p[1] + '</span></span></div>';
+      }).join('') + '</div><div style="padding:12px 16px"><button type="button" class="btn soft" data-act="toast" data-arg="Join link copied (prototype)">Invite with a link</button></div></div>';
+    }
+    return h;
+  }
+
+
+  function topic(id) {
+    st.topic = id;
+    var names = { everyone: ['Everyone', 'All 12 people'], lift: ['Lift repair', 'All 12 people'], committee: ['Committee', '4 people · private'] };
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span style="display:flex;flex-direction:column;flex:1"><span class="sub">Building</span><span class="title">' + names[id][0] + '</span><span class="sub">' + names[id][1] + '</span></span></div></div>';
+    h += '<div class="scroll"><div class="msgs">';
+      if (id === 'everyone') {
+        if (!st.caught) h += '<div class="card wide pop" style="background:var(--brandSoft)"><span class="tag" style="color:var(--brand2)">While you were away · 3 new</span><span>Neha says the <b>lift is fixed</b>. Arjun reports the <b>water tank alarm</b>. <b>A visitor is waiting on you.</b></span><div class="row"><button type="button" class="btn primary" data-act="caught">Got it</button></div></div>';
+        h += '<div class="b them"><span class="who" style="color:var(--a1t)">Neha · A-101</span>Lift is working again!<span class="muted" style="text-align:right">7:30 pm</span></div>';
+        h += '<div class="b them"><span class="who" style="color:var(--a2t)">Arjun · B-110</span>The water tank alarm went off again tonight' +
+          (st.saved ? '<span class="st g" style="align-self:flex-start">Saved to Complaints</span>' : st.notThat ? '' : '<span class="row" style="gap:6px;flex-wrap:wrap"><button type="button" class="pill" style="background:var(--brandSoft);color:var(--brand2);border:0" data-act="save">+ Add to Complaints</button><button type="button" class="btn ghost" style="min-height:36px;font-size:13px" data-act="notthat">Not that</button></span>') +
+          '<span class="muted" style="text-align:right">7:38 pm</span></div>';
+        h += msgCardVisitor();
+      } else if (id === 'lift') {
+        h += st.lift.map(function (m) { return '<div class="b ' + (m.me ? 'me' : 'them') + '">' + (m.me ? '' : '<span class="who" style="color:var(--a1t)">' + m.who + '</span>') + esc(m.text) + '</div>'; }).join('');
+        h += '<div class="card wide"><span class="tag" style="color:var(--wait)">Poll · 3 of 4 voted</span><b>Approve ₹8,000 for the lift belt?</b><div class="line"><span>Yes</span><b>3</b></div><span class="track"><span class="fill" style="width:75%;background:var(--brand)"></span></span><div class="line"><span>No</span><b>0</b></div></div>';
+      } else {
+        h += '<div class="b them"><span class="who" style="color:var(--a2t)">Arjun · B-110</span>Repainting quotes are in: ₹1.8 lakh and ₹2.2 lakh</div><div class="b me">Can we see them side by side?</div>' +
+          '<div class="card wide"><span class="tag" style="color:var(--brand2)">Shared by you · from the assistant</span><b>Repainting quotes</b><div class="line"><span>Shree Painters</span><b>₹1,80,000 · 3 weeks</b></div><div class="line"><span>ColourCraft</span><b>₹2,20,000 · 2 weeks</b></div><span class="muted">Only the 4 committee members see this chat.</span></div>' + pollCard();
+      }
+    h += '</div></div><div class="composer"><input id="bmsg" aria-label="Message" placeholder="Message ' + names[id][0] + '"><button type="button" class="round dark" aria-label="Ask the assistant privately" data-act="sheet" data-arg="private">✦</button></div>';
+    return h;
+  }
+
+  function visitors() {
+    var f = st.visFilter;
+    var rows = st.visitors.filter(function (v) { return f === 'all' || (f === 'inside' && v.status === 'Inside') || (f === 'waiting' && v.status === 'Waiting'); });
+    return '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span class="title" style="flex:1">Visitors</span><button type="button" class="btn" style="background:var(--onHead);color:var(--head);min-height:40px" data-act="sheet" data-arg="add">+ Add</button></div></div>' +
+      '<div class="topics">' + [['all', 'All'], ['inside', 'Inside now'], ['waiting', 'Waiting']].map(function (p) { return '<button type="button" class="pill' + (f === p[0] ? ' on' : '') + '" data-act="visfilter" data-arg="' + p[0] + '">' + p[1] + '</button>'; }).join('') + '</div>' +
+      '<div class="scroll"><div class="list">' + rows.map(function (v) {
+        var cls = v.status === 'Waiting' ? 'w' : v.status === 'Inside' ? 'g' : 'n';
+        return '<button type="button" class="li" data-act="record" data-arg="' + v.id + '"><span class="t"><b>' + esc(v.name) + '</b><span class="muted">' + v.flat + ' · ' + v.purpose + ' · ' + v.at + '</span></span><span class="st ' + cls + '">' + v.status + '</span></button>';
+      }).join('') + '</div><p class="muted" style="margin:12px 16px">Adding works offline; it syncs when you are back online.</p></div>';
+  }
+
+  function assistant() {
+    var cats = [['Food', 6200, 'var(--brand)', [['Monthly groceries', 2400], ['Dinner out', 1500], ['Vegetables', 900]]], ['Bills', 5340, 'var(--waitEdge)', [['Electricity', 2340], ['Internet', 1200], ['Gas', 1100]]], ['Travel', 3900, 'var(--a2t)', [['Petrol', 2000], ['Cab to airport', 1100], ['Metro card', 800]]], ['Home', 3010, 'var(--a1t)', [['Plumber', 1200], ['Cleaning', 1000], ['Bulbs', 810]]]];
+    var picked = cats.filter(function (c) { return c[0] === st.cat; })[0];
+    var names = ['You', 'Priya', 'Dev']; var n = names.filter(function (x) { return st.who[x]; }).length || 1; var total = 4500 * (1 + st.tip / 100);
+    var h = '<div class="head" style="background:var(--dark);color:var(--onDark)"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span style="display:flex;flex-direction:column;flex:1"><span class="title">Assistant</span><span class="sub" style="color:var(--glow)">only you see this · Personal</span></span><button type="button" class="pill" style="background:transparent;color:inherit;border-color:rgba(127,227,211,0.4)" data-act="toast" data-arg="Your chats with the assistant: new chat, past chats">Chats</button></div></div>';
+    h += '<div class="scroll"><div class="msgs">';
+    h += '<div class="b me">How much did we spend this month?</div>';
+    h += '<div class="card wide"><div class="line"><span class="muted" style="font-weight:700">Personal · October</span><span class="muted">live</span></div><span class="big">₹18,450</span>' +
+      cats.map(function (c) { return '<button type="button" class="barbtn" data-act="cat" data-arg="' + c[0] + '"><span class="line" style="font-weight:700;width:100%"><span>' + c[0] + '</span><span>' + inr(c[1]) + '</span></span><span class="track" style="width:100%"><span class="fill" style="width:' + Math.round(c[1] / 62) + '%;background:' + (st.cat && st.cat !== c[0] ? 'var(--hair)' : c[2]) + '"></span></span></button>'; }).join('') +
+      (picked ? '<div class="pop" style="background:var(--chat);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:6px"><b style="font-size:13px">' + picked[0] + ': the biggest three</b>' + picked[3].map(function (r) { return '<div class="line"><span>' + r[0] + '</span><b>' + inr(r[1]) + '</b></div>'; }).join('') + '</div>' : '<span class="muted">Tap a bar to see what is in it.</span>') +
+      '<div class="row" style="gap:6px;flex-wrap:wrap"><button type="button" class="pill" data-act="toast" data-arg="September was ₹16,900: up ₹1,550">Compare with September</button><button type="button" class="pill" data-act="toast" data-arg="Pinned to the top of the Assistant">Pin it</button></div></div>';
+    h += '<div class="b me">Split last night\'s dinner, ₹4,500, with Priya and Dev</div>';
+    h += '<div class="card wide"><span class="muted" style="font-weight:700">Dinner · ₹4,500</span><b style="font-size:13px">Who shared it?</b><div class="row" style="gap:6px;flex-wrap:wrap">' +
+      names.map(function (x) { return '<button type="button" class="pill' + (st.who[x] ? ' on' : '') + '" aria-pressed="' + st.who[x] + '" data-act="who" data-arg="' + x + '" style="min-height:44px;font-size:15px">' + x + '</button>'; }).join('') + '</div><b style="font-size:13px">Tip</b><div class="row" style="gap:6px">' +
+      [0, 5, 10].map(function (t) { return '<button type="button" class="pill' + (st.tip === t ? ' on' : '') + '" data-act="tip" data-arg="' + t + '" style="flex:1;justify-content:center;min-height:44px;font-size:15px">' + (t ? t + '%' : 'No tip') + '</button>'; }).join('') + '</div>' +
+      '<div class="line" style="border-top:1px solid var(--hair);padding-top:8px;align-items:baseline"><span class="muted">' + inr(total) + ' · ' + n + ' people · each</span><span class="big" style="font-size:26px">' + inr(total / n) + '</span></div>' +
+      (st.splitSaved ? '<b style="color:var(--good)">Added to Family expenses. Priya and Dev see what they owe. <button type="button" class="btn ghost" data-act="unsplit">Undo</button></b>' : '<button type="button" class="btn primary" data-act="split">Add to Family expenses</button>') + '</div>';
+    h += '<div class="b them" style="max-width:88%">Where should the Diwali shopping list go?' + [['family', 'Family', 'Everyone in Family sees it and can tick things off'], ['me', 'Personal', 'Only you'], ['new', 'A new space: Diwali', 'Its own chat and lists']].map(function (c) {
+      return '<button type="button" data-act="choice" data-arg="' + c[0] + '" style="text-align:left;border-radius:14px;border:2px solid ' + (st.choice === c[0] ? 'var(--brand)' : 'var(--hair)') + ';background:' + (st.choice === c[0] ? 'var(--brandSoft)' : 'var(--cell)') + ';padding:8px 12px;min-height:48px;display:flex;flex-direction:column"><b>' + c[1] + '</b><span class="muted">' + c[2] + '</span></button>';
+    }).join('') + '</div>';
+    if (st.choice) h += '<div class="b me pop">' + { family: 'Family', me: 'Personal', new: 'A new space: Diwali' }[st.choice] + '</div><div class="card wide pop"><span class="tag" style="color:var(--brand2)">New list · ' + { family: 'Family', me: 'Personal', new: 'Diwali' }[st.choice] + '</span><b>Diwali shopping</b><div class="line"><span>Diyas (24)</span><span class="st n">To buy</span></div><div class="line"><span>Sweets for neighbours</span><span class="st n">To buy</span></div><div class="line"><span>Rangoli colours</span><span class="st g">Bought</span></div><button type="button" class="pill" data-act="toast" data-arg="Opens the list">Open list ›</button></div>';
+    h += st.extra.join('');
+    h += '</div></div>';
+    h += '<div class="suggest">' + (st.wfDone ? '' : '<button type="button" class="pill" data-act="wf">Make a visitor approval flow</button>') + '<button type="button" class="pill" data-act="due">What is due this week?</button><button type="button" class="pill" data-act="spent">Spent 450 on chai</button></div>';
+    h += '<form class="composer" data-form="ask"><input id="askbox" aria-label="Ask, add or arrange" placeholder="Ask, add or arrange" autocomplete="off"><button type="submit" class="round brand" aria-label="Send">' + I.send + '</button></form>';
+    return h;
+  }
+
+  function wfCard(done) {
+    return '<div class="card wide pop"><span class="tag" style="color:var(--brand2)">Workflow · starts off</span><b style="font-size:16px">Visitor approval</b><div class="flow">' +
+      [['var(--brand)', 'A visitor is added to <b>Visitors</b>'], ['var(--waitEdge)', 'Ask the flat\'s residents: <b>Let them in?</b> First answer counts'], ['var(--ink2)', 'No answer in 10 min? Ask again'], ['var(--brand)', 'Tell the <b>Guard</b> the answer']].map(function (s, i, a) {
+        return '<div class="step"><span class="rail"><span class="dot" style="background:' + s[0] + '"></span>' + (i < a.length - 1 ? '<span class="stem"></span>' : '') + '</span><span class="txt">' + s[1] + '</span></div>';
+      }).join('') + '</div>' + (done ? '<b style="color:var(--good)">Saved, switched off. Try it with pretend people, or turn it on in Building › Flows.</b>' : '<div class="row"><button type="button" class="btn primary" style="flex:1" data-act="wfok">Looks right</button><button type="button" class="btn soft" data-act="toast" data-arg="Opens the form to change any step">Change</button></div>') + '</div>';
+  }
+
+  function job() {
+    var j = st.job;
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span style="display:flex;flex-direction:column;flex:1"><span class="sub">BUILDING · ASSISTANT JOB</span><span class="title">Collect November dues</span></span></div></div>';
+    h += '<div class="scroll"><div class="msgs" style="gap:12px">';
+    h += '<div class="dark-hero"><div class="line" style="align-items:center"><span style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px"><span style="width:8px;height:8px;border-radius:4px;background:' + (j.paused ? 'var(--ink2)' : 'var(--glow)') + '"></span>' + (j.paused ? 'Paused' : 'Working · checks payments every hour') + '</span><button type="button" class="pill" style="background:transparent;color:inherit;border-color:rgba(127,227,211,0.4)" data-act="pause">' + (j.paused ? 'Resume' : 'Pause') + '</button></div>' +
+      '<span class="big">28 of 42 flats paid</span><span class="track" style="opacity:0.9"><span class="fill" style="width:67%;background:var(--glow)"></span></span><span class="muted">₹1,40,000 of ₹2,10,000 · next reminder tomorrow 10 am</span></div>';
+    if (j.ask === 'waiting') h += '<div class="wait pop"><span class="tag">Needs your OK</span><b>Send a second reminder to the 14 flats that haven\'t paid?</b><span style="background:var(--cell);border-radius:12px;padding:10px;font-size:14px">"Hi, a reminder that November maintenance (₹5,000) is due by 5 Nov. Pay by UPI to the society account. Thanks!"</span><div class="row"><button type="button" class="btn primary" style="flex:1;background:var(--dark);color:var(--onDark)" data-act="jobsend">Send to 14</button><button type="button" class="btn soft" style="background:var(--cell)" data-act="jobskip">Not yet</button></div></div>';
+    var steps = [['Made the November list: 42 flats, ₹5,000 each', 'Fri 1 Nov, 9:00 am'], ['Reminded every flat in the Building chat', 'Fri 1 Nov, 9:02 am'], ['28 flats paid, matched to their UPI notes', 'by Mon 4 Nov']];
+    if (j.ask === 'sent') steps.push(['Second reminder sent to 14 flats', 'just now']);
+    h += '<div class="card wide"><b>What it did</b><div class="flow">' + steps.map(function (s, i, a) { return '<div class="step"><span class="rail"><span class="dot" style="background:' + (i === 3 ? 'var(--waitEdge)' : 'var(--brand)') + '"></span>' + (i < a.length - 1 ? '<span class="stem"></span>' : '') + '</span><span class="txt"><b>' + s[0] + '</b><br><span class="muted">' + s[1] + '</span></span></div>'; }).join('') + '</div>' +
+      '<button type="button" class="btn ghost" style="align-self:flex-start;padding:0" data-act="jobdetail">' + (j.detail ? 'Hide' : 'Show') + ' the 14 unpaid flats</button>' +
+      (j.detail ? '<div class="pop">' + [['A-103', 'Mehta', 'said Friday'], ['A-207', 'Iyer', ''], ['B-110', 'Arjun', 'away till 10th'], ['B-204', 'Kapoor', ''], ['B-305', 'Fernandes', 'part paid']].map(function (u) { return '<div class="line" style="min-height:44px;align-items:center;border-bottom:1px solid var(--hair)"><b style="width:56px">' + u[0] + '</b><span style="flex:1">' + u[1] + '</span><span style="color:var(--wait);font-weight:700;font-size:12px">' + u[2] + '</span></div>'; }).join('') + '<span class="muted">and 9 more</span></div>' : '') + '</div>';
+    h += '</div></div><form class="composer" data-form="jobsay"><input id="jobbox" aria-label="Tell it something" placeholder="Tell it something, e.g. B-204 paid in cash" autocomplete="off"><button type="submit" class="round brand" aria-label="Send">' + I.send + '</button></form>';
+    return h;
+  }
+
+  // A space always has the same top: Chats, Lists, Flows, People (owner, 2026-10-28).
+  function family() {
+    var tab = st.ftab;
+    var tabs = [['chat', 'Chats · 2'], ['lists', 'Lists · 2'], ['flows', 'Flows · 1'], ['people', 'People · 6']];
+    var h = '<div class="head" style="background:var(--a1t)"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span class="hsq" style="background:var(--a1t)">F</span><span style="display:flex;flex-direction:column;flex:1"><span class="title">Family</span><span class="sub">6 people · you\'re an admin</span></span></div><div class="tabs" role="tablist">' +
+      tabs.map(function (t) { return '<button type="button" role="tab" class="tab' + (tab === t[0] ? ' on' : '') + '" aria-selected="' + (tab === t[0]) + '" data-act="ftab" data-arg="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div></div>';
+    if (tab === 'chat') {
+      h += '<div class="scroll"><div class="list">' +
+        '<button type="button" class="li" data-act="go" data-arg="familychat"><span class="ava sm" style="background:var(--a1);color:var(--a1t)">' + I.hash + '</span><span class="t"><span class="line"><b>Everyone</b><span class="time new">6:10 pm</span></span><span class="muted">All 6 people</span><span class="line"><span class="last" style="flex:1">Mom: I\'ll bring the kheer on Friday</span><span class="badge">1</span></span></span></button>' +
+        '<button type="button" class="li" data-act="toast" data-arg="A private chat for 3 people (prototype)"><span class="ava sm" style="background:var(--a2);color:var(--a2t)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></span><span class="t"><span class="line"><b>Mom\'s birthday surprise</b><span class="time">Sun</span></span><span class="muted">3 people · private</span><span class="line"><span class="last" style="flex:1">Priya: Cake is ordered</span></span></span></button>' +
+        '<button type="button" class="li" data-act="sheet" data-arg="topic"><span class="ava sm" style="background:var(--chat);color:var(--ink2)">' + I.plus + '</span><span class="t"><b>New chat in Family</b><span class="muted">For a topic, for everyone or some people</span></span></button></div></div>';
+    } else if (tab === 'lists') {
+      h += '<div class="scroll"><div class="list">' + [['Shared expenses', st.settled ? '23 · all settled' : '23 · you owe ₹129'], ['Diwali potluck', st.potluck ? '7 of 9 said what they bring' : '6 of 9 said what they bring']].map(function (l) {
+        return '<button type="button" class="li" data-act="toast" data-arg="Opens the list, with + Add"><span class="ava sm" style="background:var(--a1);color:var(--a1t)">' + l[0][0] + '</span><span class="t"><b>' + l[0] + '</b><span class="muted">' + l[1] + '</span></span>' + I.chev + '</button>';
+      }).join('') + '</div></div>';
+    } else if (tab === 'flows') {
+      h += '<div class="scroll"><div class="list"><button type="button" class="li" data-act="toast" data-arg="Opens its diagram and what it did"><span class="ava sm" style="background:var(--a1);color:var(--a1t)">₹</span><span class="t"><b>Settle up on the 1st</b><span class="muted">Tells everyone who owes whom each month</span></span><span class="st g">On</span></button></div></div>';
+    } else {
+      h += '<div class="scroll"><div class="list">' + [['You', 'Admin'], ['Mom', 'Admin'], ['Dad', 'Member'], ['Dev', 'Member'], ['Priya', 'Member'], ['Nani', 'Member · sees the potluck only']].map(function (x) {
+        return '<div class="li"><span class="ava sm" style="background:var(--chat);color:var(--ink2)">' + x[0][0] + '</span><span class="t"><b>' + x[0] + '</b><span class="muted">' + x[1] + '</span></span></div>';
+      }).join('') + '</div></div>';
+    }
+    return h;
+  }
+
+  function familyChat() {
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span style="display:flex;flex-direction:column;flex:1"><span class="sub">Family</span><span class="title">Everyone</span><span class="sub">All 6 people</span></span></div></div>';
+    h += '<div class="scroll"><div class="msgs">';
+    h += '<div class="b them"><span class="who" style="color:var(--a1t)">Mom</span>I\'ll bring the kheer on Friday</div>';
+    h += '<div class="card wide"><span class="tag" style="color:var(--brand2)">Diwali potluck · Fri · 6 of 9 said</span>' + [['Kheer', 'Mom'], ['Biryani', 'Dev'], ['Salad', 'Priya'], ['Sweets', st.potluck ? 'You' : '']].map(function (r) { return '<div class="line"><span>' + r[0] + '</span>' + (r[1] ? '<b>' + r[1] + '</b>' : '<span class="st w">nobody yet</span>') + '</div>'; }).join('') +
+      (st.potluck ? '<b style="color:var(--good)">You\'re bringing sweets.</b>' : '<button type="button" class="btn primary" data-act="potluck">I\'ll bring sweets</button>') + '</div>';
+    h += '<div class="card wide"><span class="tag" style="color:var(--wait)">Who owes whom · October</span><div class="line"><span>Dev owes you</span><b>₹1,650</b></div><div class="line"><span>You owe Priya</span><b>' + (st.settled ? '<s>₹129</s> settled' : '₹129') + '</b></div>' +
+      (st.settled ? '' : '<button type="button" class="btn soft" data-act="settle">Mark ₹129 to Priya as paid</button>') + '</div>';
+    h += '</div></div><div class="composer"><input aria-label="Message Family" placeholder="Message Family"><button type="button" class="round dark" aria-label="Ask the assistant privately" data-act="sheet" data-arg="private">✦</button></div>';
+    return h;
+  }
+
+  function person(name) {
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span class="title" style="flex:1">' + name + '</span></div></div><div class="scroll"><div class="msgs">';
+    if (name === 'Priya') h += '<div class="b them">Cab from the airport was ₹258, half is ₹129</div><div class="card wide"><span class="tag" style="color:var(--wait)">Split</span><b>You owe Priya ₹129</b>' + (st.settled ? '<b style="color:var(--good)">Settled</b>' : '<button type="button" class="btn primary" data-act="settle">Mark as paid</button>') + '</div>' + (st.settled ? '<div class="b me">Sent ₹129, thanks!</div>' : '');
+    else h += '<div class="b them"><span class="who" style="color:var(--a3t)">Dev</span>7 am at the ground?</div><div class="card wide"><span class="tag" style="color:var(--brand2)">Ask everyone</span><b>Coming on Sunday?</b><div class="line"><span>Yes</span><b>6</b></div><div class="line"><span>Maybe</span><b>2</b></div><span class="muted">Just a chat: no lists yet, so it isn\'t a space.</span></div>';
+    return h + '</div></div><div class="composer"><input aria-label="Message" placeholder="Message"><button type="button" class="round brand" aria-label="Send">' + I.send + '</button></div>';
+  }
+
+  // ---------- sheets ----------
+  function sheet() {
+    if (!st.sheet) return '';
+    var s = st.sheet, body = '';
+    if (s === 'add') {
+      var d = st.draft;
+      body = '<b class="title">Add to Visitors</b><label for="vname">Visitor name *<input class="field" id="vname" value="' + esc(d.name) + '" placeholder="e.g. Kiran"></label>' +
+        '<label>Flat<span class="chips">' + ['A-101', 'A-207', 'B-110', 'B-204'].map(function (f) { return '<button type="button" class="pill' + (d.flat === f ? ' on' : '') + '" data-act="dflat" data-arg="' + f + '">' + f + '</button>'; }).join('') + '</span></label>' +
+        '<label>Purpose<span class="chips">' + ['Guest', 'Delivery', 'Repair', 'Cab'].map(function (f) { return '<button type="button" class="pill' + (d.purpose === f ? ' on' : '') + '" data-act="dpurpose" data-arg="' + f + '">' + f + '</button>'; }).join('') + '</span></label>' +
+        '<button type="button" class="btn primary" data-act="addvisitor">Add</button><span class="muted">The flat is asked to approve right away (Visitor approval is on).</span>';
+    } else if (s === 'private') {
+      body = '<span class="tag" style="color:var(--brand2)">Ask privately · only you see this</span><div class="b me" style="max-width:100%">What did we decide about the lift?</div><div class="card" style="background:var(--chat)"><span>In <b>Lift repair</b>: the motor needs a new belt, ₹8,000. 3 of 4 committee members voted yes in the poll; Sanjay hasn\'t voted.</span><div class="row" style="gap:6px;flex-wrap:wrap"><button type="button" class="pill" data-act="toast" data-arg="Shared into the chat as an answer from your assistant">Share in the chat</button><button type="button" class="pill" data-act="toast" data-arg="Reminder set for Sanjay">Remind Sanjay</button></div></div>';
+    } else if (s === 'topic') {
+      body = '<b class="title">New chat in Building</b><label for="tname">What is it about?<input class="field" id="tname" placeholder="e.g. Diwali decorations"></label><label>Who<span class="chips"><button type="button" class="pill on">Everyone in Building</button><button type="button" class="pill">Some people…</button></span></label><button type="button" class="btn primary" data-act="toast" data-arg="Chat made (prototype)">Start chat</button><span class="muted">The assistant reads each chat on its own, so a topic chat keeps the conversation focused.</span>';
+    } else if (s === 'new') {
+      body = '<b class="title">New</b>' + [['Chat with a person', 'Just talk'], ['Group chat', 'Talk; add lists later if you need them'], ['Space', 'People plus lists and flows, e.g. a building or a trip']].map(function (o) { return '<button type="button" class="li" style="border:1px solid var(--hair);border-radius:14px" data-act="toast" data-arg="' + o[0] + ' (prototype)"><span class="t"><b>' + o[0] + '</b><span class="muted">' + o[1] + '</span></span>' + I.chev + '</button>'; }).join('');
+    } else if (s === 'colours') {
+      body = '<b class="title">Colours</b><span class="muted">Try each one; light and dark both follow.</span>' + [['peacock','Peacock & coral','#0B6A88','#FF9F86'],['marigold','Marigold & ink','#B9450B','#FFC145'],['leaf','Leaf','#2B7A3D','#B7F4C2'],['jamun','Jamun','#6E2E91','#F5C2FF'],['teal','Teal (as before)','#0F766E','#7FE3D3']].map(function (p) {
+        return '<button type="button" class="swatch' + (palette === p[0] ? ' on' : '') + '" data-act="palette" data-arg="' + p[0] + '"><span class="sw"><span style="background:' + p[2] + '"></span><span style="background:' + p[3] + '"></span></span><b style="flex:1;text-align:left">' + p[1] + '</b></button>';
+      }).join('') + '<b class="title" style="font-size:16px;padding-top:6px">Look</b><div class="row">' + [['now', 'Now'], ['polished', 'Polished']].map(function (l) { return '<button type="button" class="pill' + (look === l[0] ? ' on' : '') + '" style="flex:1;justify-content:center;min-height:44px" data-act="look" data-arg="' + l[0] + '">' + l[1] + '</button>'; }).join('') + '</div>';
+    } else if (s.indexOf('rec:') === 0) {
+      var v = st.visitors.filter(function (x) { return x.id === s.slice(4); })[0];
+      body = '<div class="line" style="align-items:center"><b class="title">' + esc(v.name) + '</b><span class="st ' + (v.status === 'Waiting' ? 'w' : v.status === 'Inside' ? 'g' : 'n') + '">' + v.status + '</span></div>' +
+        [['Flat', v.flat], ['Purpose', v.purpose], ['Came at', v.at]].map(function (f) { return '<div class="line"><span class="muted">' + f[0] + '</span><b>' + f[1] + '</b></div>'; }).join('') +
+        (v.status === 'Waiting' ? '<div class="row"><button type="button" class="btn primary" style="flex:1" data-act="recapprove" data-arg="' + v.id + '">Let in</button><button type="button" class="btn soft" style="flex:1" data-act="recreject" data-arg="' + v.id + '">Not now</button></div>' : v.status === 'Inside' ? '<button type="button" class="btn soft" data-act="recleave" data-arg="' + v.id + '">Mark as left</button>' : '') +
+        '<b style="font-size:13px">What the workflow did</b><span class="muted">' + v.at + ' · Asked ' + v.flat + '\'s residents · ' + (v.status === 'Waiting' ? 'waiting for an answer' : 'answered: let in') + '</span>' +
+        '<b style="font-size:13px">Thread</b><div class="b them" style="max-width:100%"><span class="who">Sanjay · Guard</span>Checked ID at the gate</div><input class="field" aria-label="Reply in the thread" placeholder="Reply, everyone in Building sees it">';
+    }
+    return '<div class="sheetback" data-act="closesheet"><div class="sheet pop" data-stop="1" role="dialog" aria-modal="true"><button type="button" class="grab" aria-label="Close" data-act="closesheet"></button>' + body + '</div></div>';
+  }
+
+  // ---------- render ----------
+  function screenOf(t) {
+    var html;
+    if (t.s === 'home') html = home();
+    else if (t.s === 'building') html = building();
+    else if (t.s === 'visitors') html = visitors();
+    else if (t.s === 'assistant') html = assistant();
+    else if (t.s === 'job') html = job();
+    else if (t.s === 'family') html = family();
+    else if (t.s === 'familychat') html = familyChat();
+    else if (t.s === 'topic') html = topic(t.arg);
+    else if (t.s === 'needs') html = needs();
+    else html = person(t.s === 'priya' ? 'Priya' : 'Sunday cricket');
+    return html;
+  }
+  function render(scrollTop) {
+    var t = top(), wide = desk();
+    var mainSel = wide ? '.pane.right .scroll' : '.scroll';
+    var prev = app.querySelector(mainSel), keep = !scrollTop && prev ? prev.scrollTop : 0;
+    var leftPrev = wide ? app.querySelector('.pane.left .scroll') : null, leftKeep = leftPrev ? leftPrev.scrollTop : 60;
+    var anim = st.nav && look === 'polished' ? ' enter-' + st.nav : '';
+    var rise = st.sheetNew && look === 'polished';
+    app.classList.toggle('desk', wide);
+    var body;
+    if (wide) {
+      var right = st.stack.length > 1 ? screenOf(t) : '<div class="empty"><span class="aiicon" style="width:64px;height:64px;font-size:28px;border-radius:20px">✦</span><b class="title">Pick a chat</b><span class="muted">Or tap the assistant to ask, add or arrange anything.</span></div>';
+      body = '<div class="pane left">' + home() + '</div><div class="pane right"><div class="screen' + anim + '">' + right + '</div></div>';
+    } else body = '<div class="screen' + anim + '">' + screenOf(t) + '</div>';
+    app.innerHTML = body + sheet().replace('class="sheet pop"', 'class="sheet' + (rise ? ' rise' : '') + '"') + (st.toast ? '<div class="toast pop" role="status">' + esc(st.toast) + '</div>' : '');
+    st.nav = null; st.sheetNew = false;
+    if (wide) { var l = app.querySelector('.pane.left .scroll'); if (l) l.scrollTop = leftKeep; }
+    var sc = app.querySelector(mainSel);
+    var ts = wide && st.stack.length === 1 ? null : t.s;
+    if (sc && ts) sc.scrollTop = scrollTop ? (ts === 'assistant' || ts === 'familychat' || ts === 'topic' ? sc.scrollHeight : ts === 'home' ? 60 : 0) : keep;
+  }
+  window.addEventListener('resize', function () { clearTimeout(render.rz); render.rz = setTimeout(function () { render(); }, 150); });
+
+  var acts = {
+    theme: function (a) { document.documentElement.setAttribute('data-theme', a); },
+    restart: function () { st = fresh(); render(true); },
+    filter: function (a) { st.filter = a; render(); },
+    search: function () { var sc = app.querySelector('.scroll'); if (sc) sc.scrollTop = 0; var q = document.getElementById('homeq'); if (q) q.focus(); },
+    palette: function (a) { setPalette(a); render(); },
+    look: function (a) { setLook(a); render(); },
+    open: function (a) { if (a === 'building') st.tab = 'chat'; if (a === 'family') st.ftab = 'chat'; go(a); },
+    ftab: function (a) { st.ftab = a; render(true); },
+    go: function (a) { go(a); },
+    back: back,
+    visitor: function (a) { st.visitor = a; var v = st.visitors[0]; v.status = a === 'yes' ? 'Inside' : 'Left'; toast(a === 'yes' ? 'Ravi Kumar let in · the guard has been told' : 'Turned away · the guard has been told'); },
+    tab: function (a) { st.tab = a; render(true); },
+    topic: function (a) { st.topic = a; render(true); },
+    topicopen: function (a) { go('topic', a); },
+    caught: function () { st.caught = true; render(); },
+    save: function () { st.saved = true; toast('Added to Complaints: "Water tank alarm" · everyone sees it'); },
+    notthat: function () { st.notThat = true; render(); },
+    sheet: function (a) { st.sheet = a; st.sheetNew = true; render(); },
+    closesheet: function () { st.sheet = null; render(); },
+    toast: function (a) { toast(a); },
+    visfilter: function (a) { st.visFilter = a; render(); },
+    record: function (a) { st.sheet = 'rec:' + a; st.sheetNew = true; render(); },
+    recapprove: function (a) { if (a === 'v1') st.visitor = 'yes'; setStatus(a, 'Inside'); },
+    recreject: function (a) { if (a === 'v1') st.visitor = 'no'; setStatus(a, 'Left'); },
+    recleave: function (a) { setStatus(a, 'Left'); },
+    dflat: function (a) { keepName(); st.draft.flat = a; render(); },
+    dpurpose: function (a) { keepName(); st.draft.purpose = a; render(); },
+    addvisitor: function () {
+      keepName(); var d = st.draft;
+      if (!d.name.trim()) { toast('Add the visitor\'s name first'); return; }
+      st.visitors.unshift({ id: 'v' + Date.now(), name: d.name.trim(), flat: d.flat, purpose: d.purpose, status: 'Waiting', at: 'now' });
+      st.draft = { name: '', flat: 'B-204', purpose: 'Guest' }; st.sheet = null; toast('Added · ' + d.flat + ' is being asked');
+    },
+    cat: function (a) { st.cat = st.cat === a ? null : a; render(); },
+    who: function (a) { st.who[a] = !st.who[a]; st.splitSaved = false; render(); },
+    tip: function (a) { st.tip = Number(a); st.splitSaved = false; render(); },
+    split: function () { st.splitSaved = true; render(); },
+    unsplit: function () { st.splitSaved = false; render(); },
+    choice: function (a) { if (!st.choice) { st.choice = a; render(); setTimeout(scrollEnd, 30); } },
+    wf: function () { if (st.extra.indexOf('@WF') > -1 || st.extra.some(function (x) { return x.indexOf('class="flow"') > -1; })) return; st.extra.push('<div class="b me pop">When a visitor comes, ask the flat to approve and tell the guard</div>'); st.extra.push('@WF'); renderWf(); },
+    wfok: function () { st.wfDone = true; renderWf(); },
+    due: function () { st.extra.push('<div class="b me pop">What is due this week?</div><div class="card wide pop"><span class="tag" style="color:var(--brand2)">Next 7 days · all spaces</span><div class="line"><span>Wed 7 pm · Society meeting</span><span class="muted">Building</span></div><div class="line"><span>Fri · Diwali potluck</span><span class="muted">Family</span></div><div class="line"><span>Mon · Electricity bill</span><b>₹2,340</b></div><button type="button" class="pill" data-act="toast" data-arg="Reminder set for Sunday 8 pm">Remind me Sunday</button></div>'); render(); scrollEnd(); },
+    spent: function () { addSpend('Spent 450 on chai', 450, 'Chai'); },
+    pause: function () { st.job.paused = !st.job.paused; render(); },
+    jobsend: function () { st.job.ask = 'sent'; toast('Sent to 14 flats in the Building chat'); },
+    jobskip: function () { st.job.ask = 'skipped'; toast('OK, it will ask again tomorrow'); },
+    jobdetail: function () { st.job.detail = !st.job.detail; render(); },
+    potluck: function () { st.potluck = true; render(); },
+    vote: function (a) { st.voted = a; toast('Voted ' + a + ' · the committee sees it'); },
+    settle: function () { st.settled = true; toast('Marked as paid · Priya sees it'); }
+  };
+  function setStatus(id, s) { st.visitors.forEach(function (v) { if (v.id === id) v.status = s; }); st.sheet = null; toast('Updated · the guard has been told'); }
+  function keepName() { var el = document.getElementById('vname'); if (el) st.draft.name = el.value; }
+  function scrollEnd() { var sc = app.querySelector('.scroll'); if (sc) sc.scrollTop = sc.scrollHeight; }
+  function renderWf() { st.extra = st.extra.map(function (x) { return x === '@WF' || x.indexOf('Visitor approval</b><div class="flow">') > -1 ? wfCard(st.wfDone) : x; }); render(); scrollEnd(); }
+  function addSpend(words, amt, what) {
+    st.extra.push('<div class="b me pop">' + esc(words) + '</div><div class="card wide pop"><span class="tag" style="color:var(--good)">Added to Expenses</span><div class="line"><span>' + esc(what) + ' · Food · today</span><b>' + inr(amt) + '</b></div><div class="row" style="gap:6px"><button type="button" class="pill" data-act="toast" data-arg="Undone">Undo</button><button type="button" class="pill" data-act="toast" data-arg="Opens the record to change it">Change</button></div></div>');
+    render(); scrollEnd();
+  }
+
+  app.addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]');
+    if (!el || !app.contains(el)) return;
+    if (el.getAttribute('data-act') === 'closesheet' && e.target.closest('[data-stop]') && el.classList.contains('sheetback')) return;
+    e.preventDefault();
+    var f = acts[el.getAttribute('data-act')];
+    if (f) f(el.getAttribute('data-arg'));
+  });
+  document.querySelector('.guide').addEventListener('click', function (e) {
+    var el = e.target.closest('[data-act]'); if (!el) return;
+    var f = acts[el.getAttribute('data-act')]; if (f) f(el.getAttribute('data-arg'));
+  });
+  app.addEventListener('scroll', function (e) {
+    var sc = e.target; if (!sc.classList || !sc.classList.contains('scroll')) return;
+    var h = sc.parentNode.querySelector('.headlight'); if (h) h.classList.toggle('small', sc.scrollTop > 70);
+  }, true);
+  app.addEventListener('input', function (e) {
+    if (e.target.id !== 'homeq') return;
+    var q = e.target.value.trim().toLowerCase();
+    app.querySelectorAll('.chatrow[data-name]').forEach(function (r) { r.hidden = !!q && r.getAttribute('data-name').indexOf(q) < 0; });
+  });
+  app.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var form = e.target, kind = form.getAttribute('data-form');
+    var input = form.querySelector('input'); var text = input.value.trim(); if (!text) return;
+    if (kind === 'ask') {
+      var m = /(\d[\d,]*)/.exec(text);
+      if (/spent|paid|bought/i.test(text) && m) { addSpend(text, Number(m[1].replace(/,/g, '')), text.replace(/^(spent|paid|bought)\s*/i, '').replace(/[\d,]+\s*(on|for)?\s*/i, '') || 'Spend'); return; }
+      st.extra.push('<div class="b me pop">' + esc(text) + '</div><div class="b them pop">In the real app the assistant answers here, with a card when one fits. Try the chips above.</div>');
+      render(); scrollEnd();
+    } else if (kind === 'jobsay') {
+      toast('Got it: "' + text + '". It updates the dues list.');
+    }
+  });
+  render(true);
+})();
+</script>
