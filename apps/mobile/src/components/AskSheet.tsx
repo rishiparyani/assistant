@@ -1,6 +1,7 @@
 // Asking my own assistant about a chat (decision 2026-10-13 "Chats with people", step 3, as in
-// the mock-up): a dark panel over the chat that only I see, as many messages as I like. It never
-// reads the chat. "Share to chat" puts one of its answers in the chat for everyone, once.
+// the mock-up): a dark panel over the chat that only I see, as many messages as I like. It reads
+// the chat's conversation (its newest part, the older part as a summary; chats-home.md), and only
+// when I ask. "Share to chat" puts one of its answers in the chat for everyone, once.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Sheet } from "@/components/Sheet";
@@ -11,6 +12,8 @@ import { radius, useTheme } from "../theme.ts";
 import { LiveCard } from "./LiveCard.tsx";
 
 const enc = encodeURIComponent;
+/** One tap asks about the chat (the "catch-up" of chats-home.md). */
+const QUICK = ["Catch me up", "What's still open?", "Who said they'd do what?"];
 
 export function AskSheet({
   groupId,
@@ -60,8 +63,8 @@ export function AskSheet({
   }, [open, groupId]);
 
   // online-only: asking the assistant needs the server.
-  const ask = async () => {
-    const body = text.trim();
+  const ask = async (said?: string) => {
+    const body = (said ?? text).trim();
     if (!body || busy) return;
     setBusy(true);
     setError("");
@@ -74,7 +77,7 @@ export function AskSheet({
       const v = await request<ChatView>("POST", `/api/groups/${enc(groupId)}/assistant`, { text: body });
       setItems(v.items);
     } catch (e) {
-      setText(body);
+      if (!said) setText(body);
       fail(e);
     } finally {
       setBusy(false);
@@ -138,8 +141,8 @@ export function AskSheet({
         {items === null ? <ActivityIndicator color={t.onInk} /> : null}
         {items?.length === 0 && !error ? (
           <Text style={[s.small, soft]}>
-            Ask anything about your lists while you chat: dates, money, what you said yes to. Only you see
-            this; share an answer if the chat should.
+            Ask about this chat or your lists: what was decided, who said they'd do what, dates, money. Only
+            you see this; share an answer if the chat should.
           </Text>
         ) : null}
         {(items ?? []).map((item) => {
@@ -225,11 +228,25 @@ export function AskSheet({
         {busy && !shared.size ? <Text style={[s.small, soft]}>Thinking…</Text> : null}
       </ScrollView>
       {error ? <Text style={[s.small, { color: t.danger }]}>{error}</Text> : null}
+      {!busy && !text ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.chips}>
+          {QUICK.map((q) => (
+            <Pressable
+              key={q}
+              accessibilityRole="button"
+              onPress={() => void ask(q)}
+              style={[s.chip, { borderColor: t.onInk }]}
+            >
+              <Text style={[s.chipText, ink]}>{q}</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      ) : null}
       <View style={[s.box, { borderColor: t.onInk }]}>
         <TextInput
           value={text}
           onChangeText={setText}
-          placeholder="Ask about your lists…"
+          placeholder="Ask about this chat or your lists…"
           placeholderTextColor={t.fg3}
           multiline
           maxLength={2000}
@@ -252,6 +269,9 @@ export function AskSheet({
 }
 
 const s = StyleSheet.create({
+  chips: { gap: 8 },
+  chip: { minHeight: 44, paddingHorizontal: 14, borderRadius: 22, borderWidth: 1, justifyContent: "center" },
+  chipText: { fontSize: 14, fontWeight: "700" },
   head: { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 },
   title: { fontSize: 15, fontWeight: "800" },
   about: { flexShrink: 1, fontSize: 12, fontWeight: "700" },
