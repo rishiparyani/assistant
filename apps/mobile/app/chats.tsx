@@ -177,7 +177,7 @@ function ChatRow({ chat, onPress }: { chat: GroupSummary; onPress: () => void })
 }
 
 /** Pick people you know; one is a chat for two, more need a group name. */
-function NewChat({
+export function NewChat({
   open,
   onClose,
   onMade,
