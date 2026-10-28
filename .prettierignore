@@ -8,3 +8,5 @@ spikes/t00/migrations/
 apps/worker/migrations/
 apps/mobile/expo-env.d.ts
 .expo/
+# Stand-alone copies of published prototypes, kept byte-for-byte.
+docs/design/prototypes/
