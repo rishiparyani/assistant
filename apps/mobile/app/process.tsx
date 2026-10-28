@@ -36,6 +36,7 @@ export default function Process() {
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [steps, setSteps] = useState(false);
+  const [stopping, setStopping] = useState(false);
 
   // The space it's in: from the card waiting on me, or given (a workflow found by search).
   const space = fromCard?.space_id ?? spaceParam;
@@ -140,13 +141,20 @@ export default function Process() {
   const forMe = waiting.filter((w) => !!w.share_id && w.mine === null);
   const onOthers = waiting.filter((w) => !forMe.includes(w));
   const on = detail?.workflow.enabled ?? true;
-  // online-only: a workflow's switch lives in its space's object.
-  const toggle = act("enabled", () =>
+  // online-only: a workflow's switch lives in its space's object. Turning it off ends what it is
+  // waiting on (its open questions close and don't come back when it's on again; Codex, PR 213),
+  // so with anything waiting it takes a second tap that says so.
+  const switchIt = act("enabled", () =>
     request("PUT", `/api/workflows/${encodeURIComponent(id ?? "")}/enabled`, {
       enabled: !on,
       ...(space ? { space } : {}),
     }),
   );
+  const toggle = async () => {
+    if (on && waiting.length && !stopping) return setStopping(true);
+    setStopping(false);
+    await switchIt();
+  };
   const when = (iso: string) =>
     new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
   const answerRow = (w: WaitingItem) =>
@@ -193,21 +201,27 @@ export default function Process() {
               <View style={s.state}>
                 <View style={[s.dot, { backgroundColor: on ? t.good : t.fg3 }]} />
                 <Text style={[s.stateText, { color: t.onInk }]} numberOfLines={1}>
-                  {on ? "Working" : "Paused"}
+                  {on ? "On" : "Off"}
                 </Text>
               </View>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={on ? "Pause this flow" : "Turn this flow back on"}
+                accessibilityLabel={on ? "Turn this flow off" : "Turn this flow back on"}
                 disabled={busy !== null}
                 onPress={() => void toggle()}
                 style={[s.pause, { borderColor: t.onInk, opacity: busy ? 0.6 : 1 }]}
               >
                 <Text style={[s.pauseText, { color: t.onInk }]}>
-                  {busy === "enabled" ? "…" : on ? "Pause" : "Resume"}
+                  {busy === "enabled" ? "…" : stopping ? "Tap again" : on ? "Turn off" : "Turn on"}
                 </Text>
               </Pressable>
             </View>
+            {stopping ? (
+              <Text style={[s.label, { color: t.onInk }]}>
+                Turning it off closes the {waiting.length === 1 ? "question" : `${waiting.length} questions`}{" "}
+                it's waiting on; turning it on again won't bring {waiting.length === 1 ? "it" : "them"} back.
+              </Text>
+            ) : null}
             <Text style={[s.big, { color: t.onInk }]}>
               {waiting.length
                 ? `${waiting.length} waiting on people`
