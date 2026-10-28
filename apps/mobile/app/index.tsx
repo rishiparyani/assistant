@@ -112,7 +112,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   const router = useRouter();
   // On the left of two panes: the open space or chat is marked.
   const path = usePathname();
-  const { id: openId } = useGlobalSearchParams<{ id?: string }>();
+  const { id: openId, q: globalQ } = useGlobalSearchParams<{ id?: string; q?: string }>();
   const selected = !pane
     ? null
     : path === "/space"
@@ -221,10 +221,19 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   // Chats with people, by activity (the hook keeps them fresh on live pings).
   const { chats: chatList, reload: reloadChats } = useChats();
   // `?q=` opens Chats with the search box showing and the keyboard up (a link from Siri).
-  const { q: startQuery } = useLocalSearchParams<{ q?: string }>();
+  // On the left of two panes the home lives outside the route, so the link's `q` is read from the
+  // address (Codex, PR 214), and a later link with a new `q` fills the box again.
+  const { q: localQ } = useLocalSearchParams<{ q?: string }>();
+  const startQuery = pane ? (path === "/" ? globalQ : undefined) : localQ;
   const [query, setQuery] = useState(startQuery ?? "");
   const searchBox = useRef<NativeTextInput>(null);
   const scroller = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (!pane || !startQuery) return;
+    setQuery(startQuery);
+    scroller.current?.scrollTo({ y: 0, animated: false });
+    searchBox.current?.focus();
+  }, [pane, startQuery]);
   // The search box starts out of sight above the list; pulling down shows it (once per open).
   const tucked = useRef(!!startQuery);
   // The list is always at least one screen plus the search box tall, so it can be tucked away.
