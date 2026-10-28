@@ -116,14 +116,24 @@ export const TextInput = forwardRef<
   return (
     <>
       {box}
-      <InputAccessoryView nativeID={barId}>
-        <View style={[s.bar, { backgroundColor: t.page, borderTopColor: t.sep }]}>
+      {/* No strip of its own (owner, 2026-10-28: "can we make it a little smoother and blend"):
+          a small floating pill over whatever is behind, above the keyboard's own glass. */}
+      <InputAccessoryView nativeID={barId} backgroundColor="transparent">
+        <View style={s.bar} pointerEvents="box-none">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Close the keyboard"
             onPress={() => Keyboard.dismiss()}
             hitSlop={8}
-            style={s.done}
+            style={({ pressed }) => [
+              s.done,
+              {
+                backgroundColor: t.glass,
+                borderColor: t.hair,
+                shadowColor: t.shadow,
+                opacity: pressed ? 0.7 : 1,
+              },
+            ]}
           >
             <RNText style={[s.doneText, { color: t.accent }, faceOf(s.doneText)]}>Done</RNText>
           </Pressable>
@@ -134,12 +144,16 @@ export const TextInput = forwardRef<
 });
 
 const s = StyleSheet.create({
-  bar: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    paddingHorizontal: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
+  bar: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 6 },
+  done: {
+    minHeight: 44,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    borderWidth: StyleSheet.hairlineWidth,
+    justifyContent: "center",
+    shadowOpacity: 1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
   },
-  done: { minHeight: 44, paddingHorizontal: 12, justifyContent: "center" },
   doneText: { fontSize: 16, fontWeight: "700" },
 });
