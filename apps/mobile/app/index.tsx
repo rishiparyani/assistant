@@ -18,7 +18,7 @@ import {
   type TextInput as NativeTextInput,
 } from "react-native";
 import { Boundary, Card, Skeleton, Tap, Text, TextInput, type } from "@assistant/cards/native";
-import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useGlobalSearchParams, useLocalSearchParams, usePathname, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { HelpSheet } from "@/components/HelpSheet";
 import { SearchResults } from "@/components/SearchResults";
@@ -54,7 +54,7 @@ import { useLive } from "@/live-socket";
 import { lastChat } from "@/last-chat";
 import { colourFor, radius, useTheme } from "@/theme";
 import { isOffline } from "@/api";
-import { openChat, useContentWidth } from "@/chat-open";
+import { openChat, useContentWidth, useTwoPanes } from "@/chat-open";
 import { usePendingPath } from "@/intents";
 import { useTestLaunch } from "@/test-launch";
 
@@ -71,7 +71,30 @@ const FILTERS: { key: HomeFilter; label: string }[] = [
   { key: "chats", label: "Chats" },
 ];
 
+/**
+ * The route: the Chats home on a phone; on a laptop's website the chats are already on the left
+ * (the layout's sidebar), so this side says to pick one.
+ */
 export default function Home() {
+  const { t } = useTheme();
+  const { me, loaded } = useSession();
+  if (!useTwoPanes()) return <ChatsHome />;
+  if (loaded && !me) return <Redirect href="/login" />;
+  return (
+    <View style={[s.root, s.pick, { backgroundColor: t.page }]}>
+      <View style={[s.pickIcon, { backgroundColor: t.ink }]}>
+        <Text style={[s.pickIconText, { color: t.onInk }]}>✦</Text>
+      </View>
+      <Text style={[type.title, { color: t.fg }]}>Pick a chat</Text>
+      <Text style={[type.small, { color: t.fg2, textAlign: "center" }]}>
+        Or tap the assistant to ask, add or arrange anything.
+      </Text>
+    </View>
+  );
+}
+
+/** The Chats home: the whole screen on a phone, the left side on a laptop (`pane`). */
+export function ChatsHome({ pane = false }: { pane?: boolean }) {
   const { me, loaded, refresh } = useSession();
   const { t, colour, cardTint } = useTheme();
   // The clock "Coming up" reads: moves on at every minute.
@@ -87,8 +110,20 @@ export default function Home() {
   }, []);
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  // On the left of two panes: the open space or chat is marked.
+  const path = usePathname();
+  const { id: openId, q: globalQ } = useGlobalSearchParams<{ id?: string; q?: string }>();
+  const selected = !pane
+    ? null
+    : path === "/space"
+      ? `space:${openId ?? "p"}`
+      : path === "/talk"
+        ? `chat:${openId ?? ""}`
+        : null;
   // Less the chat panel when it is open beside the screen (a wide website window).
-  const width = useContentWidth();
+  const contentWidth = useContentWidth();
+  // On the left of two panes it is a narrow column of its own.
+  const width = pane ? 0 : contentWidth;
   const [today, setToday] = useState<Today | null>(null);
   // True while what's on screen is the device's saved copy and the fresh one is on its way.
   const [stale, setStale] = useState(false);
@@ -186,10 +221,19 @@ export default function Home() {
   // Chats with people, by activity (the hook keeps them fresh on live pings).
   const { chats: chatList, reload: reloadChats } = useChats();
   // `?q=` opens Chats with the search box showing and the keyboard up (a link from Siri).
-  const { q: startQuery } = useLocalSearchParams<{ q?: string }>();
+  // On the left of two panes the home lives outside the route, so the link's `q` is read from the
+  // address (Codex, PR 214), and a later link with a new `q` fills the box again.
+  const { q: localQ } = useLocalSearchParams<{ q?: string }>();
+  const startQuery = pane ? (path === "/" ? globalQ : undefined) : localQ;
   const [query, setQuery] = useState(startQuery ?? "");
   const searchBox = useRef<NativeTextInput>(null);
   const scroller = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (!pane || !startQuery) return;
+    setQuery(startQuery);
+    scroller.current?.scrollTo({ y: 0, animated: false });
+    searchBox.current?.focus();
+  }, [pane, startQuery]);
   // The search box starts out of sight above the list; pulling down shows it (once per open).
   const tucked = useRef(!!startQuery);
   // The list is always at least one screen plus the search box tall, so it can be tucked away.
@@ -262,7 +306,10 @@ export default function Home() {
         accessibilityLabel={`${e.space.name}, space${e.unread ? `, ${e.unread} unread` : ""}${e.waiting ? `, ${e.waiting} waiting on you` : ""}`}
         onPress={() => openEntry(e)}
         scale={0.985}
-        style={[s.tile, { backgroundColor: cardTint(c) }]}
+        style={[
+          s.tile,
+          { backgroundColor: cardTint(c), borderColor: selected === e.key ? t.accent : "transparent" },
+        ]}
       >
         <View style={[s.square, { backgroundColor: colour(c) }]}>
           <Text style={[s.squareText, { color: t.onAccent }]}>
@@ -325,7 +372,11 @@ export default function Home() {
         accessibilityLabel={`${c.name}${c.unread ? `, ${c.unread} unread` : ""}`}
         onPress={() => openEntry(e)}
         scale={0.985}
-        style={[s.row, { borderBottomColor: t.hair }]}
+        style={[
+          s.row,
+          { borderBottomColor: t.hair },
+          selected === e.key && { backgroundColor: t.accentSoft, borderRadius: radius.row },
+        ]}
       >
         {c.direct ? (
           <Avatar name={c.name} size={46} />
@@ -796,6 +847,9 @@ function Badge({ n }: { n: number }) {
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  pick: { alignItems: "center", justifyContent: "center", gap: 10, padding: 24 },
+  pickIcon: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  pickIconText: { fontSize: 28, fontWeight: "800" },
   head: {
     flexDirection: "row",
     alignItems: "center",
@@ -874,7 +928,7 @@ const s = StyleSheet.create({
   },
   aiIcon: { width: 42, height: 42, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   aiIconText: { fontSize: 20, fontWeight: "800" },
-  tile: { flexDirection: "row", gap: 12, padding: 12, borderRadius: radius.card },
+  tile: { flexDirection: "row", gap: 12, padding: 12, borderRadius: radius.card, borderWidth: 2 },
   square: { width: 46, height: 46, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   squareText: { fontSize: 19, fontWeight: "800" },
   row: {
