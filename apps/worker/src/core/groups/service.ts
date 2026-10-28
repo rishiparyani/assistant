@@ -457,6 +457,7 @@ export async function askInGroup(
   const v = await groupOf(ctx, groupId).view(ctx.user.id);
   return sendMessage(ctx, ops, input, groupId, {
     chatHome: v.space_id ? { id: v.space_id, name: v.name } : null,
+    group: { id: groupId, name: v.name },
   });
 }
 

@@ -568,6 +568,79 @@ export class GroupObject extends DurableObject<Env> {
     };
   }
 
+  /**
+   * The chat as the assistant reads it when a member asks about it (chats-home.md, "the AI
+   * reads a chat like ChatGPT or Claude"): the newest messages up to `budget` characters,
+   * oldest first, and the summary of what came before the last fold. Only a member can read it.
+   */
+  async forAssistant(
+    userId: string,
+    budget: number,
+  ): Promise<{ summary: string | null; lines: string[]; cut: boolean; read_at: string | null }> {
+    const me = this.member(userId);
+    const upto = Number(getMeta(this.sql, "summary_upto") ?? "0");
+    const lines: string[] = [];
+    let used = 0;
+    let cut = false;
+    for (const m of this.sql.exec<{ author: string; text: string; created_at: string; kind: string }>(
+      `select author, text, created_at, kind from messages where rowid > ? order by rowid desc`,
+      upto,
+    )) {
+      const line = `[${m.created_at.slice(0, 16).replace("T", " ")}] ${m.kind === "note" ? "(note) " : ""}${m.author}: ${m.text}`;
+      if (used + line.length > budget && lines.length) {
+        cut = true;
+        break;
+      }
+      lines.push(line);
+      used += line.length;
+    }
+    return {
+      summary: getMeta(this.sql, "summary") ?? null,
+      lines: lines.reverse(),
+      cut,
+      read_at: me.read_at ?? null,
+    };
+  }
+
+  /**
+   * The older part to fold into the summary, when what's after the last fold is longer than
+   * `foldAt`: every message but the newest `keep` characters, as lines, and where the fold ends.
+   */
+  async olderForSummary(
+    userId: string,
+    foldAt: number,
+    keep: number,
+  ): Promise<{ previous: string | null; lines: string[]; upto: number } | null> {
+    this.member(userId);
+    const upto = Number(getMeta(this.sql, "summary_upto") ?? "0");
+    const rows = this.sql
+      .exec<{ n: number; author: string; text: string; created_at: string }>(
+        `select rowid as n, author, text, created_at from messages where rowid > ? order by rowid`,
+        upto,
+      )
+      .toArray();
+    const size = (r: (typeof rows)[number]) => r.author.length + r.text.length + 20;
+    if (rows.reduce((n, r) => n + size(r), 0) < foldAt) return null;
+    let kept = 0;
+    let i = rows.length;
+    while (i > 0 && kept + size(rows[i - 1]!) <= keep) kept += size(rows[--i]!);
+    const older = rows.slice(0, i);
+    if (!older.length) return null;
+    return {
+      previous: getMeta(this.sql, "summary") ?? null,
+      lines: older.map((m) => `[${m.created_at.slice(0, 16).replace("T", " ")}] ${m.author}: ${m.text}`),
+      upto: older[older.length - 1]!.n,
+    };
+  }
+
+  /** Keeps a fold (a later one wins; an older one arriving late changes nothing). */
+  async setSummary(userId: string, text: string, upto: number): Promise<void> {
+    this.member(userId);
+    if (upto <= Number(getMeta(this.sql, "summary_upto") ?? "0")) return;
+    setMeta(this.sql, "summary", text);
+    setMeta(this.sql, "summary_upto", String(upto));
+  }
+
   /** A person's message, or the assistant's answer to someone (kind "assistant"). */
   async post(
     actor: Actor & { userId: string },
