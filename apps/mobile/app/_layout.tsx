@@ -9,7 +9,15 @@ import {
   Manrope_800ExtraBold,
 } from "@expo-google-fonts/manrope";
 import { setAppFont } from "@assistant/cards/native";
-import { PANEL_WIDTH, SIDEBAR_WIDTH, WIDE, closeChatPanel, useChatPanel, useTwoPanes } from "@/chat-open";
+import {
+  PANEL_WIDTH,
+  SIDEBAR_WIDTH,
+  WIDE,
+  chatGone,
+  closeChatPanel,
+  useChatPanel,
+  useTwoPanes,
+} from "@/chat-open";
 import { ChatsHome } from "./index";
 import { ChatScreen } from "@/components/ChatScreen";
 import { PracticeBanner } from "@/components/PracticeBanner";
@@ -166,6 +174,7 @@ export default function Layout() {
             animationType="slide"
             allowSwipeDismissal
             onRequestClose={closeChatPanel}
+            onDismiss={chatGone}
           >
             <View style={{ flex: 1, backgroundColor: t.page }}>
               <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />

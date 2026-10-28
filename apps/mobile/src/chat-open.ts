@@ -6,6 +6,7 @@
 // told.
 import { useSyncExternalStore } from "react";
 import { Dimensions, Platform, useWindowDimensions } from "react-native";
+import { afterModals, modalLeaving } from "./modals.ts";
 
 export interface ChatAbout {
   kind: "list" | "record" | "workflow" | "space" | "group" | "card" | "screen";
@@ -82,7 +83,16 @@ export function useChatPanel() {
     () => panel,
   );
 }
-export const closeChatPanel = () => setPanel({ ...panel, open: false });
+/** The phone's chat going away (iOS): the layout's modal calls it once it's gone. */
+let chatLeaving: (() => void) | null = null;
+export const chatGone = () => {
+  chatLeaving?.();
+  chatLeaving = null;
+};
+export const closeChatPanel = () => {
+  if (panel.open && Platform.OS === "ios" && !chatLeaving) chatLeaving = modalLeaving();
+  setPanel({ ...panel, open: false });
+};
 /**
  * Before the chat opens a screen (a list, a workflow): the sheet goes away so the screen is
  * seen; the panel beside the screen on a wide window stays.
@@ -120,5 +130,6 @@ export function openChat(params: ChatParams = {}, about?: ChatAbout | null) {
     string,
     string
   >;
-  setPanel({ open: true, params: clean, nonce: panel.nonce + 1 });
+  // The phone's chat is a modal: it waits for any sheet that's still going away (`@/modals`).
+  afterModals(() => setPanel({ open: true, params: clean, nonce: panel.nonce + 1 }));
 }
