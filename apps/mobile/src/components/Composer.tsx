@@ -1,7 +1,7 @@
 // The one composer (docs/design/from-scratch.md §2 "one composer", §3 "Chat sheet"): the same
 // dark bar on every screen, at the bottom, with a chip saying what the screen is about. Type and
 // send, and the chat opens as a sheet over the screen with that sent; tap the bubble, and it
-// opens as it is. Today's bar (HomeBar) is this bar with search in it.
+// opens as it is. The Chats home has no bar: its assistant card opens the chat, and search is on pull-down.
 import { useState } from "react";
 import { Image, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";

@@ -46,7 +46,7 @@ Still open: gestures (swipe to archive or reply, long-press menus), real photos,
 ## Build order (the owner said build, 2026-10-28)
 
 1. The look: Jamun and the polished styles in the theme tokens (a theme change: the owner has now chosen it). **Colours done** (the Jamun palette in `packages/cards/src/native/theme.ts`); the display face and the light space headers come with the screens that use them.
-2. Chats as home (pinned assistant card, one list, pull-down search, Needs you bar and screen).
+2. Chats as home (pinned assistant card, one list, pull-down search, Needs you bar and screen). **Done**: the bottom bar left the first screen (the assistant card and pull-down search do its jobs); other screens keep the composer.
 3. Spaces with Chats · Lists · Flows · People; several chats per space, private ones; the AI's full context plus summary.
 4. Answer cards (6) from the fixed blocks.
 5. The assistant at work (7).

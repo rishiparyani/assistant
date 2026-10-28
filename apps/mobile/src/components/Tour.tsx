@@ -42,8 +42,8 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
   if (o.assistant)
     steps.push({
       target: "chat",
-      title: "Talk to it here",
-      text: "Tell it about your week, add an expense, ask a question. Lists and cards appear as you go. With nothing typed, the button opens your chat and its past conversations.",
+      title: "Your assistant",
+      text: "Tap it to tell it about your week, add an expense or ask a question. Lists and cards appear as you go; only you see this chat.",
     });
   if (o.cards)
     steps.push({
@@ -60,7 +60,7 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
   steps.push({
     target: "search",
     title: "Find anything",
-    text: "Type in the bar: your lists, cards and records appear as you type, with or without a connection. Press send to ask instead.",
+    text: "Pull the list down, or tap the magnifier: your chats, lists and records appear as you type, with or without a connection.",
   });
   steps.push({
     target: "help",
