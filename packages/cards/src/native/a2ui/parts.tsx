@@ -617,32 +617,56 @@ const views: Record<string, ViewFn> = {
     const one = colourOf(t, dark, props.colour ?? "accent");
     const top = Math.max(1, ...bars.map((b) => b.value));
     if (!bars.length) return <Text style={[type.small, { color: t.fg2 }]}>Nothing to show yet.</Text>;
+    // Tappable when `selected` is bound: a tap picks that bar (again: none), the rest dim.
+    const pick = props.setSelected as ((v: string) => void) | undefined;
+    const chosen = typeof props.selected === "string" ? props.selected : "";
     return (
-      <View style={{ gap: 8 }}>
-        {bars.map((b, i) => (
-          <View key={`${b.label}${i}`} style={{ gap: 4 }}>
-            <View style={s.kv}>
-              <Text style={[type.small, { color: t.fg }]} numberOfLines={1}>
-                {b.label}
-              </Text>
-              <Text style={[type.small, { color: t.fg2, fontVariant: ["tabular-nums"] }]}>
-                {shownValue(b.value, props.format)}
-              </Text>
+      <View style={{ gap: pick ? 2 : 8 }}>
+        {bars.map((b, i) => {
+          const row = (
+            <>
+              <View style={s.kv}>
+                <Text style={[type.small, { color: t.fg }]} numberOfLines={1}>
+                  {b.label}
+                </Text>
+                <Text style={[type.small, { color: t.fg2, fontVariant: ["tabular-nums"] }]}>
+                  {shownValue(b.value, props.format)}
+                </Text>
+              </View>
+              <View style={[s.track, { backgroundColor: t.fill }]}>
+                <View
+                  style={[
+                    s.bar,
+                    {
+                      width: `${Math.max(2, (Math.max(0, b.value) / top) * 100)}%`,
+                      backgroundColor:
+                        props.multicolour === true ? colourOf(t, dark, SERIES[i % SERIES.length]) : one,
+                      opacity: chosen && chosen !== b.label ? 0.3 : 1,
+                    },
+                  ]}
+                />
+              </View>
+            </>
+          );
+          return pick ? (
+            <Tap
+              key={`${b.label}${i}`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: chosen === b.label }}
+              accessibilityLabel={`${b.label}, ${shownValue(b.value, props.format)}`}
+              onPress={() => pick(chosen === b.label ? "" : String(b.label))}
+              haptic="selection"
+              scale={0.98}
+              style={s.barTap}
+            >
+              {row}
+            </Tap>
+          ) : (
+            <View key={`${b.label}${i}`} style={{ gap: 4 }}>
+              {row}
             </View>
-            <View style={[s.track, { backgroundColor: t.fill }]}>
-              <View
-                style={[
-                  s.bar,
-                  {
-                    width: `${Math.max(2, (Math.max(0, b.value) / top) * 100)}%`,
-                    backgroundColor:
-                      props.multicolour === true ? colourOf(t, dark, SERIES[i % SERIES.length]) : one,
-                  },
-                ]}
-              />
-            </View>
-          </View>
-        ))}
+          );
+        })}
       </View>
     );
   },
@@ -741,6 +765,7 @@ export const A2UI_PARTS: PartView[] = PART_APIS.flatMap((api) =>
 );
 
 const s = StyleSheet.create({
+  barTap: { gap: 4, minHeight: 44, justifyContent: "center" },
   row: { flexDirection: "row", gap: 10, alignItems: "flex-start" },
   share: { flex: 1, minWidth: 0 },
   card: {

@@ -331,7 +331,7 @@ export const PART_APIS: PartApi[] = [
   // Charts
   part(
     "BarChart",
-    "Horizontal bars: from `bars` [{label, value}], or from a list with labelField and valueField. multicolour gives each bar its own colour.",
+    'Horizontal bars: from `bars` [{label, value}], or from a list with labelField and valueField. multicolour gives each bar its own colour. With `selected` bound to a path (e.g. {path: "/picked"}), tapping a bar writes its label there (tap again to clear) and the other bars dim: pair it with a filter on that path to show what\'s inside the tapped bar.',
     {
       bars: z.array(z.object({ label: A2.string("label"), value: A2.number("value") })).optional(),
       data: A2.value("a list of items").optional(),
@@ -340,6 +340,7 @@ export const PART_APIS: PartApi[] = [
       format: format.optional(),
       colour: colour.optional(),
       multicolour: z.boolean().optional(),
+      selected: A2.string("the tapped bar's label").optional(),
     },
   ),
   part(
@@ -591,6 +592,13 @@ export const FUNCTIONS = [
   ),
   fn("max", "max {list, field}.", "number", z.object({ list, field: z.string() }), (a) =>
     Math.max(0, ...items(a.list).map((r) => n(r[a.field]))),
+  ),
+  fn(
+    "size",
+    "size {list}: how many things a list holds, of any kind (picked Chips, names, items).",
+    "number",
+    z.object({ list }),
+    (a) => (Array.isArray(a.list) ? a.list.length : 0),
   ),
   fn(
     "filter",

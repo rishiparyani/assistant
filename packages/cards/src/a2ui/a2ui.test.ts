@@ -93,6 +93,17 @@ describe("A2UI cards", () => {
     expect(props().value).toBe(1200);
   });
 
+  it("splits a bill live: each share follows who shared and the tip", async () => {
+    const split = DEMOS.find((d) => d.title === "Split the bill")!;
+    const { surface, props } = read(split, "each");
+    // ₹4,500 with a 10% tip, three people: ₹1,650 each.
+    expect(props().value).toBe(165000);
+    surface.dataModel.set("/who", ["You", "Dev"]);
+    surface.dataModel.set("/tip", "No tip");
+    await Promise.resolve();
+    expect(props().value).toBe(225000);
+  });
+
   it("lets an empty filter through and works out a loan instalment", () => {
     const card: A2Card = {
       parts: [
