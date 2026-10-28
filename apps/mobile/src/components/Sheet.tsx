@@ -19,6 +19,7 @@ import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanima
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haptic, radius, useTheme } from "@/theme";
 import { useKeyboardRoom } from "@/keyboard";
+import { afterModals, modalLeaving } from "@/modals";
 
 export interface SheetProps {
   open: boolean;
@@ -64,6 +65,29 @@ export function Sheet({
   // Mounted while open, and for the slide-out after (the sheet says when it's off screen).
   const [shown, setShown] = useState(open);
   const closing = useRef(false);
+  // iOS: after it slides out the modal stays (hidden) until iOS says it's gone, and others wait
+  // for that (`@/modals`): one modal at a time.
+  const [leaving, setLeaving] = useState(false);
+  const release = useRef<(() => void) | null>(null);
+  const startLeaving = () => {
+    if (release.current || Platform.OS !== "ios") return;
+    release.current = modalLeaving();
+  };
+  const gone = () => {
+    setLeaving(false);
+    release.current?.();
+    release.current = null;
+  };
+  const openNow = useRef(open);
+  openNow.current = open;
+  // Taken off the screen before it was gone (the screen went away): others mustn't wait for it.
+  useEffect(
+    () => () => {
+      release.current?.();
+      release.current = null;
+    },
+    [],
+  );
   // `onShow` runs once per opening, not again when the sheet moves between its stops (a load
   // that also resets what the person picked would lose it on a resize).
   const showed = useRef(false);
@@ -85,12 +109,17 @@ export function Sheet({
 
   useEffect(() => {
     if (open) {
-      closing.current = false;
-      showed.current = false;
-      setTall(null);
-      setShown(true);
+      // Once any other modal has gone (and only if it's still meant to be open by then).
+      afterModals(() => {
+        if (!openNow.current) return;
+        closing.current = false;
+        showed.current = false;
+        setTall(null);
+        setShown(true);
+      });
     } else if (shown && !closing.current) {
       closing.current = true;
+      startLeaving();
       ref.current?.close();
     }
   }, [open, shown]);
@@ -106,65 +135,77 @@ export function Sheet({
   const bg = tone === "ink" ? t.ink : tone === "cell" ? t.cell : t.page;
   const handle = tone === "ink" ? t.onInk : t.fill2;
 
-  if (!shown) return null;
+  if (!shown && !leaving) return null;
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <GestureHandlerRootView style={s.fill}>
-        <BottomSheet
-          ref={ref}
-          index={0}
-          // Measured content adds its own stop; until it's known, half is assumed, so a short
-          // sheet's first frame is its own height and a tall one's is half.
-          snapPoints={tall === false ? undefined : halfPoint}
-          enableDynamicSizing
-          maxDynamicContentSize={Math.max(160, maxPx - lift)}
-          bottomInset={lift}
-          enablePanDownToClose
-          // On the website a drag that starts on a row would end as that row's tap (the phone
-          // cancels the press once the drag takes over; the browser doesn't), so there the
-          // sheet moves from its handle only; the content still scrolls.
-          enableContentPanningGesture={Platform.OS !== "web"}
-          animatedIndex={index}
-          onClose={() => {
-            // Off screen: by a pull down, a tap outside, or `open` going false.
-            setShown(false);
-            if (!closing.current) {
-              closing.current = true;
-              haptic("selection");
-              onClose();
-            }
-          }}
-          onChange={(index) => {
-            if (index >= 0 && !showed.current) {
-              showed.current = true;
-              onShow?.();
-            }
-          }}
-          backdropComponent={Backdrop}
-          handleComponent={grab ? undefined : null}
-          handleIndicatorStyle={[s.grab, { backgroundColor: handle }]}
-          handleStyle={s.handle}
-          backgroundStyle={[s.panel, { backgroundColor: bg, shadowColor: t.shadow }]}
-          style={s.sheet}
-          android_keyboardInputMode="adjustResize"
-        >
-          <BottomSheetScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{
-              padding,
-              paddingTop: grab ? Math.max(padding - 8, 4) : padding,
-              paddingBottom: bottomPad,
+    <Modal
+      visible={shown}
+      transparent
+      animationType="none"
+      onRequestClose={onClose}
+      onDismiss={gone}
+      statusBarTranslucent
+    >
+      {shown ? (
+        <GestureHandlerRootView style={s.fill}>
+          <BottomSheet
+            ref={ref}
+            index={0}
+            // Measured content adds its own stop; until it's known, half is assumed, so a short
+            // sheet's first frame is its own height and a tall one's is half.
+            snapPoints={tall === false ? undefined : halfPoint}
+            enableDynamicSizing
+            maxDynamicContentSize={Math.max(160, maxPx - lift)}
+            bottomInset={lift}
+            enablePanDownToClose
+            // On the website a drag that starts on a row would end as that row's tap (the phone
+            // cancels the press once the drag takes over; the browser doesn't), so there the
+            // sheet moves from its handle only; the content still scrolls.
+            enableContentPanningGesture={Platform.OS !== "web"}
+            animatedIndex={index}
+            onClose={() => {
+              // Off screen: by a pull down, a tap outside, or `open` going false. On iOS the
+              // hidden modal waits for iOS to say it's gone (onDismiss).
+              startLeaving();
+              if (Platform.OS === "ios") setLeaving(true);
+              setShown(false);
+              if (!closing.current) {
+                closing.current = true;
+                haptic("selection");
+                onClose();
+              }
             }}
-            onLayout={(e) => {
-              if (tall === null) setTall(e.nativeEvent.layout.height + chrome > screenH * HALF);
+            onChange={(index) => {
+              if (index >= 0 && !showed.current) {
+                showed.current = true;
+                onShow?.();
+              }
             }}
-            accessibilityViewIsModal
-            accessibilityLabel={accessibilityLabel}
+            backdropComponent={Backdrop}
+            handleComponent={grab ? undefined : null}
+            handleIndicatorStyle={[s.grab, { backgroundColor: handle }]}
+            handleStyle={s.handle}
+            backgroundStyle={[s.panel, { backgroundColor: bg, shadowColor: t.shadow }]}
+            style={s.sheet}
+            android_keyboardInputMode="adjustResize"
           >
-            <Animated.View style={[guard, { gap }]}>{open ? children : last.current}</Animated.View>
-          </BottomSheetScrollView>
-        </BottomSheet>
-      </GestureHandlerRootView>
+            <BottomSheetScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                padding,
+                paddingTop: grab ? Math.max(padding - 8, 4) : padding,
+                paddingBottom: bottomPad,
+              }}
+              onLayout={(e) => {
+                if (tall === null) setTall(e.nativeEvent.layout.height + chrome > screenH * HALF);
+              }}
+              accessibilityViewIsModal
+              accessibilityLabel={accessibilityLabel}
+            >
+              <Animated.View style={[guard, { gap }]}>{open ? children : last.current}</Animated.View>
+            </BottomSheetScrollView>
+          </BottomSheet>
+        </GestureHandlerRootView>
+      ) : null}
     </Modal>
   );
 }
