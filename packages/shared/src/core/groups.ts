@@ -39,6 +39,19 @@ export const CreateGroupInput = z
     if (!v.direct && !v.name)
       ctx.addIssue({ code: "custom", path: ["name"], message: "A group needs a name" });
   });
+/** A chat started inside a space (chats-home.md 6): for everyone in it, or some of its people. */
+export const StartSpaceChatInput = z.object({
+  space: z.string().trim().min(1).max(80).describe("The space's id or name"),
+  id: z
+    .string()
+    .trim()
+    .regex(/^[0-9A-HJKMNP-TV-Z]{26}$/, "Not a chat id")
+    .describe("Made on the device (ULID), so a retry makes one chat"),
+  name: z.string().trim().min(1, "A chat needs a name").max(60).describe("e.g. Committee, Repairs"),
+  people: people
+    .optional()
+    .describe("Some of the space's people (names or ids); leave out for everyone in the space"),
+});
 export const GroupRef = z.object({ group_id: groupId });
 /** A chat, optionally around one message (opened from a search hit) instead of the newest. */
 export const GetGroupInput = GroupRef.extend({ around: z.string().trim().min(1).max(40).optional() });
@@ -137,6 +150,8 @@ export interface GroupSummary {
   updated_at: string;
   /** The chat's home (a shared space), once an admin has started it: the chat is that space's. */
   space_id: string | null;
+  /** Started inside that space (one of its several chats), not the chat the space was made from. */
+  in_space?: boolean;
 }
 
 export interface GroupView {
@@ -147,6 +162,8 @@ export interface GroupView {
   owner_id: string;
   /** The chat's home (a shared space), once an admin has started it. */
   space_id: string | null;
+  /** Started inside that space (one of its several chats), not the chat the space was made from. */
+  in_space?: boolean;
   /** role "owner" is an admin (a chat can have several). */
   members: GroupMember[];
   /** Newest last. */

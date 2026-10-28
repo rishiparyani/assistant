@@ -1311,3 +1311,7 @@ The tools offered to the model had no `space` option (dropped in #129 to keep th
 ## 2026-10-28: Chats as home, Jamun, a polished look (approved; being built)
 
 The owner chose a WhatsApp-like home (a pinned assistant card, one list of spaces and chats by latest activity, each kind drawn differently, search on pull-down, a "Needs you" bar), every space with Chats · Lists · Flows · People, several chats per space (private ones for some people), answers that are small working tools built from the app's fixed blocks, an "assistant at work" view for long jobs, the Jamun colours and a polished look (motion, light headers, one card style, two panes on a laptop). Once built it replaces Today as the first screen and the space page of from-scratch.md, and it is the theme change from-scratch.md §9 left to the owner. Details and build order: [design/chats-home.md](design/chats-home.md). Later the same day the owner said "start building", and **English only for now** (no language setting; "Hindi is not necessary").
+
+## 2026-10-28: Chats inside a space never change who is in it
+
+A space made from a group chat takes its people from that chat (decision 2026-10-14 "A home for each chat"). Chats started inside the space afterwards (for everyone or some people; chats-home.md 6) are the other way round: they take their people only from the space, and the space never takes people from them. The group object records which kind a chat is (`in_space`). Why: a private chat for four of twelve must not shrink the space to four.

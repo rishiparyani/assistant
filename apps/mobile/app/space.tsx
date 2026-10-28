@@ -20,6 +20,7 @@ import { useSession } from "@/session";
 import { readJson, writeJson } from "@/storage";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
+import { SpaceNewChat } from "@/components/SpaceNewChat";
 
 /** The personal space's key in Today's rows. */
 const PERSONAL = "p";
@@ -54,7 +55,9 @@ export default function SpacePage() {
   const [refreshing, setRefreshing] = useState(false);
   // Every space has the same top (chats-home.md 5): Chats · Lists · Flows · People.
   const [tab, setTab] = useState<Tab>("chats");
-  const chats = useChats().chats ?? [];
+  const { chats: chatList, reload: reloadChats } = useChats();
+  const chats = chatList ?? [];
+  const [starting, setStarting] = useState(false);
   const assistant = me?.assistant !== false;
 
   useEffect(() => {
@@ -151,11 +154,13 @@ export default function SpacePage() {
     { key: "flows", label: "Flows" },
     ...(personal ? [] : [{ key: "people" as const, label: "People" }]),
   ];
-  // Everyone's chat first (all the space's people are in it), then the rest by newest message.
-  const everyone = people?.length ?? 0;
+  // The chat the space was made from first, then the rest by newest message.
+  const everyone = (people ?? []).filter((p) => p.role !== "shared").length;
   const chatsHere = [...groupChats].sort((a, b) => {
-    const all = (g: typeof a) => (everyone && g.members >= everyone ? 1 : 0);
-    return all(b) - all(a) || Date.parse(b.last?.at ?? b.updated_at) - Date.parse(a.last?.at ?? a.updated_at);
+    const home = (g: typeof a) => (g.in_space ? 0 : 1);
+    return (
+      home(b) - home(a) || Date.parse(b.last?.at ?? b.updated_at) - Date.parse(a.last?.at ?? a.updated_at)
+    );
   });
   const metaWords = personal
     ? "Only you"
@@ -206,7 +211,7 @@ export default function SpacePage() {
             style={rowStyle}
           >
             <View style={[s.hash, { backgroundColor: some ? t.fill : cardTint(c) }]}>
-              <Text style={[s.hashText, { color: some ? t.fg2 : colour(c) }]}>{some ? "◔" : "#"}</Text>
+              {some ? <Lock colour={t.fg2} /> : <Text style={[s.hashText, { color: colour(c) }]}>#</Text>}
             </View>
             <View style={s.words}>
               <View style={s.line}>
@@ -232,6 +237,19 @@ export default function SpacePage() {
           </Pressable>
         );
       })}
+      {!personal && spaceId && people ? (
+        <Pressable accessibilityRole="button" onPress={() => setStarting(true)} style={rowStyle}>
+          <View style={[s.hash, { backgroundColor: t.fill }]}>
+            <Text style={[s.hashText, { color: t.accent }]}>+</Text>
+          </View>
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.accent }]}>New chat in {name}</Text>
+            <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+              For everyone, or a private one for some people
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
       {assistant ? (
         <Pressable
           accessibilityRole="button"
@@ -484,6 +502,19 @@ export default function SpacePage() {
         </ScrollView>
         <Composer about={{ kind: "space", title: name }} params={chatIn} />
       </View>
+      {!personal && spaceId ? (
+        <SpaceNewChat
+          open={starting}
+          space={{ id: spaceId, name }}
+          people={(people ?? []).filter((p) => p.role !== "shared" && p.user_id !== userId)}
+          onClose={() => setStarting(false)}
+          onMade={(chatId) => {
+            setStarting(false);
+            void reloadChats();
+            router.push({ pathname: "/talk", params: { id: chatId } });
+          }}
+        />
+      ) : null}
       <RecordSheet
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
@@ -507,6 +538,26 @@ export default function SpacePage() {
             : undefined
         }
       />
+    </View>
+  );
+}
+
+/** A small padlock (a private chat), drawn so it looks the same on every phone. */
+function Lock({ colour }: { colour: string }) {
+  return (
+    <View style={{ alignItems: "center" }}>
+      <View
+        style={{
+          width: 10,
+          height: 9,
+          borderWidth: 2,
+          borderBottomWidth: 0,
+          borderColor: colour,
+          borderTopLeftRadius: 5,
+          borderTopRightRadius: 5,
+        }}
+      />
+      <View style={{ width: 16, height: 11, borderRadius: 3, backgroundColor: colour }} />
     </View>
   );
 }

@@ -111,6 +111,45 @@ export async function createGroup(
   return groupView(ctx, id);
 }
 
+/**
+ * A chat inside a space (chats-home.md 6, "several chats per space"): anyone in the space starts
+ * one, for everyone in it or some of its people (a private chat, "4 of 12"). Only the space's
+ * own people can be in it, and it never changes who is in the space.
+ */
+export async function startSpaceChat(
+  ctx: OpUserCtx,
+  input: { space: string; id: string; name: string; people?: string[] },
+): Promise<GroupView> {
+  const { space, stub, actor } = await spaceOf(ctx, input.space);
+  if (space.kind === "personal")
+    throw new AppError(
+      "validation_failed",
+      "Your personal space is only you; start a chat with people instead",
+    );
+  const inSpace = await spaceMembers(stub, actor, ctx.user.id);
+  const people = input.people?.length ? await resolvePeople(ctx, input.people, inSpace) : inSpace;
+  await groupOf(ctx, input.id).init(actorOf(ctx), {
+    id: input.id,
+    name: input.name,
+    owner: me(ctx),
+    members: people.map((p): GroupMember => ({ user_id: p.user_id, name: p.name, role: "member" })),
+    inSpace: space.id,
+  });
+  await index(ctx, input.id, [ctx.user.id, ...people.map((p) => p.user_id)]);
+  return groupView(ctx, input.id);
+}
+
+/** The space's own people but me (owners, editors, viewers; never someone a share reaches). */
+async function spaceMembers(
+  stub: Awaited<ReturnType<typeof spaceOf>>["stub"],
+  actor: Awaited<ReturnType<typeof spaceOf>>["actor"],
+  myId: string,
+): Promise<ChatPerson[]> {
+  return (await stub.spacePeople(actor))
+    .filter((p) => p.role !== "shared" && p.user_id !== myId)
+    .map((p) => ({ user_id: p.user_id, name: p.name }));
+}
+
 /** I've read this chat up to now (its unread count goes to 0). */
 export async function markGroupRead(ctx: OpUserCtx, id: string): Promise<{ read: string }> {
   await groupOf(ctx, id).markRead(ctx.user.id);
@@ -143,7 +182,16 @@ export async function groupView(ctx: OpUserCtx, id: string, around?: string): Pr
 }
 
 export async function addGroupPeople(ctx: OpUserCtx, id: string, refs: string[]): Promise<GroupView> {
-  const people = await resolvePeople(ctx, refs, await chatPeople(ctx));
+  // A chat inside a space takes only the space's people.
+  const g = await groupView(ctx, id);
+  const among =
+    g.in_space && g.space_id
+      ? await (async () => {
+          const { stub, actor } = await spaceOf(ctx, g.space_id!);
+          return spaceMembers(stub, actor, ctx.user.id);
+        })()
+      : await chatPeople(ctx);
+  const people = await resolvePeople(ctx, refs, among);
   await groupOf(ctx, id).addPeople(
     actorOf(ctx),
     ctx.idempotencyKey,

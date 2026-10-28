@@ -9,6 +9,7 @@ import {
   ShareAnswerInput,
   SetGroupRoleInput,
   CreateGroupInput,
+  StartSpaceChatInput,
   GetGroupInput,
   SaveMessageInput,
   SuggestInput,
@@ -30,6 +31,7 @@ import {
   shareAnswer,
   chatPeople,
   createGroup,
+  startSpaceChat,
   groupView,
   leaveGroup,
   setGroupRole,
@@ -88,6 +90,17 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       http: { method: "POST", path: "/groups", status: 201 },
       input: CreateGroupInput,
       handler: (ctx, i) => createGroup(ctx, i),
+    }),
+    defineOperation({
+      id: "core.start_space_chat",
+      tool: "start_space_chat",
+      description:
+        "Start a chat inside a shared space: for everyone in it, or some of its people (a private chat). Only the space's people can be in it.",
+      kind: "write",
+      confirm: true,
+      http: { method: "POST", path: "/spaces/:space/chats", status: 201 },
+      input: StartSpaceChatInput,
+      handler: (ctx, i) => startSpaceChat(ctx, i),
     }),
     defineOperation({
       id: "core.get_group",
