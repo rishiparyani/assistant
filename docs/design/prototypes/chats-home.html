@@ -225,7 +225,7 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
       <li>Open <b>Building</b>: its Chat tab lists its chats (Committee is private to 4 people); in Everyone, save Arjun's message as a complaint, open Visitors and add one.</li>
       <li>In Building › Flows, open <b>Collect November dues</b>.</li>
       <li>Open <b>Assistant</b>: tap the bars, change the split, try the suggestion chips or type "spent 450 on chai".</li>
-      <li>Open <b>Family</b> and settle up.</li>
+      <li>Open <b>Family</b> and settle up.</li><li>Tap your <b>Y</b> at the top of Chats: switch accounts, text size, language, and the first-run and invite screens.</li>
     </ol>
     <div class="row">
       <button class="pill" data-act="theme" data-arg="light" type="button">Light</button>
@@ -264,7 +264,7 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
       ],
       visFilter: 'all', draft: { name: '', flat: 'B-204', purpose: 'Guest' },
       cat: null, who: { You: true, Priya: true, Dev: true }, tip: 10, splitSaved: false, choice: null,
-      extra: [], wfDone: false, settled: false, potluck: false, voted: null,
+      extra: [], wfDone: false, settled: false, potluck: false, voted: null, account: 'me', zoom: 1, lang: 'English', firstStep: 'signin', firstPick: null, joinFlat: 'B-204',
       job: { paused: false, ask: 'waiting', detail: false },
       lift: [{ who: 'Neha · A-101', text: 'Technician says the motor needs a new belt.' }, { who: 'You', text: 'Approve ₹8,000 for the repair?', me: true }]
     };
@@ -280,9 +280,9 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
   setLook(look);
   var app = document.getElementById('app');
   function top() { return st.stack[st.stack.length - 1]; }
-  function go(s, arg) { if (desk() && st.stack.length > 1 && isRoot(s)) st.stack = [st.stack[0]]; st.stack.push({ s: s, arg: arg }); st.sheet = null; st.nav = 'fwd'; render(true); }
+  function go(s, arg) { if (s === 'first') { st.firstStep = 'signin'; st.firstPick = null; } if (desk() && st.stack.length > 1 && isRoot(s)) st.stack = [st.stack[0]]; st.stack.push({ s: s, arg: arg }); st.sheet = null; st.nav = 'fwd'; render(true); }
   function back() { if (st.stack.length > 1) st.stack.pop(); st.sheet = null; st.nav = 'back'; render(true); }
-  function isRoot(s) { return ['assistant', 'building', 'family', 'priya', 'cricket', 'needs'].indexOf(s) > -1; }
+  function isRoot(s) { return ['assistant', 'building', 'family', 'priya', 'cricket', 'needs', 'profile'].indexOf(s) > -1; }
   function desk() { return look === 'polished' && window.innerWidth >= 1000; }
   function toast(t) { st.toast = t; render(); clearTimeout(toast.id); toast.id = setTimeout(function () { st.toast = ''; render(); }, 2200); }
 
@@ -306,6 +306,7 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
     var nd = needList();
     var waiting = nd.length ? '<button type="button" class="needbar pop" data-act="go" data-arg="needs"><span class="needn">' + nd.length + '</span><span style="flex:1;min-width:0;display:flex;flex-direction:column;text-align:left"><b>' + (nd.length === 1 ? '1 thing needs you' : nd.length + ' things need you') + '</b><span class="last">' + esc(nd[0].title) + '</span></span>' + I.chev + '</button>' : '';
     var h = '<div class="headlight"><span class="title">Chats</span>' +
+      '<button type="button" class="icon" aria-label="You and settings" data-act="go" data-arg="profile"><span class="ava sm" style="background:var(--brand);color:var(--onBrand)">' + (st.account === 'gate' ? 'G' : 'Y') + '</span></button>' +
       '<button type="button" class="icon" aria-label="Search" data-act="search">' + I.search + '</button>' +
       '<button type="button" class="icon" aria-label="Colours" data-act="sheet" data-arg="colours"><span class="sw"><span style="background:var(--brand)"></span><span style="background:var(--glow)"></span></span></button></div>' +
       '<div class="scroll"><div class="homelist"><div class="pullsearch"><span class="ic">' + I.search + '</span><input id="homeq" type="search" aria-label="Search chats, people and lists" placeholder="Search chats, people and lists" autocomplete="off"></div>' + waiting +
@@ -364,6 +365,74 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
     });
     return h + '</div></div>';
   }
+
+  // ---------- You and settings (with the account switcher) ----------
+  function profile() {
+    var accts = [['me', 'You', 'you@example.com', 'Y'], ['gate', 'Building gate (test)', 'gate.test@example.com', 'G']];
+    var row = function (label, value, act, arg) { return '<button type="button" class="li" data-act="' + act + '" data-arg="' + (arg || '') + '"><span class="t"><b>' + label + '</b></span><span class="muted">' + value + '</span>' + I.chev + '</button>'; };
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span class="title" style="flex:1">You</span></div></div><div class="scroll"><div class="msgs" style="gap:14px">';
+    h += '<div class="card wide" style="align-items:center;text-align:center"><span class="ava" style="width:76px;height:76px;border-radius:38px;font-size:30px;background:var(--brand);color:var(--onBrand)">' + (st.account === 'gate' ? 'G' : 'Y') + '</span><b class="title">' + (st.account === 'gate' ? 'Building gate (test)' : 'You') + '</b><span class="muted">Tap the photo to change it</span></div>';
+    h += '<div class="sechead" style="padding:4px 4px 0">Accounts on this phone</div><div class="list" style="border-radius:18px;overflow:hidden;border:1px solid var(--hair)">' + accts.map(function (a) {
+      var on = st.account === a[0];
+      return '<button type="button" class="li" data-act="account" data-arg="' + a[0] + '"><span class="ava sm" style="background:' + (on ? 'var(--brand)' : 'var(--chat)') + ';color:' + (on ? 'var(--onBrand)' : 'var(--ink2)') + '">' + a[3] + '</span><span class="t"><b>' + a[1] + '</b><span class="muted">' + a[2] + '</span></span>' + (on ? '<span class="st g">Using</span>' : '<span class="st n">Switch</span>') + '</button>';
+    }).join('') + '<button type="button" class="li" data-act="toast" data-arg="Signs in another account; both stay signed in"><span class="ava sm" style="background:var(--chat);color:var(--ink2)">' + I.plus + '</span><span class="t"><b>Add another account</b><span class="muted">Stay signed in to both, switch with one tap</span></span></button></div>';
+    h += '<div class="sechead" style="padding:4px 4px 0">Settings</div><div class="list" style="border-radius:18px;overflow:hidden;border:1px solid var(--hair)">' +
+      row('Assistant', 'On', 'toast', 'The assistant can be switched off; everything else still works') +
+      row('Notifications', 'Needs you, mentions', 'toast', 'Choose what buzzes your phone') +
+      row('Colours and look', palette === 'jamun' ? 'Jamun' : palette, 'sheet', 'colours') +
+      '<div class="li"><span class="t"><b>Text size</b></span><span class="row" style="gap:4px">' + [['1', 'A'], ['1.12', 'A+'], ['1.25', 'A++']].map(function (z) { return '<button type="button" class="pill' + (String(st.zoom) === z[0] ? ' on' : '') + '" data-act="zoom" data-arg="' + z[0] + '">' + z[1] + '</button>'; }).join('') + '</span></div>' +
+      '<div class="li"><span class="t"><b>Language</b></span><span class="row" style="gap:4px">' + ['English', 'हिन्दी', 'Hinglish'].map(function (l) { return '<button type="button" class="pill' + (st.lang === l ? ' on' : '') + '" data-act="lang" data-arg="' + l + '">' + l + '</button>'; }).join('') + '</span></div>' +
+      row('Recently deleted', '30 days', 'toast', 'Restore anything deleted in the last 30 days') +
+      row('Sign out', '', 'toast', 'Signs out this account only') + '</div>';
+    h += '<div class="sechead" style="padding:4px 4px 0">Prototype: other screens</div><div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn soft" data-act="go" data-arg="first">First run</button><button type="button" class="btn soft" data-act="go" data-arg="invite">Joining by invite</button></div>';
+    return h + '</div></div>';
+  }
+
+  // ---------- A record, full page ----------
+  function record(id) {
+    var v = st.visitors.filter(function (x) { return x.id === id; })[0] || st.visitors[0];
+    var cls = v.status === 'Waiting' ? 'w' : v.status === 'Inside' ? 'g' : 'n';
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span style="display:flex;flex-direction:column;flex:1"><span class="sub">Building › Visitors</span><span class="title">' + esc(v.name) + '</span></span><span class="st ' + cls + '" style="margin-right:8px">' + v.status + '</span></div></div>';
+    h += '<div class="scroll"><div class="msgs" style="gap:12px">';
+    if (v.status === 'Waiting') h += '<div class="card wide waiting"><span class="tag" style="color:var(--wait)">Waiting on you</span><b>Let ' + esc(v.name) + ' in to ' + v.flat + '?</b><div class="row"><button type="button" class="btn primary" style="flex:1" data-act="recapprove" data-arg="' + v.id + '">Let in</button><button type="button" class="btn soft" style="flex:1" data-act="recreject" data-arg="' + v.id + '">Not now</button></div></div>';
+    h += '<div class="card wide"><span class="tag" style="color:var(--brand2)">Details</span>' + [['Flat', v.flat], ['Purpose', v.purpose], ['Came at', v.at], ['Logged by', 'Sanjay · Guard']].map(function (f) { return '<div class="line" style="min-height:32px;align-items:center"><span class="muted">' + f[0] + '</span><b>' + f[1] + '</b></div>'; }).join('') +
+      (v.status === 'Inside' ? '<button type="button" class="btn soft" data-act="recleave" data-arg="' + v.id + '">Mark as left</button>' : '') + '</div>';
+    h += '<div class="card wide"><span class="tag" style="color:var(--brand2)">What the workflow did</span><div class="flow">' + [[v.at, 'Added by the guard'], [v.at, 'Asked ' + v.flat + '\'s residents'], ['', v.status === 'Waiting' ? 'Waiting for an answer' : 'Answered: let in · guard told']].map(function (x, i, a) { return '<div class="step"><span class="rail"><span class="dot" style="background:' + (i === 2 && v.status === 'Waiting' ? 'var(--waitEdge)' : 'var(--brand)') + '"></span>' + (i < a.length - 1 ? '<span class="stem"></span>' : '') + '</span><span class="txt">' + x[1] + (x[0] ? '<br><span class="muted">' + x[0] + '</span>' : '') + '</span></div>'; }).join('') + '</div></div>';
+    h += '<div class="card wide"><span class="tag" style="color:var(--brand2)">Thread · everyone in Building</span><div class="b them" style="max-width:100%"><span class="who">Sanjay · Guard</span>Checked ID at the gate</div><div class="b them" style="max-width:100%"><span class="who" style="color:var(--a1t)">Neha · A-101</span>He is my cousin, all good</div></div>';
+    return h + '</div></div><div class="composer"><input aria-label="Reply in the thread" placeholder="Reply about ' + esc(v.name) + '"><button type="button" class="round brand" aria-label="Send">' + I.send + '</button></div>';
+  }
+
+  // ---------- First run ----------
+  function firstRun() {
+    if (st.firstStep === 'signin')
+      return '<div class="screen" style="justify-content:space-between;padding:40px 24px 28px;gap:20px;background:var(--app)"><button type="button" class="icon" aria-label="Close" data-act="back" style="align-self:flex-start;color:var(--ink)">' + I.back + '</button>' +
+        '<div style="display:flex;flex-direction:column;gap:14px"><span class="aiicon" style="width:72px;height:72px;border-radius:22px;font-size:32px;background:var(--brand);color:var(--onBrand)">✦</span><span class="big" style="font-size:38px">Your chats,<br>your lists,<br>one assistant.</span><span class="muted" style="font-size:16px">For your home, your family, your building, anything. Free to use; the assistant is optional.</span></div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px"><button type="button" class="btn primary" style="min-height:52px;font-size:16px" data-act="firstnext">Continue with Google</button><button type="button" class="btn soft" style="min-height:52px;font-size:16px" data-act="firstnext">Use a passkey</button><button type="button" class="btn ghost" data-act="firstnext">Email me a sign-in link</button></div></div>';
+    return '<div class="headlight"><span class="title">Chats</span></div><div class="scroll"><div class="msgs" style="background:var(--app);gap:14px">' +
+      '<div class="dark-hero" style="background:var(--brand);color:var(--onBrand)"><span class="aiicon" style="background:var(--onBrand);color:var(--brand)">✦</span><b style="font-size:20px">Hi! I\'m your assistant.</b><span>Tell me what you keep track of, and I\'ll set it up. Or just start chatting with people.</span><div class="row" style="gap:6px;flex-wrap:wrap">' +
+      ['I run a building\'s gate', 'Split costs with flatmates', 'Track my expenses', 'Plan a family event'].map(function (c) { return '<button type="button" class="pill" style="background:rgba(255,255,255,0.18);color:inherit;border:0" data-act="firstpick" data-arg="' + c + '">' + c + '</button>'; }).join('') + '</div></div>' +
+      (st.firstPick ? '<div class="b me pop" style="align-self:flex-end">' + esc(st.firstPick) + '</div><div class="card wide pop"><span class="tag" style="color:var(--brand2)">Here\'s a start · check it</span><b>' + esc(st.firstPick) + '</b><span class="muted">I\'ll make the lists and a chat for the people involved. You can change anything later by asking.</span><button type="button" class="btn primary" data-act="toast" data-arg="Made (prototype)">Make it</button></div>' : '') +
+      '<div class="card wide" style="align-items:center;text-align:center;border-style:dashed"><b>Your chats and spaces appear here</b><span class="muted">Got an invite link from someone? Open it, or paste it here.</span><button type="button" class="btn soft" data-act="go" data-arg="invite">Join with a link</button></div>' +
+      '</div></div>';
+  }
+
+  // ---------- Joining by invite (a resident, no assistant) ----------
+  function invite() {
+    return '<div class="screen" style="padding:28px 22px 24px;gap:16px;background:var(--app);overflow-y:auto"><button type="button" class="icon" aria-label="Close" data-act="back" style="align-self:flex-start;color:var(--ink)">' + I.back + '</button>' +
+      '<span class="muted" style="font-weight:700">Neha invited you to</span><div class="row"><span class="sq" style="width:64px;height:64px;border-radius:18px;font-size:26px;background:var(--brand)">B</span><span style="display:flex;flex-direction:column"><span class="big" style="font-size:30px">Building</span><span class="muted">12 people · a housing society</span></span></div>' +
+      '<div class="card wide"><span class="tag" style="color:var(--brand2)">What you\'ll get</span><div class="line"><span>Visitors for your flat, to approve</span><span class="st g">Yes</span></div><div class="line"><span>The Everyone chat</span><span class="st g">Yes</span></div><div class="line"><span>Complaints: report and follow</span><span class="st g">Yes</span></div><div class="line"><span>Other flats\' visitors</span><span class="st n">No</span></div></div>' +
+      '<label for="flatpick">Your flat<span class="chips">' + ['A-101', 'A-207', 'B-110', 'B-204'].map(function (f) { return '<button type="button" class="pill' + (st.joinFlat === f ? ' on' : '') + '" data-act="joinflat" data-arg="' + f + '">' + f + '</button>'; }).join('') + '</span></label>' +
+      '<button type="button" class="btn primary" style="min-height:52px;font-size:16px" data-act="join">Join with Google</button><button type="button" class="btn soft" data-act="join">Join with an email link</button>' +
+      '<span class="muted">No assistant needed. Free. You can leave any time.</span></div>';
+  }
+  function resident() {
+    var h = '<div class="head"><div class="bar"><button type="button" class="icon" aria-label="Back" data-act="back">' + I.back + '</button><span class="hsq" style="background:var(--brand)">B</span><span style="display:flex;flex-direction:column;flex:1"><span class="title">Building</span><span class="sub">You · resident of ' + st.joinFlat + '</span></span></div><div class="tabs"><button type="button" class="tab on">Chats · 2</button><button type="button" class="tab">Lists · 2</button><button type="button" class="tab">People · 12</button></div></div>';
+    h += '<div class="scroll"><div class="msgs"><div class="card wide pop" style="background:var(--brandSoft)"><span class="tag" style="color:var(--brand2)">Welcome to Building</span><span>You\'ll get visitor questions for <b>' + st.joinFlat + '</b> here and on your Chats screen. Report a complaint by just saying it in the chat.</span></div>';
+    h += '<div class="card wide waiting"><span class="tag" style="color:var(--wait)">Visitor for ' + st.joinFlat + '</span><b>A courier is at the gate. Let them in?</b><div class="row"><button type="button" class="btn primary" style="flex:1" data-act="toast" data-arg="Let in · the guard has been told">Let in</button><button type="button" class="btn soft" style="flex:1" data-act="toast" data-arg="Turned away · the guard has been told">Not now</button></div></div>';
+    h += '<div class="b them"><span class="who" style="color:var(--a1t)">Neha · A-101</span>Welcome! Meeting is Wednesday 7 pm at the clubhouse.</div>';
+    return h + '</div></div><div class="composer"><input aria-label="Message everyone" placeholder="Message everyone"><button type="button" class="round brand" aria-label="Send">' + I.send + '</button></div>';
+  }
+
   function msgCardVisitor() {
     if (st.visitor === null)
       return '<div class="card waiting wide pop"><span class="tag" style="color:var(--wait)">Visitor approval · for you</span><b style="font-size:16px">Ravi Kumar is at the gate for B-204</b><span class="muted">Guest · asked 6 min ago · only you can answer</span><div class="row"><button class="btn primary" style="flex:1" data-act="visitor" data-arg="yes" type="button">Let in</button><button class="btn soft" style="flex:1" data-act="visitor" data-arg="no" type="button">Not now</button></div></div>';
@@ -574,6 +643,11 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
     else if (t.s === 'familychat') html = familyChat();
     else if (t.s === 'topic') html = topic(t.arg);
     else if (t.s === 'needs') html = needs();
+    else if (t.s === 'profile') html = profile();
+    else if (t.s === 'record') html = record(t.arg);
+    else if (t.s === 'first') html = firstRun();
+    else if (t.s === 'invite') html = invite();
+    else if (t.s === 'resident') html = resident();
     else html = person(t.s === 'priya' ? 'Priya' : 'Sunday cricket');
     return html;
   }
@@ -621,7 +695,7 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
     closesheet: function () { st.sheet = null; render(); },
     toast: function (a) { toast(a); },
     visfilter: function (a) { st.visFilter = a; render(); },
-    record: function (a) { st.sheet = 'rec:' + a; st.sheetNew = true; render(); },
+    record: function (a) { go('record', a); },
     recapprove: function (a) { if (a === 'v1') st.visitor = 'yes'; setStatus(a, 'Inside'); },
     recreject: function (a) { if (a === 'v1') st.visitor = 'no'; setStatus(a, 'Left'); },
     recleave: function (a) { setStatus(a, 'Left'); },
@@ -648,6 +722,14 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
     jobskip: function () { st.job.ask = 'skipped'; toast('OK, it will ask again tomorrow'); },
     jobdetail: function () { st.job.detail = !st.job.detail; render(); },
     potluck: function () { st.potluck = true; render(); },
+    account: function (a) { if (st.account === a) return; st.account = a; toast(a === 'gate' ? 'Switched to Building gate (test). No sign-out needed.' : 'Switched back to you'); },
+    zoom: function (a) { st.zoom = Number(a); app.style.zoom = a; render(); },
+    lang: function (a) { st.lang = a; toast(a === 'English' ? 'English' : 'In the real app every label switches to ' + a); },
+    firstreset: function () { st.firstStep = 'signin'; },
+    firstnext: function () { st.firstStep = 'empty'; render(true); },
+    firstpick: function (a) { st.firstPick = a; render(); },
+    joinflat: function (a) { st.joinFlat = a; render(); },
+    join: function () { st.stack.pop(); go('resident'); },
     vote: function (a) { st.voted = a; toast('Voted ' + a + ' · the committee sees it'); },
     settle: function () { st.settled = true; toast('Marked as paid · Priya sees it'); }
   };

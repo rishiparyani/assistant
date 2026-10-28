@@ -34,13 +34,14 @@ From five directions (Quiet Pro, Chats as home, Bento, Timeline, Command dark) a
 - **Many chats stay tidy**: unread first, search, filters, pin, archive, mute.
 - Group chat suggestions ("+ Add to Complaints · Not that"), the catch-up card ("While you were away"), workflow questions inline (buttons only for their person, outcome for everyone), "✦ Ask privately".
 
-## Still to design in the prototype (owner said yes, 2026-10-28)
+## Added to the prototype (2026-10-28)
 
-1. **First run**: sign-in, then the empty Chats screen before anything exists.
-2. **Joining from an invite link**: what a resident sees with no account and no AI.
-3. **Profile and settings**: name, photo, assistant on/off, notifications, colours.
-4. **A list and a record full screen** in the polished style.
-Then: extra-large text and Hindi/Hinglish labels; gestures (swipe to archive/reply, long-press menus); real photos.
+- **You** (the avatar at the top of Chats): the photo, **Accounts on this phone** (stay signed in to several accounts and switch with one tap; "Add another account"), Assistant on/off, Notifications, Colours and look, **Text size** (A, A+, A++), **Language** (English, Hindi, Hinglish), Recently deleted, Sign out.
+- **A record as a full page** (tap a visitor): the question waiting on you, details, what the workflow did, and its thread with a reply box.
+- **First run**: sign in (Google, passkey, email link), then an empty Chats screen led by the assistant ("Tell me what you keep track of") with starter chips, and "Join with a link".
+- **Joining by invite**: "Neha invited you to Building", what you'll get and what you won't, pick your flat, join with Google or an email link, "No assistant needed"; then Building as a resident (no Flows tab, no assistant button), with a visitor question for their flat.
+
+Still open: gestures (swipe to archive or reply, long-press menus), real photos, message grouping and reactions, every label in Hindi.
 
 ## Planned build order (once the owner says build)
 
