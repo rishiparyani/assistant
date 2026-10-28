@@ -611,14 +611,14 @@ const views: Record<string, ViewFn> = {
       </Pressable>
     );
   },
-  BarChart: ({ props }) => {
+  BarChart: ({ props, bound }) => {
     const { t, dark } = useTheme();
     const bars = series(props, "bars").slice(0, 12);
     const one = colourOf(t, dark, props.colour ?? "accent");
     const top = Math.max(1, ...bars.map((b) => b.value));
     if (!bars.length) return <Text style={[type.small, { color: t.fg2 }]}>Nothing to show yet.</Text>;
     // Tappable when `selected` is bound: a tap picks that bar (again: none), the rest dim.
-    const pick = props.setSelected as ((v: string) => void) | undefined;
+    const pick = bound("selected") ? (props.setSelected as ((v: string) => void) | undefined) : undefined;
     const chosen = typeof props.selected === "string" ? props.selected : "";
     return (
       <View style={{ gap: pick ? 2 : 8 }}>

@@ -25,6 +25,9 @@ export interface PartProps {
   props: Record<string, unknown>;
   /** Draws a child. */
   child: (ref: ChildRef, key?: string | number) => ReactNode;
+  /** Whether a property is bound to a path in the card's data (the core gives every dynamic
+   *  property a setter, bound or not; only a bound one writes anywhere). */
+  bound: (name: string) => boolean;
 }
 
 /** A part the player can draw: its name, its schema (Zod 3, from the catalogue) and its view. */
@@ -96,6 +99,10 @@ function Bound({ id, basePath, part }: { id: string; basePath: string; part: Par
     ) : (
       <Node key={key ?? ref.basePath} id={ref.id} basePath={ref.basePath} />
     );
+  const bound = (name: string) => {
+    const v = raw?.[name];
+    return !!v && typeof v === "object" && typeof (v as { path?: unknown }).path === "string";
+  };
   const View = part.View;
-  return <View props={props} child={child} />;
+  return <View props={props} child={child} bound={bound} />;
 }
