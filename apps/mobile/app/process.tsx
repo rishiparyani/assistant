@@ -14,7 +14,7 @@ import { answerWaiting, homeChanged, nudgeWaiting } from "@/home";
 import { radius, useTheme } from "@/theme";
 
 export default function Process() {
-  const { t } = useTheme();
+  const { t, cardTint } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const {
@@ -35,6 +35,7 @@ export default function Process() {
   const [answers, setAnswers] = useState<RehearsalAnswer[]>([]);
   const [typed, setTyped] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [steps, setSteps] = useState(false);
 
   // The space it's in: from the card waiting on me, or given (a workflow found by search).
   const space = fromCard?.space_id ?? spaceParam;
@@ -134,166 +135,107 @@ export default function Process() {
 
   const waiting: WaitingItem[] = detail?.waiting ?? (mine ? [mine] : []);
   const title = detail?.workflow.name ?? mine?.workflow ?? fromCard?.workflow ?? "Process";
+  // The job's state (chats-home.md 8, "the assistant at work"): one dark card, then what needs
+  // me, then what it did; how it works stays folded until asked for.
+  const forMe = waiting.filter((w) => !!w.share_id && w.mine === null);
+  const onOthers = waiting.filter((w) => !forMe.includes(w));
+  const on = detail?.workflow.enabled ?? true;
+  // online-only: a workflow's switch lives in its space's object.
+  const toggle = act("enabled", () =>
+    request("PUT", `/api/workflows/${encodeURIComponent(id ?? "")}/enabled`, {
+      enabled: !on,
+      ...(space ? { space } : {}),
+    }),
+  );
+  const when = (iso: string) =>
+    new Date(iso).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  const answerRow = (w: WaitingItem) =>
+    w.choices ? (
+      <View style={s.row}>
+        {w.choices.map((c, i) => (
+          <Pressable
+            key={c}
+            accessibilityRole="button"
+            accessibilityLabel={`Answer ${c}`}
+            disabled={busy !== null}
+            onPress={act(`answer:${w.id}`, () => answerWaiting(w, c))}
+            style={[
+              s.btn,
+              i === 0 ? s.grow : null,
+              { backgroundColor: i === 0 ? t.ink : t.cell, opacity: busy ? 0.6 : 1 },
+            ]}
+          >
+            <Text style={[s.btnText, { color: i === 0 ? t.onInk : t.fg }]}>{c}</Text>
+          </Pressable>
+        ))}
+      </View>
+    ) : (
+      <Text style={[s.label, { color: t.accent }]}>Answer in the chat</Text>
+    );
+
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 8 }]}>
       <View style={s.head}>
-        <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-          {title}
-        </Text>
-        <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={10}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={[s.eyebrow, { color: t.accent }]}>Flow</Text>
+          <Text style={[s.title, { color: t.fg }]} numberOfLines={2}>
+            {title}
+          </Text>
+        </View>
+        <Pressable accessibilityRole="button" onPress={() => router.back()} hitSlop={10} style={s.doneBtn}>
           <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
         </Pressable>
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + COMPOSER_ROOM, gap: 14 }}>
         {detail ? (
-          <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
-            <Text style={[s.label, { color: t.fg2 }]}>
-              {detail.workflow.enabled ? "On" : "Off"} · ran {detail.workflow.runs} time
-              {detail.workflow.runs === 1 ? "" : "s"}
-            </Text>
-            <View style={{ marginTop: 6 }}>
-              <FlowDiagram workflow={detail.workflow} />
-            </View>
-            <View style={s.row}>
+          <View style={[s.hero, { backgroundColor: t.ink }]}>
+            <View style={s.heroTop}>
+              <View style={s.state}>
+                <View style={[s.dot, { backgroundColor: on ? t.good : t.fg3 }]} />
+                <Text style={[s.stateText, { color: t.onInk }]} numberOfLines={1}>
+                  {on ? "Working" : "Paused"}
+                </Text>
+              </View>
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel={on ? "Pause this flow" : "Turn this flow back on"}
                 disabled={busy !== null}
-                onPress={() => void remove()}
-                style={[s.btn, { backgroundColor: deleting ? t.danger : t.fill, opacity: busy ? 0.6 : 1 }]}
+                onPress={() => void toggle()}
+                style={[s.pause, { borderColor: t.onInk, opacity: busy ? 0.6 : 1 }]}
               >
-                <Text style={[s.btnText, { color: deleting ? t.onAccent : t.danger }]}>
-                  {busy === "delete" ? "Deleting…" : deleting ? "Tap again to delete it" : "Delete workflow"}
+                <Text style={[s.pauseText, { color: t.onInk }]}>
+                  {busy === "enabled" ? "…" : on ? "Pause" : "Resume"}
                 </Text>
               </Pressable>
             </View>
+            <Text style={[s.big, { color: t.onInk }]}>
+              {waiting.length
+                ? `${waiting.length} waiting on people`
+                : `Ran ${detail.workflow.runs} time${detail.workflow.runs === 1 ? "" : "s"}`}
+            </Text>
+            <Text style={[s.label, { color: t.onInk, opacity: 0.75 }]}>
+              {detail.workflow.words[0] ?? ""}
+              {detail.workflow.last_run_at ? ` · last ran ${when(detail.workflow.last_run_at)}` : ""}
+            </Text>
           </View>
         ) : null}
 
-        {detail ? (
-          <>
-            <Text style={[s.h2, { color: t.fg }]}>Rehearse</Text>
-            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
-              {rehearsal ? (
-                <>
-                  <Text style={[s.label, { color: t.fg2 }]}>
-                    {rehearsal.record ? `On “${rehearsal.record.title}”` : "As a scheduled run"} · nothing is
-                    kept, nobody is told
-                  </Text>
-                  {rehearsal.lines.map((l, i) => (
-                    <Text
-                      key={i}
-                      style={[s.line, { color: l.startsWith("It would stop") ? t.danger : t.fg }]}
-                    >
-                      {l}
-                    </Text>
-                  ))}
-                  {rehearsal.waiting ? (
-                    <>
-                      <Text style={[s.label, { color: t.fg2 }]}>
-                        {rehearsal.waiting.people.length > 1
-                          ? rehearsal.waiting.until === "first"
-                            ? `The first answer goes on. Answer as ${rehearsal.waiting.next}:`
-                            : `It goes on once all ${rehearsal.waiting.people.length} have answered. Answer as ${rehearsal.waiting.next}:`
-                          : rehearsal.waiting.next === "me"
-                            ? "Answer to go on:"
-                            : rehearsal.waiting.next === "the app"
-                              ? "Pick what the app would choose here:"
-                              : `Answer as ${rehearsal.waiting.next} to go on:`}
-                      </Text>
-                      {rehearsal.waiting.choices ? (
-                        <View style={s.row}>
-                          {rehearsal.waiting.choices.map((c) => (
-                            <Pressable
-                              key={c}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Answer ${c}`}
-                              disabled={busy !== null}
-                              onPress={() => answer(c)}
-                              style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-                            >
-                              <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                      ) : (
-                        <View style={s.row}>
-                          <TextInput
-                            accessibilityLabel="Their answer"
-                            placeholder="Their answer"
-                            placeholderTextColor={t.fg3}
-                            value={typed}
-                            onChangeText={setTyped}
-                            onSubmitEditing={() => typed.trim() && answer(typed.trim())}
-                            style={[s.input, { color: t.fg, backgroundColor: t.fill }]}
-                          />
-                          <Pressable
-                            accessibilityRole="button"
-                            disabled={busy !== null || !typed.trim()}
-                            onPress={() => answer(typed.trim())}
-                            style={[
-                              s.btn,
-                              { backgroundColor: t.accent, opacity: busy || !typed.trim() ? 0.6 : 1 },
-                            ]}
-                          >
-                            <Text style={[s.btnText, { color: t.onAccent }]}>Go on</Text>
-                          </Pressable>
-                        </View>
-                      )}
-                    </>
-                  ) : rehearsal.finished ? (
-                    <Text style={[s.label, { color: t.fg2 }]}>That's the whole run.</Text>
-                  ) : null}
-                  <View style={s.row}>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={busy !== null}
-                      onPress={() => void rehearse([])}
-                      style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
-                    >
-                      <Text style={[s.btnText, { color: t.accent }]}>Start again</Text>
-                    </Pressable>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={[s.label, { color: t.fg2 }]}>
-                    Play it through as it will really happen: a copy of this space where the workflows run for
-                    real. You set it off, then switch to each person to see their app (only what they may see)
-                    and do their part. Nothing reaches anyone.
-                  </Text>
-                  <View style={s.row}>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={busy !== null}
-                      onPress={() => void practise()}
-                      style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-                    >
-                      <Text style={[s.btnText, { color: t.onAccent }]}>
-                        {busy === "practice" ? "Setting it up…" : "Rehearse with everyone"}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={busy !== null}
-                      onPress={() => void rehearse([])}
-                      style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
-                    >
-                      <Text style={[s.btnText, { color: t.accent }]}>
-                        {busy === "rehearse" ? "Running…" : "Quick run in words"}
-                      </Text>
-                    </Pressable>
-                  </View>
-                </>
-              )}
-            </View>
-          </>
-        ) : null}
+        {forMe.length ? <Text style={[s.eyebrow, { color: t.warn }]}>Needs your OK</Text> : null}
+        {forMe.map((w) => (
+          <View
+            key={w.id}
+            style={[s.card, { backgroundColor: cardTint("time"), borderColor: "transparent" }]}
+          >
+            <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>{w.record}</Text>
+            <Text style={[s.line, { color: t.fg }]}>{w.text}</Text>
+            {answerRow(w)}
+          </View>
+        ))}
 
-        <Text style={[s.h2, { color: t.fg }]}>Waiting on</Text>
-        {waiting.length ? (
-          waiting.map((w) => {
+        <Text style={[s.h2, { color: t.fg }]}>Waiting on others</Text>
+        {onOthers.length ? (
+          onOthers.map((w) => {
             const open = w.on.filter((p) => p.answer === null);
-            const askedMe = !!w.share_id && w.mine === null;
             return (
               <View key={w.id} style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
                 <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>{w.record}</Text>
@@ -304,28 +246,10 @@ export default function Process() {
                   </Text>
                 ))}
                 <Text style={[s.label, { color: t.fg3 }]}>
-                  Asked{" "}
-                  {new Date(w.asked_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  Asked {when(w.asked_at)}
                   {w.nudges ? ` · nudged ${w.nudges} time${w.nudges === 1 ? "" : "s"}` : ""}
                 </Text>
-                {askedMe && w.choices ? (
-                  <View style={s.row}>
-                    {w.choices.map((c) => (
-                      <Pressable
-                        key={c}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Answer ${c}`}
-                        disabled={busy !== null}
-                        onPress={act(`answer:${w.id}`, () => answerWaiting(w, c))}
-                        style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-                      >
-                        <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                ) : askedMe ? (
-                  <Text style={[s.label, { color: t.accent }]}>Answer in the chat</Text>
-                ) : open.length && !w.share_id ? (
+                {open.length && !w.share_id ? (
                   <View style={s.row}>
                     <Pressable
                       accessibilityRole="button"
@@ -355,20 +279,181 @@ export default function Process() {
 
         {detail?.history.length ? (
           <>
-            <Text style={[s.h2, { color: t.fg }]}>What happened</Text>
-            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
-              {detail.history.map((r) => (
-                <View key={r.id} style={{ gap: 2 }}>
-                  <Text style={[s.line, { color: r.ok ? t.fg : t.danger }]}>
-                    {r.record ? `${r.record}: ` : ""}
-                    {r.detail}
-                  </Text>
-                  <Text style={[s.label, { color: t.fg3 }]}>
-                    {new Date(r.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-                  </Text>
+            <Text style={[s.h2, { color: t.fg }]}>What it did</Text>
+            <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair, gap: 0 }]}>
+              {detail.history.map((r, i) => (
+                <View key={r.id} style={s.step}>
+                  <View style={s.rail}>
+                    <View style={[s.railDot, { backgroundColor: r.ok ? t.accent : t.danger }]} />
+                    {i < detail.history.length - 1 ? (
+                      <View style={[s.railLine, { backgroundColor: t.hair }]} />
+                    ) : null}
+                  </View>
+                  <View style={s.stepWords}>
+                    <Text style={[s.line, { color: r.ok ? t.fg : t.danger }]}>
+                      {r.record ? `${r.record}: ` : ""}
+                      {r.detail}
+                    </Text>
+                    <Text style={[s.label, { color: t.fg3 }]}>{when(r.at)}</Text>
+                  </View>
                 </View>
               ))}
             </View>
+          </>
+        ) : null}
+
+        {detail ? (
+          <>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: steps }}
+              onPress={() => setSteps((x) => !x)}
+              style={s.fold}
+            >
+              <Text style={[s.h2, { color: t.fg, marginTop: 0 }]}>How it works</Text>
+              <Text style={[s.btnText, { color: t.accent }]}>{steps ? "Hide" : "Show the steps"}</Text>
+            </Pressable>
+            {steps ? (
+              <>
+                <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                  <FlowDiagram workflow={detail.workflow} />
+                  <View style={s.row}>
+                    <Pressable
+                      accessibilityRole="button"
+                      disabled={busy !== null}
+                      onPress={() => void remove()}
+                      style={[
+                        s.btn,
+                        { backgroundColor: deleting ? t.danger : t.fill, opacity: busy ? 0.6 : 1 },
+                      ]}
+                    >
+                      <Text style={[s.btnText, { color: deleting ? t.onAccent : t.danger }]}>
+                        {busy === "delete"
+                          ? "Deleting…"
+                          : deleting
+                            ? "Tap again to delete it"
+                            : "Delete workflow"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <Text style={[s.h2, { color: t.fg }]}>Rehearse</Text>
+                <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
+                  {rehearsal ? (
+                    <>
+                      <Text style={[s.label, { color: t.fg2 }]}>
+                        {rehearsal.record ? `On “${rehearsal.record.title}”` : "As a scheduled run"} · nothing
+                        is kept, nobody is told
+                      </Text>
+                      {rehearsal.lines.map((l, i) => (
+                        <Text
+                          key={i}
+                          style={[s.line, { color: l.startsWith("It would stop") ? t.danger : t.fg }]}
+                        >
+                          {l}
+                        </Text>
+                      ))}
+                      {rehearsal.waiting ? (
+                        <>
+                          <Text style={[s.label, { color: t.fg2 }]}>
+                            {rehearsal.waiting.people.length > 1
+                              ? rehearsal.waiting.until === "first"
+                                ? `The first answer goes on. Answer as ${rehearsal.waiting.next}:`
+                                : `It goes on once all ${rehearsal.waiting.people.length} have answered. Answer as ${rehearsal.waiting.next}:`
+                              : rehearsal.waiting.next === "me"
+                                ? "Answer to go on:"
+                                : rehearsal.waiting.next === "the app"
+                                  ? "Pick what the app would choose here:"
+                                  : `Answer as ${rehearsal.waiting.next} to go on:`}
+                          </Text>
+                          {rehearsal.waiting.choices ? (
+                            <View style={s.row}>
+                              {rehearsal.waiting.choices.map((c) => (
+                                <Pressable
+                                  key={c}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Answer ${c}`}
+                                  disabled={busy !== null}
+                                  onPress={() => answer(c)}
+                                  style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                                >
+                                  <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
+                                </Pressable>
+                              ))}
+                            </View>
+                          ) : (
+                            <View style={s.row}>
+                              <TextInput
+                                accessibilityLabel="Their answer"
+                                placeholder="Their answer"
+                                placeholderTextColor={t.fg3}
+                                value={typed}
+                                onChangeText={setTyped}
+                                onSubmitEditing={() => typed.trim() && answer(typed.trim())}
+                                style={[s.input, { color: t.fg, backgroundColor: t.fill }]}
+                              />
+                              <Pressable
+                                accessibilityRole="button"
+                                disabled={busy !== null || !typed.trim()}
+                                onPress={() => answer(typed.trim())}
+                                style={[
+                                  s.btn,
+                                  { backgroundColor: t.accent, opacity: busy || !typed.trim() ? 0.6 : 1 },
+                                ]}
+                              >
+                                <Text style={[s.btnText, { color: t.onAccent }]}>Go on</Text>
+                              </Pressable>
+                            </View>
+                          )}
+                        </>
+                      ) : rehearsal.finished ? (
+                        <Text style={[s.label, { color: t.fg2 }]}>That's the whole run.</Text>
+                      ) : null}
+                      <View style={s.row}>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={busy !== null}
+                          onPress={() => void rehearse([])}
+                          style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+                        >
+                          <Text style={[s.btnText, { color: t.accent }]}>Start again</Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[s.label, { color: t.fg2 }]}>
+                        Play it through as it will really happen: a copy of this space where the workflows run
+                        for real. You set it off, then switch to each person to see their app (only what they
+                        may see) and do their part. Nothing reaches anyone.
+                      </Text>
+                      <View style={s.row}>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={busy !== null}
+                          onPress={() => void practise()}
+                          style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                        >
+                          <Text style={[s.btnText, { color: t.onAccent }]}>
+                            {busy === "practice" ? "Setting it up…" : "Rehearse with everyone"}
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          accessibilityRole="button"
+                          disabled={busy !== null}
+                          onPress={() => void rehearse([])}
+                          style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+                        >
+                          <Text style={[s.btnText, { color: t.accent }]}>
+                            {busy === "rehearse" ? "Running…" : "Quick run in words"}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </>
+                  )}
+                </View>
+              </>
+            ) : null}
           </>
         ) : null}
         {note && (detail || waiting.length) ? (
@@ -399,7 +484,24 @@ const s = StyleSheet.create({
     paddingVertical: 8,
     gap: 12,
   },
-  title: { flex: 1, fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
+  title: { fontSize: 22, fontWeight: "800", letterSpacing: -0.5 },
+  eyebrow: { fontSize: 12, fontWeight: "800", letterSpacing: 0.8, textTransform: "uppercase" },
+  doneBtn: { minHeight: 44, justifyContent: "center" },
+  hero: { borderRadius: radius.card, padding: 18, gap: 10 },
+  heroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  state: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  stateText: { fontSize: 14, fontWeight: "700" },
+  pause: { minHeight: 44, paddingHorizontal: 16, borderRadius: 22, borderWidth: 1, justifyContent: "center" },
+  pauseText: { fontSize: 14, fontWeight: "700" },
+  big: { fontSize: 26, fontWeight: "800", letterSpacing: -0.6 },
+  grow: { flexGrow: 1 },
+  step: { flexDirection: "row", gap: 10 },
+  rail: { width: 12, alignItems: "center" },
+  railDot: { width: 10, height: 10, borderRadius: 5, marginTop: 6 },
+  railLine: { flex: 1, width: 2, marginTop: 2 },
+  stepWords: { flex: 1, gap: 2, paddingBottom: 12 },
+  fold: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44 },
   h2: { fontSize: 15, fontWeight: "700", marginTop: 4 },
   card: { padding: 14, borderRadius: radius.card, borderWidth: StyleSheet.hairlineWidth, gap: 6 },
   line: { fontSize: 15, lineHeight: 21 },
