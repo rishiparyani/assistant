@@ -28,7 +28,16 @@ import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } fro
 import { NewChat } from "./chats";
 import { API_URL } from "@/config";
 import { onHomeChanged, type HomeCard } from "@/home";
-import { loadToday, recentSpaces, savedToday, whenWords, type Today } from "@/today";
+import {
+  loadToday,
+  recentSpaces,
+  savedToday,
+  sharedItem,
+  whenWords,
+  type Today,
+  type UpNextItem,
+} from "@/today";
+import { RecordSheet } from "@/components/RecordSheet";
 import {
   filterEntries,
   homeEntries,
@@ -54,6 +63,7 @@ const SIDE = 16;
 const COLUMN = 760;
 /** The search box above the list, out of sight until the list is pulled down. */
 const SEARCH_H = 60;
+const DAY = 86_400_000;
 const FILTERS: { key: HomeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "unread", label: "Unread" },
@@ -88,6 +98,8 @@ export default function Home() {
   const [filter, setFilter] = useState<HomeFilter>("all");
   const [making, setMaking] = useState(false);
   const [starting, setStarting] = useState(false);
+  // A row tapped on a card shared with me: that record, opened on the phone (it is saved there).
+  const [opened, setOpened] = useState<UpNextItem | null>(null);
   const userId = me?.user.id ?? null;
   useTestLaunch();
   usePendingPath();
@@ -232,7 +244,9 @@ export default function Home() {
   const loading = today === null;
   const q = query.trim();
   const shown = q ? matchEntries(entries, q) : filterEntries(entries, filter);
-  const coming = (today?.upnext ?? []).filter((u) => u.at >= now - 3_600_000);
+  // Still to come: an all-day thing for the whole of its day (its `at` is midnight), a timed one
+  // until an hour after it starts.
+  const coming = (today?.upnext ?? []).filter((u) => (u.allDay ? u.at + DAY > now : u.at >= now - 3_600_000));
 
   const spaceTile = (e: SpaceEntry) => {
     const c = colourFor(e.space.name);
@@ -516,7 +530,12 @@ export default function Home() {
           <Text style={[type.eyebrow, { color: t.fg2 }]}>Shared with you</Text>
           {shared.map((card) => (
             <Boundary key={card.id} where="shared with you">
-              <Card card={card} natural onOpen={() => openOnWeb(card)} />
+              <Card
+                card={card}
+                natural
+                onOpen={() => openOnWeb(card)}
+                onOpenRecord={(record) => setOpened(sharedItem(card, record))}
+              />
             </Boundary>
           ))}
         </View>
@@ -667,6 +686,24 @@ export default function Home() {
           void reloadChats();
           router.push({ pathname: "/talk", params: { id } });
         }}
+      />
+      <RecordSheet
+        record={opened?.record ?? null}
+        collection={opened?.collection ?? null}
+        onClose={() => setOpened(null)}
+        onAsk={
+          opened && assistant
+            ? () => {
+                const o = opened;
+                setOpened(null);
+                openChat(o.space ? { space: o.space } : {}, {
+                  kind: "record",
+                  title: o.record.title,
+                  in: o.collection.name,
+                });
+              }
+            : undefined
+        }
       />
       <HelpSheet
         open={help}

@@ -54,7 +54,12 @@ export function homeEntries(o: {
       at: newest ? time(newest.last?.at ?? newest.updated_at) : 0,
       unread: own.reduce((n, c) => n + c.unread, 0),
       last: newest?.last ?? null,
-      waiting: o.needs.filter((c) => !c.shared && (sp.personal ? !c.space : c.space === sp.spaceId)).length,
+      // A workflow's question names its space on `waiting`; other cards on `space` (none: personal).
+      waiting: o.needs.filter((c) => {
+        if (c.shared) return false;
+        const at = c.space ?? c.waiting?.space_id;
+        return sp.personal ? !at || at === sp.spaceId : at === sp.spaceId;
+      }).length,
       soon: o.upnext.filter((u) => !u.shared && (sp.personal ? !u.space : u.space === sp.spaceId)).length,
     };
   });
