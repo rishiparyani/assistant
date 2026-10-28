@@ -592,12 +592,56 @@ export const SPENDING: A2Card = {
         { title: "All", child: "all" },
       ],
     },
-    { id: "where", component: "Column", children: ["donut", "budget"] },
+    { id: "where", component: "Column", children: ["bars", "insideLabel", "inside", "budget"] },
+    // Tap a bar: the biggest three in that category show under it (tap again: the month's biggest).
     {
-      id: "donut",
-      component: "PieChart",
+      id: "bars",
+      component: "BarChart",
       format: "money",
+      multicolour: true,
+      selected: { path: "/cat" },
       data: { call: "groupSum", args: { list: chosenMonth, by: "Category", field: "Amount" } },
+      labelField: "label",
+      valueField: "value",
+    },
+    {
+      id: "insideLabel",
+      component: "Text",
+      style: "caption",
+      text: {
+        call: "pick",
+        args: {
+          when: { path: "/cat" },
+          then: { call: "text", args: { parts: [{ path: "/cat" }, ": the biggest three"] } },
+          else: "Tap a bar to see what's in it. The month's biggest three:",
+        },
+      },
+    },
+    {
+      id: "inside",
+      component: "Table",
+      data: {
+        call: "take",
+        args: {
+          list: {
+            call: "sortBy",
+            args: {
+              list: {
+                call: "filter",
+                args: { list: chosenMonth, where: { field: "Category", equals: { path: "/cat" } } },
+              },
+              field: "Amount",
+              desc: true,
+            },
+          },
+          count: 3,
+        },
+      },
+      columns: [
+        { label: "What", field: "What" },
+        { label: "₹", field: "Amount", format: "money" },
+      ],
+      empty: "Nothing here this month.",
     },
     {
       id: "budget",
@@ -658,7 +702,94 @@ export const SPENDING: A2Card = {
       empty: "Nothing matches.",
     },
   ],
-  data: { spent: SPENT, period: "This month", q: "", budget: 3000000 },
+  data: { spent: SPENT, period: "This month", q: "", budget: 3000000, cat: "" },
+};
+
+/** Splitting a bill (chats-home.md 6, "answers that are tiny apps"): who shared, the tip, each
+ *  share worked out live, and a button that adds it to expenses. */
+const withTip = {
+  call: "multiply",
+  args: {
+    a: { path: "/total" },
+    b: {
+      call: "pick",
+      args: {
+        when: { call: "equals", args: { a: { path: "/tip" }, b: "10%" } },
+        then: 1.1,
+        else: {
+          call: "pick",
+          args: { when: { call: "equals", args: { a: { path: "/tip" }, b: "5%" } }, then: 1.05, else: 1 },
+        },
+      },
+    },
+  },
+};
+export const SPLIT: A2Card = {
+  title: "Split the bill",
+  parts: [
+    {
+      id: "root",
+      component: "Card",
+      title: "Dinner",
+      subtitle: "₹4,500 to split",
+      icon: "🍽️",
+      children: ["whoLabel", "who", "tipLabel", "tip", "each", "add", "added"],
+    },
+    { id: "whoLabel", component: "Text", style: "caption", text: "Who shared it?" },
+    { id: "who", component: "Chips", value: { path: "/who" }, options: ["You", "Priya", "Dev"] },
+    { id: "tipLabel", component: "Text", style: "caption", text: "Tip" },
+    { id: "tip", component: "Segmented", value: { path: "/tip" }, options: ["No tip", "5%", "10%"] },
+    {
+      id: "each",
+      component: "Stat",
+      label: "Each pays",
+      format: "money",
+      value: {
+        call: "round",
+        args: {
+          value: {
+            call: "divide",
+            args: { a: withTip, b: { call: "size", args: { list: { path: "/who" } } } },
+          },
+          places: -2,
+        },
+      },
+      hint: {
+        call: "text",
+        args: {
+          parts: [
+            { call: "money", args: { value: withTip } },
+            " with the tip, ",
+            { call: "size", args: { list: { path: "/who" } } },
+            " people",
+          ],
+        },
+      },
+    },
+    {
+      id: "add",
+      component: "Button",
+      label: "Add to expenses",
+      style: "primary",
+      action: {
+        functionCall: {
+          call: "addItem",
+          args: { to: "/expenses", item: { What: "Dinner", Category: "Food", Amount: 450000 } },
+        },
+      },
+    },
+    {
+      id: "added",
+      component: "Text",
+      style: "caption",
+      visible: {
+        call: "greater",
+        args: { a: { call: "size", args: { list: { path: "/expenses" } } }, b: 0 },
+      },
+      text: "Added to expenses.",
+    },
+  ],
+  data: { total: 450000, who: ["You", "Priya", "Dev"], tip: "10%", expenses: [] },
 };
 
 /** A trip planned together: a countdown, who's going, steps, a board, a calendar, money and packing. */
@@ -846,4 +977,4 @@ export const PLANNER: A2Card = {
   },
 };
 
-export const DEMOS: A2Card[] = [SPENDING, PLANNER, INVOICES, LOAN, BUDGET];
+export const DEMOS: A2Card[] = [SPENDING, SPLIT, PLANNER, INVOICES, LOAN, BUDGET];
