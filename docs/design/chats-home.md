@@ -1,6 +1,6 @@
 # Chats as home: the look and flow the owner picked (2026-10-28)
 
-**Status: being designed in a clickable prototype; nothing here is built yet.** The owner said "Don't build yet" (2026-10-28): first the prototype, then lock the design, then build in small steps. This file is the running record of the discussion, so it survives a new session or a compacted context. It builds on [from-scratch.md](from-scratch.md) (Today, spaces, rehearse, the build order FS1–FS10) and changes its home, look and space layout; where the two disagree, this file is newer.
+**Status: design locked, being built (2026-10-28).** The owner reviewed the prototype and said "start building", in the order below. **English only for now** (the owner: "Hindi is not necessary"); the language setting is dropped. This file is the running record of the discussion, so it survives a new session or a compacted context. It builds on [from-scratch.md](from-scratch.md) (Today, spaces, rehearse, the build order FS1–FS10) and changes its home, look and space layout; where the two disagree, this file is newer.
 
 ## Links
 
@@ -19,7 +19,7 @@ From five directions (Quiet Pro, Chats as home, Bento, Timeline, Command dark) a
    - a **space** is a rounded tile tinted in its colour, with a square icon, "· space", status chips ("1 waiting on you", "3 inside now", "2 complaints") and the last message;
    - a **person** is a plain row with one round face;
    - a **group chat** is a plain row with overlapping faces.
-   Filters: All · Unread · Spaces · Chats. A group chat becomes a space once it has lists. Archived chats sit at the bottom.
+     Filters: All · Unread · Spaces · Chats. A group chat becomes a space once it has lists. Archived chats sit at the bottom.
 4. **"Needs you"**: one slim amber bar at the top ("4 things need you" and the oldest one); tapping opens a **Needs you** screen listing every question, approval, vote and form with its buttons. It never pushes the chats down however many there are.
 5. **Every space has the same top**: **Chats · Lists · Flows · People** (owner, on Family lacking them: "How come?"). A plain chat with a person, or a group with no lists, opens straight into the conversation.
 6. **Several chats per space** (agreed 2026-10-25): the space's Chats tab is a **list** (not chips: "there could be multiple chats"): Everyone first, then topic chats, then private ones. A chat can be for everyone or **some people** (Committee: 4 of Building's 12, "4 people · private"); only they see it, and it can use the space's lists. "+ New chat in <space>".
@@ -36,16 +36,16 @@ From five directions (Quiet Pro, Chats as home, Bento, Timeline, Command dark) a
 
 ## Added to the prototype (2026-10-28)
 
-- **You** (the avatar at the top of Chats): the photo, **Accounts on this phone** (stay signed in to several accounts and switch with one tap; "Add another account"), Assistant on/off, Notifications, Colours and look, **Text size** (A, A+, A++), **Language** (English, Hindi, Hinglish), Recently deleted, Sign out.
+- **You** (the avatar at the top of Chats): the photo, **Accounts on this phone** (stay signed in to several accounts and switch with one tap; "Add another account"), Assistant on/off, Notifications, Colours and look, **Text size** (A, A+, A++), Recently deleted, Sign out.
 - **A record as a full page** (tap a visitor): the question waiting on you, details, what the workflow did, and its thread with a reply box.
 - **First run**: sign in (Google, passkey, email link), then an empty Chats screen led by the assistant ("Tell me what you keep track of") with starter chips, and "Join with a link".
 - **Joining by invite**: "Neha invited you to Building", what you'll get and what you won't, pick your flat, join with Google or an email link, "No assistant needed"; then Building as a resident (no Flows tab, no assistant button), with a visitor question for their flat.
 
-Still open: gestures (swipe to archive or reply, long-press menus), real photos, message grouping and reactions, every label in Hindi.
+Still open: gestures (swipe to archive or reply, long-press menus), real photos, message grouping and reactions.
 
-## Planned build order (once the owner says build)
+## Build order (the owner said build, 2026-10-28)
 
-1. The look: Jamun and the polished styles in the theme tokens (a theme change: the owner has now chosen it).
+1. The look: Jamun and the polished styles in the theme tokens (a theme change: the owner has now chosen it). **Colours done** (the Jamun palette in `packages/cards/src/native/theme.ts`); the display face and the light space headers come with the screens that use them.
 2. Chats as home (pinned assistant card, one list, pull-down search, Needs you bar and screen).
 3. Spaces with Chats · Lists · Flows · People; several chats per space, private ones; the AI's full context plus summary.
 4. Answer cards (6) from the fixed blocks.

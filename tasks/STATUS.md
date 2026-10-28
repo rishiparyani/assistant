@@ -1,10 +1,10 @@
 # Status
 
-_Updated: 2026-10-25_
+_Updated: 2026-10-28_
 
 ## Last done
 
-- **Design in progress, nothing built (2026-10-28): chats as home, Jamun, the polished look.** The owner picked option 2 (chats as home), 6 (answers that are tiny apps) and 7 (the assistant at work) from a set of look options and refined it in a clickable prototype; the owner said "Don't build yet". The choices, the agreed behaviour, what's left to design, the build order and the other topics discussed (the account switcher idea, a Mac for the simulator, React Native vs native, renaming) are in [docs/design/chats-home.md](../docs/design/chats-home.md); the prototype's source is `docs/design/prototypes/chats-home.html`. **Next:** add first run, joining by invite, profile/settings and a polished list/record to the prototype; then lock the design and build in that file's order.
+- **Chats as home, step 1: the Jamun colours (2026-10-28).** The owner locked the design (English only; the language setting is dropped) and said "start building" in the order of [docs/design/chats-home.md](../docs/design/chats-home.md). This step changes only the tokens in `packages/cards/src/native/theme.ts` (light and dark Jamun: plum accent and hero, pale plum ground; dark accent `#b47ee0` keeps white text readable on it), plus the splash, `theme-color` and loading screen of the Expo web page and the PWA manifest. Checked on the built site at 390 px, light and dark. **Next:** step 2, chats as home (pinned assistant card, one list of spaces and chats by latest activity, pull-down search, the Needs you bar and screen); the display face and light space headers come with the screens that use them (a font needs a recorded decision).
 
 - **Workflow cards are drawn, and checked before Confirm (owner, 2026-10-25, TestFlight: the visitor and gate workflow failed on Confirm with "Status keeps one answer…", and the card was "not very presentable": lines with {braces}).** Three fixes. (1) The one-answer check counted any person field as several people, so "Ask {Guard} … keep it in Status" was refused; a person field holds one person, so it's one answer now (`space-object.ts`, the ask step's `asked` count; a link path still counts as several). (2) A proposed workflow is checked as it would be made when the card is made, like a setup (`SpaceObject.previewWorkflow`, `workflowSpec` split out of `createWorkflow` in `workflow-operations.ts`), so a step that can't work goes back to the assistant before the tap. (3) The card carries that preview (`ChatItem.card.flow`, chat object column `actions.flow_json`, object migration) and the phone draws it with `FlowDiagram` (field names as names), with one line on being saved off; a setup card keeps its arguments once done, so it stays drawn instead of turning into lines. Tests: `flow-links.test.ts` (one person field, choice answer), `assistant.test.ts` (preview, refusal, nothing made). Not seen on a real card here: tests have no Careful model; the diagram is the one live workflow cards already draw.
 
@@ -908,10 +908,11 @@ _Updated: 2026-10-25_
 
 ## Next
 
-0. **From scratch (approved 2026-10-24): [docs/design/from-scratch.md](../docs/design/from-scratch.md), backlog section FS.** FS1 (Today), FS2 (the composer everywhere) and FS3 (rehearse = the whole app as a person) are done; next is FS4 (the space page). Read the design document first; it is the brief, not a suggestion. See "Handover" below for the state of the queue and the process.
-1. **Phase 2, stage 1** (`tasks/backlog.md`): P2-1a data engine → P2-1b app shell (replaces the gig app at gigspree.in as it becomes usable) → P2-1c model router and model test.
-2. Owner steps still open: `ADMIN_EMAILS` GitHub secret = the owner's email (then a redeploy), then Admin panel → Backups → Connect Google Drive (Drive API and redirect URIs done); GitHub safety switches (secret scanning, push protection, Dependabot, fork approvals); `privacy@gigspree.in` via Cloudflare Email Routing; optional `TELEGRAM_BOT_TOKEN`; verify the Google Cloud account (console banner). For P2-1c: prepaid AI credit and spend limits in Cloudflare AI Gateway (instructions to come).
-3. Owner to try: notifications "Send a test" on the iPhone app.
+0. **Chats as home (the owner said build, 2026-10-28): [docs/design/chats-home.md](../docs/design/chats-home.md), its build order.** Step 1 (Jamun colours) is done; next is step 2 (chats as home). It replaces Today and the FS4 space page.
+1. **From scratch (approved 2026-10-24): [docs/design/from-scratch.md](../docs/design/from-scratch.md), backlog section FS.** FS1 (Today), FS2 (the composer everywhere) and FS3 (rehearse = the whole app as a person) are done; next is FS4 (the space page). Read the design document first; it is the brief, not a suggestion. See "Handover" below for the state of the queue and the process.
+2. **Phase 2, stage 1** (`tasks/backlog.md`): P2-1a data engine → P2-1b app shell (replaces the gig app at gigspree.in as it becomes usable) → P2-1c model router and model test.
+3. Owner steps still open: `ADMIN_EMAILS` GitHub secret = the owner's email (then a redeploy), then Admin panel → Backups → Connect Google Drive (Drive API and redirect URIs done); GitHub safety switches (secret scanning, push protection, Dependabot, fork approvals); `privacy@gigspree.in` via Cloudflare Email Routing; optional `TELEGRAM_BOT_TOKEN`; verify the Google Cloud account (console banner). For P2-1c: prepaid AI credit and spend limits in Cloudflare AI Gateway (instructions to come).
+4. Owner to try: notifications "Send a test" on the iPhone app.
 
 ## Gotchas (for any agent)
 

@@ -381,7 +381,6 @@ label { font-size: 13px; font-weight: 700; color: var(--ink2); display: flex; fl
       row('Notifications', 'Needs you, mentions', 'toast', 'Choose what buzzes your phone') +
       row('Colours and look', palette === 'jamun' ? 'Jamun' : palette, 'sheet', 'colours') +
       '<div class="li"><span class="t"><b>Text size</b></span><span class="row" style="gap:4px">' + [['1', 'A'], ['1.12', 'A+'], ['1.25', 'A++']].map(function (z) { return '<button type="button" class="pill' + (String(st.zoom) === z[0] ? ' on' : '') + '" data-act="zoom" data-arg="' + z[0] + '">' + z[1] + '</button>'; }).join('') + '</span></div>' +
-      '<div class="li"><span class="t"><b>Language</b></span><span class="row" style="gap:4px">' + ['English', 'हिन्दी', 'Hinglish'].map(function (l) { return '<button type="button" class="pill' + (st.lang === l ? ' on' : '') + '" data-act="lang" data-arg="' + l + '">' + l + '</button>'; }).join('') + '</span></div>' +
       row('Recently deleted', '30 days', 'toast', 'Restore anything deleted in the last 30 days') +
       row('Sign out', '', 'toast', 'Signs out this account only') + '</div>';
     h += '<div class="sechead" style="padding:4px 4px 0">Prototype: other screens</div><div class="row" style="gap:8px;flex-wrap:wrap"><button type="button" class="btn soft" data-act="go" data-arg="first">First run</button><button type="button" class="btn soft" data-act="go" data-arg="invite">Joining by invite</button></div>';

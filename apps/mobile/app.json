@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#e9eaee"
+      "backgroundColor": "#ede6f2"
     },
     "ios": {
       "bundleIdentifier": "in.gigspree.assistant",
@@ -30,7 +30,7 @@
     "android": {
       "package": "in.gigspree.assistant",
       "adaptiveIcon": {
-        "backgroundColor": "#e9eaee",
+        "backgroundColor": "#ede6f2",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
