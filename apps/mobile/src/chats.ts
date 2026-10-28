@@ -22,6 +22,28 @@ const enc = encodeURIComponent;
 const messagesPath = (id: string) => `/api/groups/${enc(id)}/messages`;
 const pollsPath = (id: string) => `/api/groups/${enc(id)}/polls`;
 
+// The space chat being started: the same id and key until it's made (a retry opens that one).
+let spaceAttempt: { what: string; id: string; key: string } | null = null;
+
+// online-only: a chat inside a space needs the space to check its people and make it once.
+export async function startSpaceChat(
+  space: string,
+  input: { name: string; people?: string[] },
+): Promise<GroupView> {
+  const body = { name: input.name.trim(), ...(input.people ? { people: [...input.people].sort() } : {}) };
+  const what = JSON.stringify([space, body]);
+  if (spaceAttempt?.what !== what) spaceAttempt = { what, id: ulid(), key: ulid() };
+  const made = await request<GroupView>(
+    "POST",
+    `/api/spaces/${enc(space)}/chats`,
+    { id: spaceAttempt.id, ...body },
+    spaceAttempt.key,
+  );
+  spaceAttempt = null;
+  writeJson(ONE(made.id), made);
+  return made;
+}
+
 /** My chats, newest first: the kept copy at once, then fresh from the server (and on changes). */
 export function useChats() {
   const [chats, setChats] = useState<GroupSummary[] | null>(() => readJson<GroupSummary[]>(LIST));

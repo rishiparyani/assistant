@@ -180,6 +180,9 @@ const MIGRATIONS: Migrations = [
    create index suggestions_user_idx on suggestions (user_id);
    create table suggest_queue (message_id text primary key, at text not null);
    create table suggest_log (user_id text not null, day text not null, n integer not null default 0, primary key (user_id, day));`,
+  // Several chats in one space (chats-home.md 6): a chat started inside a space belongs to it
+  // (space_id) but is not its home, so the space's people never follow its members.
+  `alter table grp add column in_space integer not null default 0;`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -249,6 +252,8 @@ type GroupRow = {
   updated_at: string;
   direct: number;
   space_id: string | null;
+  /** 1: started inside its space (one of several chats there), not the space's home. */
+  in_space: number;
 };
 
 export class GroupObject extends DurableObject<Env> {
@@ -291,14 +296,23 @@ export class GroupObject extends DurableObject<Env> {
    */
   async init(
     actor: Actor & { userId: string },
-    input: { id: string; name: string; owner: GroupMember; members: GroupMember[]; direct?: boolean },
+    input: {
+      id: string;
+      name: string;
+      owner: GroupMember;
+      members: GroupMember[];
+      direct?: boolean;
+      /** Started inside this space: one of its chats, never its home. */
+      inSpace?: string;
+    },
   ): Promise<void> {
     const have = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
     if (have) {
       if (
         have.owner_user_id === input.owner.user_id &&
         have.name === input.name.trim() &&
-        !!have.direct === !!input.direct
+        !!have.direct === !!input.direct &&
+        (have.space_id ?? null) === (input.inSpace ?? have.space_id ?? null)
       )
         return;
       throw new ObjectError("conflict", "That group id is already taken");
@@ -306,13 +320,16 @@ export class GroupObject extends DurableObject<Env> {
     const ts = nowIso();
     this.ctx.storage.transactionSync(() => {
       this.sql.exec(
-        `insert into grp (id, name, owner_user_id, created_at, updated_at, direct) values (?, ?, ?, ?, ?, ?)`,
+        `insert into grp (id, name, owner_user_id, created_at, updated_at, direct, space_id, in_space)
+         values (?, ?, ?, ?, ?, ?, ?, ?)`,
         input.id,
         input.name.trim(),
         input.owner.user_id,
         ts,
         ts,
         input.direct ? 1 : 0,
+        input.inSpace ?? null,
+        input.inSpace ? 1 : 0,
       );
       for (const m of [input.owner, ...input.members.filter((x) => x.user_id !== input.owner.user_id)])
         this.sql.exec(
@@ -329,7 +346,12 @@ export class GroupObject extends DurableObject<Env> {
         action: "create_group",
         entityType: "group",
         entityId: input.id,
-        after: { name: input.name, direct: !!input.direct, members: input.members.map((m) => m.user_id) },
+        after: {
+          name: input.name,
+          direct: !!input.direct,
+          members: input.members.map((m) => m.user_id),
+          ...(input.inSpace ? { space_id: input.inSpace } : {}),
+        },
       });
       // Everyone in it hears about the new group (their open apps add it to the list).
       this.changed();
@@ -420,6 +442,7 @@ export class GroupObject extends DurableObject<Env> {
     direct: boolean;
     owner_id: string;
     space_id: string | null;
+    in_space: boolean;
     members: GroupMember[];
     messages: GroupMessage[];
     saved: Record<string, string>;
@@ -473,6 +496,7 @@ export class GroupObject extends DurableObject<Env> {
       direct: !!g.direct,
       owner_id: g.owner_user_id,
       space_id: g.space_id,
+      in_space: !!g.in_space,
       members: this.members(),
       messages,
       saved: Object.fromEntries(
@@ -540,6 +564,7 @@ export class GroupObject extends DurableObject<Env> {
       last: last ? { author: last.author, text: last.text.slice(0, 120), at: last.created_at } : null,
       updated_at: g.updated_at,
       space_id: g.space_id ?? null,
+      in_space: !!g.in_space,
     };
   }
 
@@ -1452,7 +1477,8 @@ export class GroupObject extends DurableObject<Env> {
   private async syncHome(): Promise<number | null> {
     const g = this.sql.exec<GroupRow>(`select * from grp`).toArray()[0];
     const seq = Number(getMeta(this.sql, "members_seq") ?? "0");
-    if (!g?.space_id || seq <= Number(getMeta(this.sql, "members_sent") ?? "0")) return null;
+    // A chat started inside a space follows the space, never the other way round.
+    if (!g?.space_id || g.in_space || seq <= Number(getMeta(this.sql, "members_sent") ?? "0")) return null;
     try {
       const people = this.members().map((m) => (g.direct ? { ...m, role: "owner" as const } : m));
       await this.env.SPACES.getByName(`space:${g.space_id}`).syncChatMembers(g.id, seq, people);

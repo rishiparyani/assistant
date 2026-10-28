@@ -4,7 +4,7 @@
 // the workflows and people it last read, so it opens with no connection.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
-import { Boundary, Card, Text } from "@assistant/cards/native";
+import { Boundary, Card, Text, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
@@ -18,11 +18,15 @@ import { useChats } from "@/chats";
 import { openChat } from "@/chat-open";
 import { useSession } from "@/session";
 import { readJson, writeJson } from "@/storage";
-import { useTheme } from "@/theme";
+import { colourFor, useTheme } from "@/theme";
+import { Avatar, when } from "@/components/ChatBits";
+import { SpaceNewChat } from "@/components/SpaceNewChat";
 
 /** The personal space's key in Today's rows. */
 const PERSONAL = "p";
 const enc = encodeURIComponent;
+
+type Tab = "chats" | "lists" | "flows" | "people";
 
 const ROLE_WORDS: Record<SpacePerson["role"], string> = {
   owner: "Owner",
@@ -32,7 +36,7 @@ const ROLE_WORDS: Record<SpacePerson["role"], string> = {
 };
 
 export default function SpacePage() {
-  const { t } = useTheme();
+  const { t, colour, cardTint } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { me } = useSession();
@@ -49,7 +53,11 @@ export default function SpacePage() {
   const [busyCard, setBusyCard] = useState<string | null>(null);
   const [opened, setOpened] = useState<UpNextItem | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const chats = useChats().chats ?? [];
+  // Every space has the same top (chats-home.md 5): Chats · Lists · Flows · People.
+  const [tab, setTab] = useState<Tab>("chats");
+  const { chats: chatList, reload: reloadChats } = useChats();
+  const chats = chatList ?? [];
+  const [starting, setStarting] = useState(false);
   const assistant = me?.assistant !== false;
 
   useEffect(() => {
@@ -136,14 +144,295 @@ export default function SpacePage() {
     s.row,
     { borderBottomColor: t.hair, opacity: pressed ? 0.7 : 1 },
   ];
-  const ava = (letter: string, soft = true) => (
-    <View style={[s.ava, { backgroundColor: soft ? t.accentSoft : t.fill }]}>
-      <Text style={[s.avaText, { color: soft ? t.accent : t.fg2 }]}>
-        {letter.trim().charAt(0).toUpperCase()}
-      </Text>
-    </View>
+
+  const c = colourFor(name);
+  const flowCount = workflows?.length ?? 0;
+  const listCount = row?.lists.length ?? 0;
+  const tabs: { key: Tab; label: string; n?: number }[] = [
+    { key: "chats", label: "Chats", n: groupChats.reduce((n, g) => n + g.unread, 0) || undefined },
+    { key: "lists", label: "Lists" },
+    { key: "flows", label: "Flows" },
+    ...(personal ? [] : [{ key: "people" as const, label: "People" }]),
+  ];
+  // The chat the space was made from first, then the rest by newest message.
+  const everyone = (people ?? []).filter((p) => p.role !== "shared").length;
+  const chatsHere = [...groupChats].sort((a, b) => {
+    const home = (g: typeof a) => (g.in_space ? 0 : 1);
+    return (
+      home(b) - home(a) || Date.parse(b.last?.at ?? b.updated_at) - Date.parse(a.last?.at ?? a.updated_at)
+    );
+  });
+  const metaWords = personal
+    ? "Only you"
+    : [
+        people ? `${people.length} ${people.length === 1 ? "person" : "people"}` : "",
+        `${listCount} ${listCount === 1 ? "list" : "lists"}`,
+        flowCount ? `${flowCount} ${flowCount === 1 ? "flow" : "flows"}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+  const chatsTab = (
+    <>
+      {needs.length ? (
+        <>
+          {section("Needs you here", String(needs.length))}
+          <View style={{ gap: 10 }}>
+            {needs.map((card) => (
+              <Boundary key={card.id} where="needs you here">
+                <Card
+                  card={card}
+                  natural
+                  onOpen={() =>
+                    router.push({
+                      pathname: "/process",
+                      params: { id: card.waiting!.workflow_id, waiting: JSON.stringify(card.waiting) },
+                    })
+                  }
+                  onAnswer={(answer) => void act(card, () => answerWaiting(card.waiting!, answer))()}
+                  onNudge={card.waiting!.share_id ? undefined : act(card, () => nudgeWaiting(card.waiting!))}
+                  busy={busyCard === card.id}
+                />
+              </Boundary>
+            ))}
+          </View>
+        </>
+      ) : null}
+      {needs.length ? section("Chats") : null}
+      {chatsHere.map((g) => {
+        const some = !!everyone && g.members < everyone;
+        const who = g.last?.author === me?.user.name ? "You" : g.last?.author;
+        return (
+          <Pressable
+            key={g.id}
+            accessibilityRole="button"
+            accessibilityLabel={`${g.name}${some ? `, ${g.members} people, private` : ""}${g.unread ? `, ${g.unread} new` : ""}`}
+            onPress={() => router.push({ pathname: "/talk", params: { id: g.id } })}
+            style={rowStyle}
+          >
+            <View style={[s.hash, { backgroundColor: some ? t.fill : cardTint(c) }]}>
+              {some ? <Lock colour={t.fg2} /> : <Text style={[s.hashText, { color: colour(c) }]}>#</Text>}
+            </View>
+            <View style={s.words}>
+              <View style={s.line}>
+                <Text style={[s.rowTitle, { color: t.fg, flex: 1 }]} numberOfLines={1}>
+                  {g.name}
+                </Text>
+                <Text style={[s.rowEnd, { color: g.unread ? t.accent : t.fg3 }]}>
+                  {g.last ? when(g.last.at) : ""}
+                </Text>
+              </View>
+              <View style={s.line}>
+                <Text style={[s.rowSub, { color: t.fg2, flex: 1 }]} numberOfLines={1}>
+                  {some ? `${g.members} people · private · ` : ""}
+                  {g.last ? `${who}: ${g.last.text}` : "No messages yet"}
+                </Text>
+                {g.unread ? (
+                  <View style={[s.badge, { backgroundColor: t.accent }]}>
+                    <Text style={[s.badgeText, { color: t.onAccent }]}>{g.unread > 9 ? "9+" : g.unread}</Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+          </Pressable>
+        );
+      })}
+      {!personal && spaceId && people ? (
+        <Pressable accessibilityRole="button" onPress={() => setStarting(true)} style={rowStyle}>
+          <View style={[s.hash, { backgroundColor: t.fill }]}>
+            <Text style={[s.hashText, { color: t.accent }]}>+</Text>
+          </View>
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.accent }]}>New chat in {name}</Text>
+            <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+              For everyone, or a private one for some people
+            </Text>
+          </View>
+        </Pressable>
+      ) : null}
+      {assistant ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => openChat(chatIn, { kind: "space", title: name })}
+          style={rowStyle}
+        >
+          <View style={[s.hash, { backgroundColor: t.ink }]}>
+            <Text style={[s.hashText, { color: t.onInk }]}>✦</Text>
+          </View>
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.fg }]}>The assistant</Text>
+            <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+              {personal ? "Your own chats, only you see them" : `Your chats about ${name}, only you see them`}
+            </Text>
+          </View>
+          <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
+        </Pressable>
+      ) : null}
+      {!chatsHere.length && !assistant ? (
+        <Text style={[s.empty, { color: t.fg3 }]}>No chats here yet.</Text>
+      ) : null}
+    </>
   );
-  const others = (people ?? []).filter((p) => p.user_id !== userId);
+
+  const listsTab = (
+    <>
+      {upnext.length ? (
+        <>
+          {section("This week", String(upnext.length))}
+          {upnext.map((u) => {
+            const tile = tileOf(u);
+            return (
+              <Pressable
+                key={u.key}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${u.title}`}
+                onPress={() => setOpened(u)}
+                style={rowStyle}
+              >
+                <View style={[s.tile, { backgroundColor: t.accentSoft }]}>
+                  <Text style={[s.tileDow, { color: t.accent }]}>{tile.dow}</Text>
+                  <Text style={[s.tileDay, { color: t.accent }]}>{tile.day}</Text>
+                </View>
+                <View style={s.words}>
+                  <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+                    {u.title}
+                  </Text>
+                  <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+                    {u.sub}
+                  </Text>
+                </View>
+                <Text style={[s.rowEnd, { color: t.fg3 }]}>{whenWords(u)}</Text>
+              </Pressable>
+            );
+          })}
+        </>
+      ) : null}
+      {section("Lists", listCount ? String(listCount) : undefined)}
+      {row?.lists.length ? (
+        row.lists.map((l) => (
+          <Pressable
+            key={l.key}
+            accessibilityRole="button"
+            onPress={() => openList(l.collection, l.view)}
+            style={rowStyle}
+          >
+            <View style={[s.dot, { backgroundColor: colour(colourFor(l.title)) }]} />
+            <View style={s.words}>
+              <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+                {l.title}
+              </Text>
+            </View>
+            <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
+          </Pressable>
+        ))
+      ) : assistant ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            openChat({
+              ask: `I'd like to set up the lists for ${name}. Ask me what I want to keep track of.`,
+              send: "1",
+              ...chatIn,
+            })
+          }
+          style={rowStyle}
+        >
+          <View style={[s.dot, { backgroundColor: t.fg3 }]} />
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.accent }]}>Start building</Text>
+          </View>
+        </Pressable>
+      ) : (
+        <Text style={[s.empty, { color: t.fg3 }]}>No lists here yet.</Text>
+      )}
+    </>
+  );
+
+  const flowsTab = (
+    <>
+      {section("Flows", flowCount ? String(flowCount) : undefined)}
+      {workflows?.length ? (
+        workflows.map((w) => (
+          <Pressable
+            key={w.id}
+            accessibilityRole="button"
+            onPress={() =>
+              router.push({
+                pathname: "/process",
+                params: { id: w.id, ...(personal ? {} : { space: id }) },
+              })
+            }
+            style={rowStyle}
+          >
+            <View style={[s.dot, { backgroundColor: w.enabled ? t.good : t.fg3 }]} />
+            <View style={s.words}>
+              <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+                {w.name}
+              </Text>
+              <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+                {w.enabled ? "On" : "Off"} · {w.when.collection}
+              </Text>
+            </View>
+            <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
+          </Pressable>
+        ))
+      ) : (
+        <Text style={[s.empty, { color: t.fg3 }]}>
+          {workflows === null
+            ? "Loading…"
+            : "No flows here yet. Flows run steps for you when something changes."}
+        </Text>
+      )}
+      {assistant ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => openChat({ ask: `I'd like a flow in ${name} that `, ...chatIn })}
+          style={rowStyle}
+        >
+          <View style={[s.dot, { backgroundColor: t.fg3 }]} />
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.accent }]}>New flow, in the chat</Text>
+          </View>
+        </Pressable>
+      ) : null}
+    </>
+  );
+
+  const peopleTab = people ? (
+    <>
+      {section("People", String(people.length))}
+      {people.map((p) => (
+        <View key={p.user_id} style={[s.row, { borderBottomColor: t.hair }]}>
+          <Avatar name={p.name} size={38} />
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
+              {p.name}
+              {p.user_id === userId ? " (you)" : ""}
+            </Text>
+            <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+              {p.role === "shared" ? `Has ${p.shares.join(", ")}` : ROLE_WORDS[p.role]}
+            </Text>
+          </View>
+        </View>
+      ))}
+      {assistant ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            openChat({ ask: `Who should I invite to ${name}, and what should they see? `, ...chatIn })
+          }
+          style={rowStyle}
+        >
+          <View style={[s.dot, { backgroundColor: t.fg3 }]} />
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.accent }]}>Invite people, in the chat</Text>
+          </View>
+        </Pressable>
+      ) : null}
+    </>
+  ) : (
+    <Text style={[s.empty, { color: t.fg3 }]}>Loading…</Text>
+  );
 
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 6 }]}>
@@ -152,11 +441,43 @@ export default function SpacePage() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Back"
-            onPress={() => router.back()}
+            onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
             style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
           >
             <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
           </Pressable>
+          <View style={[s.square, { backgroundColor: colour(c) }]}>
+            <Text style={[s.squareText, { color: t.onAccent }]}>{name.trim().charAt(0).toUpperCase()}</Text>
+          </View>
+          <View style={s.words}>
+            <Text style={[type.heading, { color: t.fg }]} numberOfLines={1}>
+              {name}
+            </Text>
+            <Text style={[type.caption, { color: t.fg2 }]} numberOfLines={1}>
+              {metaWords}
+            </Text>
+          </View>
+        </View>
+        <View style={[s.tabs, { backgroundColor: t.fill }]} accessibilityRole="tablist">
+          {tabs.map((x) => {
+            const on = tab === x.key;
+            return (
+              <Pressable
+                key={x.key}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: on }}
+                onPress={() => setTab(x.key)}
+                style={[s.tab, on && { backgroundColor: t.cell, shadowColor: t.shadow }, on && s.tabOn]}
+              >
+                <Text style={[type.label, { color: on ? t.fg : t.fg2, fontSize: 14 }]}>{x.label}</Text>
+                {x.n ? (
+                  <View style={[s.tabBadge, { backgroundColor: t.accent }]}>
+                    <Text style={[s.badgeText, { color: t.onAccent }]}>{x.n > 9 ? "9+" : x.n}</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
         </View>
         <ScrollView
           contentContainerStyle={{
@@ -176,231 +497,24 @@ export default function SpacePage() {
             />
           }
         >
-          <View style={s.head}>
-            <Text style={[s.title, { color: t.fg }]} numberOfLines={2}>
-              {name}
-            </Text>
-            <Text style={[s.meta, { color: t.fg2 }]}>
-              {personal
-                ? "Only you"
-                : people
-                  ? `${people.length} ${people.length === 1 ? "person" : "people"}`
-                  : ""}
-            </Text>
-          </View>
           {note ? <Text style={[s.note, { color: t.fg2 }]}>{note}</Text> : null}
-
-          {needs.length ? (
-            <>
-              {section("Needs you here", String(needs.length))}
-              <View style={{ gap: 10 }}>
-                {needs.map((card) => (
-                  <Boundary key={card.id} where="needs you here">
-                    <Card
-                      card={card}
-                      natural
-                      onOpen={() =>
-                        router.push({
-                          pathname: "/process",
-                          params: { id: card.waiting!.workflow_id, waiting: JSON.stringify(card.waiting) },
-                        })
-                      }
-                      onAnswer={(answer) => void act(card, () => answerWaiting(card.waiting!, answer))()}
-                      onNudge={
-                        card.waiting!.share_id ? undefined : act(card, () => nudgeWaiting(card.waiting!))
-                      }
-                      busy={busyCard === card.id}
-                    />
-                  </Boundary>
-                ))}
-              </View>
-            </>
-          ) : null}
-
-          {upnext.length ? (
-            <>
-              {section("Up next here", "7 days")}
-              {upnext.map((u) => {
-                const tile = tileOf(u);
-                return (
-                  <Pressable
-                    key={u.key}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Open ${u.title}`}
-                    onPress={() => setOpened(u)}
-                    style={rowStyle}
-                  >
-                    <View style={[s.tile, { backgroundColor: t.accentSoft }]}>
-                      <Text style={[s.tileDow, { color: t.accent }]}>{tile.dow}</Text>
-                      <Text style={[s.tileDay, { color: t.accent }]}>{tile.day}</Text>
-                    </View>
-                    <View style={s.words}>
-                      <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
-                        {u.title}
-                      </Text>
-                      <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
-                        {u.sub}
-                      </Text>
-                    </View>
-                    <Text style={[s.rowEnd, { color: t.fg3 }]}>{whenWords(u)}</Text>
-                  </Pressable>
-                );
-              })}
-            </>
-          ) : null}
-
-          {section("Chats")}
-          {groupChats.map((c) => (
-            <Pressable
-              key={c.id}
-              accessibilityRole="button"
-              accessibilityLabel={c.unread ? `${c.name}, ${c.unread} new` : c.name}
-              onPress={() => router.push({ pathname: "/talk", params: { id: c.id } })}
-              style={rowStyle}
-            >
-              {ava(c.name)}
-              <View style={s.words}>
-                <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
-                  {c.name}
-                </Text>
-                <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
-                  {c.last ? `${c.last.author}: ${c.last.text}` : "No messages yet"}
-                </Text>
-              </View>
-              {c.unread ? (
-                <View style={[s.badge, { backgroundColor: t.accent }]}>
-                  <Text style={[s.badgeText, { color: t.onAccent }]}>{c.unread > 9 ? "9+" : c.unread}</Text>
-                </View>
-              ) : null}
-            </Pressable>
-          ))}
-          {assistant ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => openChat(chatIn, { kind: "space", title: name })}
-              style={rowStyle}
-            >
-              {ava("✦")}
-              <View style={s.words}>
-                <Text style={[s.rowTitle, { color: t.fg }]}>The assistant</Text>
-                <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
-                  {personal
-                    ? "Your own chats, only you see them"
-                    : `Your chats about ${name}, only you see them`}
-                </Text>
-              </View>
-              <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
-            </Pressable>
-          ) : null}
-          {!groupChats.length && !assistant ? (
-            <Text style={[s.empty, { color: t.fg3 }]}>No chats here yet.</Text>
-          ) : null}
-
-          {section("Lists", row?.lists.length ? String(row.lists.length) : undefined)}
-          {row?.lists.length ? (
-            row.lists.map((l) => (
-              <Pressable
-                key={l.key}
-                accessibilityRole="button"
-                onPress={() => openList(l.collection, l.view)}
-                style={rowStyle}
-              >
-                <View style={[s.dot, { backgroundColor: t.accent }]} />
-                <View style={s.words}>
-                  <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
-                    {l.title}
-                  </Text>
-                </View>
-                <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
-              </Pressable>
-            ))
-          ) : assistant ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() =>
-                openChat({
-                  ask: `I'd like to set up the lists for ${name}. Ask me what I want to keep track of.`,
-                  send: "1",
-                  ...chatIn,
-                })
-              }
-              style={rowStyle}
-            >
-              <View style={[s.dot, { backgroundColor: t.fg3 }]} />
-              <View style={s.words}>
-                <Text style={[s.rowTitle, { color: t.accent }]}>Start building</Text>
-              </View>
-            </Pressable>
-          ) : (
-            <Text style={[s.empty, { color: t.fg3 }]}>No lists here yet.</Text>
-          )}
-
-          {workflows?.length ? (
-            <>
-              {section("Workflows", String(workflows.length))}
-              {workflows.map((w) => (
-                <Pressable
-                  key={w.id}
-                  accessibilityRole="button"
-                  onPress={() =>
-                    router.push({
-                      pathname: "/process",
-                      params: { id: w.id, ...(personal ? {} : { space: id }) },
-                    })
-                  }
-                  style={rowStyle}
-                >
-                  <View style={[s.dot, { backgroundColor: w.enabled ? t.good : t.fg3 }]} />
-                  <View style={s.words}>
-                    <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
-                      {w.name}
-                    </Text>
-                    <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
-                      {w.enabled ? "On" : "Off"} · {w.when.collection}
-                    </Text>
-                  </View>
-                  <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
-                </Pressable>
-              ))}
-            </>
-          ) : null}
-
-          {!personal && people ? (
-            <>
-              {section("People", String(people.length))}
-              {people.map((p) => (
-                <View key={p.user_id} style={[s.row, { borderBottomColor: t.hair }]}>
-                  {ava(p.name, p.role !== "shared")}
-                  <View style={s.words}>
-                    <Text style={[s.rowTitle, { color: t.fg }]} numberOfLines={1}>
-                      {p.name}
-                      {p.user_id === userId ? " (you)" : ""}
-                    </Text>
-                    <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
-                      {p.role === "shared" ? `Has ${p.shares.join(", ")}` : ROLE_WORDS[p.role]}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-              {assistant && !others.length ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() =>
-                    openChat({ ask: `Who should I invite to ${name}, and what should they see? `, ...chatIn })
-                  }
-                  style={rowStyle}
-                >
-                  <View style={[s.dot, { backgroundColor: t.fg3 }]} />
-                  <View style={s.words}>
-                    <Text style={[s.rowTitle, { color: t.accent }]}>Invite people, in the chat</Text>
-                  </View>
-                </Pressable>
-              ) : null}
-            </>
-          ) : null}
+          {tab === "chats" ? chatsTab : tab === "lists" ? listsTab : tab === "flows" ? flowsTab : peopleTab}
         </ScrollView>
         <Composer about={{ kind: "space", title: name }} params={chatIn} />
       </View>
+      {!personal && spaceId ? (
+        <SpaceNewChat
+          open={starting}
+          space={{ id: spaceId, name }}
+          people={(people ?? []).filter((p) => p.role !== "shared" && p.user_id !== userId)}
+          onClose={() => setStarting(false)}
+          onMade={(chatId) => {
+            setStarting(false);
+            void reloadChats();
+            router.push({ pathname: "/talk", params: { id: chatId } });
+          }}
+        />
+      ) : null}
       <RecordSheet
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
@@ -428,10 +542,61 @@ export default function SpacePage() {
   );
 }
 
+/** A small padlock (a private chat), drawn so it looks the same on every phone. */
+function Lock({ colour }: { colour: string }) {
+  return (
+    <View style={{ alignItems: "center" }}>
+      <View
+        style={{
+          width: 10,
+          height: 9,
+          borderWidth: 2,
+          borderBottomWidth: 0,
+          borderColor: colour,
+          borderTopLeftRadius: 5,
+          borderTopRightRadius: 5,
+        }}
+      />
+      <View style={{ width: 16, height: 11, borderRadius: 3, backgroundColor: colour }} />
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   root: { flex: 1 },
   column: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" },
-  top: { paddingHorizontal: 16, paddingBottom: 4, flexDirection: "row", alignItems: "center" },
+  top: { paddingHorizontal: 16, paddingBottom: 10, flexDirection: "row", alignItems: "center", gap: 10 },
+  square: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  squareText: { fontSize: 17, fontWeight: "800" },
+  tabs: { flexDirection: "row", marginHorizontal: 16, marginBottom: 6, padding: 3, borderRadius: 14, gap: 2 },
+  tab: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  tabOn: { shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  line: { flexDirection: "row", alignItems: "center", gap: 8 },
+  hash: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginHorizontal: 3,
+  },
+  hashText: { fontSize: 16, fontWeight: "800" },
   back: {
     width: 44,
     height: 44,
@@ -443,9 +608,6 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
-  head: { gap: 2, paddingHorizontal: 4, paddingTop: 6 },
-  title: { fontSize: 30, fontWeight: "800", letterSpacing: -1 },
-  meta: { fontSize: 13, fontWeight: "700" },
   note: { fontSize: 13, paddingHorizontal: 4, paddingTop: 6 },
   sec: {
     flexDirection: "row",
@@ -473,15 +635,6 @@ const s = StyleSheet.create({
   tileDow: { fontSize: 9.5, fontWeight: "800", letterSpacing: 0.6 },
   tileDay: { fontSize: 19, fontWeight: "800", letterSpacing: -0.5, lineHeight: 22 },
   dot: { width: 10, height: 10, borderRadius: 5, marginHorizontal: 17 },
-  ava: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-    marginHorizontal: 3,
-  },
-  avaText: { fontSize: 14, fontWeight: "800" },
   badge: {
     minWidth: 22,
     height: 22,
