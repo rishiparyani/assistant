@@ -51,11 +51,11 @@ Still open: gestures (swipe to archive or reply, long-press menus), real photos,
 4. Answer cards (6) from the fixed blocks. **Done**: tappable bars that drill in, a bill splitter and the assistant taught both (the rest was already in the A2UI cards).
 5. The assistant at work (7). **Done** as a flow's screen laid out as a job (state and an on/off switch that warns when it would close waiting questions, Needs your OK, Waiting on others, What it did, How it works folded).
 6. Two panes on a laptop. **Done** (website, 1024 px and wider).
-7. The account switcher (below).
+7. The account switcher (below). **Done**: You (the face at the top of Chats) lists the accounts on the device, switches with one tap, adds another and signs out of one or all; each account keeps its own copy on the device (decision 2026-10-29).
 
 ## Other things discussed on 2026-10-27/28
 
-- **Testing chats as several people without signing out**: for now, use the phone as yourself and the website in a private/incognito window (or another browser) as the other person. Proposed to build: an **account switcher** (stay signed in to several accounts, swap with one tap, like Gmail), and later **rehearse group chats** in a practice copy (part of the group-chat step). The owner hasn't chosen yet; it's on the build list above.
+- **Testing chats as several people without signing out**: for now, use the phone as yourself and the website in a private/incognito window (or another browser) as the other person. Proposed to build: an **account switcher** (stay signed in to several accounts, swap with one tap, like Gmail), and later **rehearse group chats** in a practice copy (part of the group-chat step). The account switcher is built (step 7); rehearsing group chats is still to come.
 - **iPhone simulator on a Mac**: a Claude session on a Mac (Claude Desktop, or Claude Code with `claude remote-control` to reach it from the phone) can drive Apple's simulator to check the app. Needs Xcode (about 40 GB), the repo cloned, Node, pnpm and CocoaPods, Screen Recording and Accessibility allowed, and the Mac awake while it works. Not set up yet.
 - **Native apps vs React Native**: stay on React Native (one codebase for iPhone, Android and the web). If the feel isn't enough, rewrite one screen natively (the chat) as a trial first.
 - **Renaming**: the owner wants a new name later (Gigspree "sounds like a gig-specific app").

@@ -1,5 +1,8 @@
 // The signed-in user. The last known user is kept on the device so the app opens instantly;
-// the server check runs in the background and signs out if the session has ended.
+// the server check runs in the background and signs out if the session has ended. The device
+// can stay signed in to several accounts (the account switcher, docs/design/chats-home.md 7):
+// each keeps its own copy on the device (src/storage.ts), and switching sends what the open
+// one has waiting first, so nothing is ever sent as someone else.
 import {
   createContext,
   useCallback,
@@ -10,21 +13,52 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { router } from "expo-router";
 import type { MeResponse } from "@assistant/shared";
 import { ApiError, request } from "./api.ts";
-import { signOut as authSignOut } from "./auth.ts";
-import { kv, readJson, writeJson } from "./storage.ts";
-import { clearOutbox, useOutboxFor } from "./outbox.ts";
-import { leavePractice } from "./practice-mode.ts";
+import {
+  deviceAccounts,
+  keepThisAccount,
+  openDeviceAccount,
+  signOutOfAccount,
+  signOut as authSignOut,
+  type DeviceAccount,
+} from "./auth.ts";
+import {
+  forgetAccount,
+  forgetAllAccounts,
+  kv,
+  openAccountCopy,
+  openAccountId,
+  readJson,
+  writeJson,
+} from "./storage.ts";
+import { clearOutbox, holdOutbox, releaseOutbox, useOutboxFor } from "./outbox.ts";
+import { leavePractice, reloadPracticeMode } from "./practice-mode.ts";
+import { reconnectLive } from "./live-socket.ts";
 
 const KEY = "gigspree:me";
+/** The accounts last seen on this device (names only), so the switcher shows them offline. */
+const KNOWN = "accounts:known";
+export type KnownAccount = Omit<DeviceAccount, "token">;
 
 interface Session {
   me: MeResponse | null;
   loaded: boolean;
   error: string;
   refresh: () => Promise<void>;
+  /** Signs out of every account on this device. */
   signOut: () => Promise<void>;
+  /** The accounts this device is signed in to, from the server (online only). */
+  listAccounts: () => Promise<DeviceAccount[]>;
+  /** The same, as last seen (offline). */
+  knownAccounts: () => KnownAccount[];
+  /** Opens another account; says how many changes stayed waiting in the one left. */
+  switchTo: (a: DeviceAccount) => Promise<number>;
+  signOutOf: (a: DeviceAccount) => Promise<void>;
+  /** Before signing in to another account: keeps this one. Throws with what's in the way. */
+  prepareAdd: () => Promise<void>;
+  cancelAdd: () => void;
 }
 const Ctx = createContext<Session | null>(null);
 
@@ -33,25 +67,39 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [loaded, setLoaded] = useState(me !== null);
   const [error, setError] = useState("");
 
+  // The server said who is signed in: open that account's copy if it isn't the open one.
+  const opened = useCallback((next: MeResponse) => {
+    if (next.user.id !== openAccountId()) {
+      openAccountCopy(next.user.id);
+      reloadPracticeMode();
+      reconnectLive();
+    }
+    writeJson(KEY, next);
+    setMe(next);
+  }, []);
+  // The open account's session has ended: forget it and everything kept for it here.
+  const closed = useCallback(() => {
+    const id = openAccountId();
+    clearOutbox();
+    leavePractice();
+    for (const k of kv.keys("gigspree:")) kv.remove(k);
+    if (id) forgetAccount(id);
+    openAccountCopy(null);
+    setMe(null);
+  }, []);
+
   const refresh = useCallback(async () => {
     try {
-      const next = await request<MeResponse>("GET", "/api/me");
-      setMe(next);
-      writeJson(KEY, next);
+      opened(await request<MeResponse>("GET", "/api/me"));
       setError("");
     } catch (e) {
-      if (e instanceof ApiError && e.status === 401) {
-        // The session has ended: forget the person and everything kept for them on this device.
-        clearOutbox();
-        leavePractice();
-        for (const k of kv.keys("gigspree:")) kv.remove(k);
-        setMe(null);
-      } else if (!me) setError(e instanceof Error ? e.message : String(e));
+      if (e instanceof ApiError && e.status === 401) closed();
+      else if (!me) setError(e instanceof Error ? e.message : String(e));
       // Otherwise (offline, server busy): keep showing the saved user and data.
     } finally {
       setLoaded(true);
     }
-  }, [me]);
+  }, [me, opened, closed]);
 
   const signOut = useCallback(async () => {
     try {
@@ -61,9 +109,79 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     clearOutbox();
     leavePractice();
+    forgetAllAccounts();
     for (const k of kv.keys("gigspree:")) kv.remove(k);
+    openAccountCopy(null);
+    kv.remove(KNOWN);
     setMe(null);
   }, []);
+
+  const knownAccounts = useCallback(() => readJson<KnownAccount[]>(KNOWN) ?? [], []);
+  const listAccounts = useCallback(async () => {
+    const list = await deviceAccounts();
+    writeJson(
+      KNOWN,
+      list.map(({ token: _, ...a }) => a),
+    );
+    return list;
+  }, []);
+
+  const switchTo = useCallback(
+    async (a: DeviceAccount) => {
+      const waiting = await holdOutbox();
+      try {
+        await openDeviceAccount(a.token);
+      } catch (e) {
+        releaseOutbox();
+        throw e;
+      }
+      await refresh();
+      return waiting;
+    },
+    [refresh],
+  );
+
+  const signOutOf = useCallback(
+    async (a: DeviceAccount) => {
+      const open = a.id === me?.user.id;
+      if (open) await holdOutbox();
+      try {
+        await signOutOfAccount(a.token);
+      } catch (e) {
+        if (open) releaseOutbox();
+        throw e;
+      }
+      if (open) {
+        clearOutbox();
+        // The server opened another kept account, if there is one (otherwise: signed out).
+        await refresh();
+      }
+      forgetAccount(a.id);
+      writeJson(
+        KNOWN,
+        knownAccounts().filter((k) => k.id !== a.id),
+      );
+    },
+    [me?.user.id, refresh, knownAccounts],
+  );
+
+  const prepareAdd = useCallback(async () => {
+    const waiting = await holdOutbox();
+    if (waiting) {
+      releaseOutbox();
+      throw new Error(
+        `${waiting === 1 ? "A change is" : `${waiting} changes are`} still waiting to be sent. Try again once you're connected.`,
+      );
+    }
+    try {
+      if (!(await keepThisAccount()))
+        throw new Error("This device is signed in to five accounts already. Sign out of one first.");
+    } catch (e) {
+      releaseOutbox();
+      throw e;
+    }
+  }, []);
+  const cancelAdd = useCallback(() => releaseOutbox(), []);
 
   useEffect(() => {
     useOutboxFor(me?.user.id ?? null);
@@ -77,8 +195,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const value = useMemo(
-    () => ({ me, loaded, error, refresh, signOut }),
-    [me, loaded, error, refresh, signOut],
+    () => ({
+      me,
+      loaded,
+      error,
+      refresh,
+      signOut,
+      listAccounts,
+      knownAccounts,
+      switchTo,
+      signOutOf,
+      prepareAdd,
+      cancelAdd,
+    }),
+    [
+      me,
+      loaded,
+      error,
+      refresh,
+      signOut,
+      listAccounts,
+      knownAccounts,
+      switchTo,
+      signOutOf,
+      prepareAdd,
+      cancelAdd,
+    ],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
@@ -87,4 +229,10 @@ export function useSession(): Session {
   const s = useContext(Ctx);
   if (!s) throw new Error("useSession outside SessionProvider");
   return s;
+}
+
+/** After a switch: Chats of the account now open, with nothing of the last one behind it. */
+export function homeAfterSwitch() {
+  if (router.canDismiss()) router.dismissAll();
+  router.replace("/");
 }

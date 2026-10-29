@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, request } from "@/api";
 import { signInWithEmail, signInWithGoogle } from "@/auth";
 import { API_URL } from "@/config";
-import { useSession } from "@/session";
+import { homeAfterSwitch, useSession } from "@/session";
 import { radius, useTheme } from "@/theme";
 
 const logoLight = require("../assets/logo-light.png");
@@ -22,7 +22,7 @@ const ON_SITE = Platform.OS === "web" && !LOCAL;
 export default function Login() {
   const { t, dark } = useTheme();
   const insets = useSafeAreaInsets();
-  const { refresh } = useSession();
+  const { refresh, cancelAdd } = useSession();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -30,11 +30,14 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
 
   // Where to go once signed in: the screen a deep link asked for (paths inside the app only).
-  const { next: asked } = useLocalSearchParams<{ next?: string }>();
+  // `add`: signing in to another account while one is open (You › Add another account).
+  const { next: asked, add } = useLocalSearchParams<{ next?: string; add?: string }>();
+  const adding = add === "1";
   const next = asked && asked.startsWith("/") && !asked.startsWith("//") ? asked : "/";
   const finish = async () => {
     await refresh();
-    router.replace(next as Href);
+    if (adding) homeAfterSwitch();
+    else router.replace(next as Href);
   };
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -72,9 +75,11 @@ export default function Login() {
         style={{ width: 56, height: 56 }}
         accessibilityIgnoresInvertColors
       />
-      <Text style={[s.h1, { color: t.fg }]}>Gigspree</Text>
+      <Text style={[s.h1, { color: t.fg }]}>{adding ? "Add another account" : "Gigspree"}</Text>
       <Text style={[s.p, { color: t.fg2 }]}>
-        Your lists, people and money, kept and done for you. Sign in to open your home.
+        {adding
+          ? "Sign in with the other account. You stay signed in to this one too, and switch from You."
+          : "Your lists, people and money, kept and done for you. Sign in to open your home."}
       </Text>
 
       <View style={{ gap: 10, marginTop: 24 }}>
@@ -82,7 +87,9 @@ export default function Login() {
           <Pressable
             accessibilityRole="button"
             onPress={() => {
-              window.location.assign(`${API_URL}/login?next=${encodeURIComponent(next)}`);
+              window.location.assign(
+                `${API_URL}/login?${adding ? "add=1&" : ""}next=${encodeURIComponent(next)}`,
+              );
             }}
             style={[s.btn, { backgroundColor: t.accent }]}
           >
@@ -136,6 +143,20 @@ export default function Login() {
           </View>
         ) : null}
         {error ? <Text style={{ color: t.danger, fontSize: 13 }}>{error}</Text> : null}
+        {adding ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => {
+              cancelAdd();
+              if (router.canGoBack()) router.back();
+              else router.replace("/");
+            }}
+            style={[s.btn, { backgroundColor: t.fill }]}
+          >
+            <Text style={[s.btnText, { color: t.fg }]}>Cancel</Text>
+          </Pressable>
+        ) : null}
       </View>
     </View>
   );

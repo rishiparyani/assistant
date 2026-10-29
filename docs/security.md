@@ -2,6 +2,7 @@
 
 - HTTPS via Cloudflare.
 - Better Auth sessions in HttpOnly, Secure, SameSite cookies; origin checks on state-changing requests.
+- Up to five accounts per device (multi-session plugin, decision 2026-10-29): each its own signed cookie; changes queued on the device carry the account they were made in (`x-account`) and are refused (409) when another account is signed in.
 - No password login (hashing can exceed the 10 ms CPU limit): Google, passkeys, email magic links.
 - One authorization middleware for every route and MCP tool: user → membership → role → module enabled → token scope. Non-members get 404, not 403.
 - Better Auth's admin and OAuth-client administration endpoints are blocked; app data changes only go through `/api` (checked and audited inside each gig's object).

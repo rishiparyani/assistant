@@ -41,6 +41,11 @@ export function usePracticeMode(): PracticeAs | null {
 }
 export const enterPractice = (next: PracticeAs) => set(next);
 export const leavePractice = () => set(null);
+/** Reads again after the device opened another account's copy (each has its own rehearsal). */
+export const reloadPracticeMode = () => {
+  mode = readJson<PracticeAs>(KEY);
+  listeners.forEach((l) => l());
+};
 
 /** The header's value for a call made while rehearsing. */
 export const practiceHeader = (m: PracticeAs | null = mode) => (m ? `${m.space} ${m.as}` : null);

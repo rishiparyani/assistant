@@ -239,6 +239,12 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   const tucked = useRef(!!startQuery || !!pane);
   // The list is always at least one screen plus the search box tall, so it can be tucked away.
   const [viewH, setViewH] = useState(0);
+  const contentH = useRef(0);
+  const tuck = (view: number, content: number) => {
+    if (tucked.current || !view || content < view + SEARCH_H - 1) return;
+    tucked.current = true;
+    scroller.current?.scrollTo({ y: SEARCH_H, animated: false });
+  };
 
   // Spaces by last use (opening a space's page moves it to the front), the rest as they come;
   // then everything by its newest message.
@@ -623,17 +629,33 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
             ))}
           </View>
         </Tap>
+        {/* You: accounts on this device (switch, add, sign out) and the rest of the settings. */}
+        {me ? (
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel={`You: ${me.user.name}, accounts and settings`}
+            onPress={() => router.push("/you")}
+            scale={0.92}
+            style={s.round}
+          >
+            <Avatar name={me.user.name} size={40} />
+          </Tap>
+        ) : null}
       </View>
       <ScrollView
         ref={scroller}
         // The search box starts above the top edge (the iPhone opens there; elsewhere it scrolls
         // there once the list is laid out).
         contentOffset={tucked.current ? undefined : { x: 0, y: SEARCH_H }}
-        onLayout={(e) => setViewH(e.nativeEvent.layout.height)}
+        // Whichever comes last (the list's size or the screen's) tucks it: a list read from the
+        // device can be sized before the screen is.
+        onLayout={(e) => {
+          setViewH(e.nativeEvent.layout.height);
+          tuck(e.nativeEvent.layout.height, contentH.current);
+        }}
         onContentSizeChange={(_, h) => {
-          if (tucked.current || !viewH || h < viewH + SEARCH_H - 1) return;
-          tucked.current = true;
-          scroller.current?.scrollTo({ y: SEARCH_H, animated: false });
+          contentH.current = h;
+          tuck(viewH, h);
         }}
         contentContainerStyle={{
           width: wide ? COLUMN + SIDE * 2 : "100%",

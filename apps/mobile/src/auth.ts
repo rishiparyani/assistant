@@ -4,6 +4,7 @@
 import { Platform } from "react-native";
 import { createAuthClient } from "better-auth/react";
 import { expoClient } from "@better-auth/expo/client";
+import { multiSessionClient } from "better-auth/client/plugins";
 import * as SecureStore from "expo-secure-store";
 import { API_URL, APP_SCHEME, LOCAL } from "./config.ts";
 import { kv } from "./storage.ts";
@@ -55,8 +56,12 @@ async function tryKeychainAsync<T>(keychain: () => Promise<T>, fallback: () => T
 export const authClient = createAuthClient({
   baseURL: API_URL,
   basePath: "/auth",
-  plugins:
-    Platform.OS === "web" ? [] : [expoClient({ scheme: APP_SCHEME, storagePrefix: APP_SCHEME, storage })],
+  plugins: [
+    ...(Platform.OS === "web"
+      ? []
+      : [expoClient({ scheme: APP_SCHEME, storagePrefix: APP_SCHEME, storage })]),
+    multiSessionClient(),
+  ],
 });
 
 /** The Cookie header for API calls from the phone ("" on the web, where the browser sends it). */
@@ -91,4 +96,54 @@ export async function signInWithEmail(email: string, password: string) {
 
 export async function signOut() {
   await authClient.signOut();
+}
+
+// The account switcher (docs/design/chats-home.md 7): this device stays signed in to up to five
+// accounts. Each one's session is its own signed cookie, kept where the session is (the
+// Keychain on the phone, the browser's cookies on the website); the tokens are only ever held
+// in memory here, to say which account to open or sign out of.
+
+export interface DeviceAccount {
+  token: string;
+  id: string;
+  name: string;
+  email: string;
+  image: string | null;
+}
+
+const failed = (what: string, e: { message?: string; status?: number }) =>
+  new Error(e.message ?? `Couldn't ${what} (${e.status ?? "no connection"})`);
+
+/** The accounts this device is signed in to. */
+export async function deviceAccounts(): Promise<DeviceAccount[]> {
+  const res = await authClient.multiSession.listDeviceSessions();
+  if (res.error) throw failed("load the accounts", res.error);
+  return (res.data ?? []).map(({ session, user }) => ({
+    token: session.token,
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    image: user.image ?? null,
+  }));
+}
+
+/**
+ * Keeps the account that's signed in now when another is added (people signed in before the
+ * switcher existed have no kept session yet). False when the device already has five.
+ */
+export async function keepThisAccount(): Promise<boolean> {
+  const res = await authClient.$fetch<{ kept: boolean }>("/multi-session/keep", { method: "POST", body: {} });
+  if (res.error) throw failed("keep this account", res.error);
+  return !!res.data?.kept;
+}
+
+export async function openDeviceAccount(token: string) {
+  const res = await authClient.multiSession.setActive({ sessionToken: token });
+  if (res.error) throw failed("switch accounts", res.error);
+}
+
+/** Signs out of one account; if it was the open one, the server opens another kept one. */
+export async function signOutOfAccount(token: string) {
+  const res = await authClient.multiSession.revoke({ sessionToken: token });
+  if (res.error) throw failed("sign out", res.error);
 }

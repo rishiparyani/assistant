@@ -21,6 +21,8 @@ export interface Change {
    * as made, so an edit queued in a practice copy never lands on the real list after Done.
    */
   practice?: PracticeAs | null;
+  /** The account it was made in (the account switcher): never sent as anyone else. */
+  account?: string | null;
 }
 export interface FailedChange extends Change {
   reason: string;
@@ -33,7 +35,9 @@ interface Saved {
 const PREFIX = "gigspree:outbox:";
 let owner: string | null = null;
 let state: Saved = { waiting: [], failed: [] };
-let sending = false;
+let sending: Promise<void> | null = null;
+/** Held while the device changes accounts: nothing is sent until the next account's copy opens. */
+let held = false;
 const listeners = new Set<() => void>();
 
 const notify = () => listeners.forEach((l) => l());
@@ -42,6 +46,7 @@ const save = () => owner && writeJson(PREFIX + owner, state);
 export function useOutboxFor(userId: string | null) {
   if (userId === owner) return;
   owner = userId;
+  held = false;
   state = (userId && readJson<Saved>(PREFIX + userId)) || { waiting: [], failed: [] };
   notify();
   void flush();
@@ -68,7 +73,13 @@ export const newId = () =>
  * that did reach the server before the connection dropped isn't applied twice.
  */
 export function send(c: Omit<Change, "id" | "at"> & { id?: string }): Change {
-  const change: Change = { practice: practiceMode(), ...c, id: c.id ?? newId(), at: Date.now() };
+  const change: Change = {
+    practice: practiceMode(),
+    account: owner,
+    ...c,
+    id: c.id ?? newId(),
+    at: Date.now(),
+  };
   state.waiting.push(change);
   save();
   notify();
@@ -77,27 +88,53 @@ export function send(c: Omit<Change, "id" | "at"> & { id?: string }): Change {
 }
 
 /** Sends waiting changes in order. Stops at the first that can't reach the server. */
-export async function flush(): Promise<void> {
-  if (sending) return;
-  sending = true;
-  try {
+export function flush(): Promise<void> {
+  if (held) return Promise.resolve();
+  if (sending) return sending;
+  sending = (async () => {
     while (state.waiting.length) {
       const c = state.waiting[0]!;
       try {
-        await request(c.method, c.path, c.body, c.id, { practice: c.practice ?? null });
+        await request(c.method, c.path, c.body, c.id, {
+          practice: c.practice ?? null,
+          account: c.account ?? owner,
+        });
         state.waiting.shift();
       } catch (e) {
         if (e instanceof ApiError && e.status === 0) break; // offline: try again later
         if (e instanceof ApiError && e.status === 401) break; // signed out: keep until sign-in
+        // Another account is signed in: keep it for its own account.
+        if (
+          e instanceof ApiError &&
+          (e.details as { account_changed?: boolean } | undefined)?.account_changed
+        )
+          break;
         state.waiting.shift();
         state.failed.push({ ...c, reason: e instanceof Error ? e.message : String(e) });
       }
       save();
       notify();
     }
-  } finally {
-    sending = false;
-  }
+  })().finally(() => {
+    sending = null;
+  });
+  return sending;
+}
+
+/**
+ * Before switching accounts: sends what can go as this account, then holds the rest (they
+ * stay in this account's copy and go when it is open again), so no change is ever sent as
+ * someone else. Says how many are still waiting. `releaseOutbox` undoes it if the switch fails.
+ */
+export async function holdOutbox(): Promise<number> {
+  await flush();
+  held = true;
+  await sending;
+  return state.waiting.length;
+}
+export function releaseOutbox() {
+  held = false;
+  void flush();
 }
 
 // Waiting changes go out again when the app comes back to the front or the network returns.

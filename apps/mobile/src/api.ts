@@ -27,6 +27,8 @@ export interface RequestOptions {
    * right now; null makes it as yourself (the rehearsal's own controls); a value, as that.
    */
   practice?: PracticeAs | null;
+  /** The account a change queued on the device was made in (refused if another is signed in). */
+  account?: string | null;
 }
 
 export async function request<T>(
@@ -40,6 +42,7 @@ export async function request<T>(
   if (body !== undefined) headers["content-type"] = "application/json";
   const as = practiceHeader(opts.practice === undefined ? undefined : opts.practice);
   if (as) headers["x-practice-as"] = as;
+  if (opts.account) headers["x-account"] = opts.account;
   // Every write carries a fresh key so a retried request can't happen twice.
   if (method !== "GET") headers["idempotency-key"] = key ?? newKey();
   const cookie = await cookieHeader();

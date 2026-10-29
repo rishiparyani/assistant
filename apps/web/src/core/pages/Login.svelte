@@ -22,8 +22,12 @@
   let email = $state("");
   let password = $state("");
 
+  // `add=1`: signing in to another account while one is open (the app's You › Add another
+  // account); both stay signed in on this browser.
+  const adding = $derived(query.get("add") === "1");
+
   $effect(() => {
-    if (session.me && !oauth) navigate(next, { replace: true });
+    if (session.me && !oauth && !adding) navigate(next, { replace: true });
   });
 
   async function run(kind: typeof busy, fn: () => Promise<void>) {
@@ -74,11 +78,13 @@
   <Card>
     <div class="stack">
       <div class="head">
-        <h1>{oauth ? "Connect your account" : "Welcome"}</h1>
+        <h1>{oauth ? "Connect your account" : adding ? "Add another account" : "Welcome"}</h1>
         <p>
           {oauth
             ? "An app wants to connect to your Gigspree account. Sign in to continue."
-            : "Your gigs, clients and payments, in one place."}
+            : adding
+              ? "Sign in with the other account. You stay signed in to this one too."
+              : "Your gigs, clients and payments, in one place."}
         </p>
       </div>
       {#if !app}
