@@ -83,7 +83,10 @@ export async function request<T>(
   }
   const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | ApiErrorBody | null);
   if (account && openAccountId() !== account)
-    throw new ApiError(0, "account_changed", "You switched accounts while this was loading.");
+    // Not "offline" (which would queue it again, as the account now open): dropped for good.
+    throw new ApiError(409, "account_changed", "You switched accounts while this was on its way.", {
+      account_changed: true,
+    });
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;

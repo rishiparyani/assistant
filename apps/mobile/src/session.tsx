@@ -67,11 +67,24 @@ interface Session {
 }
 const Ctx = createContext<Session | null>(null);
 
+/**
+ * The account last signed in here, from what the device kept, so the app opens offline as it
+ * (an app updated from before accounts had their own copies opens that person's copy at once,
+ * outbox included, without waiting for the server).
+ */
+function savedAccount(): string | null {
+  if (!openAccountId()) {
+    const saved = readJson<MeResponse>(KEY);
+    if (saved) openAccountCopy((saved.practice && practiceMode()?.self) || saved.user.id);
+  }
+  return openAccountId();
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const [account, setAccount] = useState<string | null>(savedAccount);
   const [me, setMe] = useState<MeResponse | null>(() => readJson<MeResponse>(KEY));
   const [loaded, setLoaded] = useState(me !== null);
   const [error, setError] = useState("");
-  const [account, setAccount] = useState<string | null>(() => openAccountId());
 
   // The server said who is signed in: open that account's copy if it isn't the open one. While
   // rehearsing, `/api/me` is the person played; the account is the one practising.
