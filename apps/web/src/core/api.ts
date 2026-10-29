@@ -70,6 +70,11 @@ export async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
+    // Failed after this tab's account changed: dropped, never retried as the new account.
+    if (meant && accountNow() !== meant)
+      throw new ApiError(409, "account_changed", "You switched accounts while this was on its way.", {
+        account_changed: true,
+      });
     // No connection (or it dropped): a clear message, and a status 0 others can check.
     throw new ApiError(0, "offline", "You're offline. This needs a connection.");
   } finally {

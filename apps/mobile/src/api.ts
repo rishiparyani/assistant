@@ -79,14 +79,14 @@ export async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
+    // Failed after a switch: not "offline" (that would queue it again as the account now open).
+    if (account && openAccountId() !== account) throw switchedAway();
     throw new ApiError(0, "offline", "You're offline. This needs a connection.");
   }
   const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | ApiErrorBody | null);
   if (account && openAccountId() !== account)
     // Not "offline" (which would queue it again, as the account now open): dropped for good.
-    throw new ApiError(409, "account_changed", "You switched accounts while this was on its way.", {
-      account_changed: true,
-    });
+    throw switchedAway();
   if (res.status === 204) return undefined as T;
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
@@ -100,5 +100,11 @@ export async function request<T>(
   }
   return data as T;
 }
+
+/** A call dropped because the account changed on its way (never retried as the new one). */
+const switchedAway = () =>
+  new ApiError(409, "account_changed", "You switched accounts while this was on its way.", {
+    account_changed: true,
+  });
 
 export const isOffline = (e: unknown) => e instanceof ApiError && e.status === 0;
