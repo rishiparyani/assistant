@@ -181,18 +181,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (open) releaseOutbox();
         throw e;
       }
-      if (open) {
-        clearOutbox();
-        // The server opened another kept account, if there is one (otherwise: signed out).
-        await refresh();
-      }
-      forgetAccount(a.id);
       writeJson(
         KNOWN,
         knownAccounts().filter((k) => k.id !== a.id),
       );
+      if (!open) return forgetAccount(a.id);
+      clearOutbox();
+      // The server opened another kept account, if there is one (otherwise: signed out).
+      try {
+        await whoIsIn();
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) return closed();
+        // It didn't load (the connection dropped): changes can go again (the server refuses any
+        // for the wrong account), and the first call refused that way opens the right one.
+        releaseOutbox();
+        throw new Error("Signed out. The next account opens once you're connected.", { cause: e });
+      } finally {
+        forgetAccount(a.id);
+      }
     },
-    [account, refresh, knownAccounts],
+    [account, whoIsIn, closed, knownAccounts],
   );
 
   const prepareAdd = useCallback(async () => {
