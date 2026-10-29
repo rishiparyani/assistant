@@ -55,6 +55,7 @@ import { useSession } from "@/session";
 import { rememberChat } from "@/last-chat";
 import { savedCatalog, type CatalogEntry } from "@/home";
 import { aboutLabel, aboutWords, parseAbout, type ChatParams } from "@/chat-open";
+import { forgetOnSwitch } from "../storage.ts";
 
 const MAIN = "main";
 
@@ -922,6 +923,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
 
 // 👍 / 👎 given in this session, by message (only the rating goes to the server).
 const rated = new Map<string, "good" | "bad">();
+forgetOnSwitch(() => rated.clear());
 
 /** 👍 / 👎 under the newest answer: a count for the app team, nothing about the answer. */
 function Rate({ id, text }: { id: string; text: string }) {

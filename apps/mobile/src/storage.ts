@@ -107,8 +107,16 @@ export const openAccountId = () => open;
  * Opens an account's copy. The first account on a device takes what was kept before accounts
  * had their own copies (an update from an older app), so nothing waiting to be sent is lost.
  */
+/**
+ * Things kept in memory for the open account (a card's lists, live cards as last loaded) clear
+ * themselves here when another account's copy opens: redrawing the screens doesn't reach them.
+ */
+const forgetters = new Set<() => void>();
+export const forgetOnSwitch = (f: () => void) => void forgetters.add(f);
+
 export function openAccountCopy(userId: string | null) {
   if (userId === open) return;
+  forgetters.forEach((f) => f());
   if (userId && !open)
     for (const k of raw.keys(OWN)) {
       const v = raw.get(k);

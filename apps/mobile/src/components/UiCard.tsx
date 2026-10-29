@@ -29,7 +29,7 @@ import { isOffline, request } from "../api.ts";
 import { send } from "../outbox.ts";
 import { canonical, findAll, homeChanged, pinnedViews } from "../home.ts";
 import { useSession } from "../session.tsx";
-import { readJson, writeJson } from "../storage.ts";
+import { forgetOnSwitch, readJson, writeJson } from "../storage.ts";
 import { useTheme } from "../theme.ts";
 
 type UiRef = Extract<LiveRef, { kind: "ui" }>;
@@ -74,6 +74,7 @@ type Kept = Record<string, { col: CollectionView; items: Record<string, unknown>
 
 /** A space's lists (the person's own when null), read once while the app is open. */
 const colsBySpace = new Map<string, Promise<CollectionView[]>>();
+forgetOnSwitch(() => colsBySpace.clear());
 function readCols(space: string | null): Promise<CollectionView[]> {
   const k = space ?? "";
   let p = colsBySpace.get(k);
