@@ -155,7 +155,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const signOutOf = useCallback(
     async (a: DeviceAccount) => {
       const open = a.id === account;
-      if (open) await holdOutbox();
+      if (open) {
+        await holdOutbox();
+        // Its rehearsal goes with it (the account opened next doesn't own it).
+        leavePractice();
+      }
       try {
         await signOutOfAccount(a.token);
       } catch (e) {
