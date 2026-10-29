@@ -4,7 +4,7 @@
 // While waiting, modules show the change on screen ("appliers" lay it over the saved data).
 // If the server refuses a change later, it's listed under "Couldn't sync" with the reason.
 // Core knows no module: kinds, scopes and appliers come from the modules.
-import { ApiError, request } from "./api.ts";
+import { accountChanged, ApiError, request } from "./api.ts";
 import { connection, saveSoon } from "./offline.svelte.ts";
 import { publish, readCache, refreshAll, setOverlay } from "./query.svelte.ts";
 import { OUTBOX_PREFIX } from "./outbox-key.ts";
@@ -141,7 +141,13 @@ let flushing: Promise<void> | null = null;
 
 /** The server said no for good (not "try later"). */
 const refused = (e: unknown) =>
-  e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429;
+  e instanceof ApiError &&
+  e.status >= 400 &&
+  e.status < 500 &&
+  e.status !== 408 &&
+  e.status !== 429 &&
+  // Another account signed in by now: it waits for its own account (never sent as another).
+  !accountChanged(e);
 
 /** Sends waiting changes in order until one can't go (offline, server busy) or all went. */
 export function flush(): Promise<void> {
