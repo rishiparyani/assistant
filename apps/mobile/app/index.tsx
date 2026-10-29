@@ -3,7 +3,8 @@
 // coming up; under it one list of spaces and chats, newest activity first, each kind drawn its
 // own way (a space is a tinted tile with what's waiting in it, a person one face, a group
 // stacked faces). "Needs you" is one slim bar that opens its own screen, so the chats are never
-// pushed down. Search appears when the list is pulled down (or with the magnifier). Nobody
+// pushed down. Search waits above the list until it is pulled down, like WhatsApp (on a laptop's
+// sidebar it always shows). Nobody
 // arranges it, so it can never go blank; it reads what the device kept first (rule 17).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -142,7 +143,6 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   // real parts of the screen; Help ("?") takes it again, and has ideas and "How do I…?".
   const tourRefs = {
     chat: useRef<View>(null),
-    search: useRef<View>(null),
     help: useRef<View>(null),
   } satisfies TourRefs;
   const [touring, setTouring] = useState(false);
@@ -235,13 +235,10 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
     searchBox.current?.focus();
   }, [pane, startQuery]);
   // The search box starts out of sight above the list; pulling down shows it (once per open).
-  const tucked = useRef(!!startQuery);
+  // A laptop's sidebar has room for it, so it shows there from the start.
+  const tucked = useRef(!!startQuery || !!pane);
   // The list is always at least one screen plus the search box tall, so it can be tucked away.
   const [viewH, setViewH] = useState(0);
-  const showSearch = () => {
-    scroller.current?.scrollTo({ y: 0, animated: true });
-    searchBox.current?.focus();
-  };
 
   // Spaces by last use (opening a space's page moves it to the front), the rest as they come;
   // then everything by its newest message.
@@ -602,16 +599,6 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           <Text style={[type.display, { color: t.fg }]}>Chats</Text>
           {stale ? <Text style={[type.caption, { color: t.fg3 }]}>Updating…</Text> : null}
         </View>
-        <Tap
-          ref={tourRefs.search}
-          accessibilityRole="button"
-          accessibilityLabel="Search"
-          onPress={showSearch}
-          scale={0.92}
-          style={[s.round, { backgroundColor: t.cell, shadowColor: t.shadow }]}
-        >
-          <Magnifier colour={t.fg} size={20} />
-        </Tap>
         <Tap
           ref={tourRefs.help}
           accessibilityRole="button"

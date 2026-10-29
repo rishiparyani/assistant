@@ -13,7 +13,7 @@
 
 From five directions (Quiet Pro, Chats as home, Bento, Timeline, Command dark) and two in-chat ideas, the owner picked **2 (Chats as home), 6 (answers that are tiny apps) and 7 (the assistant at work)**, then refined it:
 
-1. **Home is Chats**, like WhatsApp: a large "Chats" title that shrinks on scroll; no search bar at the top. **Search appears when the list is pulled down** (the owner: "everyone using other chat apps knows pull down to search"), plus a magnifier button.
+1. **Home is Chats**, like WhatsApp: a large "Chats" title that shrinks on scroll; no search bar at the top. **Search appears when the list is pulled down** (the owner: "everyone using other chat apps knows pull down to search"); no magnifier button (the owner, 2026-10-29: "just like WhatsApp"). On a laptop's sidebar the box always shows.
 2. **The Assistant is a dark card pinned at the top**, showing what it's watching ("This week: electricity ₹2,340 Mon, society meeting Wed"). It is not a chat row.
 3. **One list under it, newest activity first**, no sections (the owner preferred this to Spaces/Chats sections). Each kind looks different:
    - a **space** is a rounded tile tinted in its colour, with a square icon, "· space", status chips ("1 waiting on you", "3 inside now", "2 complaints") and the last message;
