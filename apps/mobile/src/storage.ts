@@ -86,6 +86,8 @@ const raw: Kv = Platform.OS === "web" ? webKv() : nativeKv();
 // and nothing of one account shows in another. Other keys belong to the device.
 const OWN = "gigspree:";
 const ACTIVE = "accounts:open";
+/** Where the open account is kept (another browser tab watches it). */
+export const OPEN_ACCOUNT_KEY = ACTIVE;
 let open: string | null = raw.get(ACTIVE);
 const home = (userId: string) => `gigspree@${userId}:`;
 const place = (k: string) => (open && k.startsWith(OWN) ? home(open) + k.slice(OWN.length) : k);

@@ -13,9 +13,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { Platform } from "react-native";
 import { router } from "expo-router";
 import type { MeResponse } from "@assistant/shared";
-import { ApiError, request } from "./api.ts";
+import { ApiError, request, whenOtherAccount } from "./api.ts";
 import {
   deviceAccounts,
   keepThisAccount,
@@ -28,6 +29,7 @@ import {
   forgetAccount,
   forgetAllAccounts,
   kv,
+  OPEN_ACCOUNT_KEY,
   openAccountCopy,
   openAccountId,
   readJson,
@@ -96,9 +98,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setAccount(null);
   }, []);
 
+  // Who is signed in (the one call made without naming an account).
+  const whoIsIn = useCallback(
+    async () => opened(await request<MeResponse>("GET", "/api/me", undefined, undefined, { account: null })),
+    [opened],
+  );
   const refresh = useCallback(async () => {
     try {
-      opened(await request<MeResponse>("GET", "/api/me"));
+      await whoIsIn();
       setError("");
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) closed();
@@ -107,7 +114,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoaded(true);
     }
-  }, [me, opened, closed]);
+  }, [me, whoIsIn, closed]);
 
   const signOut = useCallback(async () => {
     try {
@@ -146,10 +153,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         releaseOutbox();
         throw e;
       }
-      await refresh();
+      try {
+        await whoIsIn();
+      } catch {
+        // Switched on the server, but the account didn't load (the connection dropped). Changes
+        // can go again (the server refuses any for the wrong account, and they wait), and the
+        // first call refused that way opens the right account (`whenOtherAccount` below).
+        releaseOutbox();
+        throw new Error("Switched, but the account didn't load. It will open once you're connected.");
+      }
       return waiting;
     },
-    [refresh],
+    [whoIsIn],
   );
 
   const signOutOf = useCallback(
@@ -202,6 +217,25 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     useOutboxFor(account);
   }, [account]);
+  // Another account signed in than the one open here (another tab switched, or a switch didn't
+  // finish): ask who it is, once at a time. On the website another tab's switch reloads this one.
+  const catchingUp = useRef(false);
+  useEffect(() => {
+    whenOtherAccount(() => {
+      if (catchingUp.current) return;
+      catchingUp.current = true;
+      void refresh().finally(() => (catchingUp.current = false));
+    });
+    return () => void whenOtherAccount(null);
+  }, [refresh]);
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return;
+    const on = (e: StorageEvent) => {
+      if (e.key === OPEN_ACCOUNT_KEY && e.newValue !== openAccountId()) window.location.reload();
+    };
+    window.addEventListener("storage", on);
+    return () => window.removeEventListener("storage", on);
+  }, []);
   // Once at start (not on every refresh identity change).
   const first = useRef(true);
   useEffect(() => {

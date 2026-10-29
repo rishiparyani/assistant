@@ -50,7 +50,7 @@ export default function Login() {
       await fn();
       // Signed in, but the account doesn't open: say so, instead of a screen that stays put.
       try {
-        await request("GET", "/api/me");
+        await request("GET", "/api/me", undefined, undefined, { account: null });
       } catch (e) {
         if (e instanceof ApiError && e.status === 401)
           throw new Error(
