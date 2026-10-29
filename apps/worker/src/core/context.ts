@@ -97,6 +97,13 @@ async function practiceFromHeader(c: Context<AppEnv>, userId: string): Promise<P
   return { space: m[1]!, of: row.practice_of, as: m[2]! };
 }
 
+/**
+ * The account a change was made in, sent by the app with what it queued on the device (the
+ * account switcher, chats-home.md 7). Signed in as someone else by then, the change is refused
+ * (409, `account_changed`) and stays on the device for that account, never landing in another.
+ */
+export const ACCOUNT_HEADER = "x-account";
+
 export type TokenScope = "read" | "write";
 
 export interface Sealer {
@@ -135,6 +142,11 @@ export const requireUser = createMiddleware<AppEnv>(async (c, next) => {
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (!session) throw new AppError("unauthenticated", "Sign in required");
   const { user } = session;
+  const meant = c.req.header(ACCOUNT_HEADER)?.trim();
+  if (meant && meant !== user.id)
+    throw new AppError("conflict", "This was made in another account on this device", {
+      account_changed: true,
+    });
   const ctx = userCtxFor(c.env, c.get("moduleSchemas"), user, "web", null);
   const practice = await practiceFromHeader(c, user.id);
   c.set("userCtx", practice ? { ...ctx, practice } : ctx);

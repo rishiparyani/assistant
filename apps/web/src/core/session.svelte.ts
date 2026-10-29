@@ -2,7 +2,7 @@
 // The last known user is kept on the device so the app opens instantly; the server
 // check runs in the background and signs out if the session has ended.
 import type { MeResponse } from "@assistant/shared";
-import { api, ApiError } from "./api.ts";
+import { api, ApiError, bindAccount } from "./api.ts";
 import { clearCache, useCacheFor } from "./query.svelte.ts";
 import { clearDeviceDb } from "./device-db.ts";
 import { clearOutbox, useOutboxFor } from "./outbox.svelte.ts";
@@ -27,6 +27,26 @@ export const session = $state<{ me: MeResponse | null; loaded: boolean; error: s
   error: "",
 });
 
+// Calls name this tab's account; when another is signed in (switched in another tab), ask who.
+let catchingUp = false;
+bindAccount(
+  () => session.me?.user.id ?? null,
+  () => {
+    if (catchingUp) return;
+    catchingUp = true;
+    void refreshSession().finally(() => (catchingUp = false));
+  },
+);
+// The app (the Expo pages) keeps the account it has open here; a switch there reloads this tab.
+try {
+  window.addEventListener("storage", (e) => {
+    if (e.key === "accounts:open" && e.newValue && e.newValue !== session.me?.user.id)
+      window.location.reload();
+  });
+} catch {
+  // No window (tests).
+}
+
 function remember(me: MeResponse | null) {
   try {
     if (me) localStorage.setItem(KEY, JSON.stringify(me));
@@ -39,6 +59,13 @@ function remember(me: MeResponse | null) {
 export async function refreshSession() {
   try {
     const me = await api.me();
+    // Another account than the one shown (switched in the app's tab): open fresh as it, so no
+    // page keeps what it loaded for the last one.
+    if (session.me && session.me.user.id !== me.user.id) {
+      remember(me);
+      window.location.reload();
+      return;
+    }
     useCacheFor(me.user.id);
     useOutboxFor(me.user.id);
     session.me = me;

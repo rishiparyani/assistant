@@ -1315,3 +1315,13 @@ The owner chose a WhatsApp-like home (a pinned assistant card, one list of space
 ## 2026-10-28: Chats inside a space never change who is in it
 
 A space made from a group chat takes its people from that chat (decision 2026-10-14 "A home for each chat"). Chats started inside the space afterwards (for everyone or some people; chats-home.md 6) are the other way round: they take their people only from the space, and the space never takes people from them. The group object records which kind a chat is (`in_space`). Why: a private chat for four of twelve must not shrink the space to four.
+
+## 2026-10-29: Several accounts on one device (the account switcher)
+
+The owner OK'd it (a security change): "build the account switcher also". A device stays signed in to up to five accounts and switches with one tap, like Gmail (chats-home.md 7). How:
+
+- **Server:** Better Auth's own multi-session plugin (`multiSession`, five per device) keeps each account's session in its own signed cookie; no new tables. A small endpoint of ours, `POST /auth/multi-session/keep`, keeps the session that's open now the same way, because people signed in before the plugin have none and adding a second account would otherwise push the first one out. Google asks which account each time (`prompt: select_account`), so "Add another account" can pick a new one. Sign out signs out of every account on the device; signing out of one uses the plugin's revoke.
+- **Nothing sent as the wrong person:** every change queued on the device names the account it was made in (`x-account`); signed in as someone else by the time it's sent, the server refuses it (409, `account_changed`) and it stays for its own account. Switching first sends what the open account has waiting, then holds the rest until that account is open again.
+- **Each account keeps its own copy on the device:** the person's keys (`gigspree:…`) are stored under the open account (`gigspree@<user id>:…`); the first account takes what an older app kept. Switching redraws the whole app, so no screen shows the last account's things.
+- **The website:** the site's sign-in page takes `add=1` (it doesn't send someone already signed in away) and comes back to You.
+- The session tokens the plugin lists reach the app's code (it needs them to say which account to open); they are held in memory only, never saved.

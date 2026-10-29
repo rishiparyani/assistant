@@ -88,3 +88,13 @@ export function useLive(on: Listener) {
     };
   }, []);
 }
+
+/** Connects again as whoever is signed in now (after switching accounts). */
+export function reconnectLive() {
+  const old = ws;
+  ws = null;
+  retry = 0;
+  clearTimeout(reconnect);
+  old?.close();
+  void connect();
+}

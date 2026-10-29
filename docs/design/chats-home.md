@@ -13,7 +13,7 @@
 
 From five directions (Quiet Pro, Chats as home, Bento, Timeline, Command dark) and two in-chat ideas, the owner picked **2 (Chats as home), 6 (answers that are tiny apps) and 7 (the assistant at work)**, then refined it:
 
-1. **Home is Chats**, like WhatsApp: a large "Chats" title that shrinks on scroll; no search bar at the top. **Search appears when the list is pulled down** (the owner: "everyone using other chat apps knows pull down to search"), plus a magnifier button.
+1. **Home is Chats**, like WhatsApp: a large "Chats" title that shrinks on scroll; no search bar at the top. **Search appears when the list is pulled down** (the owner: "everyone using other chat apps knows pull down to search"); no magnifier button (the owner, 2026-10-29: "just like WhatsApp"). On a laptop's sidebar the box always shows.
 2. **The Assistant is a dark card pinned at the top**, showing what it's watching ("This week: electricity ₹2,340 Mon, society meeting Wed"). It is not a chat row.
 3. **One list under it, newest activity first**, no sections (the owner preferred this to Spaces/Chats sections). Each kind looks different:
    - a **space** is a rounded tile tinted in its colour, with a square icon, "· space", status chips ("1 waiting on you", "3 inside now", "2 complaints") and the last message;
@@ -51,11 +51,11 @@ Still open: gestures (swipe to archive or reply, long-press menus), real photos,
 4. Answer cards (6) from the fixed blocks. **Done**: tappable bars that drill in, a bill splitter and the assistant taught both (the rest was already in the A2UI cards).
 5. The assistant at work (7). **Done** as a flow's screen laid out as a job (state and an on/off switch that warns when it would close waiting questions, Needs your OK, Waiting on others, What it did, How it works folded).
 6. Two panes on a laptop. **Done** (website, 1024 px and wider).
-7. The account switcher (below).
+7. The account switcher (below). **Done**: You (the face at the top of Chats) lists the accounts on the device, switches with one tap, adds another and signs out of one or all; each account keeps its own copy on the device (decision 2026-10-29).
 
 ## Other things discussed on 2026-10-27/28
 
-- **Testing chats as several people without signing out**: for now, use the phone as yourself and the website in a private/incognito window (or another browser) as the other person. Proposed to build: an **account switcher** (stay signed in to several accounts, swap with one tap, like Gmail), and later **rehearse group chats** in a practice copy (part of the group-chat step). The owner hasn't chosen yet; it's on the build list above.
+- **Testing chats as several people without signing out**: for now, use the phone as yourself and the website in a private/incognito window (or another browser) as the other person. Proposed to build: an **account switcher** (stay signed in to several accounts, swap with one tap, like Gmail), and later **rehearse group chats** in a practice copy (part of the group-chat step). The account switcher is built (step 7); rehearsing group chats is still to come.
 - **iPhone simulator on a Mac**: a Claude session on a Mac (Claude Desktop, or Claude Code with `claude remote-control` to reach it from the phone) can drive Apple's simulator to check the app. Needs Xcode (about 40 GB), the repo cloned, Node, pnpm and CocoaPods, Screen Recording and Accessibility allowed, and the Mac awake while it works. Not set up yet.
 - **Native apps vs React Native**: stay on React Native (one codebase for iPhone, Android and the web). If the feel isn't enough, rewrite one screen natively (the chat) as a trial first.
 - **Renaming**: the owner wants a new name later (Gigspree "sounds like a gig-specific app").

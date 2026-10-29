@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Modal, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import {
   useFonts,
@@ -81,6 +81,15 @@ function Sidebar() {
   );
 }
 
+/**
+ * Everything below is drawn again when the account changes (the account switcher), so no
+ * screen keeps showing what it loaded for the account before.
+ */
+function ForAccount({ children }: { children: ReactNode }) {
+  const { account } = useSession();
+  return <Fragment key={account ?? "signed-out"}>{children}</Fragment>;
+}
+
 export default function Layout() {
   const { t, dark } = useTheme();
   // The app's typeface (decision 2026-10-13 "A warmer home"). The first screen waits for it a
@@ -123,64 +132,70 @@ export default function Layout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: t.canvas }}>
       <SessionProvider>
         <StatusBar style={dark ? "light" : "dark"} />
-        <SessionGate />
-        {practising ? <PracticeBanner /> : null}
-        <SafeAreaInsetsContext.Provider value={practising ? { ...insets, top: 0 } : insets}>
-          <View style={{ flex: 1, flexDirection: "row" }}>
-            <Sidebar />
-            <View style={{ flex: 1 }}>
-              <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="login" options={{ presentation: "fullScreenModal", animation: "fade" }} />
-                {/* Every other screen is pushed (slides in from the right, back is a swipe): the
+        <ForAccount>
+          <SessionGate />
+          {practising ? <PracticeBanner /> : null}
+          <SafeAreaInsetsContext.Provider value={practising ? { ...insets, top: 0 } : insets}>
+            <View style={{ flex: 1, flexDirection: "row" }}>
+              <Sidebar />
+              <View style={{ flex: 1 }}>
+                <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.canvas } }}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen
+                    name="login"
+                    options={{ presentation: "fullScreenModal", animation: "fade" }}
+                  />
+                  {/* Every other screen is pushed (slides in from the right, back is a swipe): the
               chat sheet is the one sheet, and nothing opens over a sheet (from-scratch.md §2
               "nothing stacks"). /chat is an address only; it opens the sheet over Today. */}
-                <Stack.Screen name="chat" />
-                <Stack.Screen name="memory" />
-                <Stack.Screen name="library" />
-                <Stack.Screen name="capture" />
-                <Stack.Screen name="process" />
-                <Stack.Screen name="connections" />
-                <Stack.Screen name="list" />
-                <Stack.Screen name="trash" />
-                {/* Chats with people, and one chat: pushed like the list. */}
-                <Stack.Screen name="chats" />
-                <Stack.Screen name="talk" />
-              </Stack>
+                  <Stack.Screen name="chat" />
+                  <Stack.Screen name="memory" />
+                  <Stack.Screen name="library" />
+                  <Stack.Screen name="capture" />
+                  <Stack.Screen name="process" />
+                  <Stack.Screen name="connections" />
+                  <Stack.Screen name="list" />
+                  <Stack.Screen name="trash" />
+                  {/* Chats with people, and one chat: pushed like the list. */}
+                  <Stack.Screen name="chats" />
+                  <Stack.Screen name="talk" />
+                  <Stack.Screen name="you" />
+                </Stack>
+              </View>
+              {sideChat ? (
+                <View
+                  style={
+                    beside
+                      ? {
+                          width: PANEL_WIDTH,
+                          borderLeftWidth: StyleSheet.hairlineWidth,
+                          borderLeftColor: t.sep,
+                        }
+                      : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
+                  }
+                >
+                  <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
+                </View>
+              ) : null}
             </View>
-            {sideChat ? (
-              <View
-                style={
-                  beside
-                    ? {
-                        width: PANEL_WIDTH,
-                        borderLeftWidth: StyleSheet.hairlineWidth,
-                        borderLeftColor: t.sep,
-                      }
-                    : [StyleSheet.absoluteFill, { backgroundColor: t.page }]
-                }
-              >
+          </SafeAreaInsetsContext.Provider>
+          {Platform.OS !== "web" ? (
+            // The phone's chat sheet: the system's page sheet (a pull down or Back closes it),
+            // over whatever screen the composer was on.
+            <Modal
+              visible={panel.open}
+              presentationStyle="pageSheet"
+              animationType="slide"
+              allowSwipeDismissal
+              onRequestClose={closeChatPanel}
+              onDismiss={chatGone}
+            >
+              <View style={{ flex: 1, backgroundColor: t.page }}>
                 <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
               </View>
-            ) : null}
-          </View>
-        </SafeAreaInsetsContext.Provider>
-        {Platform.OS !== "web" ? (
-          // The phone's chat sheet: the system's page sheet (a pull down or Back closes it),
-          // over whatever screen the composer was on.
-          <Modal
-            visible={panel.open}
-            presentationStyle="pageSheet"
-            animationType="slide"
-            allowSwipeDismissal
-            onRequestClose={closeChatPanel}
-            onDismiss={chatGone}
-          >
-            <View style={{ flex: 1, backgroundColor: t.page }}>
-              <ChatScreen key={panel.nonce} params={panel.params} onClose={closeChatPanel} />
-            </View>
-          </Modal>
-        ) : null}
+            </Modal>
+          ) : null}
+        </ForAccount>
       </SessionProvider>
     </GestureHandlerRootView>
   );

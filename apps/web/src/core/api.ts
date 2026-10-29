@@ -28,7 +28,26 @@ export interface RequestOptions {
   quiet?: boolean;
   /** The write's Idempotency-Key, when the caller made it (e.g. a queued change). */
   key?: string;
+  /** The one call that asks who is signed in: made for no account in particular. */
+  anyAccount?: boolean;
 }
+
+/**
+ * The account this tab shows (the app can switch accounts in another tab; decision 2026-10-29
+ * "Several accounts on one device"). Every call names it (`x-account`); the server refuses a
+ * call when another account is signed in, and an answer that comes back after this tab's
+ * account changed is dropped, so nothing of one account is saved as another's. The session
+ * says who it is and catches up when told (`bindAccount`, in session.svelte.ts).
+ */
+let accountNow: () => string | null = () => null;
+let otherAccount: () => void = () => undefined;
+export function bindAccount(now: () => string | null, other: () => void) {
+  accountNow = now;
+  otherAccount = other;
+}
+/** Refused or dropped because another account is signed in than the one this tab shows. */
+export const accountChanged = (e: unknown) =>
+  e instanceof ApiError && !!(e.details as { account_changed?: boolean } | undefined)?.account_changed;
 
 export async function request<T>(
   method: string,
@@ -39,6 +58,8 @@ export async function request<T>(
   const headers: Record<string, string> = body === undefined ? {} : { "content-type": "application/json" };
   // Every write carries a fresh key so a retried request can't happen twice.
   if (method !== "GET") headers["idempotency-key"] = opts.key ?? crypto.randomUUID();
+  const meant = opts.anyAccount ? null : accountNow();
+  if (meant) headers["x-account"] = meant;
   // untrack: requests often start inside an $effect, which must not depend on this counter.
   if (!opts.quiet) untrack(() => activity.pending++);
   let res: Response;
@@ -49,15 +70,25 @@ export async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
+    // Failed after this tab's account changed: dropped, never retried as the new account.
+    if (meant && accountNow() !== meant)
+      throw new ApiError(409, "account_changed", "You switched accounts while this was on its way.", {
+        account_changed: true,
+      });
     // No connection (or it dropped): a clear message, and a status 0 others can check.
     throw new ApiError(0, "offline", "You're offline. This needs a connection.");
   } finally {
     if (!opts.quiet) untrack(() => activity.pending--);
   }
+  const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | ApiErrorBody | null);
+  if (meant && accountNow() !== meant)
+    throw new ApiError(409, "account_changed", "You switched accounts while this was on its way.", {
+      account_changed: true,
+    });
   if (res.status === 204) return undefined as T;
-  const data = (await res.json().catch(() => null)) as T | ApiErrorBody | null;
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
+    if ((err?.details as { account_changed?: boolean } | undefined)?.account_changed) otherAccount();
     throw new ApiError(
       res.status,
       err?.code ?? "unknown",
@@ -168,7 +199,7 @@ export const api = {
     if (!isHealthResponse(body)) throw new Error("Unexpected health response");
     return body;
   },
-  me: () => request<MeResponse>("GET", "/api/me"),
+  me: () => request<MeResponse>("GET", "/api/me", undefined, { anyAccount: true }),
 };
 
 /** A readable message for any thrown value. */

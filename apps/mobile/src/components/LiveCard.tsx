@@ -24,9 +24,11 @@ import { colourFor, radius, useTheme } from "../theme.ts";
 import { Card, FlowDiagram, cardHeight } from "@assistant/cards/native";
 import { UiCard } from "./UiCard.tsx";
 import { quickAddFor } from "./QuickAdd.tsx";
+import { forgetOnSwitch } from "../storage.ts";
 
 /** Live cards as last loaded, by what they show (a few dozen, newest kept). */
 const loaded = new Map<string, LiveData>();
+forgetOnSwitch(() => loaded.clear());
 
 export function LiveCard(props: {
   live: LiveRef;

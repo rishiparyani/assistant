@@ -58,9 +58,9 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
       text: "Swipe sideways for your other pages. They are all yours: new cards land on the last one.",
     });
   steps.push({
-    target: "search",
+    target: null,
     title: "Find anything",
-    text: "Pull the list down, or tap the magnifier: your chats, lists and records appear as you type, with or without a connection.",
+    text: "Pull the list down and the search box appears above it: your chats, lists and records show as you type, with or without a connection.",
   });
   steps.push({
     target: "help",

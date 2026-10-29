@@ -78,7 +78,76 @@ function nativeKv(): Kv {
   };
 }
 
-export const kv: Kv = Platform.OS === "web" ? webKv() : nativeKv();
+const raw: Kv = Platform.OS === "web" ? webKv() : nativeKv();
+
+// Each account on this device keeps its own copy (the account switcher, chats-home.md 7): the
+// person's keys ("gigspree:…", everything cleared at sign-out) are stored under the account
+// that is open ("gigspree@<user id>:…"), so switching shows that account's things, offline too,
+// and nothing of one account shows in another. Other keys belong to the device.
+const OWN = "gigspree:";
+const ACTIVE = "accounts:open";
+/** Where the open account is kept (another browser tab watches it). */
+export const OPEN_ACCOUNT_KEY = ACTIVE;
+let open: string | null = raw.get(ACTIVE);
+const home = (userId: string) => `gigspree@${userId}:`;
+const place = (k: string) => (open && k.startsWith(OWN) ? home(open) + k.slice(OWN.length) : k);
+const unplace = (k: string) => (open && k.startsWith(home(open)) ? OWN + k.slice(home(open).length) : k);
+
+export const kv: Kv = {
+  get: (k) => raw.get(place(k)),
+  set: (k, v) => raw.set(place(k), v),
+  remove: (k) => raw.remove(place(k)),
+  keys: (prefix) => raw.keys(place(prefix)).map(unplace),
+};
+
+/** The account whose copy is open on this device (null: nobody signed in yet). */
+export const openAccountId = () => open;
+
+/**
+ * Opens an account's copy. The first account on a device takes what was kept before accounts
+ * had their own copies (an update from an older app), so nothing waiting to be sent is lost.
+ */
+/**
+ * Things kept in memory for the open account (a card's lists, live cards as last loaded) clear
+ * themselves here when another account's copy opens: redrawing the screens doesn't reach them.
+ */
+const forgetters = new Set<() => void>();
+export const forgetOnSwitch = (f: () => void) => void forgetters.add(f);
+
+export function openAccountCopy(userId: string | null) {
+  if (userId === open) return;
+  forgetters.forEach((f) => f());
+  if (userId && !open)
+    for (const k of raw.keys(OWN)) {
+      const v = raw.get(k);
+      if (v !== null) raw.set(home(userId) + k.slice(OWN.length), v);
+      raw.remove(k);
+    }
+  open = userId;
+  if (userId) raw.set(ACTIVE, userId);
+  else raw.remove(ACTIVE);
+}
+
+/** One key of another account's copy, read without opening it (what it has waiting to send). */
+export function readAccountJson<T>(userId: string, key: string): T | null {
+  const v = raw.get(key.startsWith(OWN) ? home(userId) + key.slice(OWN.length) : key);
+  if (v === null) return null;
+  try {
+    return JSON.parse(v) as T;
+  } catch {
+    return null;
+  }
+}
+
+/** Removes every account's copy (signed out of all). */
+export function forgetAllAccounts() {
+  for (const k of raw.keys("gigspree@")) raw.remove(k);
+}
+
+/** Removes everything kept for an account on this device (signed out of it). */
+export function forgetAccount(userId: string) {
+  for (const k of raw.keys(home(userId))) raw.remove(k);
+}
 
 export function readJson<T>(key: string): T | null {
   const raw = kv.get(key);
