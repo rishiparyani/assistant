@@ -34,7 +34,7 @@ import {
   writeJson,
 } from "./storage.ts";
 import { clearOutbox, holdOutbox, releaseOutbox, useOutboxFor } from "./outbox.ts";
-import { leavePractice, reloadPracticeMode } from "./practice-mode.ts";
+import { leavePractice, practiceMode, reloadPracticeMode } from "./practice-mode.ts";
 import { reconnectLive } from "./live-socket.ts";
 
 const KEY = "gigspree:me";
@@ -43,7 +43,10 @@ const KNOWN = "accounts:known";
 export type KnownAccount = Omit<DeviceAccount, "token">;
 
 interface Session {
+  /** Who the app shows (while rehearsing, the person played). */
   me: MeResponse | null;
+  /** The signed-in account (never the person played), whose copy is open on this device. */
+  account: string | null;
   loaded: boolean;
   error: string;
   refresh: () => Promise<void>;
@@ -66,16 +69,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeResponse | null>(() => readJson<MeResponse>(KEY));
   const [loaded, setLoaded] = useState(me !== null);
   const [error, setError] = useState("");
+  const [account, setAccount] = useState<string | null>(() => openAccountId());
 
-  // The server said who is signed in: open that account's copy if it isn't the open one.
+  // The server said who is signed in: open that account's copy if it isn't the open one. While
+  // rehearsing, `/api/me` is the person played; the account is the one practising.
   const opened = useCallback((next: MeResponse) => {
-    if (next.user.id !== openAccountId()) {
-      openAccountCopy(next.user.id);
+    const id = (next.practice && practiceMode()?.self) || next.user.id;
+    if (id !== openAccountId()) {
+      openAccountCopy(id);
       reloadPracticeMode();
       reconnectLive();
     }
     writeJson(KEY, next);
     setMe(next);
+    setAccount(id);
   }, []);
   // The open account's session has ended: forget it and everything kept for it here.
   const closed = useCallback(() => {
@@ -86,6 +93,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (id) forgetAccount(id);
     openAccountCopy(null);
     setMe(null);
+    setAccount(null);
   }, []);
 
   const refresh = useCallback(async () => {
@@ -114,6 +122,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     openAccountCopy(null);
     kv.remove(KNOWN);
     setMe(null);
+    setAccount(null);
   }, []);
 
   const knownAccounts = useCallback(() => readJson<KnownAccount[]>(KNOWN) ?? [], []);
@@ -129,6 +138,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const switchTo = useCallback(
     async (a: DeviceAccount) => {
       const waiting = await holdOutbox();
+      // A rehearsal belongs to the account that started it.
+      leavePractice();
       try {
         await openDeviceAccount(a.token);
       } catch (e) {
@@ -143,7 +154,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const signOutOf = useCallback(
     async (a: DeviceAccount) => {
-      const open = a.id === me?.user.id;
+      const open = a.id === account;
       if (open) await holdOutbox();
       try {
         await signOutOfAccount(a.token);
@@ -162,7 +173,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         knownAccounts().filter((k) => k.id !== a.id),
       );
     },
-    [me?.user.id, refresh, knownAccounts],
+    [account, refresh, knownAccounts],
   );
 
   const prepareAdd = useCallback(async () => {
@@ -180,12 +191,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       releaseOutbox();
       throw e;
     }
+    leavePractice();
   }, []);
   const cancelAdd = useCallback(() => releaseOutbox(), []);
 
   useEffect(() => {
-    useOutboxFor(me?.user.id ?? null);
-  }, [me?.user.id]);
+    useOutboxFor(account);
+  }, [account]);
   // Once at start (not on every refresh identity change).
   const first = useRef(true);
   useEffect(() => {
@@ -197,6 +209,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       me,
+      account,
       loaded,
       error,
       refresh,
@@ -210,6 +223,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }),
     [
       me,
+      account,
       loaded,
       error,
       refresh,

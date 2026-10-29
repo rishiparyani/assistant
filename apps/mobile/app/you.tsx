@@ -31,7 +31,7 @@ export default function You() {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { me, listAccounts, knownAccounts, switchTo, signOutOf, signOut, prepareAdd } = useSession();
+  const { me, account, listAccounts, knownAccounts, switchTo, signOutOf, signOut, prepareAdd } = useSession();
   const [accounts, setAccounts] = useState<DeviceAccount[] | null>(null);
   const [known] = useState<KnownAccount[]>(() => knownAccounts());
   const [note, setNote] = useState("");
@@ -78,10 +78,8 @@ export default function You() {
       if (ON_SITE) window.location.assign(`${API_URL}/login?add=1&next=${encodeURIComponent("/you")}`);
       else router.push({ pathname: "/login", params: { add: "1" } } as Href);
     });
-  const mine = accounts?.find((a) => a.id === me?.user.id);
-  const others = accounts
-    ? accounts.filter((a) => a.id !== me?.user.id)
-    : known.filter((k) => k.id !== me?.user.id);
+  const mine = accounts?.find((a) => a.id === account);
+  const others = accounts ? accounts.filter((a) => a.id !== account) : known.filter((k) => k.id !== account);
 
   if (!me) return null;
   return (

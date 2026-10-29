@@ -1,6 +1,6 @@
 // Sign in. Google through the system sheet (on in the phone builds); email/password exists only
 // on a local test server, so the simulator tests can sign in.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter, type Href } from "expo-router";
@@ -34,8 +34,12 @@ export default function Login() {
   const { next: asked, add } = useLocalSearchParams<{ next?: string; add?: string }>();
   const adding = add === "1";
   const next = asked && asked.startsWith("/") && !asked.startsWith("//") ? asked : "/";
+  // Adding ends here however it ends (another account, the same one again, or nothing): the
+  // outbox held for it is let go (a new account's copy lets it go too; again is harmless).
+  useEffect(() => (adding ? () => cancelAdd() : undefined), [adding, cancelAdd]);
   const finish = async () => {
     await refresh();
+    if (adding) cancelAdd();
     if (adding) homeAfterSwitch();
     else router.replace(next as Href);
   };

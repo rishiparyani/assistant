@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import { API_URL } from "./config.ts";
 import { cookieHeader } from "./auth.ts";
 import { practiceHeader, type PracticeAs } from "./practice-mode.ts";
+import { openAccountId } from "./storage.ts";
 
 export class ApiError extends Error {
   constructor(
@@ -55,6 +56,9 @@ export async function request<T>(
   // sign-in's short-lived state cookie, so every call came back "not signed in" (owner,
   // 2026-10-24, TestFlight). The website's browser keeps its own cookie.
   const credentials: RequestCredentials = Platform.OS === "web" ? "include" : "omit";
+  // The account whose copy is open when the call starts: an answer that comes back after a
+  // switch to another account is dropped, so nothing of one account is saved in another's copy.
+  const account = openAccountId();
   let res: Response;
   try {
     res = await fetch(API_URL + path, {
@@ -66,8 +70,10 @@ export async function request<T>(
   } catch {
     throw new ApiError(0, "offline", "You're offline. This needs a connection.");
   }
+  const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | ApiErrorBody | null);
+  if (account && openAccountId() !== account)
+    throw new ApiError(0, "account_changed", "You switched accounts while this was loading.");
   if (res.status === 204) return undefined as T;
-  const data = (await res.json().catch(() => null)) as T | ApiErrorBody | null;
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
     throw new ApiError(

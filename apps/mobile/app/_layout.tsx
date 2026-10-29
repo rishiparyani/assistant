@@ -86,8 +86,8 @@ function Sidebar() {
  * screen keeps showing what it loaded for the account before.
  */
 function ForAccount({ children }: { children: ReactNode }) {
-  const { me } = useSession();
-  return <Fragment key={me?.user.id ?? "signed-out"}>{children}</Fragment>;
+  const { account } = useSession();
+  return <Fragment key={account ?? "signed-out"}>{children}</Fragment>;
 }
 
 export default function Layout() {
