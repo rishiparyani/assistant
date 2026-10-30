@@ -7436,7 +7436,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.canArrange(actor);
     const { collectionId, def } = this.resolveWorkflow(spec);
     const ts = nowIso();
-    return this.workflowView({
+    const row: WorkflowRow = {
       id: "",
       name: spec.name,
       collection_id: collectionId,
@@ -7448,7 +7448,98 @@ export class SpaceObject extends DurableObject<Env> {
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
-    });
+    };
+    return { ...this.workflowView(row), test: this.testRun(row, def) };
+  }
+
+  /**
+   * Acts a proposed workflow out before it's made (decision 2026-10-30 "The assistant tests
+   * every flow"): on the list's newest record (or a blank new one), every question answered with
+   * its first choice by a stand-in, everything rolled back. What it says it would do is the
+   * story; what wouldn't work (nobody to ask or tell, a step that would stop) is a gap, said to
+   * the assistant and drawn on the card before the tap.
+   */
+  private testRun(w: WorkflowRow, def: WorkflowDef): NonNullable<WorkflowView["test"]> {
+    const scheduled = def.when.event === "schedule";
+    const newest = scheduled
+      ? null
+      : (this.sql
+          .exec<RecordRow>(
+            `select * from records where collection_id = ? and deleted_at is null order by created_at desc limit 1`,
+            w.collection_id,
+          )
+          .toArray()[0] ?? null);
+    const list = this.sql
+      .exec<{ name: string }>(`select name from collections where id = ?`, w.collection_id)
+      .toArray()[0]?.name;
+    const on = scheduled
+      ? "a scheduled run"
+      : newest
+        ? `“${newest.title || "Untitled"}”`
+        : `a new record in ${list}`;
+    const answers: RehearsalAnswer[] = [];
+    const ROLLBACK = Symbol("rollback");
+    const queued = this.queued;
+    let lines: string[] = [];
+    try {
+      // At most a few rounds: each question answered with its first choice, then run again.
+      for (let round = 0; round < 6; round++) {
+        this.rehearsal = { answers, times: new Map(), lines: [], waiting: null };
+        try {
+          this.queued = [];
+          this.ctx.storage.transactionSync(() => {
+            this.wfDepth = 1;
+            const record = scheduled
+              ? null
+              : (newest ?? this.requireRecord(this.addBlankRecord(w.collection_id, w.created_by ?? "")));
+            if (record && def.check.length) {
+              const c = this.requireCollection(w.collection_id);
+              const actorW: Actor = { userId: w.created_by, source: "system" };
+              if (!this.findRows(actorW, c, { filters: def.check, ids: [record.id], limit: 1 }).rows.length) {
+                this.rehearsal!.lines.push(`It wouldn't run on ${on}: it doesn't match the workflow's check`);
+                throw ROLLBACK;
+              }
+            }
+            this.runSteps(w, def, record, 0, {});
+            throw ROLLBACK;
+          });
+        } catch (e) {
+          if (e !== ROLLBACK)
+            this.rehearsal.lines.push(`It would stop here: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        lines = this.rehearsal.lines;
+        const waiting = this.rehearsal.waiting;
+        if (!waiting) break;
+        answers.push({
+          step: waiting.step,
+          time: waiting.time,
+          person: waiting.next,
+          answer: waiting.choices?.[0] ?? "Yes",
+        });
+      }
+    } finally {
+      this.rehearsal = null;
+      this.queued = queued;
+      this.wfDepth = 0;
+    }
+    const gaps = lines.filter((l) => /^(Nobody to (ask|tell)|It would stop here|It wouldn't run)/.test(l));
+    return { on, lines, gaps };
+  }
+
+  /** A blank record in a list, for a test run only (always inside a rolled-back transaction). */
+  private addBlankRecord(collectionId: string, userId: string): string {
+    const id = ulid();
+    const ts = nowIso();
+    this.sql.exec(
+      `insert into records (id, collection_id, values_json, title, title_key, created_by, created_at, updated_at)
+       values (?, ?, '{}', '', '', ?, ?, ?)`,
+      id,
+      collectionId,
+      userId,
+      ts,
+      ts,
+    );
+    return id;
   }
 
   /** Turns a workflow on (it starts watching; dates already set are scheduled) or off. */

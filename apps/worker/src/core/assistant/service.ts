@@ -1761,6 +1761,20 @@ async function runTool(
         text: JSON.stringify({
           needs_confirmation: true,
           note: "NOT DONE YET. It's a card the person must tap Confirm on; nothing has changed. Don't say you made, added, changed or deleted it. In a line, say what it will do and ask them to check it and tap Confirm.",
+          // A proposed workflow was acted out before the tap: the model hears what wouldn't work.
+          ...(card.flow?.test
+            ? {
+                tested_on: card.flow.test.on,
+                test_run: card.flow.test.lines,
+                ...(card.flow.test.gaps.length
+                  ? {
+                      gaps: card.flow.test.gaps,
+                      gaps_note:
+                        "The test run found these gaps. Tell them plainly what's missing and the fix (a field to fill when records are added, people to ask instead, a step to change); offer to change the flow now with a new card. If the gap only shows because the test record is blank or old, say so.",
+                    }
+                  : {}),
+              }
+            : {}),
         }),
       };
     }
