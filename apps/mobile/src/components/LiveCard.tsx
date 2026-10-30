@@ -1,7 +1,8 @@
 // A live card in the chat: a record (its values), or a list / saved view drawn like a home
 // card (ticks work). Loaded when shown; "Open" hands the card to the chat as context.
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, type Href } from "expo-router";
+import { isClassicPath } from "@assistant/shared";
 import * as Haptics from "expo-haptics";
 import Animated, {
   FadeIn,
@@ -121,8 +122,24 @@ function Drawn({
   onSay?: (text: string) => void;
 }) {
   const { t } = useTheme();
+  const router = useRouter();
   if (data.kind === "plain")
-    return (
+    return data.href && data.href.startsWith("/") && !isClassicPath(data.href.split("?")[0]!) ? (
+      // An app's own card that opens one of this app's screens (a practice copy to rehearse in).
+      <Tap
+        accessibilityRole="button"
+        accessibilityLabel={data.title}
+        onPress={() => {
+          leaveChat();
+          router.push(data.href as Href);
+        }}
+        scale={0.985}
+        style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}
+      >
+        <Text style={[s.title, { color: t.accent }]}>{data.title} ›</Text>
+        {data.subtitle ? <Text style={[s.sub, { color: t.fg2 }]}>{data.subtitle}</Text> : null}
+      </Tap>
+    ) : (
       <View style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}>
         <Text style={[s.title, { color: t.fg }]}>{data.title}</Text>
         {data.subtitle ? <Text style={[s.sub, { color: t.fg2 }]}>{data.subtitle}</Text> : null}

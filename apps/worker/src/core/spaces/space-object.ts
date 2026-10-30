@@ -18,6 +18,7 @@ import {
   periodRange,
   ulid,
   type ChangesView,
+  type NotificationsView,
   type TrashItem,
   type CommentView,
   type CollectionView,
@@ -660,6 +661,7 @@ type RecordRow = {
   collection_id: string;
   values_json: string;
   title: string;
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   version: number;
@@ -1489,6 +1491,41 @@ export class SpaceObject extends DurableObject<Env> {
       cards: await this.sharesFor(as),
       got: this.practiceLog(userId),
     };
+  }
+
+  /**
+   * Updates (the bell) while rehearsing as someone: what the copy would have told them, newest
+   * first, the same shape as a real inbox. Their own answers aren't updates to themselves.
+   */
+  practiceUpdates(actor: Actor, userId: string, limit = 50): NotificationsView {
+    if (userId !== actor.userId) this.practiceAs(actor, userId);
+    else if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const readAt = getMeta(this.sql, `practice_read:${userId}`) ?? "";
+    const items = this.sql
+      .exec<{ id: string; at: string; note_json: string }>(
+        `select id, at, note_json from practice_log where user_id = ? order by at desc, id desc limit ?`,
+        userId,
+        limit,
+      )
+      .toArray()
+      .map((r) => ({ ...r, n: JSON.parse(r.note_json) as NewNotification }))
+      .filter((r) => r.n.kind !== "answer")
+      .map((r) => ({
+        id: r.id,
+        at: r.at,
+        kind: r.n.kind,
+        title: r.n.title,
+        body: r.n.body ?? null,
+        url: r.n.url ?? null,
+        read_at: r.at <= readAt ? readAt : null,
+      }));
+    return { items, unread: items.filter((i) => !i.read_at).length };
+  }
+
+  practiceUpdatesRead(actor: Actor, userId: string): { unread: 0 } {
+    if (userId !== actor.userId) this.practiceAs(actor, userId);
+    setMeta(this.sql, `practice_read:${userId}`, nowIso());
+    return { unread: 0 };
   }
 
   async practiceAsOpen(
@@ -8919,6 +8956,25 @@ export class SpaceObject extends DurableObject<Env> {
           ? `${name} answered “${answer}” · everyone has answered`
           : `${name} answered “${answer}”`,
       );
+      // The person who added the record hears what was decided ("Guard answered “Approved”"),
+      // in their updates, unless they answered it themselves (decision 2026-10-30 "Updates").
+      if (w && r?.created_by && r.created_by !== who.userId) {
+        const decided =
+          wait.until === "all" && people.length > 1
+            ? people.map((p) => `${p.name}: ${p.answer ?? "no answer"}`).join(" · ")
+            : `${name} answered “${answer}”`;
+        this.sql.exec(
+          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          ulid(),
+          r.created_by,
+          JSON.stringify({
+            kind: "update",
+            title: r.title ? `${w.name}: ${r.title}` : w.name,
+            body: decided,
+          } satisfies NewNotification),
+          nowIso(),
+        );
+      }
       // The rest of the steps run from the alarm, like any job (a set or add there may start
       // other workflows, at most MAX_WORKFLOW_DEPTH deep). The question closes now, so a
       // second answer in the meantime can't change what was kept or start the run twice.

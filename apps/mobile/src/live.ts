@@ -22,7 +22,8 @@ export type LiveData =
   | { kind: "card"; card: HomeCard; more: boolean }
   /** An answer worked out by the space; it can be pinned to the home. */
   | { kind: "answer"; card: HomeCard; ref: Extract<LiveRef, { kind: "query" }> }
-  | { kind: "plain"; title: string; subtitle: string | null }
+  /** `href`: a screen of this app it opens (an app's own card). */
+  | { kind: "plain"; title: string; subtitle: string | null; href?: string }
   /** A workflow in words; it opens on its own screen (to rehearse it, turn it on, see runs). */
   | {
       kind: "workflow";
@@ -126,7 +127,7 @@ export async function loadLive(
       };
     }
     case "app":
-      return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null };
+      return { kind: "plain", title: ref.title, subtitle: ref.subtitle ?? null, href: ref.href };
     case "setup": {
       // The lists as they are now (renamed, or gone since), in the setup's order.
       const now = await collections(true);

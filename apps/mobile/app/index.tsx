@@ -25,6 +25,7 @@ import { HelpSheet } from "@/components/HelpSheet";
 import { SearchResults } from "@/components/SearchResults";
 import { Sheet } from "@/components/Sheet";
 import { Avatar, when } from "@/components/ChatBits";
+import { useUnreadUpdates } from "@/updates";
 import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
 import { NewChat } from "./chats";
 import { API_URL } from "@/config";
@@ -153,11 +154,15 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   // Every load also asks who I am again (the assistant switch can change while the app is open).
   const refreshMe = useRef(refresh);
   refreshMe.current = refresh;
+  const updates = useUnreadUpdates();
+  const reloadUpdates = useRef(updates.reload);
+  reloadUpdates.current = updates.reload;
   const load = useCallback(async () => {
     if (!userId) return;
     try {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
       void refreshMe.current();
+      reloadUpdates.current();
       setToday(await loadToday(userId));
       setStale(false);
       setError("");
@@ -605,6 +610,19 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           <Text style={[type.display, { color: t.fg }]}>Chats</Text>
           {stale ? <Text style={[type.caption, { color: t.fg3 }]}>Updating…</Text> : null}
         </View>
+        {/* Updates: what happened that I should know (the dot: something new). */}
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel={updates.unread ? `Updates, ${updates.unread} new` : "Updates"}
+          onPress={() => router.push("/updates")}
+          scale={0.92}
+          style={[s.round, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+        >
+          <Bell colour={t.fg} />
+          {updates.unread ? (
+            <View style={[s.bellDot, { backgroundColor: t.accent, borderColor: t.cell }]} />
+          ) : null}
+        </Tap>
         <Tap
           ref={tourRefs.help}
           accessibilityRole="button"
@@ -820,6 +838,28 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   );
 }
 
+/** A bell drawn from a dome, a rim and a clapper (no icon font in the app). */
+function Bell({ colour }: { colour: string }) {
+  return (
+    <View style={{ width: 18, height: 20, alignItems: "center" }}>
+      <View
+        style={{
+          width: 14,
+          height: 13,
+          marginTop: 1,
+          borderTopLeftRadius: 7,
+          borderTopRightRadius: 7,
+          borderWidth: 2,
+          borderBottomWidth: 0,
+          borderColor: colour,
+        }}
+      />
+      <View style={{ width: 18, height: 2, borderRadius: 1, backgroundColor: colour }} />
+      <View style={{ width: 5, height: 3, marginTop: 1, borderRadius: 2, backgroundColor: colour }} />
+    </View>
+  );
+}
+
 /** A magnifier drawn from a ring and a handle (the font's ⌕ is tiny on most phones). */
 function Magnifier({ colour, size }: { colour: string; size: number }) {
   const ring = Math.round(size * 0.72);
@@ -868,6 +908,15 @@ const s = StyleSheet.create({
     paddingBottom: 6,
   },
   wideRow: { alignSelf: "center", width: "100%", maxWidth: COLUMN + SIDE * 2 },
+  bellDot: {
+    position: "absolute",
+    top: 9,
+    right: 9,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+  },
   round: {
     width: 44,
     height: 44,
