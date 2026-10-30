@@ -18,6 +18,7 @@ import {
   periodRange,
   ulid,
   type ChangesView,
+  type NotificationsView,
   type TrashItem,
   type CommentView,
   type CollectionView,
@@ -660,6 +661,7 @@ type RecordRow = {
   collection_id: string;
   values_json: string;
   title: string;
+  created_by?: string | null;
   created_at: string;
   updated_at: string;
   version: number;
@@ -876,6 +878,8 @@ const STARTER_CARDS: Partial<Record<StarterKind, { name: string; filters: Filter
 
 /** At most this many workflows per space, and this many workflow steps in a chain. */
 const MAX_WORKFLOWS = 100;
+/** How many stand-in answers a test run of a proposed workflow gives at most. */
+const TEST_ROUNDS = 30;
 const MAX_WORKFLOW_DEPTH = 3;
 /** A process nudges the people it waits on at most this often. */
 const MAX_NUDGES = 10;
@@ -1489,6 +1493,41 @@ export class SpaceObject extends DurableObject<Env> {
       cards: await this.sharesFor(as),
       got: this.practiceLog(userId),
     };
+  }
+
+  /**
+   * Updates (the bell) while rehearsing as someone: what the copy would have told them, newest
+   * first, the same shape as a real inbox. Their own answers aren't updates to themselves.
+   */
+  practiceUpdates(actor: Actor, userId: string, limit = 50): NotificationsView {
+    if (userId !== actor.userId) this.practiceAs(actor, userId);
+    else if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
+    const readAt = getMeta(this.sql, `practice_read:${userId}`) ?? "";
+    const items = this.sql
+      .exec<{ id: string; at: string; note_json: string }>(
+        `select id, at, note_json from practice_log where user_id = ? order by at desc, id desc limit ?`,
+        userId,
+        limit,
+      )
+      .toArray()
+      .map((r) => ({ ...r, n: JSON.parse(r.note_json) as NewNotification }))
+      .filter((r) => r.n.kind !== "answer")
+      .map((r) => ({
+        id: r.id,
+        at: r.at,
+        kind: r.n.kind,
+        title: r.n.title,
+        body: r.n.body ?? null,
+        url: r.n.url ?? null,
+        read_at: r.at <= readAt ? readAt : null,
+      }));
+    return { items, unread: items.filter((i) => !i.read_at).length };
+  }
+
+  practiceUpdatesRead(actor: Actor, userId: string): { unread: 0 } {
+    if (userId !== actor.userId) this.practiceAs(actor, userId);
+    setMeta(this.sql, `practice_read:${userId}`, nowIso());
+    return { unread: 0 };
   }
 
   async practiceAsOpen(
@@ -7399,7 +7438,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.canArrange(actor);
     const { collectionId, def } = this.resolveWorkflow(spec);
     const ts = nowIso();
-    return this.workflowView({
+    const row: WorkflowRow = {
       id: "",
       name: spec.name,
       collection_id: collectionId,
@@ -7411,7 +7450,103 @@ export class SpaceObject extends DurableObject<Env> {
       created_at: ts,
       updated_at: ts,
       deleted_at: null,
-    });
+    };
+    return { ...this.workflowView(row), test: this.testRun(row, def) };
+  }
+
+  /**
+   * Acts a proposed workflow out before it's made (decision 2026-10-30 "The assistant tests
+   * every flow"): on the list's newest record (or a blank new one), every question answered with
+   * its first choice by a stand-in, everything rolled back. What it says it would do is the
+   * story; what wouldn't work (nobody to ask or tell, a step that would stop) is a gap, said to
+   * the assistant and drawn on the card before the tap.
+   */
+  private testRun(w: WorkflowRow, def: WorkflowDef): NonNullable<WorkflowView["test"]> {
+    const scheduled = def.when.event === "schedule";
+    const newest = scheduled
+      ? null
+      : (this.sql
+          .exec<RecordRow>(
+            `select * from records where collection_id = ? and deleted_at is null order by created_at desc limit 1`,
+            w.collection_id,
+          )
+          .toArray()[0] ?? null);
+    const list = this.sql
+      .exec<{ name: string }>(`select name from collections where id = ?`, w.collection_id)
+      .toArray()[0]?.name;
+    const on = scheduled
+      ? "a scheduled run"
+      : newest
+        ? `“${newest.title || "Untitled"}”`
+        : `a new record in ${list}`;
+    const answers: RehearsalAnswer[] = [];
+    const ROLLBACK = Symbol("rollback");
+    const queued = this.queued;
+    let lines: string[] = [];
+    let unfinished = false;
+    try {
+      // A bounded number of rounds: each question answered with its first choice, then run again.
+      for (let round = 0; round < TEST_ROUNDS; round++) {
+        this.rehearsal = { answers, times: new Map(), lines: [], waiting: null };
+        try {
+          this.queued = [];
+          this.ctx.storage.transactionSync(() => {
+            this.wfDepth = 1;
+            const record = scheduled
+              ? null
+              : (newest ?? this.requireRecord(this.addBlankRecord(w.collection_id, w.created_by ?? "")));
+            if (record && def.check.length) {
+              const c = this.requireCollection(w.collection_id);
+              const actorW: Actor = { userId: w.created_by, source: "system" };
+              if (!this.findRows(actorW, c, { filters: def.check, ids: [record.id], limit: 1 }).rows.length) {
+                this.rehearsal!.lines.push(`It wouldn't run on ${on}: it doesn't match the workflow's check`);
+                throw ROLLBACK;
+              }
+            }
+            this.runSteps(w, def, record, 0, {});
+            throw ROLLBACK;
+          });
+        } catch (e) {
+          if (e !== ROLLBACK)
+            this.rehearsal.lines.push(`It would stop here: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        lines = this.rehearsal.lines;
+        const waiting = this.rehearsal.waiting;
+        unfinished = !!waiting;
+        if (!waiting) break;
+        answers.push({
+          step: waiting.step,
+          time: waiting.time,
+          person: waiting.next,
+          answer: waiting.choices?.[0] ?? "Yes",
+        });
+      }
+    } finally {
+      this.rehearsal = null;
+      this.queued = queued;
+      this.wfDepth = 0;
+    }
+    const gaps = lines.filter((l) => /^(Nobody to (ask|tell)|It would stop here|It wouldn't run)/.test(l));
+    // Never "every step worked" for a run the test couldn't finish (too many answers to give).
+    if (unfinished)
+      gaps.push(`The test stopped after ${TEST_ROUNDS} answers; the steps after that weren't tried`);
+    return { on, lines, gaps };
+  }
+
+  /** A blank record in a list, for a test run only (always inside a rolled-back transaction). */
+  private addBlankRecord(collectionId: string, userId: string): string {
+    const id = ulid();
+    const ts = nowIso();
+    this.sql.exec(
+      `insert into records (id, collection_id, values_json, title, title_key, created_by, created_at, updated_at)
+       values (?, ?, '{}', '', '', ?, ?, ?)`,
+      id,
+      collectionId,
+      userId,
+      ts,
+      ts,
+    );
+    return id;
   }
 
   /** Turns a workflow on (it starts watching; dates already set are scheduled) or off. */
@@ -8530,12 +8665,20 @@ export class SpaceObject extends DurableObject<Env> {
       } else if (a.do === "for_each") {
         const c = this.requireCollection(a.collection_id);
         const rows = this.findRows(actor, c, { filters: a.where, limit: MAX_FOR_EACH }).rows;
-        for (const rec of rows) for (const x of a.then) this.runSimple(w, x, rec, actor, ts, tell, vars);
+        // A step inside that reached nobody is said once, so a test run (and the history) shows it.
+        let nobody = 0;
+        for (const rec of rows)
+          for (const x of a.then)
+            if (this.runSimple(w, x, rec, actor, ts, tell, vars).startsWith("Nobody to tell")) nobody++;
         did.push(
           rows.length
             ? `Went through ${rows.length} record${rows.length === 1 ? "" : "s"} in ${c.name}`
             : `No records in ${c.name} matched`,
         );
+        if (nobody)
+          did.push(
+            `Nobody to tell for ${nobody} of them: ${nobody === 1 ? "that record names" : "those records name"} nobody in the space`,
+          );
       } else if (a.do === "if") {
         const holds =
           a.vars.every((v) => {
@@ -8762,7 +8905,10 @@ export class SpaceObject extends DurableObject<Env> {
               kind: "workflow",
               title: w.name,
               body,
-              url: r ? `/c/${r.collection_id}/${r.id}` : `/c/${w.collection_id}`,
+              // The space travels too, so the app opens the list in the right space.
+              url: `${r ? `/c/${r.collection_id}/${r.id}` : `/c/${w.collection_id}`}?space=${
+                this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? ""
+              }`,
             },
           });
       return people.length
@@ -8919,6 +9065,25 @@ export class SpaceObject extends DurableObject<Env> {
           ? `${name} answered “${answer}” · everyone has answered`
           : `${name} answered “${answer}”`,
       );
+      // The person who added the record hears what was decided ("Guard answered “Approved”"),
+      // in their updates, unless they answered it themselves (decision 2026-10-30 "Updates").
+      if (w && r?.created_by && r.created_by !== who.userId) {
+        const decided =
+          wait.until === "all" && people.length > 1
+            ? people.map((p) => `${p.name}: ${p.answer ?? "no answer"}`).join(" · ")
+            : `${name} answered “${answer}”`;
+        this.sql.exec(
+          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          ulid(),
+          r.created_by,
+          JSON.stringify({
+            kind: "update",
+            title: r.title ? `${w.name}: ${r.title}` : w.name,
+            body: decided,
+          } satisfies NewNotification),
+          nowIso(),
+        );
+      }
       // The rest of the steps run from the alarm, like any job (a set or add there may start
       // other workflows, at most MAX_WORKFLOW_DEPTH deep). The question closes now, so a
       // second answer in the meantime can't change what was kept or start the run twice.

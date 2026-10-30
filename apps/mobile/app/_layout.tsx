@@ -160,6 +160,7 @@ export default function Layout() {
                   <Stack.Screen name="chats" />
                   <Stack.Screen name="talk" />
                   <Stack.Screen name="you" />
+                  <Stack.Screen name="updates" />
                 </Stack>
               </View>
               {sideChat ? (

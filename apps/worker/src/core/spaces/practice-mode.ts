@@ -33,6 +33,9 @@ export const PRACTICE_OPS: ReadonlySet<string> = new Set([
   "core.list_workflows",
   "core.get_workflow",
   "core.list_waiting",
+  // Updates: the copy's, for the person played (push/operations.ts).
+  "core.get_notifications",
+  "core.mark_notifications_read",
   // These answer with nothing while rehearsing (a person's own things are never shown).
   "core.memories",
   "core.list_groups",

@@ -1325,3 +1325,20 @@ The owner OK'd it (a security change): "build the account switcher also". A devi
 - **Each account keeps its own copy on the device:** the person's keys (`gigspree:…`) are stored under the open account (`gigspree@<user id>:…`); the first account takes what an older app kept. Switching redraws the whole app, so no screen shows the last account's things.
 - **The website:** the site's sign-in page takes `add=1` (it doesn't send someone already signed in away) and comes back to You.
 - The session tokens the plugin lists reach the app's code (it needs them to say which account to open); they are held in memory only, never saved.
+
+## 2026-10-30: Updates, and rehearsing is enacting
+
+The owner, after trying a visitor flow on TestFlight: rehearsing should play out "as it would be in real", and there should be "some kind of a thing like a message that it has been approved". Agreed:
+
+- **Updates** (the bell at the top of Chats, `app/updates.tsx`): what happened that a person should know, newest first, from their inbox on the server (`/api/me/notifications`, kept since T11). Needs you stays what _I_ must do; Updates is what others did. Per person, never posted into a group chat, so what's private stays private. Opening it marks it read.
+- **The person who added a record hears what a flow's question about it decided** ("Visitor approval: Test courier · Rahul answered “Approved”"), unless they answered it themselves. Generic, for every flow's question; a flow can still tell anyone more with a tell step.
+- **Rehearsing is enacting**: a practice copy where the flows run for real and you play each person; their questions reach the person played, their answers carry the run on, and while rehearsing the bell shows what that person would have been told (the copy's log, `practiceUpdates`). The words-only walk-through is renamed (`walk_through_workflow`) and is never called rehearsing; a practice copy made in the chat comes with a "Rehearse it" card that opens it.
+- Phone notifications (a buzz) are not built yet; when they are, they send the same updates.
+
+## 2026-10-30: The assistant tests every flow
+
+The owner OK'd the three next steps from "is this the best way?" (chats-home.md, "Next") and said start with this one. A proposed workflow is acted out before its card is shown (`testRun` in the space object, from `previewWorkflow`): on the list's newest record, or a blank new one when the list is empty; every question answered by a stand-in with its first choice; everything rolled back. The card shows the story ("Tested on a new record in Visits: Would ask Rahul…, would answer “Approved”…") and, in amber, what wouldn't work ("Nobody to ask: the record names nobody in the space"); the assistant hears the gaps with the card and is told to say plainly what's missing and offer a fixed flow. Rehearsing yourself stays, for when you want it.
+
+## 2026-10-30: Who talks to the assistant (the owner's rule, restated)
+
+The owner, correcting a proposal: "the people who are a part of the group and have … access to the AI, they can talk to the assistant. But the people who don't have the access … can't." Access stays per person (decision "Collaborators have no assistant by default"); whoever has it uses it in every space and group they belong to, as themselves; it is never given to a whole space at its owner's cost. (It already works this way for space members and group chats; the earlier explanation that only a space's creator could use it was wrong.)

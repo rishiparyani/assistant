@@ -124,9 +124,9 @@ export const workflowOperations = [
   }),
   defineOperation({
     id: "core.rehearse_workflow",
-    tool: "rehearse_workflow",
+    tool: "walk_through_workflow",
     description:
-      "Rehearse a workflow on one record (its id, or the list's newest): every step runs in words with nothing kept and nobody told or asked. It stops at a question; call again with answers [{step, time, person, answer}] (one per person asked, by name; time is which time the run reached that step) to go on as if they had answered. Works on workflows that are off. Use it when someone wants to try a workflow out or see what it would do.",
+      "Describe in words what a workflow would do on one record (its id, or the list's newest): every step in words, nothing kept and nobody told or asked. It stops at a question; call again with answers [{step, time, person, answer}] (one per person asked, by name; time is which time the run reached that step) to go on as if they had answered. Works on workflows that are off. Only when they ask what it would do; to rehearse, try or test it, use start_practice instead (it acts it out for real, as each person).",
     kind: "read",
     http: { method: "POST", path: "/workflows/:workflow_id/rehearse" },
     input: RehearseWorkflowInput,

@@ -10,6 +10,7 @@ import { defineOperation, type OpUserCtx } from "../operations.ts";
 import { AppError } from "../errors.ts";
 import { inboxName } from "./notify.ts";
 import { isPushEndpoint, vapidKeys } from "./webpush.ts";
+import { ownerActorOf, practiceStub } from "../spaces/service.ts";
 
 const inbox = (ctx: OpUserCtx) => ctx.objects.INBOX.getByName(inboxName(ctx.user.id));
 
@@ -26,11 +27,15 @@ export const notificationOperations = [
   defineOperation({
     id: "core.get_notifications",
     tool: "get_notifications",
-    description: "My latest notifications (gig changes, payments) and how many are unread.",
+    description: "My latest updates (what happened, what I was told) and how many are unread.",
     kind: "read",
     http: { method: "GET", path: "/me/notifications" },
     input: z.object({ limit: z.coerce.number().int().min(1).max(100).optional() }),
-    handler: (ctx, input): Promise<NotificationsView> => inbox(ctx).list(input.limit),
+    // Rehearsing as someone: what the practice copy would have told them, never a real inbox.
+    handler: async (ctx, input): Promise<NotificationsView> =>
+      ctx.practice
+        ? practiceStub(ctx)!.practiceUpdates(ownerActorOf(ctx), ctx.practice.as, input.limit)
+        : inbox(ctx).list(input.limit),
   }),
   defineOperation({
     id: "core.mark_notifications_read",
@@ -39,7 +44,10 @@ export const notificationOperations = [
     kind: "write",
     http: { method: "POST", path: "/me/notifications/read" },
     input: z.object({}),
-    handler: (ctx) => inbox(ctx).markAllRead(),
+    handler: (ctx) =>
+      ctx.practice
+        ? practiceStub(ctx)!.practiceUpdatesRead(ownerActorOf(ctx), ctx.practice.as)
+        : inbox(ctx).markAllRead(),
   }),
   defineOperation({
     id: "core.get_push_status",

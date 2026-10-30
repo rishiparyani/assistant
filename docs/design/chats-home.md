@@ -53,6 +53,14 @@ Still open: gestures (swipe to archive or reply, long-press menus), real photos,
 6. Two panes on a laptop. **Done** (website, 1024 px and wider).
 7. The account switcher (below). **Done**: You (the face at the top of Chats) lists the accounts on the device, switches with one tap, adds another and signs out of one or all; each account keeps its own copy on the device (decision 2026-10-29).
 
+## Next, after chats as home (the owner said yes, 2026-10-30)
+
+From "is this the best way to build a collaborative AI?" (the foundation stays: the assistant builds from fixed blocks, important things wait for a tap, each person sees only theirs, the AI speaks in a group only when asked). In this order:
+
+1. **The assistant tests every flow before it's turned on.** When it proposes a flow it acts it out itself with stand-ins on a made-up record, shows the story ("Resident adds a visitor → the guard is asked “Let Ravi in?” → the resident hears “Approved”"), and says what's missing ("nobody is set as Guard, so nobody would be asked"), so a flow that can't work is fixed before the tap. Rehearsing yourself stays, for when you want to.
+2. **The assistant everywhere for people who have it (the owner's rule, 2026-10-30).** Who has the assistant is per person (switched on by the owner or an admin, since it costs them); whoever has it uses it in every space and group they're part of, as themselves (their role, only what they may see and do), and whoever doesn't can't. That is how it already works for members of a space and of a group chat; this step checks it holds everywhere, including for people who joined only through a shared link or form (their assistant reaches only what was shared with them). Not this: giving the assistant to everyone in a space at the space owner's cost (proposed and dropped the same day).
+3. **Answer by link, and phone notifications.** Someone asked a question (a guard) gets a link and taps an answer without installing anything or signing in each time; people who use the app get a buzz for Updates and questions (the same list as the bell).
+
 ## Other things discussed on 2026-10-27/28
 
 - **Testing chats as several people without signing out**: for now, use the phone as yourself and the website in a private/incognito window (or another browser) as the other person. Proposed to build: an **account switcher** (stay signed in to several accounts, swap with one tap, like Gmail), and later **rehearse group chats** in a practice copy (part of the group-chat step). The account switcher is built (step 7); rehearsing group chats is still to come.

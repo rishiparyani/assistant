@@ -37,6 +37,7 @@ import {
   type CollectionView,
   type HistoryItem,
   type LiveRef,
+  type WorkflowView,
 } from "@assistant/shared";
 import { Changes, fetchChanges } from "@/components/Changes";
 import { LiveCard, LiveRecords } from "@/components/LiveCard";
@@ -921,6 +922,33 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   );
 }
 
+/**
+ * What the app saw when it acted a proposed flow out before the tap (decision 2026-10-30 "The
+ * assistant tests every flow"): the story, and in amber what wouldn't work.
+ */
+function TestRun({ test }: { test: NonNullable<WorkflowView["test"]> }) {
+  const { t, cardTint } = useTheme();
+  const story = test.lines.filter((l) => !test.gaps.includes(l));
+  return (
+    <View style={{ gap: 4 }}>
+      <Text style={[type.caption, { color: t.fg2 }]}>Tested on {test.on} (nothing kept):</Text>
+      {story.slice(0, 8).map((l, i) => (
+        <Text key={`${i}:${l}`} style={[type.small, { color: t.fg }]}>
+          {i + 1}. {l}
+        </Text>
+      ))}
+      {test.gaps.map((g) => (
+        <View key={g} style={{ backgroundColor: cardTint("time"), borderRadius: 10, padding: 8 }}>
+          <Text style={[type.small, { color: t.fg, fontWeight: "700" }]}>⚠ {g}</Text>
+        </View>
+      ))}
+      {!test.gaps.length ? (
+        <Text style={[type.caption, { color: t.accent }]}>✓ Every step worked in the test.</Text>
+      ) : null}
+    </View>
+  );
+}
+
 // 👍 / 👎 given in this session, by message (only the rating goes to the server).
 const rated = new Map<string, "good" | "bad">();
 forgetOnSwitch(() => rated.clear());
@@ -1176,8 +1204,9 @@ function Bubble({
           <>
             <Text style={[s.bubText, { color: t.fg, fontWeight: "700" }]}>{item.card.flow.name}</Text>
             <FlowDiagram workflow={item.card.flow} />
+            {item.card.flow.test ? <TestRun test={item.card.flow.test} /> : null}
             <Text style={[type.caption, { color: t.fg2 }]}>
-              Saved off: you turn it on from its page. Say “rehearse it” to try it first.
+              Saved off: you turn it on from its page. Say “rehearse it” to act it out as each person.
             </Text>
           </>
         ) : item.card && setupOf(item.card.tool, item.card.args) ? (

@@ -380,6 +380,12 @@ export interface WorkflowView {
   runs: number;
   last_run_at: string | null;
   created_at: string;
+  /**
+   * A proposed workflow tested before it's made (decision 2026-10-30 "The assistant tests every
+   * flow"): acted out on a record with stand-in answers (each question's first choice), nothing
+   * kept. `on` names the record, `lines` tell the story, `gaps` what wouldn't work.
+   */
+  test?: { on: string; lines: string[]; gaps: string[] };
 }
 
 /** When a scheduled workflow runs (India time). */
