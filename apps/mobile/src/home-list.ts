@@ -27,7 +27,13 @@ export interface ChatEntry {
   at: number;
 }
 export type HomeEntry = SpaceEntry | ChatEntry;
-export type HomeFilter = "all" | "unread" | "spaces" | "chats";
+export type HomeFilter = "all" | "unread";
+
+/**
+ * On me: a question or form shared with me, or a flow's step that asks me and I haven't answered.
+ * The rest (a step I started, waiting on others) is shown apart, with Nudge.
+ */
+export const onMe = (c: HomeCard) => !c.waiting || (!!c.waiting.share_id && c.waiting.mine === null);
 
 const time = (iso: string | undefined) => {
   const n = iso ? Date.parse(iso) : NaN;
@@ -56,7 +62,7 @@ export function homeEntries(o: {
       last: newest?.last ?? null,
       // A workflow's question names its space on `waiting`; other cards on `space` (none: personal).
       waiting: o.needs.filter((c) => {
-        if (c.shared) return false;
+        if (c.shared || !onMe(c)) return false;
         const at = c.space ?? c.waiting?.space_id;
         return sp.personal ? !at || at === sp.spaceId : at === sp.spaceId;
       }).length,
@@ -72,8 +78,6 @@ export function homeEntries(o: {
 
 export function filterEntries(list: HomeEntry[], f: HomeFilter): HomeEntry[] {
   if (f === "all") return list;
-  if (f === "spaces") return list.filter((e) => e.kind === "space");
-  if (f === "chats") return list.filter((e) => e.kind === "chat");
   return list.filter((e) => (e.kind === "space" ? e.unread > 0 : e.chat.unread > 0));
 }
 

@@ -49,7 +49,7 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
     steps.push({
       target: "cards",
       title: "These are cards",
-      text: "Tap to open, or tick and switch things right on them. Hold one to resize it, move it to another page or take it off. The library (the grid button at the top) has every card to add back.",
+      text: "Tap to open, or tick and switch things right on them. Hold one to resize it, move it to another page or take it off. The library (under your face, at the top) has every card to add back.",
     });
   if (o.pages)
     steps.push({
@@ -64,8 +64,8 @@ export function tourSteps(o: { assistant: boolean; cards: boolean; pages: boolea
   });
   steps.push({
     target: "help",
-    title: "Help is here",
-    text: "Take this tour again, see ideas for cards, or ask how to do something.",
+    title: "You, and help",
+    text: "Your face has Help (this tour again, ideas, how to do something), your accounts and settings. The bell next to it is your inbox: what needs you, then what happened.",
   });
   if (o.assistant)
     steps.push({

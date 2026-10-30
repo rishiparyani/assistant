@@ -1,6 +1,6 @@
 # Chats are the base (design, 2026-10-30)
 
-**Status: proposed, mock-up made for the owner; not built.** The owner asked whether "spaces" earn their place or the app should be "just chats and build over it", and said: "write it up and make the mockup. Incorporate your previous suggestions also. Just don't remove the model picker." This file is the proposal. It changes the screens and words of [chats-home.md](chats-home.md) (Chats as home, spaces with tabs) and keeps everything under the hood.
+**Status: the owner said build (2026-10-30), in today's look; step 1 is built (see Build order).** The owner asked whether "spaces" earn their place or the app should be "just chats and build over it", and said: "write it up and make the mockup. Incorporate your previous suggestions also. Just don't remove the model picker." This file is the proposal. It changes the screens and words of [chats-home.md](chats-home.md) (Chats as home, spaces with tabs) and keeps everything under the hood.
 
 **Look (owner, 2026-10-30):** "the current app's look and feel is better. But the idea… I think it's the right direction." The mock-ups show the structure only; when built, every screen keeps the app's own look (its theme, type, cards, spacing and components as they are now), and only what's where changes.
 
@@ -68,7 +68,7 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 
 ## Build order (when the owner says build)
 
-1. The bell as one inbox (Needs you + Updates); Chats with two buttons and All · Unread.
+1. **Done (2026-10-30).** The bell as one inbox (Needs you + Waiting on others + Updates); Chats with two buttons and All · Unread; Help and the library in You.
 2. Group info with Boards, Lists (flows under them) and People; a group's lists as chips on Chats; the space page and tiles retired.
 3. Boards: made by asking, in a chat's info, one pinnable to the top of its chat.
 4. Your assistant chat's info (your own lists); "Personal" retired from what people see.

@@ -88,8 +88,11 @@ describe("updates", () => {
         ),
       ),
     ).toBe(true);
-    // Rahul got the question, never an update about his own answer.
+    // Rahul got the question, never an update about his own answer; the question isn't counted as
+    // a new update (it waits under Needs you).
     expect((await updates(api(rahul))).items.map((n) => n.kind)).toEqual(["question"]);
+    expect((await updates(api(rahul))).unread_updates).toBe(0);
+    expect((await updates(api(owner))).unread_updates).toBeGreaterThan(0);
     // Read: the dot goes.
     expect((await updates(api(owner))).unread).toBeGreaterThan(0);
     await api(owner)("/me/notifications/read", { body: {} });
@@ -115,6 +118,7 @@ describe("updates", () => {
       ),
     ).toBe(true);
     expect((await updates(asRahul)).unread).toBe(1);
+    expect((await updates(asRahul)).unread_updates).toBe(0);
     const wait = (await json<WaitingItem[]>(await asRahul("/waiting")))[0]!;
     expect((await asRahul(`/cards/${wait.share_id}/answer`, { body: { answer: "Approved" } })).status).toBe(
       200,

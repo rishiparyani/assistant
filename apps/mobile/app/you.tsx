@@ -2,7 +2,8 @@
 // accounts on this device (stay signed in to several and switch with one tap, like Gmail), add
 // another, and sign out of one or all. Each account keeps its own copy on the device, so a
 // switch shows that account's things at once; what the one left had waiting goes when it's
-// opened again. Opened from the face at the top of Chats.
+// opened again. Opened from the face at the top of Chats; Help and the library live here too
+// (docs/design/chats-base.md step 1: Chats keeps only the bell and the face).
 // online-only: switching, adding and signing out are done by the server (the sign-in).
 import { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -11,8 +12,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tap, Text, type } from "@assistant/cards/native";
 import { isOffline } from "@/api";
 import type { DeviceAccount } from "@/auth";
-import { closeChatPanel } from "@/chat-open";
+import { closeChatPanel, openChat } from "@/chat-open";
 import { Avatar } from "@/components/ChatBits";
+import { HelpSheet } from "@/components/HelpSheet";
+import { resetTour } from "@/components/Tour";
 import { API_URL, LOCAL } from "@/config";
 import { homeAfterSwitch, useSession, type KnownAccount } from "@/session";
 import { readAccountJson } from "@/storage";
@@ -37,6 +40,7 @@ export default function You() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"one" | "all" | null>(null);
+  const [help, setHelp] = useState(false);
   const unsent = confirm === "one" ? outboxState().waiting.length : 0;
 
   const load = useCallback(async () => {
@@ -172,19 +176,32 @@ export default function You() {
 
         <Text style={[type.eyebrow, s.label, { color: t.fg2 }]}>MORE</Text>
         <View style={[s.card, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
+          <Tap
+            accessibilityRole="button"
+            onPress={() => setHelp(true)}
+            scale={0.985}
+            style={[s.row, { borderTopColor: t.sep }]}
+          >
+            <View style={s.grow}>
+              <Text style={[type.body, { color: t.fg }]}>Help</Text>
+              <Text style={[type.caption, { color: t.fg2 }]}>The tour, ideas, how to do something</Text>
+            </View>
+            <Text style={{ color: t.fg3, fontWeight: "700" }}>›</Text>
+          </Tap>
           {(
             [
+              ["Library", "/library"],
               ["What the assistant remembers", "/memory"],
               ["Connections", "/connections"],
               ["Recently deleted", "/trash"],
             ] as const
-          ).map(([label, path], i) => (
+          ).map(([label, path]) => (
             <Tap
               key={path}
               accessibilityRole="button"
               onPress={() => router.push(path as Href)}
               scale={0.985}
-              style={[s.row, i > 0 && s.sep, { borderTopColor: t.sep }]}
+              style={[s.row, s.sep, { borderTopColor: t.sep }]}
             >
               <Text style={[type.body, { color: t.fg, flex: 1 }]}>{label}</Text>
               <Text style={{ color: t.fg3, fontWeight: "700" }}>›</Text>
@@ -249,6 +266,40 @@ export default function You() {
           </View>
         )}
       </ScrollView>
+      <HelpSheet
+        open={help}
+        onClose={() => setHelp(false)}
+        actions={[
+          {
+            title: "Take the tour again",
+            text: "A quick look around Chats, under a minute",
+            go: () => {
+              resetTour(me.user.id);
+              if (router.canGoBack()) router.back();
+              else router.replace("/");
+            },
+          },
+          {
+            title: "Ideas for cards",
+            text: "Lists, totals, countdowns, controls… see what cards can do",
+            go: () => router.push("/gallery"),
+          },
+          ...(me.assistant !== false
+            ? [
+                {
+                  title: "How do I…?",
+                  text: "Ask in the chat, in your own words",
+                  go: () => openChat({ ask: "How do I " }),
+                },
+                {
+                  title: "Quick and Careful",
+                  text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
+                  go: () => openChat({ ask: "What do you do as Quick, and what as Careful?", send: "1" }),
+                },
+              ]
+            : []),
+        ]}
+      />
     </View>
   );
 }
