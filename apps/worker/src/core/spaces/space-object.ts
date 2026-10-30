@@ -878,6 +878,8 @@ const STARTER_CARDS: Partial<Record<StarterKind, { name: string; filters: Filter
 
 /** At most this many workflows per space, and this many workflow steps in a chain. */
 const MAX_WORKFLOWS = 100;
+/** How many stand-in answers a test run of a proposed workflow gives at most. */
+const TEST_ROUNDS = 30;
 const MAX_WORKFLOW_DEPTH = 3;
 /** A process nudges the people it waits on at most this often. */
 const MAX_NUDGES = 10;
@@ -7481,9 +7483,10 @@ export class SpaceObject extends DurableObject<Env> {
     const ROLLBACK = Symbol("rollback");
     const queued = this.queued;
     let lines: string[] = [];
+    let unfinished = false;
     try {
-      // At most a few rounds: each question answered with its first choice, then run again.
-      for (let round = 0; round < 6; round++) {
+      // A bounded number of rounds: each question answered with its first choice, then run again.
+      for (let round = 0; round < TEST_ROUNDS; round++) {
         this.rehearsal = { answers, times: new Map(), lines: [], waiting: null };
         try {
           this.queued = [];
@@ -7509,6 +7512,7 @@ export class SpaceObject extends DurableObject<Env> {
         }
         lines = this.rehearsal.lines;
         const waiting = this.rehearsal.waiting;
+        unfinished = !!waiting;
         if (!waiting) break;
         answers.push({
           step: waiting.step,
@@ -7523,6 +7527,9 @@ export class SpaceObject extends DurableObject<Env> {
       this.wfDepth = 0;
     }
     const gaps = lines.filter((l) => /^(Nobody to (ask|tell)|It would stop here|It wouldn't run)/.test(l));
+    // Never "every step worked" for a run the test couldn't finish (too many answers to give).
+    if (unfinished)
+      gaps.push(`The test stopped after ${TEST_ROUNDS} answers; the steps after that weren't tried`);
     return { on, lines, gaps };
   }
 
@@ -8890,7 +8897,10 @@ export class SpaceObject extends DurableObject<Env> {
               kind: "workflow",
               title: w.name,
               body,
-              url: r ? `/c/${r.collection_id}/${r.id}` : `/c/${w.collection_id}`,
+              // The space travels too, so the app opens the list in the right space.
+              url: `${r ? `/c/${r.collection_id}/${r.id}` : `/c/${w.collection_id}`}?space=${
+                this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? ""
+              }`,
             },
           });
       return people.length

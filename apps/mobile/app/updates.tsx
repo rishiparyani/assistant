@@ -45,6 +45,13 @@ export default function Updates() {
   const open = (u: NotificationView) => {
     if (!u.url) return;
     if (u.url.startsWith("/cards/")) return router.push("/needs");
+    // A flow's message names a list (and record) by the old site's address: open the list here.
+    const list = /^\/c\/([^/?]+)(?:\/[^/?]+)?(?:\?space=([^&]+))?/.exec(u.url);
+    if (list)
+      return router.push({
+        pathname: "/list",
+        params: { collection: list[1]!, ...(list[2] ? { space: decodeURIComponent(list[2]) } : {}) },
+      });
     if (u.url.startsWith("/") && !isClassicPath(u.url.split("?")[0]!)) router.push(u.url as Href);
   };
 
