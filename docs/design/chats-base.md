@@ -2,6 +2,8 @@
 
 **Status: proposed, mock-up made for the owner; not built.** The owner asked whether "spaces" earn their place or the app should be "just chats and build over it", and said: "write it up and make the mockup. Incorporate your previous suggestions also. Just don't remove the model picker." This file is the proposal. It changes the screens and words of [chats-home.md](chats-home.md) (Chats as home, spaces with tabs) and keeps everything under the hood.
 
+**Look (owner, 2026-10-30):** "the current app's look and feel is better. But the idea… I think it's the right direction." The mock-ups show the structure only; when built, every screen keeps the app's own look (its theme, type, cards, spacing and components as they are now), and only what's where changes.
+
 ## The idea in one line
 
 What people see is **chats**, like WhatsApp: a group chat holds its own lists, flows and people; your chat with the assistant holds your own things; when several chats must share the same lists they form a **community** (WhatsApp's own word). "Space" stops being something people see.
@@ -46,6 +48,20 @@ The owner asked whether a dashboard is still possible; it is, as a **board**: a 
 - **Pinned to the chat:** one board per chat can be pinned to the top of the chat as a one-line summary (like WhatsApp's pinned message) that opens it. Later, on the iPhone, a pinned board can be a home-screen widget (chat-first.md step 9).
 - **Under the hood** each card is close to today's saved views (`save_view`: a list with filters, sort and a card look); a board, a named group of them with totals and bars, is new. It is kept in the container that owns the lists, so permissions and offline reading work as for lists.
 
+## Connectors: any MCP (owner, 2026-10-30)
+
+The owner wants connectors like Claude's and ChatGPT's: not only Calendar and Gmail (decision 2026-10-12 "Connectors start with Google Calendar") but **any MCP server**, for example a food-ordering one ("Zomato MCP or something like that… basically any MCP").
+
+- **You → Connections**: connected services, a short list of ready ones to tap (Calendar, Gmail, food delivery, rides), and **Add by link** for any remote MCP server (a web address with its own sign-in), as Claude's custom connectors do.
+- **Per person.** Each person signs in to their own account once (OAuth); the token is kept encrypted in that person's own object, revocable from Connections. Nobody else can use it, in any chat.
+- **Used in any chat, as you.** "Order my usual roll" in your assistant chat, or "@assistant let's order lunch" in a group: the assistant uses the asking person's connection.
+- **Reading is free; acting is a card.** Anything that spends money, sends something or changes something outside the app (place an order, send an email, book a ride, add an event) comes back as a card the person taps, like our money and delete rules. Payment happens in the service's own way.
+- **Private in groups.** What a connector reads from your account shows only to you until you post it ("Only you see this").
+- **Group actions.** A group order card: everyone picks on it, the person whose connector it is places it; the total can land in a list (Bills, Expenses) where a flow splits it.
+- **Data, not instructions.** What a service returns (menus, emails, event text) is data; it never steers the assistant (as for MCP today).
+- **Cost and accuracy.** A connector's tools are offered to the model only when a request needs them, so ordinary requests cost nothing extra and the cheap models stay accurate.
+- **Limits.** Only MCP servers reachable on the web with a sign-in; ones that run only on a computer (local MCP) can't be used from the phone. The app becomes an MCP **client** as well as a server: building it needs a recorded decision (outside services, and likely the standard MCP client library as a new dependency).
+
 ## What it removes
 
 The space tiles on Chats, the space page and its tabs, the Spaces filter, the library, the Needs you bar, the help and library buttons on Chats, and the word "space" in what people see.
@@ -58,6 +74,7 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 4. Your assistant chat's info (your own lists); "Personal" retired from what people see.
 5. Communities: a row that opens to its chats; its info; making one from a group ("add another chat that uses these lists").
 6. The library retired (its jobs: search and the assistant); the old site's pages moved into the app.
+7. Connectors: Connections with Add by link (any remote MCP), per-person sign-in, tools offered when needed, action cards, group orders.
 
 ## Open questions for the owner
 
@@ -66,5 +83,5 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 
 ## Mock-up
 
-- **The live mock-up** (tap through it, like the chats-home prototype): https://claude.ai/artifact/ByUfLGyhYQ47yJB2u7f82v. Search, the bell (answer a question, then Updates), boards (one pinned in Flatmates; ask for a new one), a group chat with @assistant and the Quick / Careful picker, group info, a list you can tick, a community, New chat and You.
-- A visual mock-up of Chats, the bell, a group chat with the Quick / Careful picker and a pinned board, group info, a community, You and a board, with made-up data: https://claude.ai/artifact/LGARg3eYePnTPHXp1VxBZy (private to the owner until shared).
+- **The live mock-up** (tap through it, like the chats-home prototype): https://claude.ai/artifact/ByUfLGyhYQ47yJB2u7f82v. Search, the bell (answer a question, then Updates), boards (one pinned in Flatmates; ask for a new one), Connections (connect a food service or add any MCP by link, then order alone or as a group), a group chat with @assistant and the Quick / Careful picker, group info, a list you can tick, a community, New chat and You.
+- A visual mock-up of Chats, the bell, a group chat with the Quick / Careful picker and a pinned board, group info, a community, You, a board, Connections and a group order through a connector, with made-up data: https://claude.ai/artifact/LGARg3eYePnTPHXp1VxBZy (private to the owner until shared).
