@@ -8665,12 +8665,20 @@ export class SpaceObject extends DurableObject<Env> {
       } else if (a.do === "for_each") {
         const c = this.requireCollection(a.collection_id);
         const rows = this.findRows(actor, c, { filters: a.where, limit: MAX_FOR_EACH }).rows;
-        for (const rec of rows) for (const x of a.then) this.runSimple(w, x, rec, actor, ts, tell, vars);
+        // A step inside that reached nobody is said once, so a test run (and the history) shows it.
+        let nobody = 0;
+        for (const rec of rows)
+          for (const x of a.then)
+            if (this.runSimple(w, x, rec, actor, ts, tell, vars).startsWith("Nobody to tell")) nobody++;
         did.push(
           rows.length
             ? `Went through ${rows.length} record${rows.length === 1 ? "" : "s"} in ${c.name}`
             : `No records in ${c.name} matched`,
         );
+        if (nobody)
+          did.push(
+            `Nobody to tell for ${nobody} of them: ${nobody === 1 ? "that record names" : "those records name"} nobody in the space`,
+          );
       } else if (a.do === "if") {
         const holds =
           a.vars.every((v) => {
