@@ -56,4 +56,5 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 
 ## Mock-up
 
-A visual mock-up of Chats, the bell, a group chat with the Quick / Careful picker, group info, a community and You, with made-up data: https://claude.ai/artifact/LGARg3eYePnTPHXp1VxBZy (private to the owner until shared).
+- **The live mock-up** (tap through it, like the chats-home prototype): https://claude.ai/artifact/ByUfLGyhYQ47yJB2u7f82v. Search, the bell (answer a question, then Updates), a group chat with @assistant and the Quick / Careful picker, group info, a list you can tick, a community, New chat and You.
+- A visual mock-up of Chats, the bell, a group chat with the Quick / Careful picker, group info, a community and You, with made-up data: https://claude.ai/artifact/LGARg3eYePnTPHXp1VxBZy (private to the owner until shared).
