@@ -1521,7 +1521,19 @@ export class SpaceObject extends DurableObject<Env> {
         url: r.n.url ?? null,
         read_at: r.at <= readAt ? readAt : null,
       }));
-    return { items, unread: items.filter((i) => !i.read_at).length };
+    // Over the whole log, like a real inbox (not only the items sent).
+    const unread_updates = Number(
+      this.sql
+        .exec(
+          `select count(*) as n from practice_log where user_id = ? and at > ?
+             and json_extract(note_json, '$.kind') != 'answer'
+             and coalesce(json_extract(note_json, '$.url'), '') not like '/cards/%'`,
+          userId,
+          readAt,
+        )
+        .one().n,
+    );
+    return { items, unread: items.filter((i) => !i.read_at).length, unread_updates };
   }
 
   practiceUpdatesRead(actor: Actor, userId: string): { unread: 0 } {

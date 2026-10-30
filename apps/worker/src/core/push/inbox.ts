@@ -2,7 +2,7 @@
 // Durable Object per person (`inbox:<user id>`), so notifying never writes to a shared
 // place. Modules call `notify()` (core/push/notify.ts); nothing here knows about gigs.
 import { DurableObject } from "cloudflare:workers";
-import { ulid, type NotificationView } from "@assistant/shared";
+import { ulid, type NotificationView, type NotificationsView } from "@assistant/shared";
 import { migrate, nowIso, type Migrations, wipeStorage } from "../objects/storage.ts";
 import { sendPush, type PushResult, type PushSubscriptionKeys } from "./webpush.ts";
 
@@ -92,7 +92,7 @@ export class InboxObject extends DurableObject<Env> {
     return sent;
   }
 
-  async list(limit = 30): Promise<{ items: NotificationView[]; unread: number }> {
+  async list(limit = 30): Promise<NotificationsView> {
     const items = this.sql
       .exec<{ [K in keyof NotificationView]: NotificationView[K] }>(
         `select id, at, kind, title, body, url, read_at from notifications order by at desc limit ?`,
@@ -102,7 +102,14 @@ export class InboxObject extends DurableObject<Env> {
     const unread = Number(
       this.sql.exec(`select count(*) as n from notifications where read_at is null`).one().n,
     );
-    return { items, unread };
+    const unread_updates = Number(
+      this.sql
+        .exec(
+          `select count(*) as n from notifications where read_at is null and coalesce(url, '') not like '/cards/%'`,
+        )
+        .one().n,
+    );
+    return { items, unread, unread_updates };
   }
 
   async markAllRead(): Promise<{ unread: 0 }> {

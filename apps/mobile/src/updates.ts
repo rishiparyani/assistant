@@ -28,9 +28,9 @@ export const savedUpdates = (): NotificationsView => readJson<NotificationsView>
 export const isQuestion = (n: NotificationView) => !!n.url?.startsWith("/cards/");
 /** Updates proper: what happened, without the questions. */
 export const updatesOnly = (items: NotificationView[]) => items.filter((n) => !isQuestion(n));
-/** How many new updates (the questions are counted under Needs you instead). */
+/** How many new updates (the questions are counted under Needs you instead); the server counts. */
 const newCount = (v: NotificationsView) =>
-  Math.max(0, v.unread - v.items.filter((n) => !n.read_at && isQuestion(n)).length);
+  v.unread_updates ?? Math.max(0, v.unread - v.items.filter((n) => !n.read_at && isQuestion(n)).length);
 
 export async function loadUpdates(): Promise<NotificationsView> {
   // Kept under the person it was asked for, even if a rehearsal switches meanwhile.
@@ -46,7 +46,11 @@ export async function markUpdatesRead(): Promise<void> {
   await request("POST", "/api/me/notifications/read", {});
   const kept = readJson<NotificationsView>(key) ?? empty;
   const at = new Date().toISOString();
-  keep(key, { items: kept.items.map((i) => ({ ...i, read_at: i.read_at ?? at })), unread: 0 });
+  keep(key, {
+    items: kept.items.map((i) => ({ ...i, read_at: i.read_at ?? at })),
+    unread: 0,
+    unread_updates: 0,
+  });
 }
 
 /** How many new updates (the bell's dot): the saved count at once, the server's after. */

@@ -14,6 +14,11 @@ export interface NotificationView {
 export interface NotificationsView {
   items: NotificationView[];
   unread: number;
+  /**
+   * Unread, leaving out questions asked of me (a `/cards/` link: they wait under Needs you in the
+   * Inbox), counted over the whole inbox, not only the items sent.
+   */
+  unread_updates?: number;
 }
 
 /** Push set-up for this device: the app's public key and whether this device is on. */
