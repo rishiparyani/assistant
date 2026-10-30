@@ -1,4 +1,4 @@
-// Help (decision 2026-10-13 "Guide people, no presets"), one tap from the home's "?" button:
+// Help (decision 2026-10-13 "Guide people, no presets"), in You (the face at the top of Chats):
 // take the tour again, ideas for cards (the gallery), and "How do I…?" asked in the chat.
 // Nothing is set up from here; the person or the assistant makes everything.
 import { StyleSheet, View } from "react-native";

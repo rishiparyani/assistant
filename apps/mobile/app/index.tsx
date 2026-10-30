@@ -2,8 +2,8 @@
 // build): like a messaging app. The assistant is a dark card pinned at the top, saying what's
 // coming up; under it one list of spaces and chats, newest activity first, each kind drawn its
 // own way (a space is a tinted tile with what's waiting in it, a person one face, a group
-// stacked faces). "Needs you" is one slim bar that opens its own screen, so the chats are never
-// pushed down. Search waits above the list until it is pulled down, like WhatsApp (on a laptop's
+// stacked faces). At the top only the bell (the Inbox: what needs me, then updates) and my face
+// (accounts, Help, settings): docs/design/chats-base.md step 1. Search waits above the list until it is pulled down, like WhatsApp (on a laptop's
 // sidebar it always shows). Nobody
 // arranges it, so it can never go blank; it reads what the device kept first (rule 17).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -19,14 +19,20 @@ import {
   type TextInput as NativeTextInput,
 } from "react-native";
 import { Boundary, Card, Skeleton, Tap, Text, TextInput, type } from "@assistant/cards/native";
-import { Redirect, useGlobalSearchParams, useLocalSearchParams, usePathname, useRouter } from "expo-router";
+import {
+  Redirect,
+  useFocusEffect,
+  useGlobalSearchParams,
+  useLocalSearchParams,
+  usePathname,
+  useRouter,
+} from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { HelpSheet } from "@/components/HelpSheet";
 import { SearchResults } from "@/components/SearchResults";
 import { Sheet } from "@/components/Sheet";
 import { Avatar, when } from "@/components/ChatBits";
 import { useUnreadUpdates } from "@/updates";
-import { Tour, markTourSeen, resetTour, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
+import { Tour, markTourSeen, tourSeen, tourSteps, type TourRefs } from "@/components/Tour";
 import { NewChat } from "./chats";
 import { API_URL } from "@/config";
 import { onHomeChanged, type HomeCard } from "@/home";
@@ -44,6 +50,7 @@ import {
   filterEntries,
   homeEntries,
   matchEntries,
+  onMe,
   watchingWords,
   type ChatEntry,
   type HomeFilter,
@@ -69,8 +76,6 @@ const DAY = 86_400_000;
 const FILTERS: { key: HomeFilter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "unread", label: "Unread" },
-  { key: "spaces", label: "Spaces" },
-  { key: "chats", label: "Chats" },
 ];
 
 /**
@@ -141,13 +146,12 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   useTestLaunch();
   usePendingPath();
   // Guidance (decision 2026-10-13 "Guide people, no presets"): the first-run tour lights up the
-  // real parts of the screen; Help ("?") takes it again, and has ideas and "How do I…?".
+  // real parts of the screen; Help (under my face) takes it again, and has ideas and "How do I…?".
   const tourRefs = {
     chat: useRef<View>(null),
     help: useRef<View>(null),
   } satisfies TourRefs;
   const [touring, setTouring] = useState(false);
-  const [help, setHelp] = useState(false);
 
   // Loaded while changes were still waiting to be sent (offline): load again once they are.
   const loadedWithWaiting = useRef(false);
@@ -188,10 +192,13 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
     void load();
   }, [userId, load]);
   const ready = today !== null;
-  useEffect(() => {
-    // Not while rehearsing as someone: the tour is for a person's own first time.
-    if (userId && ready && !me?.practice && !tourSeen(userId)) setTouring(true);
-  }, [userId, ready]);
+  // Each time Chats shows: "Take the tour again" (in You → Help) comes back here to run it.
+  useFocusEffect(
+    useCallback(() => {
+      // Not while rehearsing as someone: the tour is for a person's own first time.
+      if (userId && ready && !me?.practice && !tourSeen(userId)) setTouring(true);
+    }, [userId, ready, me?.practice]),
+  );
   useEffect(() => onHomeChanged(() => void load()), [load]);
   // Live: when something changes elsewhere, load again a moment later (a burst loads once).
   const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -291,6 +298,8 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       : router.push({ pathname: "/talk", params: { id: e.chat.id } });
 
   const needs = today?.needs ?? [];
+  // The bell's amber dot: only what's on me (a step I started that waits on others isn't).
+  const mineNow = needs.filter(onMe).length;
   const shared = today?.shared ?? [];
   const wide = width >= COLUMN + SIDE * 2;
   const loading = today === null;
@@ -513,30 +522,6 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   ) : (
     <View style={{ gap: 10 }}>
       {error ? <Text style={[type.small, { color: t.danger }]}>{error}</Text> : null}
-      {needs.length ? (
-        <Tap
-          accessibilityRole="button"
-          accessibilityLabel={`${needs.length === 1 ? "1 thing needs" : `${needs.length} things need`} you`}
-          onPress={() => router.push("/needs")}
-          scale={0.985}
-          style={[s.needs, { backgroundColor: cardTint("time") }]}
-        >
-          <View style={[s.needsN, { backgroundColor: colour("time") }]}>
-            <Text style={[s.needsNText, { color: t.tileInk }]}>
-              {needs.length > 99 ? "99+" : needs.length}
-            </Text>
-          </View>
-          <View style={s.words}>
-            <Text style={[s.name, { color: t.fg }]}>
-              {needs.length === 1 ? "1 thing needs you" : `${needs.length} things need you`}
-            </Text>
-            <Text style={[s.last, { color: t.fg2 }]} numberOfLines={1}>
-              {needs[0]!.spec.title}
-            </Text>
-          </View>
-          <Text style={[s.chev, { color: t.fg2 }]}>›</Text>
-        </Tap>
-      ) : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>
         {FILTERS.map((f) => {
           const on = filter === f.key;
@@ -577,11 +562,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       {shown.map((e) => (e.kind === "space" ? spaceTile(e) : chatRow(e)))}
       {!shown.length ? (
         <Text style={[s.empty, { color: t.fg3 }]}>
-          {filter === "unread"
-            ? "Nothing unread."
-            : filter === "chats"
-              ? "No chats with people yet. Tap the pencil to start one."
-              : "No spaces yet."}
+          {filter === "unread" ? "Nothing unread." : "No chats yet. Tap the pencil to start one."}
         </Text>
       ) : null}
       {shared.length && filter === "all" ? (
@@ -610,48 +591,30 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           <Text style={[type.display, { color: t.fg }]}>Chats</Text>
           {stale ? <Text style={[type.caption, { color: t.fg3 }]}>Updating…</Text> : null}
         </View>
-        {/* Updates: what happened that I should know (the dot: something new). */}
+        {/* The Inbox: what needs me (amber dot), then what happened (plum dot: something new). */}
         <Tap
           accessibilityRole="button"
-          accessibilityLabel={updates.unread ? `Updates, ${updates.unread} new` : "Updates"}
+          accessibilityLabel={inboxLabel(mineNow, updates.unread)}
           onPress={() => router.push("/updates")}
           scale={0.92}
           style={[s.round, { backgroundColor: t.cell, shadowColor: t.shadow }]}
         >
           <Bell colour={t.fg} />
-          {updates.unread ? (
-            <View style={[s.bellDot, { backgroundColor: t.accent, borderColor: t.cell }]} />
+          {mineNow || updates.unread ? (
+            <View
+              style={[
+                s.bellDot,
+                { backgroundColor: mineNow ? colour("time") : t.accent, borderColor: t.cell },
+              ]}
+            />
           ) : null}
         </Tap>
-        <Tap
-          ref={tourRefs.help}
-          accessibilityRole="button"
-          accessibilityLabel="Help"
-          onPress={() => setHelp(true)}
-          scale={0.92}
-          style={[s.round, { backgroundColor: t.cell, shadowColor: t.shadow }]}
-        >
-          <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>?</Text>
-        </Tap>
-        {/* The library: every list, workflow and practice copy, by space. */}
-        <Tap
-          accessibilityRole="button"
-          accessibilityLabel="Library"
-          onPress={() => router.push("/library")}
-          scale={0.92}
-          style={[s.round, { backgroundColor: t.cell, shadowColor: t.shadow }]}
-        >
-          <View style={s.gridIcon}>
-            {[0, 1, 2, 3].map((i) => (
-              <View key={i} style={[s.gridDot, { borderColor: t.fg }]} />
-            ))}
-          </View>
-        </Tap>
-        {/* You: accounts on this device (switch, add, sign out) and the rest of the settings. */}
+        {/* You: accounts on this device (switch, add, sign out), Help and the rest of the settings. */}
         {me ? (
           <Tap
+            ref={tourRefs.help}
             accessibilityRole="button"
-            accessibilityLabel={`You: ${me.user.name}, accounts and settings`}
+            accessibilityLabel={`You: ${me.user.name}, accounts, help and settings`}
             onPress={() => router.push("/you")}
             scale={0.92}
             style={s.round}
@@ -783,39 +746,6 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
             : undefined
         }
       />
-      <HelpSheet
-        open={help}
-        onClose={() => setHelp(false)}
-        actions={[
-          {
-            title: "Take the tour again",
-            text: "A quick look around, under a minute",
-            go: () => {
-              if (userId) resetTour(userId);
-              setTouring(true);
-            },
-          },
-          {
-            title: "Ideas for cards",
-            text: "Lists, totals, countdowns, controls… see what cards can do",
-            go: () => router.push("/gallery"),
-          },
-          ...(assistant
-            ? [
-                {
-                  title: "How do I…?",
-                  text: "Ask in the chat, in your own words",
-                  go: () => openChat({ ask: "How do I " }),
-                },
-                {
-                  title: "Quick and Careful",
-                  text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
-                  go: () => openChat({ ask: "What do you do as Quick, and what as Careful?", send: "1" }),
-                },
-              ]
-            : []),
-        ]}
-      />
       {touring && userId ? (
         <Tour
           steps={tourSteps({ assistant, cards: false, pages: false })}
@@ -836,6 +766,15 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       ) : null}
     </View>
   );
+}
+
+/** The bell's spoken name: what needs me, then what's new. */
+function inboxLabel(needs: number, unread: number): string {
+  const parts = [
+    needs ? (needs === 1 ? "1 needs you" : `${needs} need you`) : "",
+    unread ? `${unread} new` : "",
+  ].filter(Boolean);
+  return parts.length ? `Inbox, ${parts.join(", ")}` : "Inbox";
 }
 
 /** A bell drawn from a dome, a rim and a clapper (no icon font in the app). */
@@ -928,8 +867,6 @@ const s = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
-  gridIcon: { width: 18, height: 18, flexDirection: "row", flexWrap: "wrap", gap: 3 },
-  gridDot: { width: 7.5, height: 7.5, borderRadius: 2, borderWidth: 1.75 },
   search: { height: SEARCH_H, justifyContent: "center" },
   searchBox: {
     minHeight: 44,
@@ -947,24 +884,6 @@ const s = StyleSheet.create({
     ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineStyle: "none" } as object) : {}),
   },
   clear: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  needs: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    minHeight: 56,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radius.row,
-  },
-  needsN: {
-    minWidth: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-  },
-  needsNText: { fontSize: 14, fontWeight: "800" },
   filters: { gap: 6, paddingVertical: 2 },
   filter: {
     minHeight: 36,

@@ -4,7 +4,7 @@
 // copy would have told them. The last copy is kept on the device (one per person played), so
 // it opens offline; the bell hears every change to the unread count.
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import type { NotificationsView } from "@assistant/shared";
+import type { NotificationView, NotificationsView } from "@assistant/shared";
 import { request } from "./api.ts";
 import { practiceMode } from "./practice-mode.ts";
 import { readJson, writeJson } from "./storage.ts";
@@ -24,6 +24,14 @@ const keep = (key: string, view: NotificationsView) => {
 
 export const savedUpdates = (): NotificationsView => readJson<NotificationsView>(keyNow()) ?? empty;
 
+/** A question asked of me: it waits under Needs you in the Inbox, so Updates leaves it out. */
+export const isQuestion = (n: NotificationView) => !!n.url?.startsWith("/cards/");
+/** Updates proper: what happened, without the questions. */
+export const updatesOnly = (items: NotificationView[]) => items.filter((n) => !isQuestion(n));
+/** How many new updates (the questions are counted under Needs you instead). */
+const newCount = (v: NotificationsView) =>
+  Math.max(0, v.unread - v.items.filter((n) => !n.read_at && isQuestion(n)).length);
+
 export async function loadUpdates(): Promise<NotificationsView> {
   // Kept under the person it was asked for, even if a rehearsal switches meanwhile.
   const key = keyNow();
@@ -41,15 +49,15 @@ export async function markUpdatesRead(): Promise<void> {
   keep(key, { items: kept.items.map((i) => ({ ...i, read_at: i.read_at ?? at })), unread: 0 });
 }
 
-/** How many unread updates (the bell's dot): the saved count at once, the server's after. */
+/** How many new updates (the bell's dot): the saved count at once, the server's after. */
 export function useUnreadUpdates(): { unread: number; reload: () => void } {
   const unread = useSyncExternalStore(
     (l) => {
       listeners.add(l);
       return () => void listeners.delete(l);
     },
-    () => savedUpdates().unread,
-    () => savedUpdates().unread,
+    () => newCount(savedUpdates()),
+    () => newCount(savedUpdates()),
   );
   const reload = useCallback(() => {
     loadUpdates().catch(() => undefined);

@@ -1342,3 +1342,9 @@ The owner OK'd the three next steps from "is this the best way?" (chats-home.md,
 ## 2026-10-30: Who talks to the assistant (the owner's rule, restated)
 
 The owner, correcting a proposal: "the people who are a part of the group and have … access to the AI, they can talk to the assistant. But the people who don't have the access … can't." Access stays per person (decision "Collaborators have no assistant by default"); whoever has it uses it in every space and group they belong to, as themselves; it is never given to a whole space at its owner's cost. (It already works this way for space members and group chats; the earlier explanation that only a space's creator could use it was wrong.)
+
+## 2026-10-30: Chats are the base (the owner said build)
+
+**Decision:** build [docs/design/chats-base.md](design/chats-base.md) in its order, keeping the app's current look (the owner: "the current app's look and feel is better. But the idea… I think it's the right direction"; then "Build"). People see chats; a group's lists, boards and people live in its info screen; communities join chats that share lists; spaces stay under the hood with no data migration. Step 1: the bell opens one **Inbox** (Needs you on top, answered in place; Waiting on others with Nudge; Updates below, without the questions, which already show under Needs you); the Needs you bar leaves Chats; Chats keeps two buttons (the bell and your face) and the filters All · Unread; Help and the library move into You; "waiting on you" counts only what is on me (asked of me and not answered), on the bell and on a space's tile.
+
+**Why:** fewer ideas to learn (no "space"), one place for everything that needs me, and a home with less on it. Connectors for any MCP (step 7) will need their own decision when built.
