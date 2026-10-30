@@ -2,6 +2,8 @@
 
 **Status: proposed, mock-up made for the owner; not built.** The owner asked whether "spaces" earn their place or the app should be "just chats and build over it", and said: "write it up and make the mockup. Incorporate your previous suggestions also. Just don't remove the model picker." This file is the proposal. It changes the screens and words of [chats-home.md](chats-home.md) (Chats as home, spaces with tabs) and keeps everything under the hood.
 
+**Look (owner, 2026-10-30):** "the current app's look and feel is better. But the idea… I think it's the right direction." The mock-ups show the structure only; when built, every screen keeps the app's own look (its theme, type, cards, spacing and components as they are now), and only what's where changes.
+
 ## The idea in one line
 
 What people see is **chats**, like WhatsApp: a group chat holds its own lists, flows and people; your chat with the assistant holds your own things; when several chats must share the same lists they form a **community** (WhatsApp's own word). "Space" stops being something people see.
