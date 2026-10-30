@@ -1338,3 +1338,7 @@ The owner, after trying a visitor flow on TestFlight: rehearsing should play out
 ## 2026-10-30: The assistant tests every flow
 
 The owner OK'd the three next steps from "is this the best way?" (chats-home.md, "Next") and said start with this one. A proposed workflow is acted out before its card is shown (`testRun` in the space object, from `previewWorkflow`): on the list's newest record, or a blank new one when the list is empty; every question answered by a stand-in with its first choice; everything rolled back. The card shows the story ("Tested on a new record in Visits: Would ask Rahul…, would answer “Approved”…") and, in amber, what wouldn't work ("Nobody to ask: the record names nobody in the space"); the assistant hears the gaps with the card and is told to say plainly what's missing and offer a fixed flow. Rehearsing yourself stays, for when you want it.
+
+## 2026-10-30: Who talks to the assistant (the owner's rule, restated)
+
+The owner, correcting a proposal: "the people who are a part of the group and have … access to the AI, they can talk to the assistant. But the people who don't have the access … can't." Access stays per person (decision "Collaborators have no assistant by default"); whoever has it uses it in every space and group they belong to, as themselves; it is never given to a whole space at its owner's cost. (It already works this way for space members and group chats; the earlier explanation that only a space's creator could use it was wrong.)
