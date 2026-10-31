@@ -693,6 +693,22 @@ export class GroupObject extends DurableObject<Env> {
     const t = this.topic(input.topic_id);
     if (t.created_by !== actor.userId && m.role !== "owner" && !this.group().direct)
       throw new ObjectError("forbidden", "Only whoever started the topic, or an admin, can close it");
+    // Reopened while another open topic has its name: two chips alike (Codex on PR 221).
+    if (
+      !input.closed &&
+      t.closed_at &&
+      this.sql
+        .exec(
+          `select 1 from topics where closed_at is null and lower(name) = lower(?) and id != ?`,
+          t.name,
+          t.id,
+        )
+        .toArray().length
+    )
+      throw new ObjectError(
+        "conflict",
+        `There's already an open topic called “${t.name}”; close that one first`,
+      );
     return this.write(actor, key, ["topic_closed", input], (ts) => {
       this.sql.exec(`update topics set closed_at = ? where id = ?`, input.closed ? ts : null, t.id);
       audit(this.sql, actor, {

@@ -127,3 +127,32 @@ test("a topic's new messages show on its chip until it's opened", async ({ brows
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("offline, going back to General keeps a topic started after General was kept", async ({ browser }) => {
+  // Codex on PR 221: General's older kept copy had no topics, so the chips vanished offline.
+  const me = await owner();
+  const friend = await person(`E2E Offline topic friend ${RUN}`);
+  await introduce(me, friend);
+  const g = (await api(me)("POST", "/groups", {
+    id: crypto.randomUUID().replace(/-/g, "").slice(0, 26).toUpperCase(),
+    name: "",
+    people: [friend.name],
+    direct: true,
+  })) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  await openChat(page, g.id);
+  await page.getByRole("button", { name: "Start a topic" }).click();
+  await page.getByLabel("Topic name").fill(`E2E Bills ${RUN}`);
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(page.getByText(`Topic · E2E Bills ${RUN}`)).toBeVisible();
+  await page.waitForLoadState("networkidle");
+
+  await context.setOffline(true);
+  await page.getByRole("button", { name: "General" }).click();
+  await expect(page.getByRole("button", { name: `Topic: E2E Bills ${RUN}` })).toBeVisible();
+  await page.getByRole("button", { name: `Topic: E2E Bills ${RUN}` }).click();
+  await expect(page.getByText(`Topic · E2E Bills ${RUN}`)).toBeVisible();
+  await context.setOffline(false);
+  expect(errors).toEqual([]);
+  await context.close();
+});

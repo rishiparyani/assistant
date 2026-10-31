@@ -63,7 +63,17 @@ describe("topics", () => {
       (await api(owner)(`/groups/${g.id}/messages`, { body: { text: "Test late", topic_id: topic.id } }))
         .status,
     ).toBe(409);
-    await api(owner)(`/groups/${g.id}/topics/${topic.id}/closed`, { body: { closed: false } });
+    // Its name taken by a new open topic meanwhile: reopening it is refused until that one closes.
+    const again = await json<GroupView>(
+      await api(asha)(`/groups/${g.id}/topics`, { body: { name: "Test Pune show, 14 Nov" } }),
+    );
+    expect(
+      (await api(owner)(`/groups/${g.id}/topics/${topic.id}/closed`, { body: { closed: false } })).status,
+    ).toBe(409);
+    await api(asha)(`/groups/${g.id}/topics/${again.topic}/closed`, { body: { closed: true } });
+    expect(
+      (await api(owner)(`/groups/${g.id}/topics/${topic.id}/closed`, { body: { closed: false } })).status,
+    ).toBe(200);
     expect(
       (await api(owner)(`/groups/${g.id}/messages`, { body: { text: "Test late", topic_id: topic.id } }))
         .status,

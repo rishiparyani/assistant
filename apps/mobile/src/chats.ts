@@ -107,11 +107,16 @@ export function useChat(id: string, around?: string, topic?: string) {
   const shownTopic = useRef(topic);
   if (shownTopic.current !== topic) {
     shownTopic.current = topic;
-    // A topic not on the phone yet keeps the chat (its topics, to go back) with no messages
-    // until it loads (Codex on PR 221: offline, the topic chips vanished).
-    setChat((prev) =>
-      around ? null : (kept(id, topic) ?? (prev ? { ...prev, messages: [], topic: topic ?? null } : null)),
-    );
+    // Only the conversation's own parts (its messages and their questions) come from the kept
+    // copy; the chat's topics, people and cards stay as last seen, which can be newer than that
+    // copy. A topic not on the phone yet shows no messages until it loads (Codex on PR 221:
+    // offline, the topic chips vanished).
+    setChat((prev) => {
+      if (around) return null;
+      const copy = kept(id, topic);
+      if (!prev) return copy;
+      return { ...prev, messages: copy?.messages ?? [], polls: copy?.polls ?? {}, topic: topic ?? null };
+    });
   }
   const [error, setError] = useState("");
   const box = useSyncExternalStore(subscribe, outboxState, outboxState);
