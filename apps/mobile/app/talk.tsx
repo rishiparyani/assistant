@@ -445,6 +445,7 @@ export default function Talk() {
       ) : null}
       <AskEveryoneSheet
         groupId={id ?? ""}
+        topic={shownTopic && !shownTopic.closed ? shownTopic.id : undefined}
         cards={chat?.cards ?? []}
         canAct={
           !!chat &&

@@ -273,12 +273,14 @@ export function askEveryone(
   /** A question that acts: the pinned record and field the answers fill in; `apply` for a
    *  plain field (the most picked answer sets it as the lead changes, or when I say). */
   about?: { share_id: string; field: string; apply?: "auto" | "ask" },
+  /** Asked inside a topic: it goes (and shows while waiting) there. */
+  topic?: string,
 ) {
   send({
     kind: "poll",
     method: "POST",
     path: pollsPath(groupId),
-    body: { question, options, ...(about ? { about } : {}) },
+    body: { question, options, ...(about ? { about } : {}), ...(topic ? { topic_id: topic } : {}) },
     label: question.length > 40 ? question.slice(0, 40) + "…" : question,
   });
 }

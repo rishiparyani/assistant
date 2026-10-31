@@ -197,7 +197,7 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/polls" },
       input: CreatePollInput,
-      handler: (ctx, i) => createPoll(ctx, i.group_id, i.question, i.options, i.about),
+      handler: (ctx, i) => createPoll(ctx, i.group_id, i.question, i.options, i.about, i.topic_id),
     }),
     defineOperation({
       id: "core.apply_answer",

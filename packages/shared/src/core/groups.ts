@@ -119,6 +119,8 @@ export const CreatePollInput = GroupRef.extend({
       apply: z.enum(["auto", "ask"]).optional(),
     })
     .optional(),
+  /** Asked inside a topic: it goes into that topic (Codex on PR 221). */
+  topic_id: z.string().trim().min(1).max(40).optional(),
 });
 /** My answer to a question in a chat (null takes it back). */
 /** The asker (or an admin) sets a plain field to one of the answers (decision 2026-10-15 "Questions that act, second part"). */

@@ -132,4 +132,20 @@ describe("topics", () => {
     const general = await json<GroupView>(await api(owner)(`/groups/${g.id}`));
     expect(general.messages.some((m) => m.kind === "assistant")).toBe(false);
   });
+
+  it("a question asked of everyone inside a topic stays in that topic", async () => {
+    const { owner, g } = await pair();
+    const made = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/topics`, { body: { name: "Test Jaipur show" } }),
+    );
+    const asked = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/polls`, {
+        body: { question: "Test train or flight?", options: ["Train", "Flight"], topic_id: made.topic },
+      }),
+    );
+    expect(asked.topic).toBe(made.topic);
+    expect(asked.messages.map((m) => m.text)).toContain("Test train or flight?");
+    const general = await json<GroupView>(await api(owner)(`/groups/${g.id}`));
+    expect(general.messages.map((m) => m.text)).not.toContain("Test train or flight?");
+  });
 });

@@ -1126,8 +1126,13 @@ export class GroupObject extends DurableObject<Env> {
     question: string,
     options: string[],
     given: PollAbout | null = null,
+    topicId?: string,
   ): Promise<{ message_id: string }> {
     const m = this.member(actor.userId);
+    // Asked inside a topic: into that topic, when it's open (like a message written there).
+    const topic = topicId ? this.topic(topicId) : null;
+    if (topic?.closed_at)
+      throw new ObjectError("conflict", `“${topic.name}” is closed. Reopen it to ask here.`);
     let about = given;
     if (about) {
       const pin = this.sql
@@ -1148,9 +1153,9 @@ export class GroupObject extends DurableObject<Env> {
     return this.write(
       actor,
       key,
-      ["poll", question, options, about?.share_id ?? null, about?.field_id ?? null],
+      ["poll", question, options, about?.share_id ?? null, about?.field_id ?? null, topic?.id ?? null],
       (ts) => {
-        const id = this.note("poll", actor.userId, m.name, question.trim(), ts);
+        const id = this.note("poll", actor.userId, m.name, question.trim(), ts, topic?.id ?? null);
         this.sql.exec(
           `insert into polls (message_id, options_json, about_json) values (?, ?, ?)`,
           id,

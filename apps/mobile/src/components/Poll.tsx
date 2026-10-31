@@ -218,8 +218,11 @@ export function AskEveryoneSheet({
   canAct = false,
   open,
   onClose,
+  topic,
 }: {
   groupId: string;
+  /** The topic it's asked in (none: General). */
+  topic?: string;
   /** Records pinned to the chat. */
   cards?: ChatCard[];
   /** Whether I may ask a question that fills one in (an admin, or I pinned it). */
@@ -310,6 +313,7 @@ export function AskEveryoneSheet({
       fills
         ? { share_id: fills.share_id, field: fills.field_id, ...(fills.personal ? {} : { apply }) }
         : undefined,
+      topic,
     );
     setQuestion("");
     setOptions(["Yes", "No", "Maybe"]);

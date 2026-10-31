@@ -541,6 +541,7 @@ export async function createPoll(
   question: string,
   options: string[],
   about?: { share_id: string; field: string; apply?: "auto" | "ask" },
+  topic?: string,
 ): Promise<GroupView> {
   let acts = null;
   if (about) {
@@ -575,8 +576,8 @@ export async function createPoll(
       values: f.values,
     };
   }
-  await groupOf(ctx, groupId).createPoll(actorOf(ctx), ctx.idempotencyKey, question, options, acts);
-  return groupView(ctx, groupId);
+  await groupOf(ctx, groupId).createPoll(actorOf(ctx), ctx.idempotencyKey, question, options, acts, topic);
+  return groupView(ctx, groupId, undefined, topic);
 }
 
 /** The asker (or an admin) sets the plain field a question is about to one of its answers. */
