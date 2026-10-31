@@ -371,8 +371,11 @@ export default function Talk() {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Ask everyone a question"
+                  // A closed topic takes no new questions until it's reopened (Codex on PR 221).
+                  disabled={!!shownTopic?.closed}
+                  accessibilityState={{ disabled: !!shownTopic?.closed }}
                   onPress={() => setPolling(true)}
-                  style={[s.plus, { backgroundColor: t.cell }]}
+                  style={[s.plus, { backgroundColor: t.cell, opacity: shownTopic?.closed ? 0.4 : 1 }]}
                 >
                   <Text style={{ color: t.fg, fontSize: 24, fontWeight: "700", lineHeight: 26 }}>+</Text>
                 </Pressable>
@@ -445,7 +448,7 @@ export default function Talk() {
       ) : null}
       <AskEveryoneSheet
         groupId={id ?? ""}
-        topic={shownTopic && !shownTopic.closed ? shownTopic.id : undefined}
+        topic={shownTopic?.id}
         cards={chat?.cards ?? []}
         canAct={
           !!chat &&

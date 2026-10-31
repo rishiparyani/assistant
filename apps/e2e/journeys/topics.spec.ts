@@ -35,8 +35,14 @@ test("a topic keeps its own messages, and closes and reopens", async ({ browser 
   // Closed: it folds away under "Closed", and reopens from there.
   await page.getByRole("button", { name: "Close topic" }).click();
   await expect(page.getByRole("button", { name: `Topic: E2E Goa trip ${RUN}` })).toHaveCount(0);
+  // Read while closed: nothing new can go in, a question to everyone neither.
+  await page.getByRole("button", { name: "Closed topics" }).click();
+  await page.getByRole("button", { name: `Read E2E Goa trip ${RUN}` }).click();
+  await expect(page.getByText(`E2E train at 7 ${RUN}`)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ask everyone a question" })).toBeDisabled();
   await page.getByRole("button", { name: "Closed topics" }).click();
   await page.getByRole("button", { name: `Reopen E2E Goa trip ${RUN}` }).click();
+  await expect(page.getByRole("button", { name: "Ask everyone a question" })).toBeEnabled();
   await expect(page.getByText(`Topic · E2E Goa trip ${RUN}`)).toBeVisible();
   expect(errors).toEqual([]);
   await context.close();
