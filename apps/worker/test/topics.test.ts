@@ -87,4 +87,49 @@ describe("topics", () => {
     expect(system).toContain("Test Goa travel is by train");
     expect(system).not.toContain("Test General chatter");
   });
+
+  it("a search hit inside a topic opens that topic, and an answer shared from a topic lands there", async () => {
+    const { owner, asha, g } = await pair();
+    const until = async (check: () => Promise<boolean>, ms = 8000) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        if (await check()) return true;
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      return false;
+    };
+    const made = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/topics`, { body: { name: "Test Kochi show" } }),
+    );
+    // General, then the topic, a moment apart: two pieces of conversation, one per topic.
+    await api(asha)(`/groups/${g.id}/messages`, { body: { text: "Test lunch at one" } });
+    await api(asha)(`/groups/${g.id}/messages`, {
+      body: { text: "Test sound check is at Test Marigold hall", topic_id: made.topic },
+    });
+    type Hit = { kind: string; message_id?: string; snippet: string };
+    const marigold = async () =>
+      (await json<Hit[]>(await api(owner)(`/search?q=${encodeURIComponent("Marigold")}&limit=12`))).find(
+        (h) => h.kind === "message" && h.snippet.includes("Marigold"),
+      );
+    expect(await until(async () => !!(await marigold()))).toBe(true);
+    const hit = (await marigold())!;
+    const around = await json<GroupView>(await api(owner)(`/groups/${g.id}?around=${hit.message_id}`));
+    expect(around.topic).toBe(made.topic);
+    expect(around.messages.map((m) => m.text)).toContain("Test sound check is at Test Marigold hall");
+
+    // Asked from the topic, shared from the topic: it lands in the topic, not General.
+    const asked = await json<{ items: { id: string; role: string }[] }>(
+      await api(owner)(`/groups/${g.id}/assistant`, {
+        body: { text: "Where's the check?", topic: made.topic },
+      }),
+    );
+    const answer = asked.items.filter((i) => i.role === "assistant").at(-1)!;
+    const shared = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/share`, { body: { item_id: answer.id, topic: made.topic } }),
+    );
+    expect(shared.topic).toBe(made.topic);
+    expect(shared.messages.some((m) => m.kind === "assistant")).toBe(true);
+    const general = await json<GroupView>(await api(owner)(`/groups/${g.id}`));
+    expect(general.messages.some((m) => m.kind === "assistant")).toBe(false);
+  });
 });

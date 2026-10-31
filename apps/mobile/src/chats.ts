@@ -107,7 +107,11 @@ export function useChat(id: string, around?: string, topic?: string) {
   const shownTopic = useRef(topic);
   if (shownTopic.current !== topic) {
     shownTopic.current = topic;
-    setChat(around ? null : kept(id, topic));
+    // A topic not on the phone yet keeps the chat (its topics, to go back) with no messages
+    // until it loads (Codex on PR 221: offline, the topic chips vanished).
+    setChat((prev) =>
+      around ? null : (kept(id, topic) ?? (prev ? { ...prev, messages: [], topic: topic ?? null } : null)),
+    );
   }
   const [error, setError] = useState("");
   const box = useSyncExternalStore(subscribe, outboxState, outboxState);
@@ -128,7 +132,13 @@ export function useChat(id: string, around?: string, topic?: string) {
       void request("POST", `/api/groups/${enc(id)}/read`, {}).catch(() => undefined);
     } catch (e) {
       if (isOffline(e))
-        setError(readJson(ONE(id, topic)) ? "" : "Offline: this chat isn't on the phone yet.");
+        setError(
+          readJson(ONE(id, topic))
+            ? ""
+            : topic
+              ? "Offline: this topic isn't on the phone yet."
+              : "Offline: this chat isn't on the phone yet.",
+        );
       else setError(e instanceof Error ? e.message : String(e));
     }
   }, [id, around, topic]);

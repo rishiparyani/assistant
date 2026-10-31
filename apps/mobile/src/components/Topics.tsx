@@ -202,7 +202,7 @@ export function TopicBar({
 const s = StyleSheet.create({
   row: { gap: 6, paddingHorizontal: 12, paddingBottom: 6 },
   chip: {
-    minHeight: 36,
+    minHeight: 44,
     maxWidth: 200,
     paddingHorizontal: 14,
     borderRadius: radius.pill,
@@ -238,5 +238,5 @@ const s = StyleSheet.create({
   },
   grow: { flex: 1, minWidth: 0, minHeight: 44, justifyContent: "center" },
   closedName: { fontSize: 15, fontWeight: "700" },
-  reopen: { minHeight: 40, borderRadius: radius.pill, paddingHorizontal: 14, justifyContent: "center" },
+  reopen: { minHeight: 44, borderRadius: radius.pill, paddingHorizontal: 14, justifyContent: "center" },
 });

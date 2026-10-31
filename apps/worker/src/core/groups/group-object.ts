@@ -1020,8 +1020,13 @@ export class GroupObject extends DurableObject<Env> {
     actor: Actor & { userId: string },
     itemId: string,
     text: string,
+    topicId?: string,
   ): Promise<{ message_id: string; shared: boolean }> {
     const m = this.member(actor.userId);
+    // Into the topic it was asked from, when that topic is open (like a message written there).
+    const topic = topicId ? this.topic(topicId) : null;
+    if (topic?.closed_at)
+      throw new ObjectError("conflict", `“${topic.name}” is closed. Reopen it to share here.`);
     const had = this.sql
       .exec<{ message_id: string }>(
         `select message_id from shared_answers where user_id = ? and item_id = ?`,
@@ -1032,7 +1037,14 @@ export class GroupObject extends DurableObject<Env> {
     if (had) return { message_id: had.message_id, shared: false };
     const ts = nowIso();
     const id = this.ctx.storage.transactionSync(() => {
-      const id = this.note("assistant", actor.userId, `Assistant (shared by ${m.name})`, text.trim(), ts);
+      const id = this.note(
+        "assistant",
+        actor.userId,
+        `Assistant (shared by ${m.name})`,
+        text.trim(),
+        ts,
+        topic?.id ?? null,
+      );
       this.sql.exec(
         `insert into shared_answers (user_id, item_id, message_id) values (?, ?, ?)`,
         actor.userId,
@@ -1785,8 +1797,8 @@ export class GroupObject extends DurableObject<Env> {
   /** Puts new messages into chunks (in order), marking the chunks that changed. */
   private chunkNew() {
     const fresh = this.sql
-      .exec<{ id: string; author: string; text: string; created_at: string }>(
-        `select id, author, text, created_at from messages
+      .exec<{ id: string; author: string; text: string; created_at: string; topic_id: string | null }>(
+        `select id, author, text, created_at, topic_id from messages
          where chunk_id is null and kind != 'note' order by created_at, id limit 500`,
       )
       .toArray();
@@ -1797,8 +1809,18 @@ export class GroupObject extends DurableObject<Env> {
         )
         .toArray()[0];
       const line = `${m.author}: ${m.text}`;
+      // A piece of conversation stays in one topic (a search hit opens in its topic; Codex on PR
+      // 221): its first message (the chunk's id) says which.
+      const sameTopic =
+        !!last &&
+        (this.sql
+          .exec<{ topic_id: string | null }>(`select topic_id from messages where id = ?`, last.id)
+          .toArray()[0]?.topic_id ?? null) === (m.topic_id ?? null);
       const fits =
-        last && last.n < CHUNK_SIZE && Date.parse(m.created_at) - Date.parse(last.last_at) <= CHUNK_GAP_MS;
+        last &&
+        sameTopic &&
+        last.n < CHUNK_SIZE &&
+        Date.parse(m.created_at) - Date.parse(last.last_at) <= CHUNK_GAP_MS;
       const id = fits ? last.id : m.id;
       if (fits)
         this.sql.exec(

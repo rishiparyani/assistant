@@ -520,13 +520,18 @@ export async function askInGroup(
  * Shares one of my assistant's answers (from my chat about this group) into the group, as
  * "Assistant (shared by me)". Only a real answer can be shared, once each.
  */
-export async function shareAnswer(ctx: OpUserCtx, groupId: string, itemId: string): Promise<GroupView> {
+export async function shareAnswer(
+  ctx: OpUserCtx,
+  groupId: string,
+  itemId: string,
+  topic?: string,
+): Promise<GroupView> {
   await myGroupChat(ctx, groupId);
   const item = (await chatView(ctx, groupId)).items.find((i) => i.id === itemId);
   if (!item || item.role !== "assistant" || !item.text.trim())
     throw new AppError("not_found", "That answer isn't in your chat about this group");
-  await groupOf(ctx, groupId).shareAnswer(actorOf(ctx), itemId, item.text);
-  return groupView(ctx, groupId);
+  await groupOf(ctx, groupId).shareAnswer(actorOf(ctx), itemId, item.text, topic);
+  return groupView(ctx, groupId, undefined, topic);
 }
 
 /** Asks everyone in the chat a question with a few answers (decision 2026-10-14 "Ask everyone"). */

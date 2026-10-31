@@ -186,7 +186,7 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/share" },
       input: ShareAnswerInput,
-      handler: (ctx, i) => shareAnswer(ctx, i.group_id, i.item_id),
+      handler: (ctx, i) => shareAnswer(ctx, i.group_id, i.item_id, i.topic),
     }),
     defineOperation({
       id: "core.create_poll",

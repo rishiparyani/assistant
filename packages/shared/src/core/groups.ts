@@ -137,7 +137,11 @@ export const SetGroupRoleInput = GroupRef.extend({
   user_id: z.string().trim().min(1).max(64),
   role: z.enum(["admin", "member"]),
 });
-export const ShareAnswerInput = GroupRef.extend({ item_id: z.string().trim().min(1).max(60) });
+export const ShareAnswerInput = GroupRef.extend({
+  item_id: z.string().trim().min(1).max(60),
+  /** Shared from inside a topic: it goes into that topic (Codex on PR 221). */
+  topic: z.string().trim().min(1).max(40).optional(),
+});
 export const GroupMessageRef = GroupRef.extend({ message_id: z.string().trim().min(1).max(40) });
 /** "Saved to Gigs ✓" under a message, for the person who saved it only. */
 export const MarkSavedInput = GroupMessageRef.extend({ label: z.string().trim().min(1).max(80) });

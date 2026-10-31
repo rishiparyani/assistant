@@ -127,7 +127,12 @@ export function AskSheet({
   const share = async (item: ChatItem) => {
     setBusy(true);
     try {
-      await request("POST", `/api/groups/${enc(groupId)}/share`, { item_id: item.id }, `share-${item.id}`);
+      await request(
+        "POST",
+        `/api/groups/${enc(groupId)}/share`,
+        { item_id: item.id, ...(topic ? { topic: topic.id } : {}) },
+        `share-${item.id}`,
+      );
       setShared((s) => new Set(s).add(item.id));
       onShared();
     } catch (e) {
