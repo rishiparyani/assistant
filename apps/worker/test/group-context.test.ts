@@ -85,6 +85,14 @@ describe("the assistant reads a people chat", () => {
     expect(older.lines.at(0)).toContain("made the group");
     expect(older.lines.at(-1)).toContain("Test short 10");
     expect(older.next_skip).toBeNull();
+    // A long history comes a page at a time, each small enough to reach the assistant whole.
+    for (let n = 1; n <= 12; n++)
+      await api(asha)(`/groups/${g.id}/messages`, { body: { text: `Test long ${n} ` + "y".repeat(1200) } });
+    const page = await json<{ lines: string[]; next_skip: number | null }>(
+      await api(owner)(`/groups/${g.id}/history?skip=0`),
+    );
+    expect(JSON.stringify(page).length).toBeLessThan(6_000);
+    expect(page.next_skip).toBe(page.lines.length);
     // Someone outside the chat can't.
     const outsider = await signUp("Test Outsider");
     expect((await api(outsider)(`/groups/${g.id}/history?skip=0`)).status).toBe(404);

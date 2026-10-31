@@ -107,3 +107,10 @@ export async function expectNoSideways(page: Page): Promise<void> {
 
 /** The bell at the top of Chats (its spoken name says what's waiting). */
 export const bell = (page: Page) => page.getByRole("button", { name: /^Inbox/ });
+
+/** A chat opened and settled (its topics row is up), so typing isn't lost to a reload. */
+export async function openChat(page: Page, groupId: string): Promise<void> {
+  await page.goto(`/talk?id=${groupId}`);
+  await expect(page.getByRole("button", { name: "General" })).toBeVisible();
+  await page.waitForLoadState("networkidle").catch(() => undefined);
+}

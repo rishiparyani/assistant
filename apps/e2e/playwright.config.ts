@@ -10,6 +10,7 @@ if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE))
 
 export default defineConfig({
   testDir: "journeys",
+  globalSetup: "./warm-up.ts",
   // The journeys share one local server; one at a time keeps them independent of each other.
   workers: 1,
   fullyParallel: false,

@@ -17,6 +17,14 @@ import { readJson, writeJson } from "./storage.ts";
 import { useLive } from "./live-socket.ts";
 
 const LIST = "gigspree:chats";
+/**
+ * A chat kept on the phone: a copy kept before topics existed has none, so it reads as no topics
+ * (Codex on PR 221: an older copy crashed the chat).
+ */
+const kept = (id: string, topic?: string): GroupView | null => {
+  const v = readJson<GroupView>(ONE(id, topic));
+  return v ? { ...v, topics: v.topics ?? [], topic: v.topic ?? null } : null;
+};
 /** The kept copy of a chat (one per topic: each opens offline on its own). */
 const ONE = (id: string, topic?: string) => `gigspree:chat:${id}${topic ? `:${topic}` : ""}`;
 const enc = encodeURIComponent;
@@ -94,14 +102,12 @@ function pendingFor(id: string, waiting: Change[], failed: FailedChange[], topic
 
 /** One chat: the kept copy at once, then fresh; refreshes on live pings and after sends. */
 export function useChat(id: string, around?: string, topic?: string) {
-  const [chat, setChat] = useState<GroupView | null>(() =>
-    around ? null : readJson<GroupView>(ONE(id, topic)),
-  );
+  const [chat, setChat] = useState<GroupView | null>(() => (around ? null : kept(id, topic)));
   // Another topic opened: its kept copy at once.
   const shownTopic = useRef(topic);
   if (shownTopic.current !== topic) {
     shownTopic.current = topic;
-    setChat(around ? null : readJson<GroupView>(ONE(id, topic)));
+    setChat(around ? null : kept(id, topic));
   }
   const [error, setError] = useState("");
   const box = useSyncExternalStore(subscribe, outboxState, outboxState);

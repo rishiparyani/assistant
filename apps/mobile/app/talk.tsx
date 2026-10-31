@@ -60,12 +60,19 @@ export default function Talk() {
   const myId = me?.user.id ?? null;
   // The topic shown (none: the chat's General part).
   const [topic, setTopic] = useState<string | undefined>(firstTopic || undefined);
-  const { chat, pending, error, reload } = useChat(id ?? "", message || undefined, topic);
+  // The search hit to open around, until a topic is picked by hand (then the chat's newest part;
+  // Codex on PR 221: General couldn't be left after a hit in a topic).
+  const [around, setAround] = useState<string | undefined>(message || undefined);
+  const pickTopic = (next: string | undefined) => {
+    setAround(undefined);
+    setTopic(next);
+  };
+  const { chat, pending, error, reload } = useChat(id ?? "", around, topic);
   const shownTopic = topic ? chat?.topics.find((x) => x.id === topic) : undefined;
   // A search hit inside a topic opens in that topic (the server says which).
   useEffect(() => {
-    if (message && !topic && chat?.topic) setTopic(chat.topic);
-  }, [message, topic, chat?.topic]);
+    if (around && !topic && chat?.topic) setTopic(chat.topic);
+  }, [around, topic, chat?.topic]);
   const [text, setText] = useState("");
   // The message being saved (the Save sheet is open for it).
   const [saving, setSaving] = useState<{ m: GroupMessage; action: string | null } | null>(null);
@@ -191,7 +198,7 @@ export default function Talk() {
               chat={chat}
               topic={topic}
               myId={myId}
-              onPick={setTopic}
+              onPick={pickTopic}
               onChanged={() => void reload()}
             />
           ) : null}

@@ -1363,7 +1363,7 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 
 ## 2026-10-31: A leaner chat reading
 
-**Decision:** when someone asks about a chat, the assistant gets the newest 20 messages (at most about 6,000 characters) and the chat's running summary, not 24,000 characters. A new everyday tool, `read_chat_history` (operation `core.read_chat_history`, `GET /api/groups/:id/history?skip=&topic=`), returns older messages about 16,000 characters at a time when a question needs them; the context says how many messages weren't shown and how to read them. Only a member can read (the chat's object checks it); what comes back is marked as information, never instructions.
+**Decision:** when someone asks about a chat, the assistant gets the newest 20 messages (at most about 6,000 characters) and the chat's running summary, not 24,000 characters. A new everyday tool, `read_chat_history` (operation `core.read_chat_history`, `GET /api/groups/:id/history?skip=&topic=`), returns older messages a page at a time (about 4,500 characters, so a page and its cursor fit whole in a tool result) when a question needs them; the context says how many messages weren't shown and how to read them. Only a member can read (the chat's object checks it); what comes back is marked as information, never instructions.
 
 **Why:** the owner asked whether every call sends the whole chat; most questions need only the latest messages, so most asks cost several times less, and the history is still there for "what did we decide?".
 
