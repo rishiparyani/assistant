@@ -60,18 +60,20 @@ export function AskSheet({
     setError(isOffline(e) ? "The assistant needs a connection." : e instanceof Error ? e.message : String(e));
 
   // What to ask or write as the panel opens, taken once per opening.
-  const opening = useRef<{ send?: string | null; draft?: string | null }>({});
-  opening.current = { send, draft };
+  const opening = useRef<{ send?: string | null; draft?: string | null; topic?: { id: string } }>({});
+  opening.current = { send, draft, topic };
   // online-only: the assistant runs on the server.
   useEffect(() => {
     if (!open) return;
     setError("");
-    const { send: first, draft: start } = opening.current;
+    // The topic it was asked in goes with it, even if another topic is open by the time the
+    // panel has loaded (Codex on PR 221).
+    const { send: first, draft: start, topic: about } = opening.current;
     if (start) setText(start);
     request<ChatView>("GET", `/api/groups/${enc(groupId)}/assistant`)
       .then((v) => {
         setItems(v.items);
-        if (first?.trim()) void askRef.current(first);
+        if (first?.trim()) void askRef.current(first, about ?? null);
       })
       .catch((e: unknown) => {
         setItems([]);
@@ -81,7 +83,8 @@ export function AskSheet({
   }, [open, groupId]);
 
   // online-only: asking the assistant needs the server.
-  const ask = async (said?: string) => {
+  /** `about`: the topic it was asked in (null: General); the panel's own topic when not given. */
+  const ask = async (said?: string, about: { id: string } | null | undefined = topic) => {
     const body = (said ?? text).trim();
     if (!body) return;
     // Still answering the last one: a question handed in (Gs with words typed) waits in the box
@@ -100,7 +103,7 @@ export function AskSheet({
     try {
       const v = await request<ChatView>("POST", `/api/groups/${enc(groupId)}/assistant`, {
         text: body,
-        ...(topic ? { topic: topic.id } : {}),
+        ...(about ? { topic: about.id } : {}),
       });
       setItems(v.items);
     } catch (e) {
