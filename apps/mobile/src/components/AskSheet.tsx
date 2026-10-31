@@ -22,6 +22,9 @@ export function AskSheet({
   onClose,
   onShared,
   sharedAnswers = [],
+  send,
+  draft,
+  topic,
 }: {
   groupId: string;
   chatName: string;
@@ -31,6 +34,12 @@ export function AskSheet({
   onClose: () => void;
   /** An answer went into the chat (load it again). */
   onShared: () => void;
+  /** Asked at once when the panel opens (what was typed in the chat's box before tapping Gs). */
+  send?: string | null;
+  /** Put in the panel's box when it opens, to finish and send ("Ask about this" on a message). */
+  draft?: string | null;
+  /** Asked from inside a topic: the assistant reads that topic's messages. */
+  topic?: { id: string; name: string };
 }) {
   const { t } = useTheme();
   const [items, setItems] = useState<ChatItem[] | null>(null);
@@ -50,22 +59,40 @@ export function AskSheet({
   const fail = (e: unknown) =>
     setError(isOffline(e) ? "The assistant needs a connection." : e instanceof Error ? e.message : String(e));
 
+  // What to ask or write as the panel opens, taken once per opening.
+  const opening = useRef<{ send?: string | null; draft?: string | null; topic?: { id: string } }>({});
+  opening.current = { send, draft, topic };
   // online-only: the assistant runs on the server.
   useEffect(() => {
     if (!open) return;
     setError("");
+    // The topic it was asked in goes with it, even if another topic is open by the time the
+    // panel has loaded (Codex on PR 221).
+    const { send: first, draft: start, topic: about } = opening.current;
+    if (start) setText(start);
     request<ChatView>("GET", `/api/groups/${enc(groupId)}/assistant`)
-      .then((v) => setItems(v.items))
+      .then((v) => {
+        setItems(v.items);
+        if (first?.trim()) void askRef.current(first, about ?? null);
+      })
       .catch((e: unknown) => {
         setItems([]);
         fail(e);
+        if (first?.trim()) setText(first);
       });
   }, [open, groupId]);
 
   // online-only: asking the assistant needs the server.
-  const ask = async (said?: string) => {
+  /** `about`: the topic it was asked in (null: General); the panel's own topic when not given. */
+  const ask = async (said?: string, about: { id: string } | null | undefined = topic) => {
     const body = (said ?? text).trim();
-    if (!body || busy) return;
+    if (!body) return;
+    // Still answering the last one: a question handed in (Gs with words typed) waits in the box
+    // instead of being dropped (Codex on PR 221).
+    if (busy) {
+      if (said) setText((now) => now || body);
+      return;
+    }
     setBusy(true);
     setError("");
     setText("");
@@ -74,15 +101,21 @@ export function AskSheet({
       { id: `local-${Date.now()}`, role: "user", text: body, created_at: new Date().toISOString() },
     ]);
     try {
-      const v = await request<ChatView>("POST", `/api/groups/${enc(groupId)}/assistant`, { text: body });
+      const v = await request<ChatView>("POST", `/api/groups/${enc(groupId)}/assistant`, {
+        text: body,
+        ...(about ? { topic: about.id } : {}),
+      });
       setItems(v.items);
     } catch (e) {
-      if (!said) setText(body);
+      // What I asked comes back to the box, so it isn't lost (also when it came from the chat's box).
+      setText((now) => now || body);
       fail(e);
     } finally {
       setBusy(false);
     }
   };
+  const askRef = useRef(ask);
+  askRef.current = ask;
   // online-only: a card the assistant proposed is carried out on the server.
   const answer = async (actionId: string, what: "confirm" | "cancel") => {
     setBusy(true);
@@ -103,7 +136,12 @@ export function AskSheet({
   const share = async (item: ChatItem) => {
     setBusy(true);
     try {
-      await request("POST", `/api/groups/${enc(groupId)}/share`, { item_id: item.id }, `share-${item.id}`);
+      await request(
+        "POST",
+        `/api/groups/${enc(groupId)}/share`,
+        { item_id: item.id, ...(topic ? { topic: topic.id } : {}) },
+        `share-${item.id}`,
+      );
       setShared((s) => new Set(s).add(item.id));
       onShared();
     } catch (e) {
@@ -128,7 +166,7 @@ export function AskSheet({
       <View style={s.head}>
         <Text style={[s.title, ink]}>Assistant · only you see this</Text>
         <Text style={[s.about, soft]} numberOfLines={1}>
-          about {chatName}
+          about {topic ? `${topic.name} · ${chatName}` : chatName}
         </Text>
       </View>
       <ScrollView

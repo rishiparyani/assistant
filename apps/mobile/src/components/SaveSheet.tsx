@@ -24,6 +24,7 @@ export function SaveSheet({
   message,
   action = null,
   canAsk,
+  onAsk,
   onClose,
 }: {
   groupId: string;
@@ -31,6 +32,8 @@ export function SaveSheet({
   /** A suggestion the person tapped ("Remind me"): the assistant proposes that, not a guess. */
   action?: string | null;
   canAsk: boolean;
+  /** Ask my assistant about this message instead (the private panel opens with it quoted). */
+  onAsk?: (message: GroupMessage) => void;
   onClose: () => void;
 }) {
   const { t } = useTheme();
@@ -119,6 +122,15 @@ export function SaveSheet({
             {message.text}
           </Text>
         </View>
+      ) : null}
+      {message && canAsk && onAsk ? (
+        <Tap
+          accessibilityRole="button"
+          onPress={() => onAsk(message)}
+          style={[s.secondary, { backgroundColor: t.fill }]}
+        >
+          <Text style={[s.secondaryText, { color: t.accent }]}>Ask about this</Text>
+        </Tap>
       ) : null}
       {done ? (
         <Text style={[s.done, { color: t.good }]}>Saved to {done} ✓</Text>

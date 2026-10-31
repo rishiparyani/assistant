@@ -1,7 +1,7 @@
 // Chats with people (decision 2026-10-13 "Chats with people"): groups and chats for two, kept
 // on the phone so they open offline. Messages go through the outbox like any other change,
 // show at once as "sending", and are sent in order when there's a connection.
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   ulid,
   type ChatPerson,
@@ -17,7 +17,16 @@ import { readJson, writeJson } from "./storage.ts";
 import { useLive } from "./live-socket.ts";
 
 const LIST = "gigspree:chats";
-const ONE = (id: string) => `gigspree:chat:${id}`;
+/**
+ * A chat kept on the phone: a copy kept before topics existed has none, so it reads as no topics
+ * (Codex on PR 221: an older copy crashed the chat).
+ */
+const kept = (id: string, topic?: string): GroupView | null => {
+  const v = readJson<GroupView>(ONE(id, topic));
+  return v ? { ...v, topics: v.topics ?? [], topic: v.topic ?? null } : null;
+};
+/** The kept copy of a chat (one per topic: each opens offline on its own). */
+const ONE = (id: string, topic?: string) => `gigspree:chat:${id}${topic ? `:${topic}` : ""}`;
 const enc = encodeURIComponent;
 const messagesPath = (id: string) => `/api/groups/${enc(id)}/messages`;
 const pollsPath = (id: string) => `/api/groups/${enc(id)}/polls`;
@@ -76,9 +85,11 @@ export interface Pending {
   poll?: boolean;
 }
 
-function pendingFor(id: string, waiting: Change[], failed: FailedChange[]): Pending[] {
+function pendingFor(id: string, waiting: Change[], failed: FailedChange[], topic?: string): Pending[] {
   const paths = [messagesPath(id), pollsPath(id)];
-  const mine = (c: Change) => paths.includes(c.path);
+  // Shown where it was written: General, or its topic.
+  const mine = (c: Change) =>
+    paths.includes(c.path) && ((c.body as { topic_id?: string } | null)?.topic_id ?? "") === (topic ?? "");
   const one = (c: Change) => {
     const b = c.body as { text?: string; question?: string } | null;
     return { id: c.id, text: String(b?.text ?? b?.question ?? ""), at: c.at, poll: c.path === pollsPath(id) };
@@ -90,28 +101,55 @@ function pendingFor(id: string, waiting: Change[], failed: FailedChange[]): Pend
 }
 
 /** One chat: the kept copy at once, then fresh; refreshes on live pings and after sends. */
-export function useChat(id: string, around?: string) {
-  const [chat, setChat] = useState<GroupView | null>(() => (around ? null : readJson<GroupView>(ONE(id))));
+export function useChat(id: string, around?: string, topic?: string) {
+  const [chat, setChat] = useState<GroupView | null>(() => (around ? null : kept(id, topic)));
+  // Another topic opened: its kept copy at once.
+  const shownTopic = useRef(topic);
+  if (shownTopic.current !== topic) {
+    shownTopic.current = topic;
+    // Only the conversation's own parts (its messages and their questions) come from the kept
+    // copy; the chat's topics, people and cards stay as last seen, which can be newer than that
+    // copy. A topic not on the phone yet shows no messages until it loads (Codex on PR 221:
+    // offline, the topic chips vanished).
+    setChat((prev) => {
+      if (around) return null;
+      const copy = kept(id, topic);
+      if (!prev) return copy;
+      return { ...prev, messages: copy?.messages ?? [], polls: copy?.polls ?? {}, topic: topic ?? null };
+    });
+  }
   const [error, setError] = useState("");
   const box = useSyncExternalStore(subscribe, outboxState, outboxState);
-  const pending = pendingFor(id, box.waiting, box.failed);
+  const pending = pendingFor(id, box.waiting, box.failed, topic);
   const load = useCallback(async () => {
     try {
-      const fresh = await request<GroupView>(
-        "GET",
-        `/api/groups/${enc(id)}${around ? `?around=${enc(around)}` : ""}`,
-      );
+      const query = [around ? `around=${enc(around)}` : "", topic ? `topic=${enc(topic)}` : ""]
+        .filter(Boolean)
+        .join("&");
+      const fresh = await request<GroupView>("GET", `/api/groups/${enc(id)}${query ? `?${query}` : ""}`);
+      // A late answer for the topic left behind doesn't replace the one now shown.
+      if (shownTopic.current !== topic) return;
       // The kept copy is the newest part (what opens offline), not a search's window.
-      if (!around) writeJson(ONE(id), fresh);
+      if (!around) writeJson(ONE(id, topic), fresh);
       setChat(fresh);
       setError("");
-      // Opening it reads it (a read marker; fine to miss offline).
-      void request("POST", `/api/groups/${enc(id)}/read`, {}).catch(() => undefined);
+      // Opening it reads what's shown: General, or the topic the server showed (a search hit's
+      // topic too; Codex on PR 221). A read marker; fine to miss offline.
+      void request("POST", `/api/groups/${enc(id)}/read`, fresh.topic ? { topic: fresh.topic } : {}).catch(
+        () => undefined,
+      );
     } catch (e) {
-      if (isOffline(e)) setError(readJson(ONE(id)) ? "" : "Offline: this chat isn't on the phone yet.");
+      if (isOffline(e))
+        setError(
+          readJson(ONE(id, topic))
+            ? ""
+            : topic
+              ? "Offline: this topic isn't on the phone yet."
+              : "Offline: this chat isn't on the phone yet.",
+        );
       else setError(e instanceof Error ? e.message : String(e));
     }
-  }, [id, around]);
+  }, [id, around, topic]);
   useEffect(() => void load(), [load]);
   // "Saved to …" marks still on their way show at once too.
   const prefix = `/api/groups/${enc(id)}/messages/`;
@@ -163,13 +201,13 @@ export function useChat(id: string, around?: string) {
   return { chat: shown, pending, error, reload: load };
 }
 
-/** Writes in a chat; works offline (sent when there's a connection). */
-export function sendChatMessage(id: string, text: string) {
+/** Writes in a chat (or one of its topics); works offline (sent when there's a connection). */
+export function sendChatMessage(id: string, text: string, topic?: string) {
   send({
     kind: "chat_message",
     method: "POST",
     path: messagesPath(id),
-    body: { text },
+    body: { text, ...(topic ? { topic_id: topic } : {}) },
     label: text.length > 40 ? text.slice(0, 40) + "…" : text,
   });
 }
@@ -243,12 +281,14 @@ export function askEveryone(
   /** A question that acts: the pinned record and field the answers fill in; `apply` for a
    *  plain field (the most picked answer sets it as the lead changes, or when I say). */
   about?: { share_id: string; field: string; apply?: "auto" | "ask" },
+  /** Asked inside a topic: it goes (and shows while waiting) there. */
+  topic?: string,
 ) {
   send({
     kind: "poll",
     method: "POST",
     path: pollsPath(groupId),
-    body: { question, options, ...(about ? { about } : {}) },
+    body: { question, options, ...(about ? { about } : {}), ...(topic ? { topic_id: topic } : {}) },
     label: question.length > 40 ? question.slice(0, 40) + "…" : question,
   });
 }
@@ -272,5 +312,29 @@ export function votePoll(groupId: string, messageId: string, option: string | nu
     path: `/api/groups/${enc(groupId)}/polls/${enc(messageId)}/vote`,
     body: { option },
     label: option ? `Answer: ${option}` : "Answer taken back",
+  });
+}
+
+// online-only: a topic is made by the server (the chat's object checks who may), once per id.
+// The topic being started: the same id and key until it's made, so trying again after a lost
+// reply opens the one already made instead of making a second.
+let topicAttempt: { what: string; id: string; key: string } | null = null;
+export async function startTopic(groupId: string, name: string): Promise<GroupView> {
+  const what = `${groupId}\n${name.trim().toLowerCase()}`;
+  if (topicAttempt?.what !== what) topicAttempt = { what, id: ulid(), key: `topic-${ulid()}` };
+  const v = await request<GroupView>(
+    "POST",
+    `/api/groups/${enc(groupId)}/topics`,
+    { id: topicAttempt.id, name: name.trim() },
+    topicAttempt.key,
+  );
+  topicAttempt = null;
+  return v;
+}
+
+// online-only: closing or reopening a topic is checked by the chat's object (starter or admin).
+export async function closeTopic(groupId: string, topicId: string, closed: boolean): Promise<GroupView> {
+  return request<GroupView>("POST", `/api/groups/${enc(groupId)}/topics/${enc(topicId)}/closed`, {
+    closed,
   });
 }

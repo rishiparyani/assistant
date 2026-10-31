@@ -147,7 +147,7 @@ describe("backups", () => {
     expect(await g.importData(old)).toBe(true);
     await runInDurableObject(g, (_i, state) => {
       const sql = state.storage.sql;
-      expect(Number(sql.exec(`select version from _schema`).one().version)).toBe(15);
+      expect(Number(sql.exec(`select version from _schema`).one().version)).toBe(18);
       expect(sql.exec(`select action from _audit`).toArray()).toEqual([{ action: "test_action" }]);
       expect(sql.exec(`select count(*) as n from grp`).one().n).toBe(0);
     });

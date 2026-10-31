@@ -62,6 +62,10 @@ The owner wants connectors like Claude's and ChatGPT's: not only Calendar and Gm
 - **Cost and accuracy.** A connector's tools are offered to the model only when a request needs them, so ordinary requests cost nothing extra and the cheap models stay accurate.
 - **Limits.** Only MCP servers reachable on the web with a sign-in; ones that run only on a computer (local MCP) can't be used from the phone. The app becomes an MCP **client** as well as a server: building it needs a recorded decision (outside services, and likely the standard MCP client library as a new dependency).
 
+## Topics (owner, 2026-10-31; built)
+
+The owner wants several boards with the same people, even one-to-one ("for one gig one dashboard, for another gig another"). Instead of several chats with the same people, **any chat has topics**: its own messages for one plan or event, shown as chips under the chat ("General", "Pune show, 14 Nov", "Goa trip, 2 Dec", "+ Topic"). A topic is closed when it's done (folded away under "Closed", still searchable) and can be reopened. The assistant asked from a topic reads only that topic. Each topic will get its own boards (step 3). Chats shows one row per person or group, with "N topics".
+
 ## What it removes
 
 The space tiles on Chats, the space page and its tabs, the Spaces filter, the library, the Needs you bar, the help and library buttons on Chats, and the word "space" in what people see.
@@ -70,7 +74,8 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 
 1. **Done (2026-10-30).** The bell as one inbox (Needs you + Waiting on others + Updates); Chats with two buttons and All · Unread; Help and the library in You.
 2. Group info with Boards, Lists (flows under them) and People; a group's lists as chips on Chats; the space page and tiles retired.
-3. Boards: made by asking, in a chat's info, one pinnable to the top of its chat.
+3. Boards: made by asking, in a chat's info (and per topic), one pinnable to the top of its chat or topic.
+   - **Done (2026-10-31), before step 2:** topics in any chat; asking about a chat in one tap (Gs takes what was typed; Ask about this); the leaner chat reading.
 4. Your assistant chat's info (your own lists); "Personal" retired from what people see.
 5. Communities: a row that opens to its chats; its info; making one from a group ("add another chat that uses these lists").
 6. The library retired (its jobs: search and the assistant); the old site's pages moved into the app.
