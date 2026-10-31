@@ -150,9 +150,9 @@ async function spaceMembers(
     .map((p) => ({ user_id: p.user_id, name: p.name }));
 }
 
-/** I've read this chat up to now (its unread count goes to 0). */
-export async function markGroupRead(ctx: OpUserCtx, id: string): Promise<{ read: string }> {
-  await groupOf(ctx, id).markRead(ctx.user.id);
+/** I've read General, or the topic shown, up to now (the other topics keep their unread). */
+export async function markGroupRead(ctx: OpUserCtx, id: string, topic?: string): Promise<{ read: string }> {
+  await groupOf(ctx, id).markRead(ctx.user.id, topic);
   return { read: id };
 }
 

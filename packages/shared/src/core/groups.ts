@@ -71,6 +71,8 @@ export const CreateTopicInput = GroupRef.extend({
 });
 /** Closing a topic folds it away (it stays searchable); reopening brings it back. */
 export const SetTopicClosedInput = GroupRef.extend({ topic_id: topicId, closed: z.boolean() });
+/** I've read General, or one topic, up to now. */
+export const ReadGroupInput = GroupRef.extend({ topic: topicId.optional() });
 export const AddGroupPeopleInput = GroupRef.extend({ people: people.min(1) });
 /** Older messages of a chat for the assistant (decision 2026-10-31 "A leaner chat reading"). */
 export const ChatHistoryInput = GroupRef.extend({
@@ -180,6 +182,8 @@ export interface TopicView {
   closed: boolean;
   messages: number;
   last_at: string | null;
+  /** Messages from others in it I haven't read (open topics only). */
+  unread?: number;
 }
 
 export interface GroupSummary {

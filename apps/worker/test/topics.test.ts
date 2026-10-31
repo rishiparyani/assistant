@@ -2,7 +2,13 @@
 // assistant asked from a topic reads only that topic. Fake data only.
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
-import { ulid, type CreatedShare, type GroupView, type RecordView } from "@assistant/shared";
+import {
+  ulid,
+  type CreatedShare,
+  type GroupSummary,
+  type GroupView,
+  type RecordView,
+} from "@assistant/shared";
 import { fakeSystems } from "../src/core/assistant/fake-model.ts";
 import { call, json, signUp } from "./http.ts";
 
@@ -67,6 +73,34 @@ describe("topics", () => {
     const outsider = await signUp("Test Outsider");
     expect((await api(outsider)(`/groups/${g.id}?topic=${topic.id}`)).status).toBe(404);
     expect((await api(outsider)(`/groups/${g.id}/topics`, { body: { name: "Test nope" } })).status).toBe(404);
+  });
+
+  it("reading General leaves a topic's new messages unread, and reading the topic clears them", async () => {
+    // Codex on PR 221: opening the chat (General) marked every topic read.
+    const { owner, asha, g } = await pair();
+    const made = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/topics`, { body: { name: "Test flat repairs" } }),
+    );
+    const topic = made.topics[0]!;
+    await api(asha)(`/groups/${g.id}/messages`, {
+      body: { text: "Test plumber Tuesday", topic_id: topic.id },
+    });
+    const unread = async () =>
+      (await json<GroupSummary[]>(await api(owner)("/groups"))).find((x) => x.id === g.id)!.unread;
+    expect(await unread()).toBe(1);
+
+    await api(owner)(`/groups/${g.id}/read`, { body: {} });
+    expect(await unread()).toBe(1);
+    const general = await json<GroupView>(await api(owner)(`/groups/${g.id}`));
+    expect(general.topics.find((t) => t.id === topic.id)!.unread).toBe(1);
+
+    await api(owner)(`/groups/${g.id}/read`, { body: { topic: topic.id } });
+    expect(await unread()).toBe(0);
+    expect((await json<GroupView>(await api(owner)(`/groups/${g.id}`))).topics[0]!.unread).toBe(0);
+    // Asha's own message is never unread for her.
+    expect((await json<GroupSummary[]>(await api(asha)("/groups"))).find((x) => x.id === g.id)!.unread).toBe(
+      0,
+    );
   });
 
   it("the assistant asked from a topic reads that topic only", async () => {

@@ -128,8 +128,8 @@ export function useChat(id: string, around?: string, topic?: string) {
       if (!around) writeJson(ONE(id, topic), fresh);
       setChat(fresh);
       setError("");
-      // Opening it reads it (a read marker; fine to miss offline).
-      void request("POST", `/api/groups/${enc(id)}/read`, {}).catch(() => undefined);
+      // Opening it reads what's shown: General, or this topic (a read marker; fine to miss offline).
+      void request("POST", `/api/groups/${enc(id)}/read`, topic ? { topic } : {}).catch(() => undefined);
     } catch (e) {
       if (isOffline(e))
         setError(

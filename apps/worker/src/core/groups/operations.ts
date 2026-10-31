@@ -14,6 +14,7 @@ import {
   SaveMessageInput,
   SuggestInput,
   GroupRef,
+  ReadGroupInput,
   ChatHistoryInput,
   CreateTopicInput,
   SetTopicClosedInput,
@@ -79,12 +80,12 @@ export function groupOperations(all: () => readonly AnyOperation[]) {
     defineOperation({
       id: "core.read_group",
       tool: "read_group",
-      description: "Mark a chat as read up to now.",
+      description: "Mark a chat (General, or one topic) as read up to now.",
       kind: "write",
       sessionOnly: true,
       http: { method: "POST", path: "/groups/:group_id/read" },
-      input: GroupRef,
-      handler: (ctx, i) => markGroupRead(ctx, i.group_id),
+      input: ReadGroupInput,
+      handler: (ctx, i) => markGroupRead(ctx, i.group_id, i.topic),
     }),
     defineOperation({
       id: "core.create_group",

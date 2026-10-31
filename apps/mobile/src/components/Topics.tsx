@@ -98,7 +98,15 @@ export function TopicBar({
         accessibilityLabel="Topics"
       >
         {chip("general", "General", !topic, () => onPick(undefined))}
-        {open.map((x) => chip(x.id, x.name, topic === x.id, () => onPick(x.id), `Topic: ${x.name}`))}
+        {open.map((x) =>
+          chip(
+            x.id,
+            x.unread && topic !== x.id ? `${x.name} · ${x.unread}` : x.name,
+            topic === x.id,
+            () => onPick(x.id),
+            `Topic: ${x.name}${x.unread && topic !== x.id ? `, ${x.unread} new` : ""}`,
+          ),
+        )}
         {chip("new", "+ Topic", false, () => setMaking(true), "Start a topic")}
         {closed.length
           ? chip("closed", `Closed · ${closed.length}`, false, () => setClosedOpen(true), "Closed topics")

@@ -203,6 +203,14 @@ const MIGRATIONS: Migrations = [
   // The topic lookups by state and by name (rule 12; Codex on PR 221).
   `create index topics_closed_idx on topics (closed_at);
    create index topics_name_idx on topics (lower(name));`,
+  // Where each member has read each topic up to (Codex on PR 221): opening General no longer
+  // marks the topics read. A topic never opened counts from when the member joined.
+  `create table topic_reads (
+     user_id text not null,
+     topic_id text not null,
+     read_at text not null,
+     primary key (user_id, topic_id)
+   );`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -263,6 +271,7 @@ type MemberRow = {
   role: "owner" | "member";
   left_at: string | null;
   read_at: string | null;
+  added_at: string;
   suggest: number;
 };
 type GroupRow = {
@@ -565,13 +574,14 @@ export class GroupObject extends DurableObject<Env> {
         messages.filter((m) => m.kind === "poll").map((m) => [m.id, this.poll(m.id, m.text, userId)]),
       ),
       cards: this.cards(),
-      topics: this.topics(),
+      topics: this.topics(userId),
       topic: t,
     };
   }
 
-  /** The chat's topics: open ones first, then by newest activity. */
-  private topics(): TopicView[] {
+  /** The chat's topics: open ones first, then by newest activity; `unread` for the reader. */
+  private topics(userId?: string): TopicView[] {
+    const unread = userId ? this.unread(userId).topics : {};
     return this.sql
       .exec<{
         id: string;
@@ -596,7 +606,38 @@ export class GroupObject extends DurableObject<Env> {
         closed: !!r.closed_at,
         messages: r.messages,
         last_at: r.last_at,
+        ...(userId ? { unread: unread[r.id] ?? 0 } : {}),
       }));
+  }
+
+  /**
+   * Messages from others this member hasn't read: General's since they last read it, and each
+   * open topic's since they last read that topic (or joined). A closed topic is folded away.
+   */
+  private unread(userId: string): { general: number; topics: Record<string, number> } {
+    const me = this.member(userId);
+    const count = (topic: string | null, since: string) =>
+      Number(
+        this.sql
+          .exec(
+            `select count(*) as n from messages
+             where topic_id is ? and created_at > ? and kind != 'note' and (author_id is null or author_id != ?)`,
+            topic,
+            since,
+            userId,
+          )
+          .one().n,
+      );
+    const topics: Record<string, number> = {};
+    for (const r of this.sql.exec<{ id: string; read_at: string | null }>(
+      `select t.id, r.read_at from topics t left join topic_reads r on r.topic_id = t.id and r.user_id = ?
+       where t.closed_at is null`,
+      userId,
+    )) {
+      const n = count(r.id, r.read_at ?? me.added_at);
+      if (n) topics[r.id] = n;
+    }
+    return { general: count(null, me.read_at ?? ""), topics };
   }
 
   private topic(id: string): { id: string; name: string; created_by: string; closed_at: string | null } {
@@ -637,7 +678,7 @@ export class GroupObject extends DurableObject<Env> {
         this.note("note", null, "Topic", `${m.name} started the topic “${name}”`, ts);
         audit(this.sql, actor, { action: "create_topic", entityType: "topic", entityId: input.id });
       }
-      return this.topics().find((x) => x.id === input.id)!;
+      return this.topics(actor.userId).find((x) => x.id === input.id)!;
     });
   }
 
@@ -659,7 +700,7 @@ export class GroupObject extends DurableObject<Env> {
         entityType: "topic",
         entityId: t.id,
       });
-      return this.topics().find((x) => x.id === t.id)!;
+      return this.topics(actor.userId).find((x) => x.id === t.id)!;
     });
   }
 
@@ -673,17 +714,9 @@ export class GroupObject extends DurableObject<Env> {
   }
 
   async summary(userId: string): Promise<GroupSummary> {
-    const me = this.member(userId);
     const g = this.group();
-    const unread =
-      this.sql
-        .exec<{ n: number }>(
-          `select count(*) as n from messages
-           where kind != 'note' and (author_id is null or author_id != ?) and created_at > ?`,
-          userId,
-          me.read_at ?? "",
-        )
-        .toArray()[0]?.n ?? 0;
+    const u = this.unread(userId);
+    const unread = u.general + Object.values(u.topics).reduce((a, b) => a + b, 0);
     const last = this.sql
       .exec<{ author: string; text: string; created_at: string }>(
         `select author, text, created_at from messages where kind != 'note' order by created_at desc, id desc limit 1`,
@@ -747,7 +780,15 @@ export class GroupObject extends DurableObject<Env> {
       lines: lines.reverse(),
       cut: since > lines.length,
       hidden: since - lines.length,
-      read_at: me.read_at ?? null,
+      read_at: t
+        ? (this.sql
+            .exec<{ read_at: string }>(
+              `select read_at from topic_reads where user_id = ? and topic_id = ?`,
+              userId,
+              t,
+            )
+            .toArray()[0]?.read_at ?? me.added_at)
+        : (me.read_at ?? null),
     };
   }
 
@@ -1010,12 +1051,21 @@ export class GroupObject extends DurableObject<Env> {
   }
 
   /**
-   * Marks everything up to now as read by this person. A read marker only (nothing anyone
-   * else sees changes), so it isn't audited or keyed; repeating it is harmless.
+   * Marks General, or the one topic shown, as read up to now by this person. A read marker
+   * only (nothing anyone else sees changes), so it isn't audited or keyed; repeating it is
+   * harmless.
    */
-  async markRead(userId: string): Promise<void> {
+  async markRead(userId: string, topic?: string): Promise<void> {
     this.member(userId);
-    this.sql.exec(`update members set read_at = ? where user_id = ?`, nowIso(), userId);
+    if (topic)
+      this.sql.exec(
+        `insert into topic_reads (user_id, topic_id, read_at) values (?, ?, ?)
+         on conflict (user_id, topic_id) do update set read_at = excluded.read_at`,
+        userId,
+        this.topic(topic).id,
+        nowIso(),
+      );
+    else this.sql.exec(`update members set read_at = ? where user_id = ?`, nowIso(), userId);
   }
 
   /**
@@ -1469,6 +1519,13 @@ export class GroupObject extends DurableObject<Env> {
           p.user_id,
           p.name,
           ts,
+          ts,
+        );
+        // Back after leaving: the topics count from now too, like General.
+        this.sql.exec(
+          `insert into topic_reads (user_id, topic_id, read_at) select ?, id, ? from topics where true
+           on conflict (user_id, topic_id) do update set read_at = excluded.read_at`,
+          p.user_id,
           ts,
         );
       }

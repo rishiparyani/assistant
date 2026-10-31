@@ -89,3 +89,35 @@ test("a chat kept on the phone before topics existed still opens", async ({ brow
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a topic's new messages show on its chip until it's opened", async ({ browser }) => {
+  // Codex on PR 221: opening the chat (General) marked every topic read.
+  const me = await owner();
+  const friend = await person(`E2E Unread friend ${RUN}`);
+  await introduce(me, friend);
+  const g = (await api(me)("POST", "/groups", {
+    id: crypto.randomUUID().replace(/-/g, "").slice(0, 26).toUpperCase(),
+    name: "",
+    people: [friend.name],
+    direct: true,
+  })) as { id: string };
+  const made = (await api(me)("POST", `/groups/${g.id}/topics`, { name: `E2E Repairs ${RUN}` })) as {
+    topic: string;
+  };
+  await api(friend)("POST", `/groups/${g.id}/messages`, {
+    text: `E2E plumber Tuesday ${RUN}`,
+    topic_id: made.topic,
+  });
+
+  const { page, errors, context } = await openApp(browser, me);
+  await openChat(page, g.id);
+  const chip = page.getByRole("button", { name: `Topic: E2E Repairs ${RUN}, 1 new` });
+  await expect(chip).toBeVisible();
+  await expectNoSideways(page);
+  await chip.click();
+  await expect(page.getByText(`E2E plumber Tuesday ${RUN}`)).toBeVisible();
+  await page.getByRole("button", { name: "General" }).click();
+  await expect(page.getByRole("button", { name: `Topic: E2E Repairs ${RUN}`, exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});
