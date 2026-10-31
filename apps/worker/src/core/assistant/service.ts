@@ -147,7 +147,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-30b";
+export const PROMPT_VERSION = "2026-10-31a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
