@@ -83,7 +83,13 @@ export function AskSheet({
   // online-only: asking the assistant needs the server.
   const ask = async (said?: string) => {
     const body = (said ?? text).trim();
-    if (!body || busy) return;
+    if (!body) return;
+    // Still answering the last one: a question handed in (Gs with words typed) waits in the box
+    // instead of being dropped (Codex on PR 221).
+    if (busy) {
+      if (said) setText((now) => now || body);
+      return;
+    }
     setBusy(true);
     setError("");
     setText("");

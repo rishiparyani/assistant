@@ -200,6 +200,9 @@ const MIGRATIONS: Migrations = [
    );
    alter table messages add column topic_id text;
    create index messages_topic_idx on messages (topic_id, created_at);`,
+  // The topic lookups by state and by name (rule 12; Codex on PR 221).
+  `create index topics_closed_idx on topics (closed_at);
+   create index topics_name_idx on topics (lower(name));`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -793,7 +796,10 @@ export class GroupObject extends DurableObject<Env> {
     const upto = Number(getMeta(this.sql, "summary_upto") ?? "0");
     const rows = this.sql
       .exec<{ n: number; author: string; text: string; created_at: string }>(
-        `select rowid as n, author, text, created_at from messages where rowid > ? order by rowid`,
+        // General's own conversation only: a topic's messages are read in that topic (Codex on
+        // PR 221: the summary mixed topics into General).
+        `select rowid as n, author, text, created_at from messages
+         where rowid > ? and topic_id is null order by rowid`,
         upto,
       )
       .toArray();

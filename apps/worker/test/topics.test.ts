@@ -1,6 +1,7 @@
 // Topics (decision 2026-10-31 "Topics"): threads inside a chat, each with its own messages; the
 // assistant asked from a topic reads only that topic. Fake data only.
 import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
 import { ulid, type CreatedShare, type GroupView, type RecordView } from "@assistant/shared";
 import { fakeSystems } from "../src/core/assistant/fake-model.ts";
 import { call, json, signUp } from "./http.ts";
@@ -147,5 +148,20 @@ describe("topics", () => {
     expect(asked.messages.map((m) => m.text)).toContain("Test train or flight?");
     const general = await json<GroupView>(await api(owner)(`/groups/${g.id}`));
     expect(general.messages.map((m) => m.text)).not.toContain("Test train or flight?");
+  });
+
+  it("the chat's running summary folds General only, never a topic's messages", async () => {
+    const { owner, asha, g } = await pair();
+    const made = await json<GroupView>(
+      await api(owner)(`/groups/${g.id}/topics`, { body: { name: "Test Pune" } }),
+    );
+    // A long topic, a short General: nothing of General to fold, so no summary of the topic.
+    for (let n = 1; n <= 30; n++)
+      await api(asha)(`/groups/${g.id}/messages`, {
+        body: { text: `Test topic line ${n} ` + "z".repeat(1800), topic_id: made.topic },
+      });
+    await api(asha)(`/groups/${g.id}/messages`, { body: { text: "Test short General" } });
+    const stub = env.GROUPS.getByName(`group:${g.id}`);
+    expect(await stub.olderForSummary(asha.id, 40_000, 16_000)).toBeNull();
   });
 });
