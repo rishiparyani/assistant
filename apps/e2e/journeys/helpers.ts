@@ -59,7 +59,10 @@ export function api(p: Pick<Person, "cookie">) {
 
 /** Makes `b` someone `a` knows: `a` shares a note and `b` joins it by its link. */
 export async function introduce(a: Person, b: Person): Promise<void> {
-  const note = (await api(a)("POST", "/collections/Notes/records", {
+  // Its own list: a fresh account (as in CI) has none to start with.
+  const list = `E2E hello ${RUN} ${crypto.randomUUID().slice(0, 6)}`;
+  await api(a)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const note = (await api(a)("POST", `/collections/${encodeURIComponent(list)}/records`, {
     values: { Title: `E2E hello ${RUN}` },
   })) as { id: string };
   const { link } = (await api(a)("POST", "/shares", { record_id: note.id, access: "view" })) as {
