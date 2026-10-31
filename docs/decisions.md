@@ -1354,3 +1354,21 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 **Decision:** end-to-end **journeys** in `apps/e2e` (Playwright, a dev-only dependency, `@playwright/test` 1.63.0 in the catalog): a robot browser uses the built site at phone size against the local test server, with made-up accounts made through the API. A new CI job (`journeys` in `ci.yml`, no secrets, test settings from `.dev.vars.example`) runs them on every pull request; a failing journey blocks the change. Every journey checks the page never crashed and never scrolls sideways. Every bug the owner reports becomes a journey before it is fixed; a change that alters a screen on purpose updates its journey in the same pull request. First journeys: Chats (two buttons, filters, light and dark), search, the Inbox (asked person answers in place, asker hears it), the Inbox offline, You (Help, Library), adding and switching accounts, asking the assistant, and a messy account (24 lists with long names, long rows).
 
 **Why:** the owner: "I find a lot of simple bugs." The server had about 500 tests; the screens had none, so a change could quietly break another screen. The first run found one: a list named longer than 60 letters (names may be 80) crashed the app when its card was drawn (fixed: `cardTitle` shortens it with "…"). Costs a few CI minutes per change on the free public-repo minutes; nothing deploys from it.
+
+## 2026-10-31: Asking about a chat in one tap
+
+**Decision:** in a chat with people, typing a question in the message box and tapping **Gs** asks my own assistant that question privately (nothing is typed twice); with the box empty, Gs opens the private panel as before. Holding a message offers **Ask about this**: the panel opens with the message quoted, to finish the question. The assistant is never asked by writing "@assistant" in the chat (it was asked privately already; the owner's "@assistant every time" came from the mock-ups).
+
+**Why:** the owner: "typing @assistant every time is a little time consuming." The app never guesses from the words whether someone meant the assistant (understanding is the model's job, and the model isn't run on every message), so asking stays one deliberate tap.
+
+## 2026-10-31: A leaner chat reading
+
+**Decision:** when someone asks about a chat, the assistant gets the newest 20 messages (at most about 6,000 characters) and the chat's running summary, not 24,000 characters. A new everyday tool, `read_chat_history` (operation `core.read_chat_history`, `GET /api/groups/:id/history?skip=&topic=`), returns older messages about 16,000 characters at a time when a question needs them; the context says how many messages weren't shown and how to read them. Only a member can read (the chat's object checks it); what comes back is marked as information, never instructions.
+
+**Why:** the owner asked whether every call sends the whole chat; most questions need only the latest messages, so most asks cost several times less, and the history is still there for "what did we decide?".
+
+## 2026-10-31: Topics
+
+**Decision:** any chat (a chat for two too) can have **topics**: its own messages inside the chat, for one plan or event ("Goa trip, 2 Dec"). The chat's object keeps them (`topics` table; `messages.topic_id`, indexed; no topic: the chat's **General** part). Any member starts one (General gets a note); its starter, an admin, or either person in a chat for two closes it (folded away under "Closed", still readable and searchable) or reopens it; a closed topic can't be written in. The chat screen shows topic chips under its tabs; a message, the kept offline copy and waiting changes are per topic; asking the assistant from a topic reads that topic only (and `read_chat_history` takes the topic). A search hit opens in its topic. Chats shows "N topics" on a chat's row. A board per topic comes with boards (chats-base.md step 3).
+
+**Why:** the owner wants "different dashboards for different kinds of things" with the same people, even one-to-one ("for one gig one dashboard, for another gig another"). Topics keep one row per person or group on Chats, make it clear where things go, and make the assistant's reading smaller still.

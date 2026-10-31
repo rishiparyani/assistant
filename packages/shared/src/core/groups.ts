@@ -54,11 +54,35 @@ export const StartSpaceChatInput = z.object({
 });
 export const GroupRef = z.object({ group_id: groupId });
 /** A chat, optionally around one message (opened from a search hit) instead of the newest. */
-export const GetGroupInput = GroupRef.extend({ around: z.string().trim().min(1).max(40).optional() });
+/** A topic of a chat (decision 2026-10-31 "Topics"); none: the chat's General part. */
+const topicId = z.string().trim().min(1).max(40);
+export const GetGroupInput = GroupRef.extend({
+  around: z.string().trim().min(1).max(40).optional(),
+  topic: topicId.optional(),
+});
 export const PostGroupMessageInput = GroupRef.extend({
   text: z.string().trim().min(1).max(2000),
+  topic_id: topicId.optional(),
 });
+/** A new topic in a chat: its id can come from the device (a retry makes one topic). */
+export const CreateTopicInput = GroupRef.extend({
+  id: topicId.optional(),
+  name: z.string().trim().min(1, "A topic needs a name").max(60).describe("e.g. Goa trip, 14 Nov"),
+});
+/** Closing a topic folds it away (it stays searchable); reopening brings it back. */
+export const SetTopicClosedInput = GroupRef.extend({ topic_id: topicId, closed: z.boolean() });
 export const AddGroupPeopleInput = GroupRef.extend({ people: people.min(1) });
+/** Older messages of a chat for the assistant (decision 2026-10-31 "A leaner chat reading"). */
+export const ChatHistoryInput = GroupRef.extend({
+  skip: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(100_000)
+    .default(0)
+    .describe("How many of the newest messages to skip (the ones already shown, then next_skip)"),
+  topic: topicId.optional().describe("The topic being asked about, when the question came from one"),
+});
 /** How a Save turn starts in my assistant chat (the app shows it as a short note instead). */
 export const SAVE_TURN_PREFIX = "Save this chat message to my lists.";
 
@@ -66,6 +90,8 @@ export const SAVE_TURN_PREFIX = "Save this chat message to my lists.";
 export const AskInGroupInput = GroupRef.extend({
   text: z.string().trim().min(1).max(2000),
   think_harder: z.boolean().optional(),
+  /** Asked from inside a topic: the assistant reads that topic's messages. */
+  topic: topicId.optional(),
 });
 /** Asking everyone in a chat (decision 2026-10-14 "Ask everyone"): a question with a few answers. */
 export const CreatePollInput = GroupRef.extend({
@@ -136,6 +162,18 @@ export interface GroupMessage {
   author: string;
   text: string;
   created_at: string;
+  /** The topic it was written in (none: General). */
+  topic_id?: string | null;
+}
+
+/** A topic of a chat: its own messages, folded away when closed. */
+export interface TopicView {
+  id: string;
+  name: string;
+  created_by: string;
+  closed: boolean;
+  messages: number;
+  last_at: string | null;
 }
 
 export interface GroupSummary {
@@ -152,6 +190,8 @@ export interface GroupSummary {
   space_id: string | null;
   /** Started inside that space (one of its several chats), not the chat the space was made from. */
   in_space?: boolean;
+  /** Open topics in it. */
+  topics?: number;
 }
 
 export interface GroupView {
@@ -166,8 +206,12 @@ export interface GroupView {
   in_space?: boolean;
   /** role "owner" is an admin (a chat can have several). */
   members: GroupMember[];
-  /** Newest last. */
+  /** Newest last: General's, or the topic's when one is open (`topic`). */
   messages: GroupMessage[];
+  /** The chat's topics, open first, newest activity first. */
+  topics: TopicView[];
+  /** The topic shown (none: General). */
+  topic: string | null;
   /** Whether the person reading may ask the assistant here. */
   can_ask: boolean;
   /** Messages the reader saved, by message id: where to ("Gigs"). Only theirs. */

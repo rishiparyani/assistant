@@ -65,5 +65,29 @@ describe("the assistant reads a people chat", () => {
     expect(after.lines.some((l) => l.includes("Test message 1 "))).toBe(false);
     expect(after.lines.at(-1)).toContain("Test message 30");
   });
+  it("reads only the newest messages by default, and older ones on request (members only)", async () => {
+    const { owner, asha, g } = await pair();
+    for (let n = 1; n <= 30; n++)
+      await api(n % 2 ? asha : owner)(`/groups/${g.id}/messages`, { body: { text: `Test short ${n}` } });
+    fakeSystems.length = 0;
+    await api(owner)(`/groups/${g.id}/assistant`, { body: { text: "What's new?" } });
+    const system = fakeSystems.at(-1)!;
+    // The newest 20 only, and how to read the rest.
+    expect(system).toContain("Test short 30");
+    expect(system).toContain("Test short 11");
+    expect(system).not.toContain("Test short 10\n");
+    expect(system).toContain("11 earlier messages aren't shown");
+    expect(system).toContain(`read_chat_history with group_id "${g.id}" and skip 20`);
+    // The older ones, on request.
+    const older = await json<{ lines: string[]; next_skip: number | null }>(
+      await api(owner)(`/groups/${g.id}/history?skip=20`),
+    );
+    expect(older.lines.at(0)).toContain("made the group");
+    expect(older.lines.at(-1)).toContain("Test short 10");
+    expect(older.next_skip).toBeNull();
+    // Someone outside the chat can't.
+    const outsider = await signUp("Test Outsider");
+    expect((await api(outsider)(`/groups/${g.id}/history?skip=0`)).status).toBe(404);
+  });
   // Only members can ask (groups.test.ts: an outsider's ask is a 404).
 });

@@ -386,7 +386,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       <Tap
         key={e.key}
         accessibilityRole="button"
-        accessibilityLabel={`${c.name}${c.unread ? `, ${c.unread} unread` : ""}`}
+        accessibilityLabel={`${c.name}${c.topics ? `, ${c.topics} topic${c.topics === 1 ? "" : "s"}` : ""}${c.unread ? `, ${c.unread} unread` : ""}`}
         onPress={() => openEntry(e)}
         scale={0.985}
         style={[
@@ -413,6 +413,11 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
             <Text style={[s.name, { color: t.fg }]} numberOfLines={1}>
               {c.name}
             </Text>
+            {c.topics ? (
+              <Text style={[s.topics, { color: t.fg2 }]}>
+                {c.topics === 1 ? "1 topic" : `${c.topics} topics`}
+              </Text>
+            ) : null}
             <Text style={[s.time, { color: c.unread ? t.accent : t.fg3 }]}>
               {c.last ? when(c.last.at) : ""}
             </Text>
@@ -835,6 +840,7 @@ function Badge({ n }: { n: number }) {
 
 const s = StyleSheet.create({
   root: { flex: 1 },
+  topics: { fontSize: 12, fontWeight: "700" },
   pick: { alignItems: "center", justifyContent: "center", gap: 10, padding: 24 },
   pickIcon: { width: 64, height: 64, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   pickIconText: { fontSize: 28, fontWeight: "800" },

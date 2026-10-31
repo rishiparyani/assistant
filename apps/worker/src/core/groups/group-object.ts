@@ -8,6 +8,7 @@ import {
   type GroupMessage,
   type GroupSummary,
   type PollView,
+  type TopicView,
   type ChatCard,
 } from "@assistant/shared";
 import {
@@ -41,7 +42,12 @@ import { decide } from "../assistant/decide.ts";
 import { spaceName } from "../spaces/service.ts";
 import { assistantOnForUser, ownerEmails } from "../assistant/access.ts";
 
+/** One message as the assistant reads it: "[2026-10-31 09:12] Asha: …" (notes marked). */
+const lineOf = (m: { author: string; text: string; created_at: string; kind: string }) =>
+  `[${m.created_at.slice(0, 16).replace("T", " ")}] ${m.kind === "note" ? "(note) " : ""}${m.author}: ${m.text}`;
+
 /** Suggested actions on messages (backlog DF4): one per message, only when sure, a few a day. */
+
 const SUGGEST_PROMPT =
   "You decide whether one chat message calls for an action in the reader's own assistant app, and which. Read the message and pick the one option that fits, or Nothing when none clearly does (most messages are just talk: pick Nothing unless the message plainly names something to remember, pay, buy, do by a day, or keep). " +
   'Answer with JSON only, nothing else: {"choice": <one of the options, exactly as written>, "confidence": <0 to 1>}. ' +
@@ -183,6 +189,17 @@ const MIGRATIONS: Migrations = [
   // Several chats in one space (chats-home.md 6): a chat started inside a space belongs to it
   // (space_id) but is not its home, so the space's people never follow its members.
   `alter table grp add column in_space integer not null default 0;`,
+  // Topics (decision 2026-10-31 "Topics"): threads inside a chat, each with its own messages;
+  // a message with no topic is the chat's General part.
+  `create table topics (
+     id text primary key,
+     name text not null,
+     created_by text not null,
+     created_at text not null,
+     closed_at text
+   );
+   alter table messages add column topic_id text;
+   create index messages_topic_idx on messages (topic_id, created_at);`,
 ];
 
 /** At most this many people in a group, and messages read back at once. */
@@ -399,16 +416,18 @@ export class GroupObject extends DurableObject<Env> {
     author: string,
     text: string,
     ts: string,
+    topic: string | null = null,
   ) {
     const id = ulid();
     this.sql.exec(
-      `insert into messages (id, kind, author_id, author, text, created_at) values (?, ?, ?, ?, ?, ?)`,
+      `insert into messages (id, kind, author_id, author, text, created_at, topic_id) values (?, ?, ?, ?, ?, ?, ?)`,
       id,
       kind,
       authorId,
       author,
       text,
       ts,
+      topic,
     );
     this.sql.exec(`update grp set updated_at = ?`, ts);
     return id;
@@ -436,6 +455,7 @@ export class GroupObject extends DurableObject<Env> {
   async view(
     userId: string,
     around?: string,
+    topic?: string,
   ): Promise<{
     id: string;
     name: string;
@@ -451,9 +471,19 @@ export class GroupObject extends DurableObject<Env> {
     shared_answers: string[];
     polls: Record<string, PollView>;
     cards: ChatCard[];
+    topics: TopicView[];
+    topic: string | null;
   }> {
     const me = this.member(userId);
     const g = this.group();
+    // Around a message (a search hit): its own topic. Else the topic asked for (closed ones still
+    // open to read); none: General.
+    const hit = around
+      ? this.sql
+          .exec<{ topic_id: string | null }>(`select topic_id from messages where id = ?`, around)
+          .toArray()[0]
+      : undefined;
+    const t = topic ? this.topic(topic).id : (hit?.topic_id ?? null);
     type MessageRow = {
       id: string;
       kind: GroupMessage["kind"];
@@ -461,6 +491,7 @@ export class GroupObject extends DurableObject<Env> {
       author: string;
       text: string;
       created_at: string;
+      topic_id: string | null;
     };
     // Around a message: half a page either side of it; else the newest page.
     const at = around
@@ -471,22 +502,27 @@ export class GroupObject extends DurableObject<Env> {
     const messages: GroupMessage[] = at
       ? this.sql
           .exec<MessageRow>(
-            `select id, kind, author_id, author, text, created_at from
-               (select * from messages where created_at < ? order by created_at desc, id desc limit ?)
+            `select id, kind, author_id, author, text, created_at, topic_id from
+               (select * from messages where topic_id is ? and created_at < ?
+                order by created_at desc, id desc limit ?)
              union all
-             select id, kind, author_id, author, text, created_at from
-               (select * from messages where created_at >= ? order by created_at, id limit ?)
+             select id, kind, author_id, author, text, created_at, topic_id from
+               (select * from messages where topic_id is ? and created_at >= ? order by created_at, id limit ?)
              order by created_at, id`,
+            t,
             at,
             PAGE / 2,
+            t,
             at,
             PAGE / 2,
           )
           .toArray()
       : this.sql
           .exec<MessageRow>(
-            `select id, kind, author_id, author, text, created_at from
-               (select * from messages order by created_at desc, id desc limit ?) order by created_at, id`,
+            `select id, kind, author_id, author, text, created_at, topic_id from
+               (select * from messages where topic_id is ? order by created_at desc, id desc limit ?)
+             order by created_at, id`,
+            t,
             PAGE,
           )
           .toArray();
@@ -526,7 +562,102 @@ export class GroupObject extends DurableObject<Env> {
         messages.filter((m) => m.kind === "poll").map((m) => [m.id, this.poll(m.id, m.text, userId)]),
       ),
       cards: this.cards(),
+      topics: this.topics(),
+      topic: t,
     };
+  }
+
+  /** The chat's topics: open ones first, then by newest activity. */
+  private topics(): TopicView[] {
+    return this.sql
+      .exec<{
+        id: string;
+        name: string;
+        created_by: string;
+        created_at: string;
+        closed_at: string | null;
+        messages: number;
+        last_at: string | null;
+      }>(
+        `select t.id, t.name, t.created_by, t.created_at, t.closed_at,
+           (select count(*) from messages m where m.topic_id = t.id) as messages,
+           (select max(created_at) from messages m where m.topic_id = t.id) as last_at
+         from topics t
+         order by t.closed_at is not null, coalesce(last_at, t.created_at) desc`,
+      )
+      .toArray()
+      .map((r) => ({
+        id: r.id,
+        name: r.name,
+        created_by: r.created_by,
+        closed: !!r.closed_at,
+        messages: r.messages,
+        last_at: r.last_at,
+      }));
+  }
+
+  private topic(id: string): { id: string; name: string; created_by: string; closed_at: string | null } {
+    const t = this.sql
+      .exec<{ id: string; name: string; created_by: string; closed_at: string | null }>(
+        `select id, name, created_by, closed_at from topics where id = ?`,
+        id,
+      )
+      .toArray()[0];
+    if (!t) throw new ObjectError("not_found", "That topic isn't in this chat");
+    return t;
+  }
+
+  /** A new topic, by any member; General gets a short note that it started. */
+  async createTopic(
+    actor: Actor & { userId: string },
+    key: string | null,
+    input: { id: string; name: string },
+  ): Promise<TopicView> {
+    const m = this.member(actor.userId);
+    return this.write(actor, key, ["topic", input], (ts) => {
+      const name = input.name.trim();
+      const have = this.sql.exec(`select 1 from topics where id = ?`, input.id).toArray().length > 0;
+      if (!have) {
+        if (
+          this.sql
+            .exec(`select 1 from topics where closed_at is null and lower(name) = lower(?)`, name)
+            .toArray().length
+        )
+          throw new ObjectError("conflict", `There's already a topic called “${name}” here`);
+        this.sql.exec(
+          `insert into topics (id, name, created_by, created_at) values (?, ?, ?, ?)`,
+          input.id,
+          name,
+          actor.userId,
+          ts,
+        );
+        this.note("note", null, "Topic", `${m.name} started the topic “${name}”`, ts);
+        audit(this.sql, actor, { action: "create_topic", entityType: "topic", entityId: input.id });
+      }
+      return this.topics().find((x) => x.id === input.id)!;
+    });
+  }
+
+  /** Closing folds a topic away (still readable and searchable); its starter, an admin, or
+   *  either person in a chat for two can close or reopen it. */
+  async setTopicClosed(
+    actor: Actor & { userId: string },
+    key: string | null,
+    input: { topic_id: string; closed: boolean },
+  ): Promise<TopicView> {
+    const m = this.member(actor.userId);
+    const t = this.topic(input.topic_id);
+    if (t.created_by !== actor.userId && m.role !== "owner" && !this.group().direct)
+      throw new ObjectError("forbidden", "Only whoever started the topic, or an admin, can close it");
+    return this.write(actor, key, ["topic_closed", input], (ts) => {
+      this.sql.exec(`update topics set closed_at = ? where id = ?`, input.closed ? ts : null, t.id);
+      audit(this.sql, actor, {
+        action: input.closed ? "close_topic" : "reopen_topic",
+        entityType: "topic",
+        entityId: t.id,
+      });
+      return this.topics().find((x) => x.id === t.id)!;
+    });
   }
 
   private cards(): ChatCard[] {
@@ -565,41 +696,88 @@ export class GroupObject extends DurableObject<Env> {
       updated_at: g.updated_at,
       space_id: g.space_id ?? null,
       in_space: !!g.in_space,
+      topics: Number(this.sql.exec(`select count(*) as n from topics where closed_at is null`).one().n),
     };
   }
 
   /**
    * The chat as the assistant reads it when a member asks about it (chats-home.md, "the AI
-   * reads a chat like ChatGPT or Claude"): the newest messages up to `budget` characters,
-   * oldest first, and the summary of what came before the last fold. Only a member can read it.
+   * reads a chat like ChatGPT or Claude"): the newest messages up to `budget` characters and
+   * at most `max` messages (the lean default; the rest on request through `history`), oldest
+   * first, and the summary of what came before the last fold. `hidden`: messages since the
+   * fold that aren't shown. Only a member can read it.
    */
   async forAssistant(
     userId: string,
     budget: number,
-  ): Promise<{ summary: string | null; lines: string[]; cut: boolean; read_at: string | null }> {
+    max = Number.POSITIVE_INFINITY,
+    topic?: string,
+  ): Promise<{
+    summary: string | null;
+    lines: string[];
+    cut: boolean;
+    hidden: number;
+    read_at: string | null;
+  }> {
     const me = this.member(userId);
-    const upto = Number(getMeta(this.sql, "summary_upto") ?? "0");
+    // A topic: its own messages only (the chat's summary is General's background). General:
+    // what came after the last fold, outside the topics.
+    const t = topic ? this.topic(topic).id : null;
+    const upto = t ? 0 : Number(getMeta(this.sql, "summary_upto") ?? "0");
     const lines: string[] = [];
     let used = 0;
-    let cut = false;
     for (const m of this.sql.exec<{ author: string; text: string; created_at: string; kind: string }>(
-      `select author, text, created_at, kind from messages where rowid > ? order by rowid desc`,
+      `select author, text, created_at, kind from messages where rowid > ? and topic_id is ? order by rowid desc`,
       upto,
+      t,
     )) {
-      const line = `[${m.created_at.slice(0, 16).replace("T", " ")}] ${m.kind === "note" ? "(note) " : ""}${m.author}: ${m.text}`;
+      const line = lineOf(m);
+      if ((used + line.length > budget && lines.length) || lines.length >= max) break;
+      lines.push(line);
+      used += line.length;
+    }
+    const since = Number(
+      this.sql.exec(`select count(*) as n from messages where rowid > ? and topic_id is ?`, upto, t).one().n,
+    );
+    return {
+      summary: t ? null : (getMeta(this.sql, "summary") ?? null),
+      lines: lines.reverse(),
+      cut: since > lines.length,
+      hidden: since - lines.length,
+      read_at: me.read_at ?? null,
+    };
+  }
+
+  /**
+   * Older messages, when the assistant needs more than the newest ones (decision 2026-10-31 "A
+   * leaner chat reading"): skipping the newest `skip`, as many as fit `budget` characters,
+   * oldest first, from the whole chat (before the summary too). Only a member can read it.
+   */
+  async history(
+    userId: string,
+    skip: number,
+    budget: number,
+    topic?: string,
+  ): Promise<{ lines: string[]; next_skip: number | null }> {
+    this.member(userId);
+    const t = topic ? this.topic(topic).id : null;
+    const lines: string[] = [];
+    let used = 0;
+    let more = false;
+    for (const m of this.sql.exec<{ author: string; text: string; created_at: string; kind: string }>(
+      `select author, text, created_at, kind from messages where topic_id is ? order by rowid desc limit -1 offset ?`,
+      t,
+      skip,
+    )) {
+      const line = lineOf(m);
       if (used + line.length > budget && lines.length) {
-        cut = true;
+        more = true;
         break;
       }
       lines.push(line);
       used += line.length;
     }
-    return {
-      summary: getMeta(this.sql, "summary") ?? null,
-      lines: lines.reverse(),
-      cut,
-      read_at: me.read_at ?? null,
-    };
+    return { lines: lines.reverse(), next_skip: more ? skip + lines.length : null };
   }
 
   /**
@@ -645,12 +823,16 @@ export class GroupObject extends DurableObject<Env> {
   async post(
     actor: Actor & { userId: string },
     key: string | null,
-    input: { kind: "person" | "assistant"; text: string; asked_by?: string },
+    input: { kind: "person" | "assistant"; text: string; asked_by?: string; topic_id?: string | null },
   ): Promise<GroupMessage> {
     const m = this.member(actor.userId);
+    // Into an open topic only (a closed one is reopened first).
+    const topic = input.topic_id ? this.topic(input.topic_id) : null;
+    if (topic?.closed_at)
+      throw new ObjectError("conflict", `“${topic.name}” is closed. Reopen it to write in it.`);
     return this.write(actor, key, ["post", input], (ts) => {
       const author = input.kind === "assistant" ? `Assistant (shared by ${m.name})` : m.name;
-      const id = this.note(input.kind, actor.userId, author, input.text.trim(), ts);
+      const id = this.note(input.kind, actor.userId, author, input.text.trim(), ts, topic?.id ?? null);
       audit(this.sql, actor, { action: "post_group_message", entityType: "group_message", entityId: id });
       // Someone here wants suggestions: the alarm decides, after the message is sent.
       if (input.kind === "person" && this.anySuggest())
@@ -662,6 +844,7 @@ export class GroupObject extends DurableObject<Env> {
         author,
         text: input.text.trim(),
         created_at: ts,
+        topic_id: topic?.id ?? null,
       };
     });
   }

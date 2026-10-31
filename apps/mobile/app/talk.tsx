@@ -26,6 +26,7 @@ import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
 import { ChatHome } from "@/components/ChatHome";
 import { PeopleSheet } from "@/components/PeopleSheet";
+import { TopicBar } from "@/components/Topics";
 
 type Item =
   | { kind: "day"; id: string; label: string }
@@ -45,21 +46,33 @@ export default function Talk() {
     message,
     q,
     tab: firstTab,
+    topic: firstTopic,
   } = useLocalSearchParams<{
     id: string;
     message?: string;
     q?: string;
+    /** A topic to open in (decision 2026-10-31 "Topics"); none: General. */
+    topic?: string;
     /** "home": open on the chat's home (a chat just started about a record). */
     tab?: string;
   }>();
   const { me } = useSession();
   const myId = me?.user.id ?? null;
-  const { chat, pending, error, reload } = useChat(id ?? "", message || undefined);
+  // The topic shown (none: the chat's General part).
+  const [topic, setTopic] = useState<string | undefined>(firstTopic || undefined);
+  const { chat, pending, error, reload } = useChat(id ?? "", message || undefined, topic);
+  const shownTopic = topic ? chat?.topics.find((x) => x.id === topic) : undefined;
+  // A search hit inside a topic opens in that topic (the server says which).
+  useEffect(() => {
+    if (message && !topic && chat?.topic) setTopic(chat.topic);
+  }, [message, topic, chat?.topic]);
   const [text, setText] = useState("");
   // The message being saved (the Save sheet is open for it).
   const [saving, setSaving] = useState<{ m: GroupMessage; action: string | null } | null>(null);
   // The private assistant panel is open.
   const [asking, setAsking] = useState(false);
+  // What the panel asks at once (typed in this chat's box, then Gs), or starts with (Ask about this).
+  const [askWith, setAskWith] = useState<{ send?: string; draft?: string }>({});
   // The "Ask everyone" sheet is open.
   const [polling, setPolling] = useState(false);
   // The chat or its home (decision 2026-10-14 "A home for each chat"), and the people sheet.
@@ -109,7 +122,7 @@ export default function Talk() {
   const go = () => {
     const body = text.trim();
     if (!body || !id) return;
-    sendChatMessage(id, body);
+    sendChatMessage(id, body, topic);
     setText("");
     list.current?.scrollToOffset({ offset: 0, animated: true });
   };
@@ -172,6 +185,15 @@ export default function Talk() {
                 </Pressable>
               ))}
             </View>
+          ) : null}
+          {chat && tab === "chat" ? (
+            <TopicBar
+              chat={chat}
+              topic={topic}
+              myId={myId}
+              onPick={setTopic}
+              onChanged={() => void reload()}
+            />
           ) : null}
           {error ? <Text style={[s.note, { color: t.fg2 }]}>{error}</Text> : null}
           {!chat && !error ? <ActivityIndicator color={t.fg3} style={{ marginTop: 40 }} /> : null}
@@ -351,7 +373,14 @@ export default function Talk() {
                   <TextInput
                     value={text}
                     onChangeText={setText}
-                    placeholder="Message"
+                    placeholder={
+                      shownTopic
+                        ? shownTopic.closed
+                          ? "Closed: reopen it to write here"
+                          : `Message in ${shownTopic.name}`
+                        : "Message"
+                    }
+                    editable={!shownTopic?.closed}
                     placeholderTextColor={t.fg3}
                     multiline
                     maxLength={2000}
@@ -362,8 +391,18 @@ export default function Talk() {
                     // Ask my own assistant (only I see it), as in the mock-up.
                     <Pressable
                       accessibilityRole="button"
-                      accessibilityLabel="Ask your assistant privately"
-                      onPress={() => setAsking(true)}
+                      accessibilityLabel={
+                        text.trim()
+                          ? "Ask your assistant privately what you typed"
+                          : "Ask your assistant privately"
+                      }
+                      onPress={() => {
+                        // Typed first, then Gs: that is the question (one tap, nothing typed twice).
+                        const typed = text.trim();
+                        setAskWith(typed ? { send: typed } : {});
+                        if (typed) setText("");
+                        setAsking(true);
+                      }}
                       hitSlop={6}
                       style={[s.gs, { backgroundColor: t.accentSoft }]}
                     >
@@ -413,7 +452,13 @@ export default function Talk() {
         groupId={id ?? ""}
         chatName={chat?.name ?? ""}
         open={asking}
-        onClose={() => setAsking(false)}
+        onClose={() => {
+          setAsking(false);
+          setAskWith({});
+        }}
+        send={askWith.send ?? null}
+        draft={askWith.draft ?? null}
+        topic={shownTopic ? { id: shownTopic.id, name: shownTopic.name } : undefined}
         onShared={() => void reload()}
         sharedAnswers={chat?.shared_answers ?? []}
       />
@@ -422,6 +467,11 @@ export default function Talk() {
         message={saving?.m ?? null}
         action={saving?.action}
         canAsk={chat?.can_ask ?? false}
+        onAsk={(m) => {
+          setSaving(null);
+          setAskWith({ draft: `About ${m.author}'s message “${m.text.slice(0, 300)}”: ` });
+          setAsking(true);
+        }}
         onClose={() => {
           setSaving(null);
           void reload();

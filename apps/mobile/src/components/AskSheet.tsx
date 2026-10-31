@@ -22,6 +22,9 @@ export function AskSheet({
   onClose,
   onShared,
   sharedAnswers = [],
+  send,
+  draft,
+  topic,
 }: {
   groupId: string;
   chatName: string;
@@ -31,6 +34,12 @@ export function AskSheet({
   onClose: () => void;
   /** An answer went into the chat (load it again). */
   onShared: () => void;
+  /** Asked at once when the panel opens (what was typed in the chat's box before tapping Gs). */
+  send?: string | null;
+  /** Put in the panel's box when it opens, to finish and send ("Ask about this" on a message). */
+  draft?: string | null;
+  /** Asked from inside a topic: the assistant reads that topic's messages. */
+  topic?: { id: string; name: string };
 }) {
   const { t } = useTheme();
   const [items, setItems] = useState<ChatItem[] | null>(null);
@@ -50,15 +59,24 @@ export function AskSheet({
   const fail = (e: unknown) =>
     setError(isOffline(e) ? "The assistant needs a connection." : e instanceof Error ? e.message : String(e));
 
+  // What to ask or write as the panel opens, taken once per opening.
+  const opening = useRef<{ send?: string | null; draft?: string | null }>({});
+  opening.current = { send, draft };
   // online-only: the assistant runs on the server.
   useEffect(() => {
     if (!open) return;
     setError("");
+    const { send: first, draft: start } = opening.current;
+    if (start) setText(start);
     request<ChatView>("GET", `/api/groups/${enc(groupId)}/assistant`)
-      .then((v) => setItems(v.items))
+      .then((v) => {
+        setItems(v.items);
+        if (first?.trim()) void askRef.current(first);
+      })
       .catch((e: unknown) => {
         setItems([]);
         fail(e);
+        if (first?.trim()) setText(first);
       });
   }, [open, groupId]);
 
@@ -74,15 +92,21 @@ export function AskSheet({
       { id: `local-${Date.now()}`, role: "user", text: body, created_at: new Date().toISOString() },
     ]);
     try {
-      const v = await request<ChatView>("POST", `/api/groups/${enc(groupId)}/assistant`, { text: body });
+      const v = await request<ChatView>("POST", `/api/groups/${enc(groupId)}/assistant`, {
+        text: body,
+        ...(topic ? { topic: topic.id } : {}),
+      });
       setItems(v.items);
     } catch (e) {
-      if (!said) setText(body);
+      // What I asked comes back to the box, so it isn't lost (also when it came from the chat's box).
+      setText((now) => now || body);
       fail(e);
     } finally {
       setBusy(false);
     }
   };
+  const askRef = useRef(ask);
+  askRef.current = ask;
   // online-only: a card the assistant proposed is carried out on the server.
   const answer = async (actionId: string, what: "confirm" | "cancel") => {
     setBusy(true);
@@ -128,7 +152,7 @@ export function AskSheet({
       <View style={s.head}>
         <Text style={[s.title, ink]}>Assistant · only you see this</Text>
         <Text style={[s.about, soft]} numberOfLines={1}>
-          about {chatName}
+          about {topic ? `${topic.name} · ${chatName}` : chatName}
         </Text>
       </View>
       <ScrollView
