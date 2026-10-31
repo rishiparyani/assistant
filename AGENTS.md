@@ -14,7 +14,7 @@ Priorities: near-zero recurring cost (Cloudflare **Free plan**; paid AI only fro
 
 1. Read this file → [tasks/STATUS.md](tasks/STATUS.md) → the current task in [tasks/backlog.md](tasks/backlog.md).
 2. Work one task at a time. Small commits, conventional commit messages (`feat(gigs): …`, `fix(core): …`, `docs: …`).
-3. Before finishing: run checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`), update `tasks/STATUS.md` (done, next, half-finished, gotchas), and record any new decision in [docs/decisions.md](docs/decisions.md). The **Handoff** CI check fails any PR that changes app code without updating `tasks/STATUS.md` (a line with only `[skip-status]` in the PR description, only when status truly didn't change).
+3. Before finishing: run checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`, and the journeys for any screen change, adding or updating one for what changed), update `tasks/STATUS.md` (done, next, half-finished, gotchas), and record any new decision in [docs/decisions.md](docs/decisions.md). The **Handoff** CI check fails any PR that changes app code without updating `tasks/STATUS.md` (a line with only `[skip-status]` in the PR description, only when status truly didn't change).
 4. Don't add dependencies, add a module, or change the rules below without recording a decision.
 
 Switching agents mid-task: see [docs/handoff.md](docs/handoff.md).
@@ -70,6 +70,7 @@ docs/            setup, architecture, modules, phase-1, data-model, api, convent
 tasks/           STATUS.md, backlog.md
 apps/worker/     Hono API, auth, MCP; src/core/ + src/modules/<name>/; migrations
 apps/web/        Vite + Svelte app (the old site's remaining pages); its build assembles the whole site (the Expo web build at /, the Svelte index at /classic/, sw.js)
+apps/e2e/        the journeys: a robot browser uses the built site at phone size (fake data); CI runs them on every PR
 apps/mobile/     the phone app and the future website: Expo (React Native) + expo-router (docs/design/home-first.md)
 apps/ios/        the old iPhone shell (Capacitor) and its Swift parts; retired once the Expo app reaches TestFlight
 packages/shared/ Zod schemas, types, money/date helpers; src/core/ + src/modules/<name>/
@@ -88,6 +89,7 @@ pnpm dev          # http://localhost:8787: Svelte app (hot reload) + Worker in w
 pnpm typecheck    # tsc per package, svelte-check for the web app
 pnpm lint         # eslint + prettier --check (pnpm format to fix)
 pnpm test         # vitest; worker tests run inside workerd
+pnpm --filter @assistant/e2e e2e  # the journeys (apps/e2e/README.md: start the built site first)
 pnpm build        # builds web + worker (CLOUDFLARE_ENV=production for prod)
 pnpm db:generate  # new migration from schema changes
 pnpm db:migrate   # apply migrations to local D1

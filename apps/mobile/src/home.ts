@@ -74,25 +74,35 @@ export async function findAll(
 
 const findField = (c: CollectionView, type: string) => c.fields.find((f) => f.type === type);
 
+/**
+ * A card's title from a list's or view's name: names can be longer (80) than a card's title
+ * (60), so a long one is shortened with "…" instead of failing the whole screen (a journey found
+ * a list named past 60 letters opening blank).
+ */
+export function cardTitle(name: string): string {
+  const t = name.trim();
+  return t.length > 60 ? `${t.slice(0, 59).trimEnd()}…` : t;
+}
+
 function specFor(v: SavedView, c: CollectionView): CardSpec {
   const money = findField(c, "money");
   const yesNo = findField(c, "boolean");
   const base = { collection: c.id, filters: v.filters, sort: v.sort ?? null };
   const spec = yesNo
     ? CardSpec.parse({
-        title: v.name,
+        title: cardTitle(v.name),
         arrangement: "list-ticks",
         size: "m",
         sources: [{ ...base, answer_field: yesNo.id }],
       })
     : money && /spend|spent|total|month|paid|due/i.test(v.name)
       ? CardSpec.parse({
-          title: v.name,
+          title: cardTitle(v.name),
           arrangement: "number",
           size: "xs",
           sources: [{ ...base, sum_field: money.id }],
         })
-      : CardSpec.parse({ title: v.name, arrangement: "list-plain", size: "m", sources: [base] });
+      : CardSpec.parse({ title: cardTitle(v.name), arrangement: "list-plain", size: "m", sources: [base] });
   // A card the person (or the assistant) chose: its arrangement, with the fields it needs
   // picked from the list, when the list has them; and the controls on its rows.
   // Controls and row layouts live on a list's rows: such a card is drawn as a list.
@@ -137,7 +147,7 @@ function chosenSpec(v: SavedView, c: CollectionView, arrangement: Arrangement): 
     date_field: arrangement === "next" || arrangement === "countdown" ? of("date", "datetime") : null,
   };
   const parsed = CardSpec.safeParse({
-    title: v.name,
+    title: cardTitle(v.name),
     arrangement,
     size: ARRANGEMENT_SIZES[arrangement][0],
     sources: [source],
@@ -248,7 +258,7 @@ async function cardsFor(
         from: c.id,
         where: v.filters,
         ...v.card.question,
-        title: v.name,
+        title: cardTitle(v.name),
       }).catch(() => undefined);
       cards.push({ ...answerCard(c, answer, v), spec, ...(space ? { space } : {}) });
       continue;
@@ -898,7 +908,7 @@ export function answerCard(
     id: view?.id ?? `answer:${c.id}:${title ?? answer?.title ?? ""}`,
     view,
     spec: CardSpec.parse({
-      title: view?.name ?? title ?? answer?.title ?? c.name,
+      title: cardTitle(view?.name ?? title ?? answer?.title ?? c.name),
       arrangement,
       size,
       sources: [{ collection: c.id, filters: view?.filters ?? [] }],

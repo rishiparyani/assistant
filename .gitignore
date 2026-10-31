@@ -27,3 +27,7 @@ export*.sql
 apps/mobile/dist/
 apps/mobile/ios/
 apps/mobile/android/
+
+# Journeys (apps/e2e): local run results
+test-results/
+playwright-report/

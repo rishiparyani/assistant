@@ -52,3 +52,37 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
       - run: pnpm --filter @assistant/worker test -- --shard=${{ matrix.part }}/3
+  # The journeys (decision 2026-10-31 "Journeys guard every change"): the built site run on the
+  # local test server with made-up accounts, used by a robot browser at phone size. Fake data only.
+  journeys:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+      - name: Install
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm --filter @assistant/e2e exec playwright install --with-deps chromium
+      - name: Build the site (test settings, no secrets)
+        run: |
+          cp apps/worker/.dev.vars.example apps/worker/.dev.vars
+          pnpm build
+          pnpm db:migrate
+      - name: Start the built site on the local test server
+        run: |
+          cd apps/worker
+          nohup pnpm exec wrangler dev --local -c ../web/dist/assistant_dev/wrangler.json --port 8787 \
+            --local-upstream localhost:8787 --persist-to .wrangler/state > "$RUNNER_TEMP/site.log" 2>&1 &
+          for i in $(seq 1 90); do curl -sf http://localhost:8787/api/health > /dev/null && exit 0; sleep 2; done
+          tail -50 "$RUNNER_TEMP/site.log"; exit 1
+      - name: Journeys
+        run: pnpm --filter @assistant/e2e e2e
+      - name: The test server's log (on failure)
+        if: failure()
+        run: tail -80 "$RUNNER_TEMP/site.log"
