@@ -4,7 +4,7 @@
 // cards, what's waiting; nothing of the owner's shows and nothing reaches anyone. Kept on the
 // device so a relaunch comes back to the same person; sign-out clears it with everything else.
 import { useSyncExternalStore } from "react";
-import { readJson, writeJson, kv } from "./storage.ts";
+import { openAccountId, readJson, writeJson, kv } from "./storage.ts";
 
 export interface PracticeAs {
   /** The practice copy. */
@@ -16,7 +16,28 @@ export interface PracticeAs {
   name: string;
   /** The one practising (so "yourself" is known while playing someone else). */
   self: string;
+  /** The flow being rehearsed, if it was started from one (its name, for the end). */
+  workflow?: string | null;
+  flow?: string | null;
+  /** The copy's newest log line when it started: the end tells only what came after. */
+  since?: string | null;
 }
+
+/** What a rehearsal that has just ended left to show: its story, behind the scenes. */
+export interface PracticeEnded {
+  /** The real space and flow (to turn it on, or rehearse it again). */
+  of: string;
+  workflow: string | null;
+  flow: string | null;
+  /** What happened, oldest first, in words. */
+  lines: string[];
+}
+// Kept with the account it belongs to: after a switch or a sign-out nobody else sees it (Codex
+// on PR 225).
+let ended: { account: string | null; story: PracticeEnded } | null = null;
+export const setPracticeEnded = (e: PracticeEnded | null) =>
+  (ended = e ? { account: openAccountId(), story: e } : null);
+export const practiceEnded = () => (ended && ended.account === openAccountId() ? ended.story : null);
 
 const KEY = "gigspree:practice-as";
 let mode: PracticeAs | null = readJson<PracticeAs>(KEY);

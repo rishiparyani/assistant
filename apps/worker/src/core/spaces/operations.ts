@@ -119,13 +119,13 @@ export const spaceOperations = [
     id: "core.practice_run",
     tool: "practice_run",
     description:
-      "In a practice copy: start one workflow as it would start for real (a sample record with made-up values added to its list, or a run now), to rehearse it.",
+      "In a practice copy: start one workflow as it would start for real (a sample record with made-up values added to its list, or a run now), to rehearse it. Only that workflow runs in the copy from then on. With start false it only does that, so someone can set it off themselves while playing a person.",
     kind: "write",
     http: { method: "POST", path: "/spaces/:space/practice/run" },
     input: PracticeRunInput,
     handler: async (ctx, i) => {
       const { stub, actor } = await practiceOf(ctx, i.space ?? "");
-      return stub.practiceRun(actor, i.workflow_id);
+      return stub.practiceRun(actor, i.workflow_id, i.start);
     },
   }),
   // The home you arrange (decision 2026-10-16 "A home you arrange"): the person's own pages.

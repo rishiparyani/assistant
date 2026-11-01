@@ -1367,6 +1367,8 @@ export class SpaceObject extends DurableObject<Env> {
   async practiceRun(
     actor: Actor,
     workflowId: string,
+    /** false: only make it the one flow that runs (a person sets it off themselves). */
+    start = true,
   ): Promise<{ record: { id: string; title: string } | null }> {
     this.canArrange(actor);
     if (!this.practice) throw new ObjectError("not_found", "Not a practice copy");
@@ -1392,6 +1394,7 @@ export class SpaceObject extends DurableObject<Env> {
         this.scheduleExisting(w.id, w.collection_id, def);
       }
     });
+    if (!start) return { record: null };
     if (def.when.event === "added") {
       const c = this.requireCollection(w.collection_id);
       const r = await this.addRecord(actor, null, c.id, { values: await this.sampleValues(actor, c) });
