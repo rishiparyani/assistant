@@ -93,7 +93,11 @@ export function PracticeBanner() {
   useEffect(() => {
     if (!mode) return;
     let gone = false;
-    const look = () =>
+    // One look at a time: a slow answer can't land after a newer one (Codex on PR 225).
+    let looking = false;
+    const look = () => {
+      if (looking) return;
+      looking = true;
       read()
         .then((v) => {
           if (gone) return;
@@ -117,7 +121,8 @@ export function PracticeBanner() {
                           )
                           .map((l) => l.id),
                   );
-          seen.current = { space: mode.space, ids: new Set(v.log.map((l) => l.id)) };
+          // What has been seen only grows: a line once seen never shows as a banner again.
+          seen.current = { space: mode.space, ids: new Set([...known, ...v.log.map((l) => l.id)]) };
           // Newest first: the newest new line for someone other than the one played now.
           const next = v.log.find(
             (l): l is Line & { kind: "message" | "question" } =>
@@ -125,9 +130,11 @@ export function PracticeBanner() {
           );
           if (next) setNotice(next);
         })
-        .catch(() => undefined);
-    void look();
-    const every = setInterval(() => void look(), 3000);
+        .catch(() => undefined)
+        .finally(() => (looking = false));
+    };
+    look();
+    const every = setInterval(look, 3000);
     return () => {
       gone = true;
       clearInterval(every);
@@ -160,8 +167,9 @@ export function PracticeBanner() {
     setBusy(true);
     setNote("");
     try {
-      const v = await read().catch(() => null);
-      const log = v?.log ?? [];
+      // If what happened can't be read, nothing is thrown away (it would be told as nothing).
+      const v = await read();
+      const log = v.log;
       const at = mode.since ? log.findIndex((l) => l.id === mode.since) : -1;
       const run = at < 0 ? log : log.slice(0, at);
       await request("DELETE", base, undefined, undefined, { practice: null });

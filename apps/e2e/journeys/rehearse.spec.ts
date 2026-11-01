@@ -144,3 +144,82 @@ test("the story of an ended rehearsal isn't shown to another account", async ({ 
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a slow look doesn't bring a banner back, and End keeps the copy if it can't read the story", async ({
+  browser,
+}) => {
+  // Codex on PR 225: an older answer arriving late reset what was seen; a failed read at End
+  // was told as "nothing happened" and the copy was gone.
+  test.setTimeout(120_000);
+  const me = await owner();
+  const friend = await person(`E2E Slow friend ${RUN}`);
+  await introduce(me, friend);
+  const list = `E2E Slow ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const flow = (await api(me)("POST", "/workflows", {
+    name: `E2E slow flow ${RUN}`,
+    when: { event: "added", collection: list },
+    then: [{ do: "ask", who: [friend.name], text: "Let {Title} in?", choices: ["Allow", "Deny"] }],
+    enabled: false,
+  })) as { id: string };
+  const copy = (await api(me)("POST", "/spaces/Personal/practice", {})) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/practice?space=${copy.id}&workflow=${flow.id}`);
+  await page.getByRole("button", { name: "Rehearse as Yourself" }).click();
+  await expect(page.getByText("REHEARSING AS")).toBeVisible();
+  await page.waitForTimeout(1000);
+
+  // One look is answered from before the question, but its answer comes back only later.
+  let release = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  let hold = true;
+  let failNext = false;
+  await page.route(`**/api/spaces/${copy.id}/practice`, async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    if (failNext) {
+      failNext = false;
+      return route.abort("internetdisconnected");
+    }
+    if (hold) {
+      hold = false;
+      const old = await route.fetch();
+      await gate;
+      return route.fulfill({ response: old });
+    }
+    return route.continue();
+  });
+  await expect.poll(() => hold).toBe(false);
+  await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    space: copy.id,
+    values: { Title: `E2E Slow Dev ${RUN}` },
+  });
+  // The banner may come while the slow look is still out (dismissed at once), or after it.
+  const banner = page.getByRole("button", { name: new RegExp(`For ${friend.name}`) });
+  await page.waitForTimeout(8000);
+  const early = await banner.isVisible();
+  if (early) await page.getByRole("button", { name: "Dismiss" }).click();
+  release();
+  if (!early) {
+    await expect(banner).toBeVisible({ timeout: 30_000 });
+    await page.getByRole("button", { name: "Dismiss" }).click();
+  }
+  // Dismissed, it doesn't come back when the old answer lands.
+  await page.waitForTimeout(7000);
+  await expect(banner).toHaveCount(0);
+
+  // End, while what happened can't be read: nothing is thrown away, and it says so.
+  failNext = true;
+  await page.getByRole("button", { name: "End rehearsing" }).click();
+  await page.getByText("End and throw it away").click();
+  await expect(page.getByText("Ending needs a connection.")).toBeVisible({ timeout: 30_000 });
+  const spaces = (await api(me)("GET", "/spaces")) as { id: string }[];
+  expect(spaces.some((s) => s.id === copy.id)).toBe(true);
+  // Again, now it can: the story has the question.
+  await page.getByText("End and throw it away").click();
+  await expect(page.getByText(new RegExp(`was asked: Let E2E Slow Dev ${RUN} in\\?`))).toBeVisible({
+    timeout: 30_000,
+  });
+  expect(errors).toEqual([]);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await context.close();
+});
