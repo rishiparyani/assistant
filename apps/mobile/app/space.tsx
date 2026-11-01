@@ -116,6 +116,11 @@ export default function SpacePage() {
   const needs = (today?.needs ?? []).filter((c) => c.waiting && inHere(c.waiting.space_id));
   const upnext = (today?.upnext ?? []).filter((u) => (personal ? !u.space : u.space === id));
   const groupChats = spaceId ? chats.filter((c) => c.space_id === spaceId) : [];
+  // A chat's home is that chat's (chats-base.md step 2): its page is the chat's info now.
+  const homeChat = !personal && groupChats.length === 1 && !groupChats[0]!.in_space ? groupChats[0]! : null;
+  useEffect(() => {
+    if (homeChat) router.replace({ pathname: "/info", params: { id: homeChat.id } });
+  }, [homeChat, router]);
   const chatIn = personal ? {} : { space: id };
   const openList = (collection: string, view?: string) =>
     router.push({

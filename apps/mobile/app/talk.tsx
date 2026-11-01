@@ -25,7 +25,6 @@ import { useSession } from "@/session";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
 import { ChatHome } from "@/components/ChatHome";
-import { PeopleSheet } from "@/components/PeopleSheet";
 import { TopicBar } from "@/components/Topics";
 
 type Item =
@@ -47,6 +46,7 @@ export default function Talk() {
     q,
     tab: firstTab,
     topic: firstTopic,
+    ask: firstAsk,
   } = useLocalSearchParams<{
     id: string;
     message?: string;
@@ -55,6 +55,8 @@ export default function Talk() {
     topic?: string;
     /** "home": open on the chat's home (a chat just started about a record). */
     tab?: string;
+    /** Open my assistant about this chat with these words to finish (the chat's info: New list). */
+    ask?: string;
   }>();
   const { me } = useSession();
   const myId = me?.user.id ?? null;
@@ -84,7 +86,15 @@ export default function Talk() {
   const [polling, setPolling] = useState(false);
   // The chat or its home (decision 2026-10-14 "A home for each chat"), and the people sheet.
   const [tab, setTab] = useState<"chat" | "home">(firstTab === "home" ? "home" : "chat");
-  const [people, setPeople] = useState(false);
+  // From the chat's info ("New list, with your assistant"): the panel opens with the words to finish.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!firstAsk || asked.current || !chat?.can_ask) return;
+    asked.current = true;
+    setAskWith({ draft: firstAsk });
+    setAsking(true);
+  }, [firstAsk, chat?.can_ask]);
+  const openInfo = () => router.push({ pathname: "/info", params: { id: id ?? "" } });
   const list = useRef<FlatList<Item>>(null);
 
   // Newest at the bottom: the list is drawn upside down, so it opens at the latest message.
@@ -156,20 +166,29 @@ export default function Talk() {
             >
               <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
             </Pressable>
-            <Avatar name={chat?.name ?? "?"} size={40} />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                {chat?.name ?? ""}
-              </Text>
-              <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
-                {subtitle}
-              </Text>
-            </View>
+            {/* The chat's name opens its info: lists, flows, people (chats-base.md step 2). */}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${chat?.name ?? "Chat"}: info, lists and people`}
+              disabled={!chat}
+              onPress={openInfo}
+              style={s.headName}
+            >
+              <Avatar name={chat?.name ?? "?"} size={40} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+                  {chat?.name ?? ""}
+                </Text>
+                <Text style={[s.sub, { color: t.fg2 }]} numberOfLines={1}>
+                  {subtitle}
+                </Text>
+              </View>
+            </Pressable>
             {chat ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="People and admins"
-                onPress={() => setPeople(true)}
+                accessibilityLabel="Chat info"
+                onPress={openInfo}
                 style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
               >
                 <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>···</Text>
@@ -437,15 +456,6 @@ export default function Talk() {
           ) : null}
         </View>
       </KeyboardAvoidingView>
-      {chat ? (
-        <PeopleSheet
-          chat={chat}
-          myId={myId}
-          open={people}
-          onClose={() => setPeople(false)}
-          onChanged={() => void reload()}
-        />
-      ) : null}
       <AskEveryoneSheet
         groupId={id ?? ""}
         topic={shownTopic?.id}
@@ -509,6 +519,7 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   column: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" },
   head: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingBottom: 8 },
+  headName: { flex: 1, minWidth: 0, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10 },
   back: {
     width: 44,
     height: 44,

@@ -159,6 +159,7 @@ export default function Layout() {
                   {/* Chats with people, and one chat: pushed like the list. */}
                   <Stack.Screen name="chats" />
                   <Stack.Screen name="talk" />
+                  <Stack.Screen name="info" />
                   <Stack.Screen name="you" />
                   <Stack.Screen name="updates" />
                 </Stack>

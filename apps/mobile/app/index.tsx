@@ -382,11 +382,13 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       : c.direct
         ? "Say hello"
         : `${c.members} people`;
+    // Its home's lists, as chips under its name ("Visits · Dues"; chats-base.md step 2).
+    const lists = e.space?.lists ?? [];
     return (
       <Tap
         key={e.key}
         accessibilityRole="button"
-        accessibilityLabel={`${c.name}${c.topics ? `, ${c.topics} topic${c.topics === 1 ? "" : "s"}` : ""}${c.unread ? `, ${c.unread} unread` : ""}`}
+        accessibilityLabel={`${c.name}${lists.length ? `, lists: ${lists.map((l) => l.title).join(", ")}` : ""}${c.topics ? `, ${c.topics} topic${c.topics === 1 ? "" : "s"}` : ""}${c.unread ? `, ${c.unread} unread` : ""}${e.waiting ? `, ${e.waiting} waiting on you` : ""}`}
         onPress={() => openEntry(e)}
         scale={0.985}
         style={[
@@ -428,6 +430,27 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
             </Text>
             {c.unread ? <Badge n={c.unread} /> : null}
           </View>
+          {lists.length || e.waiting ? (
+            <View style={s.chips}>
+              {e.waiting ? (
+                <View style={[s.chip, { backgroundColor: cardTint("time") }]}>
+                  <Text style={[s.chipText, { color: t.warn }]}>{e.waiting} waiting on you</Text>
+                </View>
+              ) : null}
+              {lists.slice(0, 3).map((l) => (
+                <View key={l.key} style={[s.chip, { backgroundColor: t.fill }]}>
+                  <Text style={[s.chipText, { color: t.fg2 }]} numberOfLines={1}>
+                    {l.title}
+                  </Text>
+                </View>
+              ))}
+              {lists.length > 3 ? (
+                <View style={[s.chip, { backgroundColor: t.fill }]}>
+                  <Text style={[s.chipText, { color: t.fg2 }]}>+{lists.length - 3}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
       </Tap>
     );
@@ -585,7 +608,9 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           ))}
         </View>
       ) : null}
-      <Text style={[s.foot, { color: t.fg3 }]}>A group chat becomes a space once it has lists.</Text>
+      <Text style={[s.foot, { color: t.fg3 }]}>
+        A chat's lists show under its name; tap a chat's name inside it for its lists and people.
+      </Text>
     </View>
   );
 

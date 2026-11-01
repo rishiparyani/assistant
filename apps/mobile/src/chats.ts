@@ -101,7 +101,8 @@ function pendingFor(id: string, waiting: Change[], failed: FailedChange[], topic
 }
 
 /** One chat: the kept copy at once, then fresh; refreshes on live pings and after sends. */
-export function useChat(id: string, around?: string, topic?: string) {
+/** `read: false`: load it without marking anything read (the chat's info shows no messages). */
+export function useChat(id: string, around?: string, topic?: string, { read = true } = {}) {
   const [chat, setChat] = useState<GroupView | null>(() => (around ? null : kept(id, topic)));
   // Another topic opened: its kept copy at once.
   const shownTopic = useRef(topic);
@@ -135,9 +136,10 @@ export function useChat(id: string, around?: string, topic?: string) {
       setError("");
       // Opening it reads what's shown: General, or the topic the server showed (a search hit's
       // topic too; Codex on PR 221). A read marker; fine to miss offline.
-      void request("POST", `/api/groups/${enc(id)}/read`, fresh.topic ? { topic: fresh.topic } : {}).catch(
-        () => undefined,
-      );
+      if (read)
+        void request("POST", `/api/groups/${enc(id)}/read`, fresh.topic ? { topic: fresh.topic } : {}).catch(
+          () => undefined,
+        );
     } catch (e) {
       if (isOffline(e))
         setError(
@@ -149,7 +151,7 @@ export function useChat(id: string, around?: string, topic?: string) {
         );
       else setError(e instanceof Error ? e.message : String(e));
     }
-  }, [id, around, topic]);
+  }, [id, around, topic, read]);
   useEffect(() => void load(), [load]);
   // "Saved to …" marks still on their way show at once too.
   const prefix = `/api/groups/${enc(id)}/messages/`;
