@@ -1394,3 +1394,9 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 **Decision:** the assistant chat (the iPhone's chat sheet) lists its messages oldest first and holds itself to the newest: it opens out of sight until it has jumped to the end, and follows new messages, the reply as it's written and the keyboard while the person is near the end; reading older ones, it stays put. This replaces the upside-down list (2026-10-16).
 
 **Why:** the owner: pulling up in the chat sheet "is actually trying to close". The iPhone's page sheet closes on a pull down while its list is at the top; upside down, the list's top is the newest message, so a pull up there read as a pull down at the top. Right way up, a pull up at the newest message just bounces, and only a pull down at the very top of the conversation closes the sheet, as on any iPhone sheet. The upside-down list had fixed "it opens at the middle" and "it hid my message"; the journeys now check both.
+
+## 2026-11-01: Test the hard cases
+
+**Decision:** every change is tried against a short checklist of hard cases before it's called done (AGENTS.md "Every session" 5): connection (offline, dropped, slow, put away and back), twice and out of order, switching mid-load, where a thing lives (another space, a rehearsal copy), ended or gone, size, and the model's next step. Each one that could break gets a journey or test that fails without the fix.
+
+**Why:** the owner: "you need to make sure that whatever you're building, you're testing it thoroughly, because I find bugs very often." The bugs found on the phone and by review on 2026-11-01 (a reply lost after going offline, a card "gone" from another space, a late answer landing on another chat, a rehearsal's edit replayed on the real list) were each one of these cases, and none was in the happy path the journeys covered.

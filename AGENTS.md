@@ -17,6 +17,15 @@ Priorities: near-zero recurring cost (Cloudflare **Free plan**; paid AI only fro
 3. Before finishing: run checks (`pnpm typecheck`, `pnpm lint`, `pnpm test`, and the journeys for any screen change, adding or updating one for what changed), update `tasks/STATUS.md` (done, next, half-finished, gotchas), and record any new decision in [docs/decisions.md](docs/decisions.md). The **Handoff** CI check fails any PR that changes app code without updating `tasks/STATUS.md` (a line with only `[skip-status]` in the PR description, only when status truly didn't change).
 4. Don't add dependencies, add a module, or change the rules below without recording a decision.
 
+5. **Test the hard cases, not just the happy path** (owner, 2026-11-01: "I find bugs very often"; decision "Test the hard cases"). Before calling a change done, try each that applies, and add a journey or test for the ones that could break (it must fail without the fix):
+   - **Connection:** offline, dropped mid-request, slow (a request or body that never ends), back online; the app put away and brought back.
+   - **Twice and out of order:** a double tap, a retry with the same key, a late answer arriving after a newer one, a message sent again with the same words.
+   - **Switching:** another chat, space, account or rehearsal opened while something is still loading or sending; nothing of the old one may land on the new one.
+   - **Where it lives:** things made in another space (or a shared one, or a rehearsal copy) read, tick and open there, not in Personal.
+   - **Ended or gone:** a rehearsal ended, a record or list deleted, a share removed, while the phone still holds it; changes waiting from it are never replayed on the real thing.
+   - **Size:** an empty account, a long chat (more than its window), long words, a messy account at 390 px, light and dark.
+   - **The model:** the assistant's next step after a confirm, a name already taken, the same card proposed twice, a turn that runs long.
+
 Switching agents mid-task: see [docs/handoff.md](docs/handoff.md).
 
 ## Public repo: safety first
