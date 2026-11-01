@@ -15,7 +15,7 @@ import {
   type GestureResponderEvent,
   type TextInput as RNTextInput,
 } from "react-native";
-import Animated, { FadeIn, FadeInDown, useAnimatedStyle } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInDown, FadeInUp, useAnimatedStyle } from "react-native-reanimated";
 import {
   Boundary,
   FlowDiagram,
@@ -204,15 +204,21 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   // A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix").
   const [editing, setEditing] = useState<ChatItem["card"] | null>(null);
   const list = useRef<FlatList<Shown>>(null);
-  // The list is upside down (the owner, 2026-10-16: "it opens at the middle", "it scrolled up
-  // and hid my message"): the newest message is the anchor, so it opens at the end by
-  // construction and a new message appears at the bottom without any scrolling code; reading
-  // older ones, the list stays put (maintainVisibleContentPosition), and when the person is
-  // near the bottom it follows.
+  // Newest at the bottom, the list the right way up and held to its end (owner, 2026-11-01: in
+  // the iPhone's chat sheet an upside-down list made a pull up at the newest message read as a
+  // pull down at the top, and the sheet started to close). It opens at the end (hidden until
+  // it's there, so it never shows the middle; owner, 2026-10-16) and follows new messages while
+  // the person is near the end (`pinned`); reading older ones, it stays put.
   // Items from before this screen opened don't animate in; new ones rise into place.
   const openedAt = useRef(Date.now());
   const shownItems = useMemo(() => wordsFirst(groupRecords(view?.items ?? [])), [view]);
-  const newestFirst = useMemo(() => [...shownItems].reverse(), [shownItems]);
+  // Near the end (the list follows what's added), and at the end at least once (shown).
+  const pinned = useRef(true);
+  const [atEnd, setAtEnd] = useState(false);
+  const toBottom = (animated = true) => {
+    pinned.current = true;
+    list.current?.scrollToEnd({ animated });
+  };
   // 👍 / 👎 go under the whole reply: after the cards that now follow its words.
   const rateAt = useMemo(() => {
     let at = shownItems.findIndex((i) => i.id === lastReply);
@@ -417,7 +423,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     };
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
     // The person's own message is what they want to see: to the bottom whatever they were reading.
-    list.current?.scrollToOffset({ offset: 0, animated: true });
+    toBottom();
     setBusy(true);
     setDraft(null);
     setDraftItems([]);
@@ -439,7 +445,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       setDraftItems([]);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
-      setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
+      setTimeout(() => toBottom(), 60);
       // What this reply changed, from the audit log, with Undo.
       fetchChanges(5)
         // Only this person's changes since the message went (another person's work in the
@@ -494,7 +500,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     }
   };
   /** The newest message, where what the cards made shows up. */
-  const toEnd = () => setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
+  const toEnd = () => setTimeout(() => toBottom(), 60);
   // online-only: every waiting card runs its action on the server, once, in the order proposed
   // (a list before the view that shows it); the first one that fails stops the rest.
   const confirmAll = async () => {
@@ -523,8 +529,10 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   };
   /** Up to the first card still waiting, to read them before confirming. */
   const review = () => {
-    const index = newestFirst.findIndex((i) => i.id === waiting[0]?.id);
-    if (index >= 0) list.current?.scrollToIndex({ index, viewPosition: 0.9, animated: true });
+    const index = shownItems.findIndex((i) => i.id === waiting[0]?.id);
+    if (index < 0) return;
+    pinned.current = false;
+    list.current?.scrollToIndex({ index, viewPosition: 0.1, animated: true });
   };
 
   return (
@@ -622,9 +630,30 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         />
         <FlatList
           ref={list}
-          inverted={newestFirst.length > 0}
           extraData={[rateAt, busy]}
-          data={newestFirst}
+          data={shownItems}
+          // Drawn whole up to a long chat, so the first jump to the end lands on the end.
+          initialNumToRender={Math.min(shownItems.length, 60)}
+          style={{ opacity: atEnd || !shownItems.length ? 1 : 0 }}
+          onScroll={(e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            pinned.current = contentSize.height - (contentOffset.y + layoutMeasurement.height) < 120;
+          }}
+          scrollEventThrottle={32}
+          // What's added (a message, the reply as it's written, a card) and the keyboard coming
+          // up keep the end in sight while the person is there.
+          onContentSizeChange={() => {
+            if (!pinned.current) return;
+            // A frame later: the list has measured what was added by then.
+            const animated = atEnd;
+            requestAnimationFrame(() => {
+              list.current?.scrollToEnd({ animated });
+              if (!atEnd && shownItems.length) requestAnimationFrame(() => setAtEnd(true));
+            });
+          }}
+          onLayout={() => {
+            if (pinned.current) requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false }));
+          }}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{
             paddingHorizontal: 16,
@@ -634,13 +663,11 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             maxWidth: COLUMN,
             alignSelf: "center",
           }}
-          // Near the bottom, a new message pulls the list down to it; higher up, nothing moves.
-          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
           // A card far up isn't measured yet: get near it, then go to it.
           onScrollToIndexFailed={(info) => {
             list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
             setTimeout(
-              () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.9, animated: true }),
+              () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.1, animated: true }),
               120,
             );
           }}
@@ -683,15 +710,15 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
                 </View>
               </Boundary>
             );
-            // In the upside-down list a cell's "down" is up on screen: new messages rise in.
+            // New messages rise into place.
             return fresh ? (
-              <Animated.View entering={FadeInDown.duration(motion.enter)}>{safe}</Animated.View>
+              <Animated.View entering={FadeInUp.duration(motion.enter)}>{safe}</Animated.View>
             ) : (
               safe
             );
           }}
-          // Upside down, the header is the visual bottom: the thinking bubble sits under the newest message.
-          ListHeaderComponent={
+          // The thinking bubble sits under the newest message.
+          ListFooterComponent={
             busy && view?.items.length ? (
               <View style={{ gap: 4 }}>
                 {/* Cards and questions as they're made: a full-width column of their own, never
