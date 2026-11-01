@@ -4,7 +4,7 @@
 // cards, what's waiting; nothing of the owner's shows and nothing reaches anyone. Kept on the
 // device so a relaunch comes back to the same person; sign-out clears it with everything else.
 import { useSyncExternalStore } from "react";
-import { readJson, writeJson, kv } from "./storage.ts";
+import { openAccountId, readJson, writeJson, kv } from "./storage.ts";
 
 export interface PracticeAs {
   /** The practice copy. */
@@ -32,9 +32,12 @@ export interface PracticeEnded {
   /** What happened, oldest first, in words. */
   lines: string[];
 }
-let ended: PracticeEnded | null = null;
-export const setPracticeEnded = (e: PracticeEnded | null) => (ended = e);
-export const practiceEnded = () => ended;
+// Kept with the account it belongs to: after a switch or a sign-out nobody else sees it (Codex
+// on PR 225).
+let ended: { account: string | null; story: PracticeEnded } | null = null;
+export const setPracticeEnded = (e: PracticeEnded | null) =>
+  (ended = e ? { account: openAccountId(), story: e } : null);
+export const practiceEnded = () => (ended && ended.account === openAccountId() ? ended.story : null);
 
 const KEY = "gigspree:practice-as";
 let mode: PracticeAs | null = readJson<PracticeAs>(KEY);

@@ -97,10 +97,27 @@ export function PracticeBanner() {
       read()
         .then((v) => {
           if (gone) return;
-          const known = seen.current?.space === mode.space ? seen.current.ids : null;
-          const ids = new Set(v.log.map((l) => l.id));
-          seen.current = { space: mode.space, ids };
-          if (!known) return;
+          // The first look counts as known only what was there when rehearsing began (the
+          // log's newest line then, `since`), so a question asked before this look still shows
+          // (Codex on PR 225). Without a start line (rehearsing begun elsewhere), all of it.
+          const known =
+            seen.current?.space === mode.space
+              ? seen.current.ids
+              : mode.since === undefined
+                ? new Set(v.log.map((l) => l.id))
+                : new Set(
+                    mode.since === null
+                      ? []
+                      : v.log
+                          .slice(
+                            Math.max(
+                              0,
+                              v.log.findIndex((l) => l.id === mode.since),
+                            ),
+                          )
+                          .map((l) => l.id),
+                  );
+          seen.current = { space: mode.space, ids: new Set(v.log.map((l) => l.id)) };
           // Newest first: the newest new line for someone other than the one played now.
           const next = v.log.find(
             (l): l is Line & { kind: "message" | "question" } =>
