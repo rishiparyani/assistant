@@ -120,7 +120,9 @@ export function Sheet({
     } else if (shown && !closing.current) {
       closing.current = true;
       startLeaving();
-      ref.current?.close();
+      // Not drawn yet: nothing to slide out.
+      if (ref.current) ref.current.close();
+      else setShown(false);
     }
   }, [open, shown]);
 
@@ -175,6 +177,13 @@ export function Sheet({
               }
             }}
             onChange={(index) => {
+              // Closed while it was still coming up (a tap on it the moment it showed): the
+              // opening slide ends after the close was asked for and would leave it open, its
+              // scrim over everything (the journeys caught it). Close it now.
+              if (index >= 0 && !openNow.current) {
+                ref.current?.close();
+                return;
+              }
               if (index >= 0 && !showed.current) {
                 showed.current = true;
                 onShow?.();
