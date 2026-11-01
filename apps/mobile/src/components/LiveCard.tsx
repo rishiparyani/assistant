@@ -148,7 +148,12 @@ function Drawn({
   if (data.kind === "workflow") return <WorkflowCard data={data} />;
   if (data.kind === "setup") return <SetupMadeCard data={data} space={space} onSay={onSay} />;
   if (data.kind === "record")
-    return <RecordsWidget items={[{ record: data.record, collection: data.collection }]} onAsk={onAsk} />;
+    return (
+      <RecordsWidget
+        items={[{ record: data.record, collection: data.collection, space: data.space }]}
+        onAsk={onAsk}
+      />
+    );
   if (data.kind === "answer") return <AnswerCard data={data} onAsk={onAsk} />;
   return <ListCard card={data.card} more={data.more} onAsk={onAsk} />;
 }
@@ -160,7 +165,7 @@ function problemWords(e: unknown, msg: string): string {
   return msg;
 }
 
-type RecordItem = { record: RecordView; collection: CollectionView };
+type RecordItem = { record: RecordView; collection: CollectionView; space?: string | null };
 
 /**
  * Records in the chat as one widget (owner, 2026-10-15: "vanilla, blending in with the chat"):
@@ -195,7 +200,7 @@ export function LiveRecords({
         if (gone) return;
         const got = all.filter((d): d is Extract<LiveData, { kind: "record" }> => d.kind === "record");
         if (!got.length) setError("These are gone now.");
-        else setItems(got.map((d) => ({ record: d.record, collection: d.collection })));
+        else setItems(got.map((d) => ({ record: d.record, collection: d.collection, space: d.space })));
       })
       .catch((e: unknown) => {
         if (gone) return;
@@ -254,7 +259,12 @@ function RecordsWidget({ items, onAsk }: { items: RecordItem[]; onAsk?: (title: 
     .slice(0, 2);
   const open = () => {
     leaveChat();
-    router.push({ pathname: "/list", params: { collection: collection.id } });
+    // In the record's own space (one made elsewhere from this chat; Codex on PR 223).
+    const where = items[0]!.space;
+    router.push({
+      pathname: "/list",
+      params: { collection: collection.id, ...(where ? { space: where } : {}) },
+    });
   };
   const toggle = (item: RecordItem) => {
     if (!doneField) return;
@@ -264,6 +274,7 @@ function RecordsWidget({ items, onAsk }: { items: RecordItem[]; onAsk?: (title: 
       item.record,
       doneField.id,
       item.record.values[doneField.id] !== true,
+      item.space ?? null,
     );
     setRows((xs) => xs.map((x) => (x.record.id === item.record.id ? { ...x, record: next } : x)));
   };

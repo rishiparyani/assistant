@@ -83,6 +83,10 @@ test("what's made in another space shows in the chat, not as gone", async ({ bro
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Test bring cables").last()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("This one is gone now.")).toHaveCount(0);
+  // Open goes to the list in that space, where the note is (Codex on PR 223).
+  await page.getByRole("link", { name: "Open Notes" }).last().click();
+  await expect(page).toHaveURL(new RegExp(`space=${band.id}`));
+  await expect(page.getByText("Test bring cables").first()).toBeVisible({ timeout: 30_000 });
   expect(errors).toEqual([]);
   await context.close();
 });

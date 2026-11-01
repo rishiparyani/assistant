@@ -1213,7 +1213,9 @@ export async function sendMessage(
   const key = ctx.idempotencyKey ?? `chat-send:${crypto.randomUUID()}`;
   const claim = await chat.claim(uid, key);
   if (claim === "done") return chatView(ctx, chatId);
-  if (claim === "running") throw new AppError("conflict", "Still answering your last message");
+  // Still being answered (a retry of a send whose wait was dropped): the app keeps it waiting.
+  if (claim === "running")
+    throw new AppError("conflict", "Still answering your last message", { still_running: true });
   try {
     await answerMessage(ctx, ops, input, key, chatId, !!opts.proposeOnly, opts.chatHome ?? null, {
       group: opts.group ?? null,

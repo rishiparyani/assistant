@@ -215,6 +215,11 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const shownItems = useMemo(() => wordsFirst(groupRecords(view?.items ?? [])), [view]);
   // Near the end (the list follows what's added), and at the end at least once (shown).
   const pinned = useRef(true);
+  // The chat on screen (its answers only land on it), the open asked last, and the send that
+  // owns the wait (a newer one, a recovered answer or another chat retires it).
+  const openId = useRef<string | null>(null);
+  const opening = useRef(0);
+  const sendSeq = useRef(0);
   const [atEnd, setAtEnd] = useState(false);
   const toBottom = (animated = true) => {
     pinned.current = true;
@@ -354,11 +359,22 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       setView(null);
       setChanged([]);
       openedAt.current = Date.now();
+      // The next chat starts fresh: at its end, and nothing of the last one's send or reading
+      // place carries over (Codex on PR 223: it opened at its oldest; a late answer replaced it).
+      openId.current = null;
+      pinned.current = true;
+      setAtEnd(false);
+      lastSent.current = null;
+      sendSeq.current++;
+      setBusy(false);
       const path = which
         ? `/api/chats/${which}`
         : `/api/chats/current${space ? `?space=${encodeURIComponent(space)}` : ""}`;
+      const asked = ++opening.current;
       request<ChatView>("GET", path)
         .then((v) => {
+          if (asked !== opening.current) return;
+          openId.current = v.id;
           setChatId(v.id);
           setView(v);
           setNote("");
@@ -380,17 +396,24 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   // now and then, and if the answer is already there (the phone dropped the wait, as when the
   // app went to the back), it shows and the wait ends (owner, 2026-11-01: "it was thinking
   // since a very long time").
-  const lastSent = useRef<{ text: string; before: number } | null>(null);
+  // Which items the chat had when it went: the answer follows a message of these words that
+  // wasn't there before (not a count, which the server's window of recent items can shift).
+  const lastSent = useRef<{ text: string; known: Set<string>; seq: number } | null>(null);
   useEffect(() => {
-    if (!busy || !chatId) return;
+    if (!busy || !chatId || !lastSent.current) return;
+    const id = chatId;
     const look = () =>
-      request<ChatView>("GET", `/api/chats/${chatId}`)
+      request<ChatView>("GET", `/api/chats/${id}`)
         .then((v) => {
           const sent = lastSent.current;
-          if (!sent) return;
-          const mine = v.items.flatMap((i, n) => (i.role === "user" && i.text === sent.text ? [n] : []));
-          const at = mine[sent.before];
-          if (at === undefined || !v.items.slice(at + 1).some((i) => i.role !== "user")) return;
+          if (!sent || openId.current !== id || sent.seq !== sendSeq.current) return;
+          const at = v.items.findIndex(
+            (i) => i.role === "user" && i.text === sent.text && !sent.known.has(i.id),
+          );
+          if (at < 0 || !v.items.slice(at + 1).some((i) => i.role !== "user")) return;
+          // The send still waiting is retired: whatever it brings back later changes nothing.
+          sendSeq.current++;
+          lastSent.current = null;
           setView(v);
           setBusy(false);
           setDraft(null);
@@ -411,8 +434,11 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   // The chat as the server has it now, in place (nothing on screen is dropped first).
   const refresh = useCallback(() => {
     if (!chatId) return;
-    request<ChatView>("GET", `/api/chats/${chatId}`)
+    const id = chatId;
+    request<ChatView>("GET", `/api/chats/${id}`)
       .then((v) => {
+        // Another chat opened meanwhile: this one's answer isn't shown over it.
+        if (openId.current !== id) return;
         setView(v);
         setNote("");
       })
@@ -488,25 +514,21 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
     // The person's own message is what they want to see: to the bottom whatever they were reading.
     toBottom();
-    // How many times these words were already in the chat ("Try again" twice): the answer to
-    // this one is after the next one.
-    lastSent.current = {
-      text: msg,
-      before: (view?.items ?? []).filter((i) => i.role === "user" && i.text === msg).length,
-    };
+    // This send, and its key, kept here: a later send (or a recovered answer) doesn't change them.
+    const seq = ++sendSeq.current;
+    const key = newKey();
+    const toChat = chatId;
+    lastSent.current = { text: msg, known: new Set((view?.items ?? []).map((i) => i.id)), seq };
     setBusy(true);
     setDraft(null);
     setDraftItems([]);
     streamed.current = false;
-    sentKey.current = newKey();
+    sentKey.current = key;
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>(
-        "POST",
-        `/api/chats/${chatId}`,
-        { text: msg, model: pick },
-        sentKey.current,
-      );
+      const next = await request<ChatView>("POST", `/api/chats/${toChat}`, { text: msg, model: pick }, key);
+      // Retired (the answer was found while this waited, or another chat opened): nothing more.
+      if (seq !== sendSeq.current) return;
       if (streamed.current) {
         const had = new Set((view?.items ?? []).map((i) => i.id));
         for (const i of next.items) if (!had.has(i.id) && i.role !== "user") quiet.current.add(i.id);
@@ -523,23 +545,27 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         .then((items) => setChanged(items.filter((i) => i.at >= sentAt && i.by === "you" && i.undoable)))
         .catch(() => undefined);
     } catch (e) {
+      if (seq !== sendSeq.current) return;
       if (isOffline(e)) {
         send({
           // The same key as the try that was cut off: if it did reach the server, the server
           // answers it once, not twice (rule 8).
-          ...(sentKey.current ? { id: sentKey.current } : {}),
+          id: key,
           kind: "assistant.message",
           method: "POST",
-          path: `/api/chats/${chatId}`,
+          path: `/api/chats/${toChat}`,
           body: { text: msg, model: pick },
           label: "Message to the assistant",
         });
         setNote("Waiting to send: it goes when you're back online.");
       } else setNote(e instanceof ApiError ? e.message : String(e));
     } finally {
-      setBusy(false);
-      setDraft(null);
-      sentKey.current = null;
+      if (seq === sendSeq.current) {
+        setBusy(false);
+        setDraft(null);
+        sentKey.current = null;
+        lastSent.current = null;
+      }
     }
   };
 

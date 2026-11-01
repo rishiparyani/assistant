@@ -759,13 +759,15 @@ export function writeValue(
   record: RecordView,
   field: string,
   value: StoredValue,
+  /** The space the record is in (none: the person's own). */
+  space: string | null = null,
 ): RecordView {
   const values: Record<string, StoredValue> = { [field]: value };
   send({
     kind: "spaces.update_record",
     method: "PATCH",
     path: `/api/records/${enc(record.id)}`,
-    body: { values },
+    body: { values, ...(space ? { space } : {}) },
     label: `${record.title} · ${collection.name}`,
   });
   return { ...record, values: { ...record.values, ...values } };

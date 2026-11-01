@@ -18,7 +18,13 @@ const enc = encodeURIComponent;
 const ROWS = 8;
 
 export type LiveData =
-  | { kind: "record"; record: RecordView; collection: CollectionView }
+  | {
+      kind: "record";
+      record: RecordView;
+      collection: CollectionView;
+      /** The space it's in (null: the person's own): ticks and Open go there. */
+      space: string | null;
+    }
   | { kind: "card"; card: HomeCard; more: boolean }
   /** An answer worked out by the space; it can be pinned to the home. */
   | { kind: "answer"; card: HomeCard; ref: Extract<LiveRef, { kind: "query" }> }
@@ -72,7 +78,7 @@ export async function loadLive(
       const record = await request<RecordView>("GET", `/api/records/${enc(ref.record_id)}${inSpace}`);
       const collection = await listOf(record.collection_id);
       if (!collection) throw new Error("That list is gone");
-      return { kind: "record", record, collection };
+      return { kind: "record", record, collection, space };
     }
     case "list": {
       const [result, collection] = await Promise.all([
