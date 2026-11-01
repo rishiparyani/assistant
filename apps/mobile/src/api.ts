@@ -76,24 +76,39 @@ export async function request<T>(
   // after 150 s, as if offline, so the screen says so and a write waits in the outbox.
   const stop = new AbortController();
   const limit = setTimeout(() => stop.abort(), method === "GET" ? 30_000 : 150_000);
-  try {
-    res = await fetch(API_URL + path, {
-      method,
-      headers,
-      credentials,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: stop.signal,
-    });
-  } catch {
+  const cutOff = () => {
     // Failed after a switch: not "offline" (that would queue it again as the account now open).
-    if (account && openAccountId() !== account) throw switchedAway();
-    throw stop.signal.aborted
+    if (account && openAccountId() !== account) return switchedAway();
+    return stop.signal.aborted
       ? new ApiError(0, "timeout", "This is taking too long. Check the connection and try again.")
       : new ApiError(0, "offline", "You're offline. This needs a connection.");
+  };
+  let data: T | ApiErrorBody | null;
+  // The deadline covers the answer's body too: headers can come and the body stall (Codex on
+  // PR 223).
+  try {
+    try {
+      res = await fetch(API_URL + path, {
+        method,
+        headers,
+        credentials,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: stop.signal,
+      });
+    } catch {
+      throw cutOff();
+    }
+    data =
+      res.status === 204
+        ? null
+        : ((await res.json().catch(() => {
+            // Cut off while reading: the same as never answering. Otherwise not JSON.
+            if (stop.signal.aborted) throw cutOff();
+            return null;
+          })) as T | ApiErrorBody | null);
   } finally {
     clearTimeout(limit);
   }
-  const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | ApiErrorBody | null);
   if (account && openAccountId() !== account)
     // Not "offline" (which would queue it again, as the account now open): dropped for good.
     throw switchedAway();
@@ -102,10 +117,17 @@ export async function request<T>(
     const err = (data as ApiErrorBody | null)?.error;
     if ((err?.details as { account_changed?: boolean } | undefined)?.account_changed) onOtherAccount?.();
     // The rehearsal this phone was playing in has ended (from another device, or the chat):
-    // leave it, and make the call again as yourself, instead of every screen failing.
+    // leave it, and read again as yourself, instead of every screen failing. A change made in
+    // the rehearsal is never made on the real thing (Codex on PR 223): it is refused.
     if (as && (err?.details as { practice_gone?: boolean } | undefined)?.practice_gone) {
       leavePractice();
-      return request<T>(method, path, body, key, { ...opts, practice: null });
+      if (method === "GET") return request<T>(method, path, body, key, { ...opts, practice: null });
+      throw new ApiError(
+        res.status,
+        "practice_gone",
+        "That practice has ended, so this change wasn't made.",
+        err?.details,
+      );
     }
     throw new ApiError(
       res.status,
