@@ -3,7 +3,7 @@ import type { ApiErrorBody } from "@assistant/shared";
 import { Platform } from "react-native";
 import { API_URL } from "./config.ts";
 import { cookieHeader } from "./auth.ts";
-import { practiceHeader, type PracticeAs } from "./practice-mode.ts";
+import { leavePractice, practiceHeader, type PracticeAs } from "./practice-mode.ts";
 import { openAccountId } from "./storage.ts";
 
 export class ApiError extends Error {
@@ -71,17 +71,27 @@ export async function request<T>(
   // switch to another account is dropped, so nothing of one account is saved in another's copy.
   const account = openAccountId();
   let res: Response;
+  // A call that never answers ends (owner, 2026-11-01: a flow's page stayed on "Loading…", even
+  // after a restart): a read gives up after 30 s, a write (an assistant turn runs up to 90 s)
+  // after 150 s, as if offline, so the screen says so and a write waits in the outbox.
+  const stop = new AbortController();
+  const limit = setTimeout(() => stop.abort(), method === "GET" ? 30_000 : 150_000);
   try {
     res = await fetch(API_URL + path, {
       method,
       headers,
       credentials,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: stop.signal,
     });
   } catch {
     // Failed after a switch: not "offline" (that would queue it again as the account now open).
     if (account && openAccountId() !== account) throw switchedAway();
-    throw new ApiError(0, "offline", "You're offline. This needs a connection.");
+    throw stop.signal.aborted
+      ? new ApiError(0, "timeout", "This is taking too long. Check the connection and try again.")
+      : new ApiError(0, "offline", "You're offline. This needs a connection.");
+  } finally {
+    clearTimeout(limit);
   }
   const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | ApiErrorBody | null);
   if (account && openAccountId() !== account)
@@ -91,6 +101,12 @@ export async function request<T>(
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
     if ((err?.details as { account_changed?: boolean } | undefined)?.account_changed) onOtherAccount?.();
+    // The rehearsal this phone was playing in has ended (from another device, or the chat):
+    // leave it, and make the call again as yourself, instead of every screen failing.
+    if (as && (err?.details as { practice_gone?: boolean } | undefined)?.practice_gone) {
+      leavePractice();
+      return request<T>(method, path, body, key, { ...opts, practice: null });
+    }
     throw new ApiError(
       res.status,
       err?.code ?? "request_failed",
