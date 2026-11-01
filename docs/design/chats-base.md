@@ -20,7 +20,7 @@ What people see is **chats**, like WhatsApp: a group chat holds its own lists, f
 1. **A group chat is the container.** Its lists, flows and people live in its info screen (tap the group's name), like WhatsApp's group info: **Boards · Lists · People** (flows show under the list they work on), plus the group's settings. The assistant, asked from the group, works on the group's lists.
 2. **Your chat with the assistant is your own place.** Its info screen has your own lists (expenses, reminders, notes) and flows. It replaces "Personal".
 3. **A community joins chats that share lists.** For a society: a committee chat, a residents chat and a guards chat, all on the same Visits and Dues lists, each person only in their chats. Its info screen has the shared lists, flows and everyone, with roles. A community appears on Chats as one row that opens to its chats (like WhatsApp communities). Only groups that need it ever see one.
-4. **One-to-one chats** stay chats; they can have a list too (a chat that gets a list works like a small group).
+4. **One-to-one chats** are groups of two (owner, 2026-11-01): their own lists, boards and topics, and the same info screen.
 5. **Who sees what is unchanged**: roles (owner, can change, can see), people reached by a shared link or form, a row seen only by its own flat, all as today.
 6. **Who talks to the assistant is unchanged** (decision 2026-10-30 "Who talks to the assistant"): whoever has it uses it in every chat and community they're in, as themselves; whoever doesn't, can't.
 
@@ -81,10 +81,10 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 6. The library retired (its jobs: search and the assistant); the old site's pages moved into the app.
 7. Connectors: Connections with Add by link (any remote MCP), per-person sign-in, tools offered when needed, action cards, group orders.
 
-## Open questions for the owner
+## Answered by the owner (2026-11-01)
 
-- A community's name on Chats: the community's name ("Green Park Society") with its chats inside, as WhatsApp does? (Proposed: yes.)
-- Should a one-to-one chat be allowed to hold lists, or only groups? (Proposed: yes, like a small group.)
+- **A community shows on Chats as one row under its own name** ("Green Park Society") that opens to its chats and its info, as WhatsApp does (the owner: "Go with your recommendation"). Only people whose chats share lists ever see one.
+- **A one-to-one chat holds lists like any group** (the owner: "One to one are just groups of 2 basically"): its own lists, boards and topics, and the same info screen (Boards · Lists · People).
 
 ## Mock-up
 
