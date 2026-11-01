@@ -756,8 +756,17 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           ListFooterComponent={
             busy && view?.items.length ? (
               <View style={{ gap: 4 }}>
+                {/* The words above the cards, as the finished reply has them (wordsFirst): nothing
+                    swaps places when it's done (owner, 2026-11-01: the text "all of a sudden"
+                    appeared above the cards). Before any words, the dots wait under the cards. */}
+                {draft?.text ? (
+                  <Animated.View entering={FadeIn.duration(motion.fade)} style={s.reply}>
+                    {/* The words so far, with a mark where the next ones land. */}
+                    <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
+                  </Animated.View>
+                ) : null}
                 {/* Cards and questions as they're made: a full-width column of their own, never
-                    in the thinking row (Codex on PR 187). */}
+                    in the thinking row (Codex on PR 187); shown, not yet to tap, until saved. */}
                 {draftItems.map((item) => (
                   <View key={item.id} style={{ opacity: 0.85, alignSelf: "stretch" }}>
                     <Bubble
@@ -770,27 +779,21 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
                     />
                   </View>
                 ))}
-                <Animated.View
-                  entering={FadeIn.duration(motion.fade)}
-                  style={draft?.text ? s.reply : s.thinking}
-                >
-                  {draft?.text ? (
-                    // The words so far, with a mark where the next ones land.
-                    <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
-                  ) : (
+                {draft?.text ? null : (
+                  <Animated.View entering={FadeIn.duration(motion.fade)} style={s.thinking}>
                     <ThinkingDots />
-                  )}
-                  {status && !draft?.text ? (
-                    <Animated.Text
-                      key={status}
-                      entering={FadeIn.duration(motion.fade)}
-                      style={[type.caption, { color: t.fg2 }]}
-                      accessibilityLiveRegion="polite"
-                    >
-                      {status}
-                    </Animated.Text>
-                  ) : null}
-                </Animated.View>
+                    {status ? (
+                      <Animated.Text
+                        key={status}
+                        entering={FadeIn.duration(motion.fade)}
+                        style={[type.caption, { color: t.fg2 }]}
+                        accessibilityLiveRegion="polite"
+                      >
+                        {status}
+                      </Animated.Text>
+                    ) : null}
+                  </Animated.View>
+                )}
               </View>
             ) : null
           }
