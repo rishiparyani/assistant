@@ -118,6 +118,8 @@ const MIGRATIONS: Migrations = [
   `alter table messages add column choices_json text;`,
   // A workflow card draws its diagram (owner, 2026-10-25): the workflow as it would be made.
   `alter table actions add column flow_json text;`,
+  // Waiting cards by kind: a card proposed again puts the same one aside (rule 12).
+  `create index actions_waiting_idx on actions (status, tool);`,
 ];
 
 export type ConnectorRow = {
@@ -570,6 +572,14 @@ export class ChatObject extends DurableObject<Env> {
   ): Promise<string> {
     this.own(userId);
     const id = ulid();
+    // The same card again (asked twice, or "try again" while the first still waits): the new one
+    // stands and the old one is put aside, so Confirm all can't do it twice (owner, 2026-11-01:
+    // two "Make a space" cards, and the second failed).
+    this.sql.exec(
+      `update actions set status = 'cancelled' where status = 'waiting' and tool = ? and args_json = ?`,
+      a.tool,
+      JSON.stringify(a.args),
+    );
     this.sql.exec(
       `insert into actions (id, tool, args_json, title, details_json, flow_json, status, created_at, expires_at) values (?, ?, ?, ?, ?, ?, 'waiting', ?, ?)`,
       id,

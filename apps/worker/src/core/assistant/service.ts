@@ -1705,6 +1705,21 @@ async function runTool(
         args = { ...args, people: people.map((p) => p.user_id) };
         shown = { ...args, people: people.map((p) => p.name) };
       }
+      // A space that's already there: the model hears so now and works in it, instead of a card
+      // that can only fail after the tap (owner, 2026-11-01: "it was trying to make a society
+      // space… even when it had been created").
+      if (name === "new_space" && typeof args.name === "string") {
+        const want = args.name.trim().toLowerCase();
+        const have = (await mySpaces(ctx)).find((sp) => sp.name.trim().toLowerCase() === want);
+        if (have)
+          return {
+            kind: "error",
+            code: "conflict",
+            text: JSON.stringify({
+              error: `There's already a space called “${have.name}”: use it (pass space: “${have.name}”); don't make it again`,
+            }),
+          };
+      }
       let card: Extract<ToolResult, { kind: "card" }>["card"] = {
         tool: name,
         args,
