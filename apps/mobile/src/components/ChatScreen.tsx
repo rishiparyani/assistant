@@ -220,6 +220,11 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const openId = useRef<string | null>(null);
   const opening = useRef(0);
   const sendSeq = useRef(0);
+  // Sends whose answer was found on the server while they waited: they need no queueing.
+  const recovered = useRef(new Set<number>());
+  // Moves on with every change to what the chat shows other than a refresh (an open, a send, a
+  // confirm): a refresh asked before it is older than the screen and isn't shown (Codex on PR 223).
+  const viewGen = useRef(0);
   const [atEnd, setAtEnd] = useState(false);
   const toBottom = (animated = true) => {
     pinned.current = true;
@@ -366,6 +371,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       setAtEnd(false);
       lastSent.current = null;
       sendSeq.current++;
+      viewGen.current++;
       setBusy(false);
       const path = which
         ? `/api/chats/${which}`
@@ -412,7 +418,9 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           );
           if (at < 0 || !v.items.slice(at + 1).some((i) => i.role !== "user")) return;
           // The send still waiting is retired: whatever it brings back later changes nothing.
+          recovered.current.add(sent.seq);
           sendSeq.current++;
+          viewGen.current++;
           lastSent.current = null;
           setView(v);
           setBusy(false);
@@ -435,10 +443,12 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const refresh = useCallback(() => {
     if (!chatId) return;
     const id = chatId;
+    const gen = viewGen.current;
     request<ChatView>("GET", `/api/chats/${id}`)
       .then((v) => {
-        // Another chat opened meanwhile: this one's answer isn't shown over it.
-        if (openId.current !== id) return;
+        // Another chat opened, or a send or confirm changed the chat, meanwhile: this older
+        // copy isn't shown over it.
+        if (openId.current !== id || gen !== viewGen.current) return;
         setView(v);
         setNote("");
       })
@@ -481,6 +491,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         id: ulid(),
         ...(inSpace ? { space: inSpace } : {}),
       });
+      viewGen.current++;
       setChatId(v.id);
       setView(v);
       setChanged([]);
@@ -516,6 +527,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     toBottom();
     // This send, and its key, kept here: a later send (or a recovered answer) doesn't change them.
     const seq = ++sendSeq.current;
+    viewGen.current++;
     const key = newKey();
     const toChat = chatId;
     lastSent.current = { text: msg, known: new Set((view?.items ?? []).map((i) => i.id)), seq };
@@ -529,6 +541,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       const next = await request<ChatView>("POST", `/api/chats/${toChat}`, { text: msg, model: pick }, key);
       // Retired (the answer was found while this waited, or another chat opened): nothing more.
       if (seq !== sendSeq.current) return;
+      viewGen.current++;
       if (streamed.current) {
         const had = new Set((view?.items ?? []).map((i) => i.id));
         for (const i of next.items) if (!had.has(i.id) && i.role !== "user") quiet.current.add(i.id);
@@ -545,8 +558,9 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         .then((items) => setChanged(items.filter((i) => i.at >= sentAt && i.by === "you" && i.undoable)))
         .catch(() => undefined);
     } catch (e) {
-      if (seq !== sendSeq.current) return;
-      if (isOffline(e)) {
+      // Cut off: it is queued under its own key and chat even if another chat is open now (it
+      // must not be lost), unless its answer was already found on the server.
+      if (isOffline(e) && !recovered.current.has(seq))
         send({
           // The same key as the try that was cut off: if it did reach the server, the server
           // answers it once, not twice (rule 8).
@@ -557,6 +571,9 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           body: { text: msg, model: pick },
           label: "Message to the assistant",
         });
+      recovered.current.delete(seq);
+      if (seq !== sendSeq.current) return;
+      if (isOffline(e)) {
         setNote("Waiting to send: it goes when you're back online.");
       } else setNote(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -581,6 +598,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const answer = async (actionId: string, what: "confirm" | "cancel", args?: Record<string, unknown>) => {
     if (busy) return;
     setBusy(true);
+    viewGen.current++;
     try {
       setView(
         await request<ChatView>(
@@ -589,6 +607,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           args ? { args } : {},
         ),
       );
+      viewGen.current++;
       setEditing(null);
       setNote("");
       if (!waiting.some((w) => w.card!.action_id !== actionId)) toEnd();
@@ -605,6 +624,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const confirmAll = async () => {
     if (busy || !waiting.length) return;
     setBusy(true);
+    viewGen.current++;
     try {
       for (const w of waiting) {
         const id = w.card!.action_id;
@@ -614,6 +634,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           {},
         );
         setView(next);
+        viewGen.current++;
         // A card that couldn't be done comes back marked "failed" (not as an error): the ones
         // after it may need it, so they wait.
         if (next.items.find((i) => i.card?.action_id === id)?.card?.status !== "done") break;

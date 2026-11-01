@@ -116,3 +116,45 @@ test("an answer whose wait was dropped still shows", async ({ browser }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await context.close();
 });
+
+test("a message cut off after you open another chat still goes", async ({ browser }) => {
+  // Codex on PR 223: switching chats mid-send dropped the message instead of queueing it.
+  const me = await owner();
+  const { id } = (await api(me)("POST", "/chats", {})) as { id: string };
+  const other = (await api(me)("POST", "/chats", {})) as { id: string };
+  await api(me)("POST", `/chats/${other.id}`, { text: `E2E other chat ${RUN}` });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/chat?id=${id}`);
+  await expect(page.getByLabel("Message Gigspree")).toBeVisible();
+  // The send hangs, as on a connection that drops.
+  let held: import("@playwright/test").Route | null = null;
+  await page.route(`**/api/chats/${id}`, (route) => {
+    // Only the first try hangs; the outbox's later try goes through.
+    if (route.request().method() !== "POST" || held) return route.continue();
+    held = route;
+  });
+  await page.getByLabel("Message Gigspree").fill(`E2E cut off ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => held !== null).toBe(true);
+  // Another chat opened meanwhile, then the connection gives up on the first send.
+  await page.getByRole("button", { name: "Chats", exact: true }).click();
+  await page
+    .getByRole("button", { name: new RegExp(`E2E other chat ${RUN}`) })
+    .first()
+    .click();
+  await expect(page.getByText(`E2E other chat ${RUN}`).last()).toBeVisible();
+  await held!.abort("internetdisconnected");
+  // It waits in the outbox and goes: the first chat has it, answered, on the server.
+  await expect
+    .poll(
+      async () => {
+        const chat = (await api(me)("GET", `/chats/${id}`)) as { items: { role: string; text: string }[] };
+        const at = chat.items.findIndex((i) => i.role === "user" && i.text === `E2E cut off ${RUN}`);
+        return at >= 0 && chat.items.slice(at + 1).some((i) => i.role !== "user");
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true);
+  expect(errors).toEqual([]);
+  await context.close();
+});
