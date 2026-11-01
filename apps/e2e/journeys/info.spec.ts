@@ -27,6 +27,10 @@ for (const direct of [false, true]) {
       fields: [{ name: "Title", type: "text" }],
     });
 
+    await api(friend)("POST", `/groups/${g.id}/messages`, { text: `E2E hello ${RUN}` });
+    const unread = async () =>
+      ((await api(me)("GET", "/groups")) as { id: string; unread: number }[]).find((x) => x.id === g.id)!
+        .unread;
     const { page, errors, context } = await openApp(browser, me);
     // On Chats: the chat's own row with its list as a chip, not a separate tile.
     const row = page.getByRole("button", { name: new RegExp(`lists: ${list}`) });
@@ -35,6 +39,15 @@ for (const direct of [false, true]) {
     const tile = direct ? "Chat" : `E2E Flat ${RUN}`;
     await expect(page.getByRole("button", { name: new RegExp(`^${tile}, space`) })).toHaveCount(0);
     await expectNoSideways(page);
+
+    // Opened straight to its info: the lists show, and the friend's message stays unread
+    // (Codex on PR 222: the info marked General read).
+    await page.goto(`/info?id=${g.id}`);
+    await expect(page.getByRole("button", { name: `List: ${list}` })).toBeVisible();
+    await page.waitForLoadState("networkidle");
+    expect(await unread()).toBe(1);
+    // A group can start another chat over the same lists from here (Codex on PR 222).
+    await expect(page.getByRole("button", { name: /New chat over these lists/ })).toHaveCount(direct ? 0 : 1);
 
     await openChat(page, g.id);
     await page.getByRole("button", { name: "Chat info" }).click();

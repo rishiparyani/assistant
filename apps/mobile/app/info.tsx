@@ -8,7 +8,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-n
 import { Text, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { WorkflowView } from "@assistant/shared";
+import type { SpacePerson, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { useChat } from "@/chats";
 import { onHomeChanged } from "@/home";
@@ -19,6 +19,7 @@ import { colourFor, useTheme } from "@/theme";
 import { loadToday, savedToday, type Today } from "@/today";
 import { Avatar } from "@/components/ChatBits";
 import { PeopleSheet } from "@/components/PeopleSheet";
+import { SpaceNewChat } from "@/components/SpaceNewChat";
 
 const enc = encodeURIComponent;
 
@@ -29,27 +30,40 @@ export default function ChatInfo() {
   const { me } = useSession();
   const userId = me?.user.id ?? null;
   const { id = "" } = useLocalSearchParams<{ id: string }>();
-  const { chat, reload } = useChat(id);
+  // Its messages aren't shown here, so opening the info marks nothing read (Codex on PR 222).
+  const { chat, reload } = useChat(id, undefined, undefined, { read: false });
   const space = chat?.space_id ?? null;
   const [today, setToday] = useState<Today | null>(() => (userId ? savedToday(userId) : null));
   // The same kept copy as a space's page (one list of flows per space on the phone).
   const flowsKey = space ? `gigspree:space:${space}:workflows` : "";
   const [flows, setFlows] = useState<WorkflowView[] | null>(() => (flowsKey ? readJson(flowsKey) : null));
+  // The home's people (for a new chat over the same lists), kept like a space's page keeps them.
+  const peopleKey = space ? `gigspree:space:${space}:people` : "";
+  const [homePeople, setHomePeople] = useState<SpacePerson[] | null>(() =>
+    peopleKey ? readJson(peopleKey) : null,
+  );
+  const [starting, setStarting] = useState(false);
   const [note, setNote] = useState("");
   const [people, setPeople] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (flowsKey) setFlows(readJson(flowsKey));
-  }, [flowsKey]);
+    if (peopleKey) setHomePeople(readJson(peopleKey));
+  }, [flowsKey, peopleKey]);
 
   const load = useCallback(async () => {
     if (!userId) return;
     try {
-      const [fresh, wf] = await Promise.all([
+      const [fresh, wf, ps] = await Promise.all([
         loadToday(userId),
         space ? request<WorkflowView[]>("GET", `/api/workflows?space=${enc(space)}`) : Promise.resolve(null),
+        space ? request<SpacePerson[]>("GET", `/api/spaces/${enc(space)}/people`) : Promise.resolve(null),
       ]);
+      if (ps && peopleKey) {
+        setHomePeople(ps);
+        writeJson(peopleKey, ps);
+      }
       setToday(fresh);
       if (wf && flowsKey) {
         setFlows(wf);
@@ -61,7 +75,7 @@ export default function ChatInfo() {
         isOffline(e) ? "Offline: showing what this phone saved." : e instanceof Error ? e.message : String(e),
       );
     }
-  }, [userId, space, flowsKey]);
+  }, [userId, space, flowsKey, peopleKey]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -218,6 +232,19 @@ export default function ChatInfo() {
             </Pressable>
           ) : null}
 
+          {/* Another chat over the same lists: for everyone, or a private one for some (chats-home.md 6). */}
+          {chat && space && !chat.direct && homePeople ? (
+            <Pressable accessibilityRole="button" onPress={() => setStarting(true)} style={rowStyle}>
+              <View style={[s.dot, { backgroundColor: t.fg3 }]} />
+              <View style={s.words}>
+                <Text style={[s.rowTitle, { color: t.accent }]}>New chat over these lists</Text>
+                <Text style={[s.rowSub, { color: t.fg2 }]} numberOfLines={1}>
+                  For everyone, or a private one for some people
+                </Text>
+              </View>
+            </Pressable>
+          ) : null}
+
           {section("People", chat ? String(chat.members.length) : undefined)}
           {chat
             ? [...chat.members]
@@ -254,6 +281,18 @@ export default function ChatInfo() {
           ) : null}
         </ScrollView>
       </View>
+      {chat && space && !chat.direct && homePeople ? (
+        <SpaceNewChat
+          open={starting}
+          space={{ id: space, name }}
+          people={homePeople.filter((p) => p.role !== "shared" && p.user_id !== userId)}
+          onClose={() => setStarting(false)}
+          onMade={(chatId) => {
+            setStarting(false);
+            router.push({ pathname: "/talk", params: { id: chatId } });
+          }}
+        />
+      ) : null}
       {chat ? (
         <PeopleSheet
           chat={chat}
