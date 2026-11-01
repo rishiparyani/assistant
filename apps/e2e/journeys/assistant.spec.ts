@@ -62,3 +62,27 @@ test("a message sent offline is answered on screen once it goes", async ({ brows
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("what's made in another space shows in the chat, not as gone", async ({ browser }) => {
+  // Owner, 2026-11-01: flows made in "Society gate" from his own chat showed "This one is gone now".
+  const me = await owner();
+  // The same space on every run (a person has up to 20).
+  const spaces = (await api(me)("GET", "/spaces")) as { id: string; name: string }[];
+  const band =
+    spaces.find((s) => s.name === "Test band") ??
+    ((await api(me)("POST", "/spaces", { name: "Test band" })) as { id: string });
+  await api(me)("POST", "/collections", {
+    space: band.id,
+    name: "Notes",
+    fields: [{ name: "Title", type: "text" }],
+  }).catch(() => undefined);
+  const { id } = (await api(me)("POST", "/chats", {})) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/chat?id=${id}`);
+  await page.getByLabel("Message Gigspree").fill("Test: note in the band");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Test bring cables").last()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("This one is gone now.")).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});

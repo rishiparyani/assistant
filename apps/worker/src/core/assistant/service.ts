@@ -987,6 +987,22 @@ const MAX_LIVE = 3;
  * added, changed or read, or the list a find or a saved view returned. Facts from the tool
  * and its result only; never from what the person wrote.
  */
+/**
+ * A live card made in another space than the chat's (the model passed `space`): it carries that
+ * space's id, so the app reads it from there (owner, 2026-11-01: a flow made in “Society gate”
+ * from his own chat showed “This one is gone now”).
+ */
+async function liveIn(ctx: OpUserCtx, live: LiveRef | null, space: unknown): Promise<LiveRef | null> {
+  if (!live || typeof space !== "string" || !space.trim()) return live;
+  if (!["record", "list", "view", "workflow", "setup"].includes(live.kind)) return live;
+  try {
+    const { space: sp } = await spaceOf(ctx, space);
+    return sp.kind === "personal" ? live : ({ ...live, space: sp.id } as LiveRef);
+  } catch {
+    return live;
+  }
+}
+
 function liveFrom(
   tool: string,
   args: Record<string, unknown>,
@@ -1788,7 +1804,7 @@ async function runTool(
     return {
       kind: "ran",
       text: text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}…(cut)` : text,
-      live: liveFrom(name, args, result, cols, op),
+      live: await liveIn(ctx, liveFrom(name, args, result, cols, op), args.space),
     };
   } catch (e) {
     return { kind: "error", code: errorCode(e), text: errorText(e) };
@@ -1959,7 +1975,7 @@ export async function confirmAction(
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;
-    live = liveFrom(a.tool, {}, result, [], op);
+    live = await liveIn(ctx, liveFrom(a.tool, {}, result, [], op), args.space);
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool, `card:${a.id}`));
     note = `Done: ${a.title}.`;

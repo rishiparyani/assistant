@@ -40,14 +40,27 @@ export type LiveData =
       lists: CollectionView[];
       views: { id: string; name: string; collection_id: string; pinned: boolean }[];
       rules: number;
+      /** The space its lists are in (null: the person's own). */
+      space: string | null;
     };
 
 export async function loadLive(
   ref: LiveRef,
   collections: (fresh?: boolean) => Promise<CollectionView[]>,
   /** The space of the chat it's in (null: the person's own): its lists live there. */
-  space: string | null = null,
+  chatSpace: string | null = null,
 ): Promise<LiveData> {
+  // Made in another space than the chat's (a flow made in "Society gate" from the person's own
+  // chat): it's read from there, with that space's lists (owner, 2026-11-01: "This one is gone now").
+  const own = "space" in ref && typeof ref.space === "string" ? ref.space : null;
+  const space = own ?? chatSpace;
+  if (own && own !== chatSpace) {
+    let theirs: Promise<CollectionView[]> | null = null;
+    collections = (fresh?: boolean) => {
+      if (fresh || !theirs) theirs = request<CollectionView[]>("GET", `/api/collections?space=${enc(own)}`);
+      return theirs;
+    };
+  }
   const inSpace = space ? `?space=${enc(space)}` : "";
   const spaceBody = space ? { space } : {};
   // A list made in this chat after the copy of the lists was taken (a setup just confirmed)
@@ -133,7 +146,7 @@ export async function loadLive(
       const now = await collections(true);
       const lists = ref.collections.flatMap((c) => now.filter((x) => x.id === c.id));
       if (!lists.length) throw new Error("That setup is gone");
-      return { kind: "setup", lists, views: ref.views, rules: ref.rules };
+      return { kind: "setup", lists, views: ref.views, rules: ref.rules, space };
     }
     // Drawn by its own player (UiCard), never loaded here.
     case "ui":

@@ -491,7 +491,8 @@ function SetupMadeCard({
 }) {
   const { t, colour, cardTint } = useTheme();
   const router = useRouter();
-  const inSpace = space ? { space } : {};
+  const where = data.space ?? space;
+  const inSpace = where ? { space: where } : {};
   const first = data.lists[0]!;
   const onHome = data.views.filter((v) => v.pinned && data.lists.some((l) => l.id === v.collection_id));
   const n = data.lists.length;

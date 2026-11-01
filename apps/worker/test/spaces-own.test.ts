@@ -133,4 +133,21 @@ describe("spaces of one's own", () => {
     const personal = await json<SpaceSettings>(await call("/api/spaces/Personal", { cookie: me.cookie }));
     expect(personal.instructions).toBe("");
   });
+
+  it("shows what was made in another space from that space", async () => {
+    // Owner, 2026-11-01: flows made in “Society gate” from his own chat showed “This one is
+    // gone now”, read from his own space. The live card carries the space it was made in.
+    const me = await signUp("Test Owner");
+    const band = await json<SpaceView>(
+      await call("/api/spaces", { cookie: me.cookie, body: { name: "Test band" } }),
+    );
+    await call("/api/collections", {
+      cookie: me.cookie,
+      body: { space: band.id, name: "Notes", fields: [{ name: "Title", type: "text" }] },
+    });
+    const main = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    const said = await sayIn(me, main.id, "Test: note in the band");
+    const live = said.items.find((i) => i.role === "live")?.live;
+    expect(live).toMatchObject({ kind: "record", space: band.id });
+  });
 });

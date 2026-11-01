@@ -75,6 +75,13 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     const titles = [...text.matchAll(/due today: ([^;\n]+)/g)].map((m) => m[1]!);
     return say(titles.length ? `Test: ${titles.join(" and ")} is due today.` : "NOTHING");
   }
+  // "Test: note in the band": a record added in another space than the chat's.
+  if (lastUser === "Test: note in the band")
+    return call("add_record", {
+      collection: "Notes",
+      space: "Test band",
+      values: { Title: "Test bring cables" },
+    });
   // A space was just made (the app's own prompt): what was planned for it comes next.
   if (/^The space “.*” now exists\./.test(lastUser)) return say("Test: next, the lists in it.");
   // After a setup is saved (the app's own prompt): how to use it, two messages to try, the
