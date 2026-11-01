@@ -412,6 +412,8 @@ export default function Talk() {
                     editable={!shownTopic?.closed}
                     placeholderTextColor={t.fg3}
                     multiline
+                    // Grows a line at a time, then scrolls inside (owner, 2026-11-01).
+                    grow={180}
                     maxLength={2000}
                     accessibilityLabel="Message"
                     style={[s.input, { color: t.fg }]}
@@ -600,7 +602,7 @@ const s = StyleSheet.create({
     paddingRight: 7,
     paddingVertical: 7,
   },
-  input: { flex: 1, fontSize: 16, maxHeight: 120, paddingTop: 6, paddingBottom: 6 },
+  input: { flex: 1, fontSize: 16, lineHeight: 22, paddingTop: 6, paddingBottom: 6 },
   gsAvatar: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   gsAvatarText: { fontSize: 11, fontWeight: "800", fontStyle: "italic" },
   gs: { height: 36, paddingHorizontal: 10, borderRadius: 18, alignItems: "center", justifyContent: "center" },

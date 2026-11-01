@@ -69,8 +69,15 @@ export const TextInput = forwardRef<
      * home's bar (they send) leave it out.
      */
     doneBar?: boolean;
+    /**
+     * Grows with what's written, a line at a time, up to this many points tall, then scrolls
+     * inside (owner, 2026-11-01: "I can see only one at a time… make it behave more like
+     * Claude"). Measured by an unseen copy of the text in the same type and width, so it works
+     * the same on the iPhone, Android and the web (the iPhone's own sizing kept one line).
+     */
+    grow?: number;
   }
->(function TextInput({ value, defaultValue, onChangeText, autoFocus, doneBar, ...props }, ref) {
+>(function TextInput({ value, defaultValue, onChangeText, autoFocus, doneBar, grow, ...props }, ref) {
   const face = faceOf(props.style);
   const { t } = useTheme();
   const barId = `done-${useId()}`;
@@ -80,10 +87,14 @@ export const TextInput = forwardRef<
   // What the box shows now, and whether a change came from it (this turn), not from the app.
   const shown = useRef(boot.text);
   const fromBox = useRef(false);
+  // A growing box: the words it holds now, and how tall they are in its type and width.
+  const [words, setWords] = useState(boot.text);
+  const [tall, setTall] = useState(0);
   useLayoutEffect(() => {
     if (value === undefined || value === shown.current) return;
     if (fromBox.current) return;
     shown.current = value;
+    if (grow) setWords(value);
     if (value === "" && inner.current) inner.current.clear();
     else setBoot((b) => ({ key: b.key + 1, text: value, focus: inner.current?.isFocused() ?? false }));
   }, [value]);
@@ -107,15 +118,33 @@ export const TextInput = forwardRef<
         setTimeout(() => {
           fromBox.current = false;
         }, 0);
+        if (grow) setWords(t);
         onChangeText?.(t);
       }}
-      style={face ? [props.style, face] : props.style}
+      style={grow ? [innerOf(props.style), face, sized(props.style, tall, grow)] : [props.style, face]}
     />
   );
-  if (!withBar) return box;
+  const field = grow ? (
+    <View style={outerOf(props.style)}>
+      {/* The unseen copy: same type, padding and width, any height. A last empty line counts. */}
+      <RNText
+        aria-hidden
+        importantForAccessibility="no-hide-descendants"
+        pointerEvents="none"
+        onLayout={(e) => setTall(e.nativeEvent.layout.height)}
+        style={[mirrorOf(props.style), face, s.mirror]}
+      >
+        {words.endsWith("\n") || !words ? `${words} ` : words}
+      </RNText>
+      {box}
+    </View>
+  ) : (
+    box
+  );
+  if (!withBar) return field;
   return (
     <>
-      {box}
+      {field}
       {/* No strip of its own (owner, 2026-10-28: "can we make it a little smoother and blend"):
           a small floating pill over whatever is behind, above the keyboard's own glass. */}
       <InputAccessoryView nativeID={barId} backgroundColor="transparent">
@@ -143,7 +172,56 @@ export const TextInput = forwardRef<
   );
 });
 
+const LAYOUT = ["flex", "flexGrow", "flexShrink", "flexBasis", "alignSelf"] as const;
+const OUTSIDE = [
+  "margin",
+  "marginTop",
+  "marginBottom",
+  "marginLeft",
+  "marginRight",
+  "marginHorizontal",
+  "marginVertical",
+];
+
+/** A growing box's place in its row or column (the box itself goes inside it). */
+function outerOf(style: TextInputProps["style"]) {
+  const flat = (StyleSheet.flatten(style) ?? {}) as Record<string, unknown>;
+  const out: Record<string, unknown> = { minWidth: 0 };
+  for (const k of [...LAYOUT, ...OUTSIDE]) if (flat[k] !== undefined) out[k] = flat[k];
+  return out;
+}
+/** A growing box's own look: its place goes to the wrapper (`outerOf`). */
+function innerOf(style: TextInputProps["style"]) {
+  const flat = { ...((StyleSheet.flatten(style) ?? {}) as Record<string, unknown>) };
+  for (const k of [...LAYOUT, ...OUTSIDE]) delete flat[k];
+  // No focus ring on the web: inlined, a width of 0 alone still drew the browser's own ring.
+  if (flat.outlineWidth === 0) flat.outlineStyle = "none";
+  return flat as TextStyle;
+}
+/** The copy's look: the box's type and padding, without its size or place. */
+function mirrorOf(style: TextInputProps["style"]) {
+  const flat = { ...((StyleSheet.flatten(style) ?? {}) as Record<string, unknown>) };
+  for (const k of [...LAYOUT, ...OUTSIDE, "height", "minHeight", "maxHeight", "width", "outlineWidth"])
+    delete flat[k];
+  return flat as TextStyle;
+}
+/** The box's height: what the words need, from its least to `max` (then it scrolls). */
+function sized(style: TextInputProps["style"], tall: number, max: number) {
+  const flat = (StyleSheet.flatten(style) ?? {}) as TextStyle;
+  const least = typeof flat.minHeight === "number" ? flat.minHeight : 0;
+  return {
+    // Before the copy is measured (its first frame) the box keeps its own size.
+    ...(tall > 0 ? { height: Math.max(least, Math.min(max, Math.ceil(tall))) } : null),
+    maxHeight: max,
+    // Its own height, not squeezed by the wrapper (the web's flex: 0 shrank it to one line).
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: "auto",
+  } as TextStyle;
+}
+
 const s = StyleSheet.create({
+  mirror: { position: "absolute", left: 0, right: 0, top: 0, opacity: 0 },
   bar: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 6 },
   done: {
     minHeight: 44,

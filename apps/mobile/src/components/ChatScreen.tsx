@@ -114,6 +114,9 @@ const SUGGEST = [
  * composer was on, or the panel beside the screen on a wide website window. `onClose` puts it
  * away; it never leaves the screen under it.
  */
+/** The message box grows to this tall (about eight lines), then scrolls inside. */
+const GROW = 180;
+
 export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: () => void }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
@@ -148,13 +151,6 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const sendAtOnce = !!ask && sendNow === "1";
   const sentAtOnce = useRef(false);
   const [text, setText] = useState(sendAtOnce ? "" : (ask ?? ""));
-  // The box's height follows what's typed (one line to about five), measured the same way on
-  // every platform rather than left to the platform's own idea of a text area.
-  const [typedHeight, setTypedHeight] = useState(0);
-  useEffect(() => {
-    // Back to one line once the box is empty (the web doesn't always report the shrink).
-    if (!text) setTypedHeight(0);
-  }, [text]);
   const [busy, setBusy] = useState(false);
   // What the assistant is doing right now (decision 2026-10-15 "Feel: the ChatGPT bar"): the
   // server says over the live socket as it thinks and runs each tool; without the socket the
@@ -890,18 +886,10 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
               returnKeyType="send"
               submitBehavior="submit"
               multiline
-              // The phone sizes a growing box itself, up to maxHeight, then it scrolls inside (an
-              // explicit height from onContentSizeChange stayed one line on the iPhone, owner
-              // 2026-10-17); the web needs its height set.
-              onContentSizeChange={
-                Platform.OS === "web" ? (e) => setTypedHeight(e.nativeEvent.contentSize.height) : undefined
-              }
-              style={[
-                s.input,
-                type.body,
-                { color: t.fg },
-                Platform.OS === "web" ? { height: Math.min(110, Math.max(22, typedHeight)) } : null,
-              ]}
+              // Grows a line at a time to about eight lines, then scrolls inside, like Claude's
+              // box (owner, 2026-11-01: it showed one line at a time on the iPhone).
+              grow={GROW}
+              style={[s.input, type.body, { color: t.fg }]}
             />
           </View>
           <Tap
@@ -1405,7 +1393,7 @@ const s = StyleSheet.create({
     maxWidth: COLUMN,
     alignSelf: "center",
   },
-  // The box grows with the message, to about five lines, then scrolls inside.
+  // The box grows with the message, to about eight lines, then scrolls inside (`GROW`).
   inputBox: {
     flex: 1,
     minHeight: 40,
@@ -1417,7 +1405,6 @@ const s = StyleSheet.create({
   },
   input: {
     minHeight: 22,
-    maxHeight: 110,
     paddingVertical: 0,
     paddingTop: 0,
     paddingBottom: 0,

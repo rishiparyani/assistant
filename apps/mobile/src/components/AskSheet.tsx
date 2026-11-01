@@ -287,6 +287,7 @@ export function AskSheet({
           placeholder="Ask about this chat or your lists…"
           placeholderTextColor={t.fg3}
           multiline
+          grow={150}
           maxLength={2000}
           accessibilityLabel="Ask your assistant"
           style={[s.input, ink]}
@@ -346,6 +347,6 @@ const s = StyleSheet.create({
     paddingRight: 7,
     paddingVertical: 7,
   },
-  input: { flex: 1, fontSize: 16, maxHeight: 110, paddingTop: 6, paddingBottom: 6 },
+  input: { flex: 1, fontSize: 16, lineHeight: 22, paddingTop: 6, paddingBottom: 6 },
   send: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
 });
