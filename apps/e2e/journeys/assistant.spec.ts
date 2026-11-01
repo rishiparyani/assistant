@@ -86,3 +86,29 @@ test("what's made in another space shows in the chat, not as gone", async ({ bro
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("an answer whose wait was dropped still shows", async ({ browser }) => {
+  // Owner, 2026-11-01: "it was thinking since a very long time". The server answers, but the
+  // phone's wait for it is gone (the app went to the back): the chat looks again and shows it.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const { id } = (await api(me)("POST", "/chats", {})) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  // As on a phone the app was put away on: no live connection to hear it from.
+  await page.routeWebSocket(/\/api\/live/, () => undefined);
+  await page.goto(`/chat?id=${id}`);
+  await expect(page.getByLabel("Message Gigspree")).toBeVisible();
+  // The message reaches the server and is answered there; its reply never reaches the page.
+  await page.route(`**/api/chats/${id}`, async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await route.fetch().catch(() => undefined);
+    await new Promise(() => undefined);
+  });
+  await page.getByLabel("Message Gigspree").fill(`E2E dropped wait ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(/\(\d\) OK/).last()).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/Still thinking|Thinking/)).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await context.close();
+});

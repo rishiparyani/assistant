@@ -376,6 +376,38 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     [space],
   );
   useEffect(() => openChat(id ?? null), [id, openChat]);
+  // The message being answered: while the answer is slow, the chat on the server is looked at
+  // now and then, and if the answer is already there (the phone dropped the wait, as when the
+  // app went to the back), it shows and the wait ends (owner, 2026-11-01: "it was thinking
+  // since a very long time").
+  const lastSent = useRef<{ text: string; before: number } | null>(null);
+  useEffect(() => {
+    if (!busy || !chatId) return;
+    const look = () =>
+      request<ChatView>("GET", `/api/chats/${chatId}`)
+        .then((v) => {
+          const sent = lastSent.current;
+          if (!sent) return;
+          const mine = v.items.flatMap((i, n) => (i.role === "user" && i.text === sent.text ? [n] : []));
+          const at = mine[sent.before];
+          if (at === undefined || !v.items.slice(at + 1).some((i) => i.role !== "user")) return;
+          setView(v);
+          setBusy(false);
+          setDraft(null);
+          setDraftItems([]);
+          setTimeout(() => toBottom(), 60);
+        })
+        .catch(() => undefined);
+    let every: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(() => {
+      void look();
+      every = setInterval(() => void look(), 15_000);
+    }, 30_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [busy, chatId]);
   // The chat as the server has it now, in place (nothing on screen is dropped first).
   const refresh = useCallback(() => {
     if (!chatId) return;
@@ -456,6 +488,12 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
     // The person's own message is what they want to see: to the bottom whatever they were reading.
     toBottom();
+    // How many times these words were already in the chat ("Try again" twice): the answer to
+    // this one is after the next one.
+    lastSent.current = {
+      text: msg,
+      before: (view?.items ?? []).filter((i) => i.role === "user" && i.text === msg).length,
+    };
     setBusy(true);
     setDraft(null);
     setDraftItems([]);

@@ -145,6 +145,8 @@ const SETUP = [
   "start_chat_home",
 ];
 const MAX_STEPS = 8;
+/** A turn stops between steps after this long (each model call has its own 30 s limit). */
+const TURN_BUDGET_MS = 90_000;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
 export const PROMPT_VERSION = "2026-11-01a";
@@ -1403,6 +1405,15 @@ async function answerMessage(
   let promptLevel: Level = level;
   const stream = streamer(ctx, chatId, requestKey);
   steps: for (let step = 0; step < MAX_STEPS; step++) {
+    // A turn that has run long stops between steps, with what's done kept (owner, 2026-11-01:
+    // "it was thinking since a very long time"): eight slow steps could take minutes.
+    if (step > 0 && Date.now() - started > TURN_BUDGET_MS) {
+      outcome = "stopped";
+      reply(
+        "This was taking too long, so I stopped here. What's done so far is kept; ask again for the rest.",
+      );
+      break;
+    }
     const { specs, allowed } = toolsFor(level, ops, connected, chatHome, others.length ? space.name : null);
     if (level !== promptLevel) {
       for (const m of turn) delete m.opaque;
