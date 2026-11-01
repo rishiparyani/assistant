@@ -158,3 +158,29 @@ test("a message cut off after you open another chat still goes", async ({ browse
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("in a chat started with New chat, a message sent offline is answered on screen", async ({ browser }) => {
+  // Codex on PR 223: after New chat, the screen still took the last chat for the open one and
+  // dropped the new one's answers.
+  const me = await owner();
+  const { id } = (await api(me)("POST", "/chats", {})) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/chat?id=${id}`);
+  await expect(page.getByLabel("Message Gigspree")).toBeVisible();
+  const made = page.waitForResponse((r) => r.request().method() === "POST" && /\/api\/chats$/.test(r.url()));
+  await page.getByRole("button", { name: "New chat", exact: true }).first().click();
+  const fresh = (await (await made).json()) as { id: string };
+  expect(fresh.id).not.toBe(id);
+  await context.setOffline(true);
+  await page.getByLabel("Message Gigspree").fill(`E2E new chat offline ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(/Waiting to send/)).toBeVisible();
+  await context.setOffline(false);
+  await expect(page.getByText(/\(\d\) OK/).last()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Waiting to send/)).toHaveCount(0);
+  // It went to the new chat, not the one left.
+  const chat = (await api(me)("GET", `/chats/${fresh.id}`)) as { items: { role: string; text: string }[] };
+  expect(chat.items.some((i) => i.role === "user" && i.text === `E2E new chat offline ${RUN}`)).toBe(true);
+  expect(errors).toEqual([]);
+  await context.close();
+});

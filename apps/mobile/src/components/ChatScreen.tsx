@@ -480,9 +480,13 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       .then((l) => setFirstEver(l.filter((c) => c.id !== MAIN).length <= 1))
       .catch(() => setFirstEver(false));
   }, []);
+  // A new chat being made: nothing is sent until it exists (a message would go to the chat being
+  // left, then vanish behind the new one).
+  const [making, setMaking] = useState(false);
   // online-only: a new chat is a row in the person's list on the server.
   const newChat = async () => {
-    if (busy) return;
+    if (busy || making) return;
+    setMaking(true);
     try {
       // The id is made here, so a retry after a lost reply lands on the same chat (rule 8).
       // A new chat stays in the space of the one on screen (or the one asked for).
@@ -492,6 +496,10 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         ...(inSpace ? { space: inSpace } : {}),
       });
       viewGen.current++;
+      // It is the chat on screen now (its answers and refreshes land on it; Codex on PR 223),
+      // and an open still on its way is overtaken.
+      openId.current = v.id;
+      opening.current++;
       setChatId(v.id);
       setView(v);
       setChanged([]);
@@ -500,12 +508,14 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       openedAt.current = Date.now();
     } catch (e) {
       setNote(isOffline(e) ? "A new chat needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setMaking(false);
     }
   };
 
   const say = async (raw: string) => {
     const body = raw.trim();
-    if (!body || busy || !chatId) return;
+    if (!body || busy || making || !chatId) return;
     // What the chat was opened about goes at the front of the first message, in words.
     const msg =
       card && !attached.current
@@ -1047,7 +1057,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             accessibilityLabel="Send"
             accessibilityState={{ disabled: busy || !chatId || !text.trim() }}
             onPress={() => say(text)}
-            disabled={busy || !chatId || !text.trim()}
+            disabled={busy || making || !chatId || !text.trim()}
             scale={0.88}
             haptic="light"
             style={[s.send, { backgroundColor: t.accent }]}
