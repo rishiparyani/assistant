@@ -38,3 +38,27 @@ test("a long chat opens at its newest message, and a new one shows at once", asy
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a message sent offline is answered on screen once it goes", async ({ browser }) => {
+  // Owner, 2026-11-01: "it said it will send the message as soon as I get online, and when I got
+  // online, nothing happened": the message went, but the chat didn't show the reply.
+  const me = await owner();
+  const { id } = (await api(me)("POST", "/chats", {})) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/chat?id=${id}`);
+  await expect(page.getByLabel("Message Gigspree")).toBeVisible();
+  await context.setOffline(true);
+  await page.getByLabel("Message Gigspree").fill(`E2E while offline ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(/Waiting to send/)).toBeVisible();
+  await context.setOffline(false);
+  await expect(page.getByText(/\(\d\) OK/).last()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/Waiting to send/)).toHaveCount(0);
+  // Sent once, not twice (the chat's title above repeats its first message, so ask the server).
+  const chat = (await api(me)("GET", `/chats/${id}`)) as { items: { role: string; text: string }[] };
+  expect(
+    chat.items.filter((i) => i.role === "user" && i.text.includes(`E2E while offline ${RUN}`)),
+  ).toHaveLength(1);
+  expect(errors).toEqual([]);
+  await context.close();
+});

@@ -40,7 +40,12 @@ let sending: Promise<void> | null = null;
 let held = false;
 const listeners = new Set<() => void>();
 
-const notify = () => listeners.forEach((l) => l());
+// A new copy each time it changes, so screens reading it (useSyncExternalStore) see the change:
+// the lists are changed in place, and the same object read twice looked unchanged.
+const notify = () => {
+  state = { waiting: [...state.waiting], failed: [...state.failed] };
+  listeners.forEach((l) => l());
+};
 const save = () => owner && writeJson(PREFIX + owner, state);
 
 export function useOutboxFor(userId: string | null) {

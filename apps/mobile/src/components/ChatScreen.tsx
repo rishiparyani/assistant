@@ -6,6 +6,7 @@ import * as Clipboard from "expo-clipboard";
 import { LinkNote } from "./LinkNote.tsx";
 import * as Haptics from "expo-haptics";
 import {
+  AppState,
   FlatList,
   Keyboard,
   Platform,
@@ -48,7 +49,7 @@ import { SetupCard, setupOf } from "@/components/SetupCard";
 import { ChatsSheet } from "@/components/ChatsSheet";
 import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
 import { ApiError, isOffline, request, newKey } from "@/api";
-import { send } from "@/outbox";
+import { outboxState, send, subscribe } from "@/outbox";
 import { useLive } from "@/live-socket";
 import { radius, useTheme } from "@/theme";
 import { useKeyboardHeight, useKeyboardRoom } from "@/keyboard";
@@ -375,6 +376,37 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     [space],
   );
   useEffect(() => openChat(id ?? null), [id, openChat]);
+  // The chat as the server has it now, in place (nothing on screen is dropped first).
+  const refresh = useCallback(() => {
+    if (!chatId) return;
+    request<ChatView>("GET", `/api/chats/${chatId}`)
+      .then((v) => {
+        setView(v);
+        setNote("");
+      })
+      .catch(() => undefined);
+  }, [chatId]);
+  // A message that waited (offline, or the phone put the app away mid-send) is answered on the
+  // server once it goes: when it leaves the outbox, the chat shows the reply (owner, 2026-11-01:
+  // "when I got online, nothing happened").
+  // (Watched from the outbox itself: its state is changed in place, so a render can't tell.)
+  useEffect(() => {
+    const here = () =>
+      outboxState().waiting.some((c) => c.kind === "assistant.message" && c.path === `/api/chats/${chatId}`);
+    let waited = here();
+    return subscribe(() => {
+      const now = here();
+      if (waited && !now) refresh();
+      waited = now;
+    });
+  }, [chatId, refresh]);
+  // Back in the app: what was answered while it was away shows (a reply the phone's sleep cut off).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active" && !busy) refresh();
+    });
+    return () => sub.remove();
+  }, [refresh, busy]);
   useEffect(() => {
     request<ChatSummary[]>("GET", "/api/chats")
       .then((l) => setFirstEver(l.filter((c) => c.id !== MAIN).length <= 1))
@@ -455,6 +487,9 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     } catch (e) {
       if (isOffline(e)) {
         send({
+          // The same key as the try that was cut off: if it did reach the server, the server
+          // answers it once, not twice (rule 8).
+          ...(sentKey.current ? { id: sentKey.current } : {}),
           kind: "assistant.message",
           method: "POST",
           path: `/api/chats/${chatId}`,
