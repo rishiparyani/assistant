@@ -287,7 +287,7 @@ export default function Process() {
               ? "Nothing right now."
               : fromCard && !mine
                 ? "Nothing is waiting on you here now."
-                : note || "Loading…"}
+                : note || (id ? "Loading…" : "This flow couldn't be opened. Go back and open it again.")}
           </Text>
         )}
 

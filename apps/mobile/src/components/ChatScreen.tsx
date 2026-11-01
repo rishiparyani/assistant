@@ -6,6 +6,7 @@ import * as Clipboard from "expo-clipboard";
 import { LinkNote } from "./LinkNote.tsx";
 import * as Haptics from "expo-haptics";
 import {
+  AppState,
   FlatList,
   Keyboard,
   Platform,
@@ -15,7 +16,7 @@ import {
   type GestureResponderEvent,
   type TextInput as RNTextInput,
 } from "react-native";
-import Animated, { FadeIn, FadeInDown, useAnimatedStyle } from "react-native-reanimated";
+import Animated, { FadeIn, FadeInDown, FadeInUp, useAnimatedStyle } from "react-native-reanimated";
 import {
   Boundary,
   FlowDiagram,
@@ -48,7 +49,7 @@ import { SetupCard, setupOf } from "@/components/SetupCard";
 import { ChatsSheet } from "@/components/ChatsSheet";
 import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
 import { ApiError, isOffline, request, newKey } from "@/api";
-import { send } from "@/outbox";
+import { outboxState, send, subscribe } from "@/outbox";
 import { useLive } from "@/live-socket";
 import { radius, useTheme } from "@/theme";
 import { useKeyboardHeight, useKeyboardRoom } from "@/keyboard";
@@ -114,6 +115,9 @@ const SUGGEST = [
  * composer was on, or the panel beside the screen on a wide website window. `onClose` puts it
  * away; it never leaves the screen under it.
  */
+/** The message box grows to this tall (about eight lines), then scrolls inside. */
+const GROW = 180;
+
 export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: () => void }) {
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
@@ -148,13 +152,6 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const sendAtOnce = !!ask && sendNow === "1";
   const sentAtOnce = useRef(false);
   const [text, setText] = useState(sendAtOnce ? "" : (ask ?? ""));
-  // The box's height follows what's typed (one line to about five), measured the same way on
-  // every platform rather than left to the platform's own idea of a text area.
-  const [typedHeight, setTypedHeight] = useState(0);
-  useEffect(() => {
-    // Back to one line once the box is empty (the web doesn't always report the shrink).
-    if (!text) setTypedHeight(0);
-  }, [text]);
   const [busy, setBusy] = useState(false);
   // What the assistant is doing right now (decision 2026-10-15 "Feel: the ChatGPT bar"): the
   // server says over the live socket as it thinks and runs each tool; without the socket the
@@ -208,15 +205,31 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   // A setup card changed by hand before Confirm (decision 2026-10-15 "Chat makes, screens can fix").
   const [editing, setEditing] = useState<ChatItem["card"] | null>(null);
   const list = useRef<FlatList<Shown>>(null);
-  // The list is upside down (the owner, 2026-10-16: "it opens at the middle", "it scrolled up
-  // and hid my message"): the newest message is the anchor, so it opens at the end by
-  // construction and a new message appears at the bottom without any scrolling code; reading
-  // older ones, the list stays put (maintainVisibleContentPosition), and when the person is
-  // near the bottom it follows.
+  // Newest at the bottom, the list the right way up and held to its end (owner, 2026-11-01: in
+  // the iPhone's chat sheet an upside-down list made a pull up at the newest message read as a
+  // pull down at the top, and the sheet started to close). It opens at the end (hidden until
+  // it's there, so it never shows the middle; owner, 2026-10-16) and follows new messages while
+  // the person is near the end (`pinned`); reading older ones, it stays put.
   // Items from before this screen opened don't animate in; new ones rise into place.
   const openedAt = useRef(Date.now());
   const shownItems = useMemo(() => wordsFirst(groupRecords(view?.items ?? [])), [view]);
-  const newestFirst = useMemo(() => [...shownItems].reverse(), [shownItems]);
+  // Near the end (the list follows what's added), and at the end at least once (shown).
+  const pinned = useRef(true);
+  // The chat on screen (its answers only land on it), the open asked last, and the send that
+  // owns the wait (a newer one, a recovered answer or another chat retires it).
+  const openId = useRef<string | null>(null);
+  const opening = useRef(0);
+  const sendSeq = useRef(0);
+  // Sends whose answer was found on the server while they waited: they need no queueing.
+  const recovered = useRef(new Set<number>());
+  // Moves on with every change to what the chat shows other than a refresh (an open, a send, a
+  // confirm): a refresh asked before it is older than the screen and isn't shown (Codex on PR 223).
+  const viewGen = useRef(0);
+  const [atEnd, setAtEnd] = useState(false);
+  const toBottom = (animated = true) => {
+    pinned.current = true;
+    list.current?.scrollToEnd({ animated });
+  };
   // 👍 / 👎 go under the whole reply: after the cards that now follow its words.
   const rateAt = useMemo(() => {
     let at = shownItems.findIndex((i) => i.id === lastReply);
@@ -351,11 +364,23 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       setView(null);
       setChanged([]);
       openedAt.current = Date.now();
+      // The next chat starts fresh: at its end, and nothing of the last one's send or reading
+      // place carries over (Codex on PR 223: it opened at its oldest; a late answer replaced it).
+      openId.current = null;
+      pinned.current = true;
+      setAtEnd(false);
+      lastSent.current = null;
+      sendSeq.current++;
+      viewGen.current++;
+      setBusy(false);
       const path = which
         ? `/api/chats/${which}`
         : `/api/chats/current${space ? `?space=${encodeURIComponent(space)}` : ""}`;
+      const asked = ++opening.current;
       request<ChatView>("GET", path)
         .then((v) => {
+          if (asked !== opening.current) return;
+          openId.current = v.id;
           setChatId(v.id);
           setView(v);
           setNote("");
@@ -373,14 +398,95 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     [space],
   );
   useEffect(() => openChat(id ?? null), [id, openChat]);
+  // The message being answered: while the answer is slow, the chat on the server is looked at
+  // now and then, and if the answer is already there (the phone dropped the wait, as when the
+  // app went to the back), it shows and the wait ends (owner, 2026-11-01: "it was thinking
+  // since a very long time").
+  // Which items the chat had when it went: the answer follows a message of these words that
+  // wasn't there before (not a count, which the server's window of recent items can shift).
+  const lastSent = useRef<{ text: string; known: Set<string>; seq: number } | null>(null);
+  useEffect(() => {
+    if (!busy || !chatId || !lastSent.current) return;
+    const id = chatId;
+    const look = () =>
+      request<ChatView>("GET", `/api/chats/${id}`)
+        .then((v) => {
+          const sent = lastSent.current;
+          if (!sent || openId.current !== id || sent.seq !== sendSeq.current) return;
+          const at = v.items.findIndex(
+            (i) => i.role === "user" && i.text === sent.text && !sent.known.has(i.id),
+          );
+          if (at < 0 || !v.items.slice(at + 1).some((i) => i.role !== "user")) return;
+          // The send still waiting is retired: whatever it brings back later changes nothing.
+          recovered.current.add(sent.seq);
+          sendSeq.current++;
+          viewGen.current++;
+          lastSent.current = null;
+          setView(v);
+          setBusy(false);
+          setDraft(null);
+          setDraftItems([]);
+          setTimeout(() => toBottom(), 60);
+        })
+        .catch(() => undefined);
+    let every: ReturnType<typeof setInterval> | undefined;
+    const first = setTimeout(() => {
+      void look();
+      every = setInterval(() => void look(), 15_000);
+    }, 30_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [busy, chatId]);
+  // The chat as the server has it now, in place (nothing on screen is dropped first).
+  const refresh = useCallback(() => {
+    if (!chatId) return;
+    const id = chatId;
+    const gen = viewGen.current;
+    request<ChatView>("GET", `/api/chats/${id}`)
+      .then((v) => {
+        // Another chat opened, or a send or confirm changed the chat, meanwhile: this older
+        // copy isn't shown over it.
+        if (openId.current !== id || gen !== viewGen.current) return;
+        setView(v);
+        setNote("");
+      })
+      .catch(() => undefined);
+  }, [chatId]);
+  // A message that waited (offline, or the phone put the app away mid-send) is answered on the
+  // server once it goes: when it leaves the outbox, the chat shows the reply (owner, 2026-11-01:
+  // "when I got online, nothing happened").
+  // (Watched from the outbox itself: its state is changed in place, so a render can't tell.)
+  useEffect(() => {
+    const here = () =>
+      outboxState().waiting.some((c) => c.kind === "assistant.message" && c.path === `/api/chats/${chatId}`);
+    let waited = here();
+    return subscribe(() => {
+      const now = here();
+      if (waited && !now) refresh();
+      waited = now;
+    });
+  }, [chatId, refresh]);
+  // Back in the app: what was answered while it was away shows (a reply the phone's sleep cut off).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (st) => {
+      if (st === "active" && !busy) refresh();
+    });
+    return () => sub.remove();
+  }, [refresh, busy]);
   useEffect(() => {
     request<ChatSummary[]>("GET", "/api/chats")
       .then((l) => setFirstEver(l.filter((c) => c.id !== MAIN).length <= 1))
       .catch(() => setFirstEver(false));
   }, []);
+  // A new chat being made: nothing is sent until it exists (a message would go to the chat being
+  // left, then vanish behind the new one).
+  const [making, setMaking] = useState(false);
   // online-only: a new chat is a row in the person's list on the server.
   const newChat = async () => {
-    if (busy) return;
+    if (busy || making) return;
+    setMaking(true);
     try {
       // The id is made here, so a retry after a lost reply lands on the same chat (rule 8).
       // A new chat stays in the space of the one on screen (or the one asked for).
@@ -389,6 +495,11 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         id: ulid(),
         ...(inSpace ? { space: inSpace } : {}),
       });
+      viewGen.current++;
+      // It is the chat on screen now (its answers and refreshes land on it; Codex on PR 223),
+      // and an open still on its way is overtaken.
+      openId.current = v.id;
+      opening.current++;
       setChatId(v.id);
       setView(v);
       setChanged([]);
@@ -397,12 +508,14 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       openedAt.current = Date.now();
     } catch (e) {
       setNote(isOffline(e) ? "A new chat needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setMaking(false);
     }
   };
 
   const say = async (raw: string) => {
     const body = raw.trim();
-    if (!body || busy || !chatId) return;
+    if (!body || busy || making || !chatId) return;
     // What the chat was opened about goes at the front of the first message, in words.
     const msg =
       card && !attached.current
@@ -421,20 +534,24 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     };
     setView((v) => (v ? { ...v, items: [...v.items, mine] } : v));
     // The person's own message is what they want to see: to the bottom whatever they were reading.
-    list.current?.scrollToOffset({ offset: 0, animated: true });
+    toBottom();
+    // This send, and its key, kept here: a later send (or a recovered answer) doesn't change them.
+    const seq = ++sendSeq.current;
+    viewGen.current++;
+    const key = newKey();
+    const toChat = chatId;
+    lastSent.current = { text: msg, known: new Set((view?.items ?? []).map((i) => i.id)), seq };
     setBusy(true);
     setDraft(null);
     setDraftItems([]);
     streamed.current = false;
-    sentKey.current = newKey();
+    sentKey.current = key;
     const sentAt = new Date().toISOString();
     try {
-      const next = await request<ChatView>(
-        "POST",
-        `/api/chats/${chatId}`,
-        { text: msg, model: pick },
-        sentKey.current,
-      );
+      const next = await request<ChatView>("POST", `/api/chats/${toChat}`, { text: msg, model: pick }, key);
+      // Retired (the answer was found while this waited, or another chat opened): nothing more.
+      if (seq !== sendSeq.current) return;
+      viewGen.current++;
       if (streamed.current) {
         const had = new Set((view?.items ?? []).map((i) => i.id));
         for (const i of next.items) if (!had.has(i.id) && i.role !== "user") quiet.current.add(i.id);
@@ -443,7 +560,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       setDraftItems([]);
       setNote("");
       // The answer to what was just sent is what the person wants to see, wherever they were.
-      setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
+      setTimeout(() => toBottom(), 60);
       // What this reply changed, from the audit log, with Undo.
       fetchChanges(5)
         // Only this person's changes since the message went (another person's work in the
@@ -451,20 +568,31 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         .then((items) => setChanged(items.filter((i) => i.at >= sentAt && i.by === "you" && i.undoable)))
         .catch(() => undefined);
     } catch (e) {
-      if (isOffline(e)) {
+      // Cut off: it is queued under its own key and chat even if another chat is open now (it
+      // must not be lost), unless its answer was already found on the server.
+      if (isOffline(e) && !recovered.current.has(seq))
         send({
+          // The same key as the try that was cut off: if it did reach the server, the server
+          // answers it once, not twice (rule 8).
+          id: key,
           kind: "assistant.message",
           method: "POST",
-          path: `/api/chats/${chatId}`,
+          path: `/api/chats/${toChat}`,
           body: { text: msg, model: pick },
           label: "Message to the assistant",
         });
+      recovered.current.delete(seq);
+      if (seq !== sendSeq.current) return;
+      if (isOffline(e)) {
         setNote("Waiting to send: it goes when you're back online.");
       } else setNote(e instanceof ApiError ? e.message : String(e));
     } finally {
-      setBusy(false);
-      setDraft(null);
-      sentKey.current = null;
+      if (seq === sendSeq.current) {
+        setBusy(false);
+        setDraft(null);
+        sentKey.current = null;
+        lastSent.current = null;
+      }
     }
   };
 
@@ -480,6 +608,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const answer = async (actionId: string, what: "confirm" | "cancel", args?: Record<string, unknown>) => {
     if (busy) return;
     setBusy(true);
+    viewGen.current++;
     try {
       setView(
         await request<ChatView>(
@@ -488,6 +617,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           args ? { args } : {},
         ),
       );
+      viewGen.current++;
       setEditing(null);
       setNote("");
       if (!waiting.some((w) => w.card!.action_id !== actionId)) toEnd();
@@ -498,12 +628,13 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
     }
   };
   /** The newest message, where what the cards made shows up. */
-  const toEnd = () => setTimeout(() => list.current?.scrollToOffset({ offset: 0, animated: true }), 60);
+  const toEnd = () => setTimeout(() => toBottom(), 60);
   // online-only: every waiting card runs its action on the server, once, in the order proposed
   // (a list before the view that shows it); the first one that fails stops the rest.
   const confirmAll = async () => {
     if (busy || !waiting.length) return;
     setBusy(true);
+    viewGen.current++;
     try {
       for (const w of waiting) {
         const id = w.card!.action_id;
@@ -513,6 +644,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
           {},
         );
         setView(next);
+        viewGen.current++;
         // A card that couldn't be done comes back marked "failed" (not as an error): the ones
         // after it may need it, so they wait.
         if (next.items.find((i) => i.card?.action_id === id)?.card?.status !== "done") break;
@@ -527,8 +659,10 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   };
   /** Up to the first card still waiting, to read them before confirming. */
   const review = () => {
-    const index = newestFirst.findIndex((i) => i.id === waiting[0]?.id);
-    if (index >= 0) list.current?.scrollToIndex({ index, viewPosition: 0.9, animated: true });
+    const index = shownItems.findIndex((i) => i.id === waiting[0]?.id);
+    if (index < 0) return;
+    pinned.current = false;
+    list.current?.scrollToIndex({ index, viewPosition: 0.1, animated: true });
   };
 
   return (
@@ -626,9 +760,30 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         />
         <FlatList
           ref={list}
-          inverted={newestFirst.length > 0}
           extraData={[rateAt, busy]}
-          data={newestFirst}
+          data={shownItems}
+          // Drawn whole up to a long chat, so the first jump to the end lands on the end.
+          initialNumToRender={Math.min(shownItems.length, 60)}
+          style={{ opacity: atEnd || !shownItems.length ? 1 : 0 }}
+          onScroll={(e) => {
+            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+            pinned.current = contentSize.height - (contentOffset.y + layoutMeasurement.height) < 120;
+          }}
+          scrollEventThrottle={32}
+          // What's added (a message, the reply as it's written, a card) and the keyboard coming
+          // up keep the end in sight while the person is there.
+          onContentSizeChange={() => {
+            if (!pinned.current) return;
+            // A frame later: the list has measured what was added by then.
+            const animated = atEnd;
+            requestAnimationFrame(() => {
+              list.current?.scrollToEnd({ animated });
+              if (!atEnd && shownItems.length) requestAnimationFrame(() => setAtEnd(true));
+            });
+          }}
+          onLayout={() => {
+            if (pinned.current) requestAnimationFrame(() => list.current?.scrollToEnd({ animated: false }));
+          }}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{
             paddingHorizontal: 16,
@@ -638,13 +793,11 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             maxWidth: COLUMN,
             alignSelf: "center",
           }}
-          // Near the bottom, a new message pulls the list down to it; higher up, nothing moves.
-          maintainVisibleContentPosition={{ minIndexForVisible: 0, autoscrollToTopThreshold: 120 }}
           // A card far up isn't measured yet: get near it, then go to it.
           onScrollToIndexFailed={(info) => {
             list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
             setTimeout(
-              () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.9, animated: true }),
+              () => list.current?.scrollToIndex({ index: info.index, viewPosition: 0.1, animated: true }),
               120,
             );
           }}
@@ -687,19 +840,28 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
                 </View>
               </Boundary>
             );
-            // In the upside-down list a cell's "down" is up on screen: new messages rise in.
+            // New messages rise into place.
             return fresh ? (
-              <Animated.View entering={FadeInDown.duration(motion.enter)}>{safe}</Animated.View>
+              <Animated.View entering={FadeInUp.duration(motion.enter)}>{safe}</Animated.View>
             ) : (
               safe
             );
           }}
-          // Upside down, the header is the visual bottom: the thinking bubble sits under the newest message.
-          ListHeaderComponent={
+          // The thinking bubble sits under the newest message.
+          ListFooterComponent={
             busy && view?.items.length ? (
               <View style={{ gap: 4 }}>
+                {/* The words above the cards, as the finished reply has them (wordsFirst): nothing
+                    swaps places when it's done (owner, 2026-11-01: the text "all of a sudden"
+                    appeared above the cards). Before any words, the dots wait under the cards. */}
+                {draft?.text ? (
+                  <Animated.View entering={FadeIn.duration(motion.fade)} style={s.reply}>
+                    {/* The words so far, with a mark where the next ones land. */}
+                    <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
+                  </Animated.View>
+                ) : null}
                 {/* Cards and questions as they're made: a full-width column of their own, never
-                    in the thinking row (Codex on PR 187). */}
+                    in the thinking row (Codex on PR 187); shown, not yet to tap, until saved. */}
                 {draftItems.map((item) => (
                   <View key={item.id} style={{ opacity: 0.85, alignSelf: "stretch" }}>
                     <Bubble
@@ -712,27 +874,21 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
                     />
                   </View>
                 ))}
-                <Animated.View
-                  entering={FadeIn.duration(motion.fade)}
-                  style={draft?.text ? s.reply : s.thinking}
-                >
-                  {draft?.text ? (
-                    // The words so far, with a mark where the next ones land.
-                    <Markdown text={`${draft.text}▍`} style={[s.replyText, { color: t.fg }]} />
-                  ) : (
+                {draft?.text ? null : (
+                  <Animated.View entering={FadeIn.duration(motion.fade)} style={s.thinking}>
                     <ThinkingDots />
-                  )}
-                  {status && !draft?.text ? (
-                    <Animated.Text
-                      key={status}
-                      entering={FadeIn.duration(motion.fade)}
-                      style={[type.caption, { color: t.fg2 }]}
-                      accessibilityLiveRegion="polite"
-                    >
-                      {status}
-                    </Animated.Text>
-                  ) : null}
-                </Animated.View>
+                    {status ? (
+                      <Animated.Text
+                        key={status}
+                        entering={FadeIn.duration(motion.fade)}
+                        style={[type.caption, { color: t.fg2 }]}
+                        accessibilityLiveRegion="polite"
+                      >
+                        {status}
+                      </Animated.Text>
+                    ) : null}
+                  </Animated.View>
+                )}
               </View>
             ) : null
           }
@@ -890,18 +1046,10 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
               returnKeyType="send"
               submitBehavior="submit"
               multiline
-              // The phone sizes a growing box itself, up to maxHeight, then it scrolls inside (an
-              // explicit height from onContentSizeChange stayed one line on the iPhone, owner
-              // 2026-10-17); the web needs its height set.
-              onContentSizeChange={
-                Platform.OS === "web" ? (e) => setTypedHeight(e.nativeEvent.contentSize.height) : undefined
-              }
-              style={[
-                s.input,
-                type.body,
-                { color: t.fg },
-                Platform.OS === "web" ? { height: Math.min(110, Math.max(22, typedHeight)) } : null,
-              ]}
+              // Grows a line at a time to about eight lines, then scrolls inside, like Claude's
+              // box (owner, 2026-11-01: it showed one line at a time on the iPhone).
+              grow={GROW}
+              style={[s.input, type.body, { color: t.fg }]}
             />
           </View>
           <Tap
@@ -909,7 +1057,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
             accessibilityLabel="Send"
             accessibilityState={{ disabled: busy || !chatId || !text.trim() }}
             onPress={() => say(text)}
-            disabled={busy || !chatId || !text.trim()}
+            disabled={busy || making || !chatId || !text.trim()}
             scale={0.88}
             haptic="light"
             style={[s.send, { backgroundColor: t.accent }]}
@@ -1405,7 +1553,7 @@ const s = StyleSheet.create({
     maxWidth: COLUMN,
     alignSelf: "center",
   },
-  // The box grows with the message, to about five lines, then scrolls inside.
+  // The box grows with the message, to about eight lines, then scrolls inside (`GROW`).
   inputBox: {
     flex: 1,
     minHeight: 40,
@@ -1417,7 +1565,6 @@ const s = StyleSheet.create({
   },
   input: {
     minHeight: 22,
-    maxHeight: 110,
     paddingVertical: 0,
     paddingTop: 0,
     paddingBottom: 0,

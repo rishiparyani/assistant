@@ -93,7 +93,8 @@ async function practiceFromHeader(c: Context<AppEnv>, userId: string): Promise<P
   )
     .bind(m[1], userId)
     .first<{ practice_of: string }>();
-  if (!row) throw new AppError("not_found", "That rehearsal isn't yours");
+  // Ended (or never the caller's): the app leaves the rehearsal on seeing `practice_gone`.
+  if (!row) throw new AppError("not_found", "That rehearsal isn't yours", { practice_gone: true });
   return { space: m[1]!, of: row.practice_of, as: m[2]! };
 }
 

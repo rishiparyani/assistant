@@ -116,6 +116,13 @@ describe("spaces of one's own", () => {
       (s) => s.name === "Test band",
     )!;
     expect(band).toBeDefined();
+    // Made, the assistant goes on with what it planned for it, without being asked again (owner,
+    // 2026-11-01: "It doesn't seem to complete the task without me pushing it").
+    const after = await json<ChatView>(await call(`/api/chats/${main.id}`, { cookie: me.cookie }));
+    const texts = after.items.map((i) => i.text);
+    expect(texts.indexOf("Test: next, the lists in it.")).toBeGreaterThan(
+      texts.findIndex((t) => t.startsWith("Done: Make a space")),
+    );
     // In the band's chat, its instructions are set in words, for that space only.
     const inBand = await json<ChatView>(
       await call(`/api/chats/current?space=${band.id}`, { cookie: me.cookie }),
@@ -125,5 +132,43 @@ describe("spaces of one's own", () => {
     expect(got.instructions).toBe("Test: money is always split four ways.");
     const personal = await json<SpaceSettings>(await call("/api/spaces/Personal", { cookie: me.cookie }));
     expect(personal.instructions).toBe("");
+  });
+
+  it("shows what was made in another space from that space", async () => {
+    // Owner, 2026-11-01: flows made in “Society gate” from his own chat showed “This one is
+    // gone now”, read from his own space. The live card carries the space it was made in.
+    const me = await signUp("Test Owner");
+    const band = await json<SpaceView>(
+      await call("/api/spaces", { cookie: me.cookie, body: { name: "Test band" } }),
+    );
+    await call("/api/collections", {
+      cookie: me.cookie,
+      body: { space: band.id, name: "Notes", fields: [{ name: "Title", type: "text" }] },
+    });
+    const main = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    const said = await sayIn(me, main.id, "Test: note in the band");
+    const live = said.items.find((i) => i.role === "live")?.live;
+    expect(live).toMatchObject({ kind: "record", space: band.id });
+  });
+
+  it("never stacks the same card twice, and doesn't offer to make a space that's there", async () => {
+    // Owner, 2026-11-01: a "Make a space" card waited, "try again" made a second, Confirm all ran
+    // both and the second failed; later the assistant offered the space again though it existed.
+    const me = await signUp("Test Owner");
+    const main = await json<ChatView>(await call("/api/chats/current", { cookie: me.cookie }));
+    await sayIn(me, main.id, "Test: make a band space");
+    const twice = await sayIn(me, main.id, "Test: make a band space");
+    const cards = twice.items.filter(
+      (i) => i.role === "card" && i.card!.title === "Make a space “Test band”",
+    );
+    expect(cards.map((c) => c.card!.status)).toEqual(["cancelled", "waiting"]);
+    await call(`/api/chats/${main.id}/actions/${cards[1]!.card!.action_id}/confirm`, {
+      cookie: me.cookie,
+      body: {},
+    });
+    // It's there now: asked again, no card, and the model is told to use it.
+    const again = await sayIn(me, main.id, "Test: make a band space");
+    expect(again.items.filter((i) => i.role === "card" && i.card!.status === "waiting")).toEqual([]);
+    expect(again.items.at(-1)!.text).toContain("already a space called");
   });
 });

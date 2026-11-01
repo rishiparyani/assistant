@@ -145,9 +145,11 @@ const SETUP = [
   "start_chat_home",
 ];
 const MAX_STEPS = 8;
+/** A turn stops between steps after this long (each model call has its own 30 s limit). */
+const TURN_BUDGET_MS = 90_000;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-31a";
+export const PROMPT_VERSION = "2026-11-01a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -987,6 +989,22 @@ const MAX_LIVE = 3;
  * added, changed or read, or the list a find or a saved view returned. Facts from the tool
  * and its result only; never from what the person wrote.
  */
+/**
+ * A live card made in another space than the chat's (the model passed `space`): it carries that
+ * space's id, so the app reads it from there (owner, 2026-11-01: a flow made in “Society gate”
+ * from his own chat showed “This one is gone now”).
+ */
+async function liveIn(ctx: OpUserCtx, live: LiveRef | null, space: unknown): Promise<LiveRef | null> {
+  if (!live || typeof space !== "string" || !space.trim()) return live;
+  if (!["record", "list", "view", "workflow", "setup"].includes(live.kind)) return live;
+  try {
+    const { space: sp } = await spaceOf(ctx, space);
+    return sp.kind === "personal" ? live : ({ ...live, space: sp.id } as LiveRef);
+  } catch {
+    return live;
+  }
+}
+
 function liveFrom(
   tool: string,
   args: Record<string, unknown>,
@@ -1195,7 +1213,9 @@ export async function sendMessage(
   const key = ctx.idempotencyKey ?? `chat-send:${crypto.randomUUID()}`;
   const claim = await chat.claim(uid, key);
   if (claim === "done") return chatView(ctx, chatId);
-  if (claim === "running") throw new AppError("conflict", "Still answering your last message");
+  // Still being answered (a retry of a send whose wait was dropped): the app keeps it waiting.
+  if (claim === "running")
+    throw new AppError("conflict", "Still answering your last message", { still_running: true });
   try {
     await answerMessage(ctx, ops, input, key, chatId, !!opts.proposeOnly, opts.chatHome ?? null, {
       group: opts.group ?? null,
@@ -1387,6 +1407,15 @@ async function answerMessage(
   let promptLevel: Level = level;
   const stream = streamer(ctx, chatId, requestKey);
   steps: for (let step = 0; step < MAX_STEPS; step++) {
+    // A turn that has run long stops between steps, with what's done kept (owner, 2026-11-01:
+    // "it was thinking since a very long time"): eight slow steps could take minutes.
+    if (step > 0 && Date.now() - started > TURN_BUDGET_MS) {
+      outcome = "stopped";
+      reply(
+        "This was taking too long, so I stopped here. What's done so far is kept; ask again for the rest.",
+      );
+      break;
+    }
     const { specs, allowed } = toolsFor(level, ops, connected, chatHome, others.length ? space.name : null);
     if (level !== promptLevel) {
       for (const m of turn) delete m.opaque;
@@ -1689,6 +1718,21 @@ async function runTool(
         args = { ...args, people: people.map((p) => p.user_id) };
         shown = { ...args, people: people.map((p) => p.name) };
       }
+      // A space that's already there: the model hears so now and works in it, instead of a card
+      // that can only fail after the tap (owner, 2026-11-01: "it was trying to make a society
+      // space… even when it had been created").
+      if (name === "new_space" && typeof args.name === "string") {
+        const want = args.name.trim().toLowerCase();
+        const have = (await mySpaces(ctx)).find((sp) => sp.name.trim().toLowerCase() === want);
+        if (have)
+          return {
+            kind: "error",
+            code: "conflict",
+            text: JSON.stringify({
+              error: `There's already a space called “${have.name}”: use it (pass space: “${have.name}”); don't make it again`,
+            }),
+          };
+      }
       let card: Extract<ToolResult, { kind: "card" }>["card"] = {
         tool: name,
         args,
@@ -1788,7 +1832,7 @@ async function runTool(
     return {
       kind: "ran",
       text: text.length > RESULT_CHARS ? `${text.slice(0, RESULT_CHARS)}…(cut)` : text,
-      live: liveFrom(name, args, result, cols, op),
+      live: await liveIn(ctx, liveFrom(name, args, result, cols, op), args.space),
     };
   } catch (e) {
     return { kind: "error", code: errorCode(e), text: errorText(e) };
@@ -1959,7 +2003,7 @@ export async function confirmAction(
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;
-    live = liveFrom(a.tool, {}, result, [], op);
+    live = await liveIn(ctx, liveFrom(a.tool, {}, result, [], op), args.space);
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool, `card:${a.id}`));
     note = `Done: ${a.title}.`;
@@ -1973,6 +2017,11 @@ export async function confirmAction(
       note += ` It's a space called “${made}”: say “in ${made}, …” to add records or run a workflow there, and ask for its practice log to see what each person would get. Nothing in it reaches anyone.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     if (a.tool === "make_setup") after = afterSetupPrompt(a.title, args);
+    // A new space: what the model said it would make in it comes next, in that space (owner,
+    // 2026-11-01: "It doesn't seem to complete the task without me pushing it"; it said "once it
+    // exists, I'll set up the flats, visitors…" and got no turn to).
+    else if (a.tool === "new_space")
+      after = `The space “${String(args.name ?? "")}” now exists. If you said what you'd make in it (lists, a setup, a workflow), propose it now, in that space (pass its name as space on every call), all of it at once. If nothing was planned, say in one short line what they can do there; no recap.`;
     // Any other setup card: the model gets one turn to go on with what it planned (owner,
     // 2026-10-24: Careful said "once confirmed, I'll propose the workflow", and never could,
     // because a Confirm gave it no turn; the flow was never made).

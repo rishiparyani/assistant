@@ -1215,10 +1215,12 @@ export function periodRange(
  * loads it fresh, so a change made anywhere shows in the card.
  */
 export type LiveRef =
-  | { kind: "record"; collection_id: string; record_id: string }
+  | { kind: "record"; collection_id: string; record_id: string; space?: string }
   | {
       kind: "list";
       collection_id: string;
+      /** Made in another space than the chat's (the id): it's read from there. */
+      space?: string;
       /** "Expenses · Date is in this month" */
       title: string;
       query: {
@@ -1227,11 +1229,11 @@ export type LiveRef =
         sort?: { field: string; dir: "asc" | "desc" };
       };
     }
-  | { kind: "view"; view_id: string }
+  | { kind: "view"; view_id: string; space?: string }
   /** A question sent to people (chat-first step 4): answers arrive live. */
   | { kind: "question"; question_id: string }
   /** A workflow (chat-first step 5): diagram, plain words, on/off. */
-  | { kind: "workflow"; workflow_id: string }
+  | { kind: "workflow"; workflow_id: string; space?: string }
   /** An answer (decision 2026-10-13 "Questions, not SQL"): worked out fresh each time it shows. */
   | {
       kind: "query";
@@ -1258,6 +1260,7 @@ export type LiveRef =
       collections: { id: string; name: string }[];
       views: { id: string; name: string; collection_id: string; pinned: boolean }[];
       rules: number;
+      space?: string;
     }
   /**
    * A card the assistant designed in A2UI (decision 2026-10-18 "Try A2UI"): its parts and data,

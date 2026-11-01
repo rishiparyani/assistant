@@ -40,7 +40,12 @@ let sending: Promise<void> | null = null;
 let held = false;
 const listeners = new Set<() => void>();
 
-const notify = () => listeners.forEach((l) => l());
+// A new copy each time it changes, so screens reading it (useSyncExternalStore) see the change:
+// the lists are changed in place, and the same object read twice looked unchanged.
+const notify = () => {
+  state = { waiting: [...state.waiting], failed: [...state.failed] };
+  listeners.forEach((l) => l());
+};
 const save = () => owner && writeJson(PREFIX + owner, state);
 
 export function useOutboxFor(userId: string | null) {
@@ -103,6 +108,12 @@ export function flush(): Promise<void> {
       } catch (e) {
         if (e instanceof ApiError && e.status === 0) break; // offline: try again later
         if (e instanceof ApiError && e.status === 401) break; // signed out: keep until sign-in
+        // The server is still answering the first try of this very change (same key): keep it,
+        // and ask again shortly; the answer is then the finished one (Codex on PR 223).
+        if (e instanceof ApiError && (e.details as { still_running?: boolean } | undefined)?.still_running) {
+          setTimeout(() => void flush(), 5_000);
+          break;
+        }
         // Another account is signed in: keep it for its own account.
         if (
           e instanceof ApiError &&
