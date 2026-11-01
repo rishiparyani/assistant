@@ -1,8 +1,9 @@
 // The Chats home's one list (docs/design/chats-home.md, "What the owner chose" 3): spaces and
-// chats together, newest activity first, no sections. A chat whose home is a space folds into
-// that space's tile (its last message and unread count are the space's); the rest are chats
-// with one person or a group. Spaces nothing has happened in yet keep the order they were last
-// opened in, after the rest.
+// chats together, newest activity first, no sections. A chat whose home is a space is the
+// container (docs/design/chats-base.md, step 2): the space folds into the chat's row, which
+// shows its lists as chips. A space with several chats (a community, step 5), one with no chat,
+// and Personal keep a tile for now. Spaces nothing has happened in yet keep the order they were
+// last opened in, after the rest.
 import type { HomeCard } from "@/home";
 import type { GroupSummary } from "@/chats";
 import type { SpaceRow, UpNextItem } from "@/today";
@@ -25,6 +26,10 @@ export interface ChatEntry {
   key: string;
   chat: GroupSummary;
   at: number;
+  /** The chat's home, when it has one: its lists show as chips on the chat's row. */
+  space?: SpaceRow;
+  /** Questions and forms waiting on me in its home. */
+  waiting: number;
 }
 export type HomeEntry = SpaceEntry | ChatEntry;
 export type HomeFilter = "all" | "unread";
@@ -46,32 +51,54 @@ export function homeEntries(o: {
   needs: HomeCard[];
   upnext: UpNextItem[];
 }): HomeEntry[] {
-  const ids = new Set(o.spaces.map((sp) => sp.spaceId));
-  const spaces: SpaceEntry[] = o.spaces.map((sp) => {
+  const waitingIn = (sp: SpaceRow) =>
+    o.needs.filter((c) => {
+      if (c.shared || !onMe(c)) return false;
+      const at = c.space ?? c.waiting?.space_id;
+      return sp.personal ? !at || at === sp.spaceId : at === sp.spaceId;
+    }).length;
+  // A space that is the home of exactly one of my chats (none started inside it) is that chat's.
+  const homeOf = new Map<string, GroupSummary>();
+  for (const sp of o.spaces) {
+    if (sp.personal) continue;
     const own = o.chats.filter((c) => c.space_id === sp.spaceId);
-    const newest = own.reduce<GroupSummary | null>(
-      (a, c) => (!a || time(c.last?.at ?? c.updated_at) > time(a.last?.at ?? a.updated_at) ? c : a),
-      null,
-    );
-    return {
-      kind: "space",
-      key: `space:${sp.id}`,
-      space: sp,
-      at: newest ? time(newest.last?.at ?? newest.updated_at) : 0,
-      unread: own.reduce((n, c) => n + c.unread, 0),
-      last: newest?.last ?? null,
-      // A workflow's question names its space on `waiting`; other cards on `space` (none: personal).
-      waiting: o.needs.filter((c) => {
-        if (c.shared || !onMe(c)) return false;
-        const at = c.space ?? c.waiting?.space_id;
-        return sp.personal ? !at || at === sp.spaceId : at === sp.spaceId;
-      }).length,
-      soon: o.upnext.filter((u) => !u.shared && (sp.personal ? !u.space : u.space === sp.spaceId)).length,
-    };
-  });
+    if (own.length === 1 && !own[0]!.in_space) homeOf.set(sp.spaceId, own[0]!);
+  }
+  const ids = new Set(o.spaces.map((sp) => sp.spaceId));
+  const spaces: SpaceEntry[] = o.spaces
+    .filter((sp) => !homeOf.has(sp.spaceId))
+    .map((sp) => {
+      const own = o.chats.filter((c) => c.space_id === sp.spaceId);
+      const newest = own.reduce<GroupSummary | null>(
+        (a, c) => (!a || time(c.last?.at ?? c.updated_at) > time(a.last?.at ?? a.updated_at) ? c : a),
+        null,
+      );
+      return {
+        kind: "space",
+        key: `space:${sp.id}`,
+        space: sp,
+        at: newest ? time(newest.last?.at ?? newest.updated_at) : 0,
+        unread: own.reduce((n, c) => n + c.unread, 0),
+        last: newest?.last ?? null,
+        // A workflow's question names its space on `waiting`; other cards on `space` (none: personal).
+        waiting: waitingIn(sp),
+        soon: o.upnext.filter((u) => !u.shared && (sp.personal ? !u.space : u.space === sp.spaceId)).length,
+      };
+    });
+  const byId = new Map(o.spaces.map((sp) => [sp.spaceId, sp]));
   const chats: ChatEntry[] = o.chats
-    .filter((c) => !c.space_id || !ids.has(c.space_id))
-    .map((c) => ({ kind: "chat", key: `chat:${c.id}`, chat: c, at: time(c.last?.at ?? c.updated_at) }));
+    .filter((c) => !c.space_id || !ids.has(c.space_id) || homeOf.get(c.space_id) === c)
+    .map((c) => {
+      const space = c.space_id && homeOf.get(c.space_id) === c ? byId.get(c.space_id) : undefined;
+      return {
+        kind: "chat",
+        key: `chat:${c.id}`,
+        chat: c,
+        at: time(c.last?.at ?? c.updated_at),
+        ...(space ? { space } : {}),
+        waiting: space ? waitingIn(space) : 0,
+      };
+    });
   // A stable sort: spaces with no activity keep their last-opened order behind the rest.
   return [...spaces, ...chats].sort((a, b) => b.at - a.at);
 }
@@ -88,7 +115,9 @@ export function matchEntries(list: HomeEntry[], q: string): HomeEntry[] {
   return list.filter((e) => {
     const name = e.kind === "space" ? e.space.name : e.chat.name;
     const last = e.kind === "space" ? e.last?.text : e.chat.last?.text;
-    return `${name} ${last ?? ""}`.toLowerCase().includes(n);
+    // A chat's lists are its words too ("Dues" finds the society's chat).
+    const lists = e.kind === "chat" ? (e.space?.lists ?? []).map((l) => l.title).join(" ") : "";
+    return `${name} ${last ?? ""} ${lists}`.toLowerCase().includes(n);
   });
 }
 

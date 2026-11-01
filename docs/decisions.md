@@ -1378,3 +1378,9 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 **Decision:** a community appears on Chats as **one row under its own name** that opens to its chats and its info (shared lists, boards, everyone with roles), as WhatsApp does; only people whose chats share lists ever see one. A **chat for two is a group of two**: it holds its own lists, boards and topics, with the same info screen as a group (Boards · Lists · People).
 
 **Why:** the owner answered the two open questions in [chats-base.md](design/chats-base.md): "Go with your recommendation" (one row keeps Chats short and shows which chats belong together) and "One to one are just groups of 2 basically".
+
+## 2026-11-01: A chat's info holds its lists
+
+**Decision:** tapping a chat's name (or ···) opens its **info** (`app/info.tsx`): **Lists**, each with the flows that work on it, then **People** (admins marked) and Admins and settings; the same for a chat for two. On Chats, a chat whose home is a space is one row, the chat's, with its lists as chips ("Bills · Groceries · +2") and what's waiting on me; the space's tile is gone, and opening that space's page opens the chat's info. Lists and flows are still made by asking the assistant ("New list, with your assistant" opens the private panel with the words to finish); the info screen only opens them (decision "Chat makes, screens use"). Personal and spaces with several chats keep their tiles until steps 4 and 5 of [chats-base.md](design/chats-base.md).
+
+**Why:** step 2 of the owner's "Chats are the base" (people see chats, not spaces); one row per chat instead of a chat and its tile.

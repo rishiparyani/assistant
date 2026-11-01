@@ -74,6 +74,7 @@ The space tiles on Chats, the space page and its tabs, the Spaces filter, the li
 
 1. **Done (2026-10-30).** The bell as one inbox (Needs you + Waiting on others + Updates); Chats with two buttons and All · Unread; Help and the library in You.
 2. Group info with Boards, Lists (flows under them) and People; a group's lists as chips on Chats; the space page and tiles retired.
+   - **Done (2026-11-01):** a chat's info (`app/info.tsx`; tap the chat's name or ···): Lists with their flows under them, People with admins, Admins and settings; groups and chats for two alike. A chat whose home is a space shows on Chats as the chat's own row with its lists as chips; its tile is gone, and its space page opens the chat's info. Boards come with step 3; Personal's tile with step 4; a space with several chats keeps its tile until communities (step 5).
 3. Boards: made by asking, in a chat's info (and per topic), one pinnable to the top of its chat or topic.
    - **Done (2026-10-31), before step 2:** topics in any chat; asking about a chat in one tap (Gs takes what was typed; Ask about this); the leaner chat reading.
 4. Your assistant chat's info (your own lists); "Personal" retired from what people see.
