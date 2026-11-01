@@ -16,7 +16,25 @@ export interface PracticeAs {
   name: string;
   /** The one practising (so "yourself" is known while playing someone else). */
   self: string;
+  /** The flow being rehearsed, if it was started from one (its name, for the end). */
+  workflow?: string | null;
+  flow?: string | null;
+  /** The copy's newest log line when it started: the end tells only what came after. */
+  since?: string | null;
 }
+
+/** What a rehearsal that has just ended left to show: its story, behind the scenes. */
+export interface PracticeEnded {
+  /** The real space and flow (to turn it on, or rehearse it again). */
+  of: string;
+  workflow: string | null;
+  flow: string | null;
+  /** What happened, oldest first, in words. */
+  lines: string[];
+}
+let ended: PracticeEnded | null = null;
+export const setPracticeEnded = (e: PracticeEnded | null) => (ended = e);
+export const practiceEnded = () => ended;
 
 const KEY = "gigspree:practice-as";
 let mode: PracticeAs | null = readJson<PracticeAs>(KEY);

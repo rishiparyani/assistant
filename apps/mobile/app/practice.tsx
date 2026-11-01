@@ -1,31 +1,146 @@
-// A rehearsal (decisions 2026-10-16 "Rehearse a workflow" and "Rehearse as each person",
-// 2026-10-22 "A rehearsal is a walkthrough"): a practice copy of a space whose workflows run
-// for real, played person by person. Opened on a flow it walks the person through it: Start
-// sets it off, then "Now Priya gets this" leads to Priya's phone, answering there leads to
-// whoever is next, and when nothing is waiting it's over. A person's phone is the whole app as
-// them (docs/design/from-scratch.md §2 point 9, FS3: src/practice-mode.ts, the banner in
-// app/_layout.tsx), acting as them, checked as theirs. Nothing reaches anyone; ending it erases
-// the copy, the real space is never touched. "Behind the scenes" is the copy's lists and log.
+// Rehearsing (decisions 2026-10-16 "Rehearse a workflow" and "Rehearse as each person",
+// 2026-11-01 "Rehearsing is being each person"): a practice copy of a space whose workflows run
+// for real, played person by person. Opened on a flow it asks who to start as, and the whole app
+// becomes theirs (src/practice-mode.ts; the strip and the banners in PracticeBanner): you do the
+// real thing on their screens, a banner brings in whoever the flow reaches next, and End throws
+// the copy away and shows what happened, step by step (`?ended=1`, below). Nothing reaches
+// anyone; the real space is never touched. Opened without a flow it is the copy's dashboard.
 // online-only: a rehearsal lives in its practice copy's object.
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { FlowDiagram, Text } from "@assistant/cards/native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { CollectionView, PracticePerson, PracticeView, WorkflowDetail } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
-import { playAs } from "@/components/PracticeBanner";
+import { personNote, playAs } from "@/components/PracticeBanner";
+import { practiceEnded } from "@/practice-mode";
 import { useLive } from "@/live-socket";
 import { homeChanged } from "@/home";
 import { useSession } from "@/session";
-import { FreeAnswer } from "@/components/SharedPage";
 import { colourFor, radius, useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
 const ME = "";
 
 export default function Practice() {
+  const { ended } = useLocalSearchParams<{ ended?: string }>();
+  return ended ? <Ended /> : <Rehearse />;
+}
+
+/** After End: what happened, step by step, and what to do next. */
+function Ended() {
+  const { t } = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const story = practiceEnded();
+  const [realOn, setRealOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    if (!story?.workflow) return;
+    request<WorkflowDetail>("GET", `/api/workflows/${enc(story.workflow)}?space=${enc(story.of)}`)
+      .then((d) => setRealOn(d.workflow.enabled))
+      .catch(() => setRealOn(null));
+  }, [story]);
+  const act = async (key: string, go: () => Promise<void>) => {
+    setBusy(key);
+    setNote("");
+    try {
+      await go();
+    } catch (e) {
+      setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  // Opened again later (a reload): the story was only kept until then.
+  if (!story) return <Redirect href="/" />;
+  const turnOn = () =>
+    story?.workflow &&
+    void act("on", async () => {
+      await request("PUT", `/api/workflows/${enc(story.workflow!)}/enabled`, {
+        enabled: true,
+        space: story.of,
+      });
+      setRealOn(true);
+    });
+  const again = () =>
+    story &&
+    void act("again", async () => {
+      const made = await request<{ id: string }>("POST", `/api/spaces/${enc(story.of)}/practice`, {});
+      router.replace({
+        pathname: "/practice",
+        params: { space: made.id, ...(story.workflow ? { workflow: story.workflow } : {}) },
+      });
+    });
+  return (
+    <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 8 }]}>
+      <View style={s.head}>
+        <Text style={[s.eyebrow, { color: t.fg2 }]} numberOfLines={1}>
+          {story?.flow ? story.flow.toUpperCase() : "ENDED"}
+        </Text>
+        <Pressable accessibilityRole="button" onPress={() => router.replace("/")} hitSlop={10}>
+          <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>Done</Text>
+        </Pressable>
+      </View>
+      <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 14 }}>
+        <Text style={[s.big, { color: t.fg }]}>Here's what happened</Text>
+        <Text style={[s.line, { color: t.fg2 }]}>
+          Everything made while rehearsing was thrown away. Nothing reached anyone.
+        </Text>
+        <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair, gap: 12 }]}>
+          <Text style={[s.eyebrow, { color: t.fg2 }]}>BEHIND THE SCENES</Text>
+          {story?.lines.length ? (
+            story.lines.map((l, i) => (
+              <View key={i} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start" }}>
+                <View style={[s.step, { backgroundColor: t.accentSoft }]}>
+                  <Text style={[s.stepText, { color: t.accent }]}>{i + 1}</Text>
+                </View>
+                <Text style={[s.line, { color: t.fg, flex: 1 }]}>{l}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={[s.line, { color: t.fg2 }]}>Nobody was asked or told anything this time.</Text>
+          )}
+        </View>
+        {story?.workflow && realOn === false ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy !== null}
+            onPress={turnOn}
+            style={[s.bigBtn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+          >
+            <Text style={[s.bigBtnText, { color: t.onAccent }]}>
+              {busy === "on" ? "Turning on…" : "Turn the flow on"}
+            </Text>
+          </Pressable>
+        ) : story?.workflow && realOn ? (
+          <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>The flow is on.</Text>
+        ) : null}
+        {story ? (
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy !== null}
+            onPress={again}
+            style={[s.bigBtn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
+          >
+            <Text style={[s.bigBtnText, { color: t.fg }]}>
+              {busy === "again" ? "Setting up…" : "Rehearse again"}
+            </Text>
+          </Pressable>
+        ) : null}
+        <Text style={[s.label, { color: t.fg2 }]}>
+          Not quite right? Ask the chat to change the flow, then rehearse it again.
+        </Text>
+        {note ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+function Rehearse() {
   const { t, colour } = useTheme();
   const { me, refresh } = useSession();
   const myId = me?.user.id ?? null;
@@ -45,16 +160,10 @@ export default function Practice() {
   const [allLists, setAllLists] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [ending, setEnding] = useState(false);
-  // The walkthrough (opened on a flow): the intro, the run (whose turn it is), and the end.
-  // "Behind the scenes" shows the copy's lists and log instead.
+  // Opened on a flow: who to start as (the whole app becomes theirs). "Behind the scenes" is
+  // the copy's dashboard instead.
   const guided = !!workflow;
-  const [stage, setStage] = useState<"intro" | "run" | "done">("intro");
   const [behind, setBehind] = useState(false);
-  const [turnedOn, setTurnedOn] = useState(false);
-  // Whether the real flow is on: the copy's flows are all on, so the copy can't say (Codex on PR 178).
-  const [realOn, setRealOn] = useState<boolean | null>(null);
-  // The newest log line when this run started: the end shows only this run's lines.
-  const [since, setSince] = useState<string | null>(null);
   const base = space ? `/api/spaces/${enc(space)}/practice` : "";
 
   const load = useCallback(async () => {
@@ -72,11 +181,6 @@ export default function Practice() {
             () => null,
           ),
         );
-        const real = await request<WorkflowDetail>(
-          "GET",
-          `/api/workflows/${enc(workflow)}?space=${enc(v.of)}`,
-        ).catch(() => null);
-        if (real) setRealOn(real.workflow.enabled);
       }
       setNote("");
     } catch (e) {
@@ -115,23 +219,7 @@ export default function Practice() {
         workflow_id: flow.workflow.id,
       });
       setStarted(r.record ? r.record.title : flow.workflow.name);
-      setSince(view?.log[0]?.id ?? null);
-      setStage("run");
     });
-  // Turns the real flow on, from the end of a walkthrough (the copy's flows are all on already).
-  const turnOn = () =>
-    flow &&
-    view &&
-    void act("on", async () => {
-      await request("PUT", `/api/workflows/${enc(flow.workflow.id)}/enabled`, {
-        enabled: true,
-        space: view.of,
-      });
-      setTurnedOn(true);
-    });
-  // The owner's own answer to what a flow asked them, in the walkthrough.
-  const answerMine = (waitId: string, answer: string) =>
-    act(waitId, () => request("POST", `${base}/answer`, { wait_id: waitId, as_user_id: myId, answer }));
   const when = flow?.workflow.when;
   const startLabel = !when
     ? ""
@@ -146,6 +234,24 @@ export default function Practice() {
     const name = view.people.find((p) => p.user_id === id)?.name ?? id;
     setProblem("");
     void playAs({ space, of: view.of, as: id, name, self: myId }, refresh).then(() => router.replace("/"));
+  };
+  /** Starts rehearsing the flow as this person (yourself too): the whole app becomes theirs. */
+  const begin = (id: string, name: string) => {
+    if (!space || !view || !myId) return;
+    setProblem("");
+    void playAs(
+      {
+        space,
+        of: view.of,
+        as: id,
+        name,
+        self: myId,
+        workflow: workflow ?? null,
+        flow: flow?.workflow.name ?? null,
+        since: view.log[0]?.id ?? null,
+      },
+      refresh,
+    ).then(() => router.replace("/"));
   };
 
   const end = async () => {
@@ -183,17 +289,6 @@ export default function Practice() {
   // In a walkthrough, once this person has nothing left to do, one card says so and goes on.
   const waitingOn = (p: PracticePerson) =>
     view?.waiting.find((w) => w.on.some((o) => o.user_id === p.user_id && o.answer === null)) ?? null;
-  // The walkthrough is over once it has started and nothing waits on anyone for a few seconds
-  // (a flow's next step runs a moment after an answer). Keyed on what's waiting, not on every
-  // read, so the clock isn't restarted by the next poll.
-  const quietKey = `${turn?.user_id ?? ""}:${mine.length}:${view?.log.length ?? 0}:${view?.waiting.length ?? 0}`;
-  useEffect(() => {
-    if (!guided || stage !== "run" || who !== ME || busy || !started) return;
-    if (turn || mine.length) return;
-    const id = setTimeout(() => setStage("done"), 6000);
-    return () => clearTimeout(id);
-  }, [guided, stage, who, busy, started, quietKey]);
-  const first = (name: string) => name.replace(/ \(stand-in\)$/, "").split(" ")[0] ?? name;
   /** "was asked", "were told", "said": what a log line says about its person. */
   const verb = (l: PracticeView["log"][number]) =>
     l.kind === "answer"
@@ -205,15 +300,11 @@ export default function Practice() {
         : l.user_id === myId
           ? "were told"
           : "was told";
-  /** One line of what happened, for the log. */
-  const said = (l: PracticeView["log"][number]) =>
-    `${l.user_id === myId ? "You" : l.name} ${verb(l)}: ${l.body ?? l.title}`;
-
   const fab = (
     <Composer
       about={{
         kind: "screen",
-        title: guided && !behind ? "Walkthrough" : guided ? "Behind the scenes" : "Practice run",
+        title: guided ? "Behind the scenes" : "Practice run",
       }}
       params={space ? { space } : {}}
     />
@@ -240,43 +331,14 @@ export default function Practice() {
       </Text>
     </Pressable>
   ) : null;
-  // This run's lines (newest first): the walkthrough's log stops at the line that was newest
-  // when it started, so "Run it again" doesn't show the first run's answers as this one's.
-  const runLog = (() => {
-    const log = view?.log ?? [];
-    if (!guided || !since) return log;
-    const at = log.findIndex((l) => l.id === since);
-    return at < 0 ? log : log.slice(0, at);
-  })();
-  /** The log: the latest few (newest first), or the whole story from the start. */
-  const logList = (max?: number) =>
-    runLog.length ? (
-      <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair }]}>
-        {(max ? runLog.slice(0, max) : [...runLog].reverse()).map((l) => (
-          <Text key={l.id} style={[s.line, { color: t.fg }]}>
-            {said(l)}
-          </Text>
-        ))}
-        {max && runLog.length > max ? (
-          <Text style={[s.label, { color: t.fg3 }]}>and {runLog.length - max} more</Text>
-        ) : null}
-      </View>
-    ) : null;
-
   if (guided && !behind)
     return (
       <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 8 }]}>
         <View style={s.head}>
-          <Text style={[s.eyebrow, { color: t.fg2 }]}>
-            {stage === "intro"
-              ? "WALKTHROUGH"
-              : stage === "run"
-                ? "WALKTHROUGH · RUNNING"
-                : "WALKTHROUGH · DONE"}
-          </Text>
+          <Text style={[s.eyebrow, { color: t.fg2 }]}>REHEARSE</Text>
           {leave}
         </View>
-        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + COMPOSER_ROOM, gap: 14 }}>
+        <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + 24, gap: 14 }}>
           {problem ? (
             <View style={[s.card, { backgroundColor: t.cell, borderColor: t.danger }]}>
               <Text style={[s.line, { color: t.danger, fontWeight: "700" }]}>That didn't work</Text>
@@ -285,167 +347,46 @@ export default function Practice() {
           ) : null}
           {!view || !flow ? (
             <Text style={[s.label, { color: t.fg2 }]}>{note || "Setting up the practice copy…"}</Text>
-          ) : stage === "intro" ? (
-            <>
-              <Text style={[s.big, { color: t.fg }]}>Let's walk through {flow.workflow.name}</Text>
-              <Text style={[s.line, { color: t.fg2 }]}>
-                It runs for real in a practice copy. You'll play each person in turn, on their own phone.
-                Nobody is contacted; the copy is erased at the end.
-              </Text>
-              {/* Drawn, not listed: the sentence list read "like code" (owner, 2026-10-24). */}
-              <FlowDiagram workflow={flow.workflow} />
-              {people.length ? (
-                <Text style={[s.label, { color: t.fg2 }]}>
-                  Who's in it: {[...new Set(people.map((p) => p.name))].join(", ")}
-                  {flow.workflow.when.event === "added" ? ", and you, adding the first record." : "."}
-                </Text>
-              ) : null}
-              <Pressable
-                accessibilityRole="button"
-                disabled={busy !== null}
-                onPress={start}
-                style={[s.bigBtn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-              >
-                <Text style={[s.bigBtnText, { color: t.onAccent }]}>
-                  {busy === "start" ? "Starting…" : "Start"}
-                </Text>
-              </Pressable>
-              <Text style={[s.label, { color: t.fg3 }]}>
-                {flow.workflow.when.event === "added"
-                  ? `Start adds a sample to ${flow.workflow.when.collection} with made-up details, as if someone had.`
-                  : flow.workflow.when.event === "schedule"
-                    ? "Start runs it now, as its schedule would."
-                    : `Start runs it on the newest record in ${flow.workflow.when.collection}.`}
-              </Text>
-            </>
-          ) : stage === "run" ? (
-            <>
-              {turn ? (
-                <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair, gap: 10 }]}>
-                  <Text style={[s.label, { color: t.fg2 }]}>
-                    {started ? `Started with “${started}”.` : ""} Now
-                  </Text>
-                  <Text style={[s.big, { color: t.fg }]}>{turn.name} gets this</Text>
-                  {waitingOn(turn) ? (
-                    <View style={[s.notif, { backgroundColor: t.cell, borderColor: t.hair }]}>
-                      <Text style={[s.label, { color: t.fg, fontWeight: "700" }]}>
-                        {waitingOn(turn)!.workflow}
-                      </Text>
-                      <Text style={[s.line, { color: t.fg }]}>{waitingOn(turn)!.text}</Text>
-                    </View>
-                  ) : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => play(turn.user_id)}
-                    style={[s.bigBtn, { backgroundColor: t.accent }]}
-                  >
-                    <Text style={[s.bigBtnText, { color: t.onAccent }]}>
-                      Open {first(turn.name)}'s phone ›
-                    </Text>
-                  </Pressable>
-                </View>
-              ) : mine.length ? (
-                <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair, gap: 10 }]}>
-                  <Text style={[s.label, { color: t.fg2 }]}>Now</Text>
-                  <Text style={[s.big, { color: t.fg }]}>You get this</Text>
-                  {mine.map((w) => (
-                    <View
-                      key={w.id}
-                      style={[s.notif, { backgroundColor: t.cell, borderColor: t.hair, gap: 8 }]}
-                    >
-                      <Text style={[s.label, { color: t.fg, fontWeight: "700" }]}>{w.workflow}</Text>
-                      <Text style={[s.line, { color: t.fg }]}>{w.text}</Text>
-                      {w.choices ? (
-                        <View style={s.row}>
-                          {w.choices.map((c) => (
-                            <Pressable
-                              key={c}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Answer ${c}`}
-                              disabled={busy !== null}
-                              onPress={() => void answerMine(w.id, c)}
-                              style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
-                            >
-                              <Text style={[s.btnText, { color: t.onAccent }]}>{c}</Text>
-                            </Pressable>
-                          ))}
-                        </View>
-                      ) : (
-                        // No choices: the question wants words (Codex on PR 178).
-                        <FreeAnswer
-                          mine={null}
-                          disabled={busy !== null}
-                          send={(a) => void answerMine(w.id, a)}
-                        />
-                      )}
-                    </View>
-                  ))}
-                </View>
-              ) : (
-                <View style={[s.card, { backgroundColor: t.accentSoft, borderColor: t.hair }]}>
-                  <Text style={[s.line, { color: t.fg, fontWeight: "700" }]}>
-                    {started ? `Started with “${started}”.` : "Started."} Watching what happens…
-                  </Text>
-                  <Text style={[s.label, { color: t.fg2 }]}>
-                    The flow's next step runs in a moment. If nobody is asked anything, that's the end.
-                  </Text>
-                </View>
-              )}
-              {runLog.length ? <Text style={[s.h2, { color: t.fg }]}>So far</Text> : null}
-              {logList(6)}
-              <Pressable accessibilityRole="button" onPress={() => setBehind(true)} hitSlop={8}>
-                <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Behind the scenes ›</Text>
-              </Pressable>
-            </>
           ) : (
             <>
-              <Text style={[s.big, { color: t.fg }]}>That's the whole flow</Text>
+              <Text style={[s.big, { color: t.fg }]}>{flow.workflow.name}</Text>
               <Text style={[s.line, { color: t.fg2 }]}>
-                {runLog.length
-                  ? "Here's what everyone got, in order."
-                  : "Nobody was asked or told anything this time; it only changed records."}
+                Pick who to start as. The app becomes theirs: do what they would, and when the flow reaches
+                someone else, a banner lets you be them. Nothing reaches anyone.
               </Text>
-              {logList()}
-              <View style={s.row}>
-                {realOn === false && !turnedOn ? (
+              <View style={[s.card, { backgroundColor: t.cell, borderColor: t.hair, gap: 4 }]}>
+                <Text style={[s.h2, { color: t.fg, marginTop: 0 }]}>Rehearse as…</Text>
+                {[
+                  { user_id: myId ?? "", name: "Yourself", note: "As yourself" },
+                  ...people.map((p) => ({ user_id: p.user_id, name: p.name, note: personNote(p) })),
+                ].map((p) => (
                   <Pressable
+                    key={p.user_id || "me"}
                     accessibilityRole="button"
+                    accessibilityLabel={`Rehearse as ${p.name}`}
                     disabled={busy !== null}
-                    onPress={turnOn}
-                    style={[s.btn, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                    onPress={() => begin(p.user_id, p.name)}
+                    style={[s.person, { backgroundColor: t.cell, borderColor: t.hair }]}
                   >
-                    <Text style={[s.btnText, { color: t.onAccent }]}>
-                      {busy === "on" ? "Turning on…" : "Turn the flow on"}
-                    </Text>
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <Text style={[s.line, { color: t.fg, fontWeight: "700" }]} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      <Text style={[s.label, { color: t.fg2 }]} numberOfLines={1}>
+                        {p.note}
+                      </Text>
+                    </View>
+                    <Text style={{ color: t.fg3, fontSize: 20 }}>›</Text>
                   </Pressable>
-                ) : turnedOn ? (
-                  <View style={[s.btn, { backgroundColor: t.accentSoft }]}>
-                    <Text style={[s.btnText, { color: t.accent }]}>The flow is on</Text>
-                  </View>
-                ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={busy !== null}
-                  onPress={start}
-                  style={[s.btn, { backgroundColor: t.fill, opacity: busy ? 0.6 : 1 }]}
-                >
-                  <Text style={[s.btnText, { color: t.fg }]}>
-                    {busy === "start" ? "Starting…" : "Run it again"}
-                  </Text>
-                </Pressable>
+                ))}
               </View>
-              <Text style={[s.label, { color: t.fg2 }]}>
-                Not quite right? Ask the chat to change the flow, then rehearse it again.
-              </Text>
               <Pressable accessibilityRole="button" onPress={() => setBehind(true)} hitSlop={8}>
                 <Text style={[s.label, { color: t.accent, fontWeight: "700" }]}>Behind the scenes ›</Text>
               </Pressable>
-              <View style={s.row}>{endBtn}</View>
             </>
           )}
           {note && view ? <Text style={[s.label, { color: t.danger }]}>{note}</Text> : null}
         </ScrollView>
-        {fab}
       </View>
     );
 
@@ -462,7 +403,7 @@ export default function Practice() {
         </View>
         {guided ? (
           <Pressable accessibilityRole="button" onPress={() => setBehind(false)} hitSlop={10}>
-            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>‹ Walkthrough</Text>
+            <Text style={{ color: t.accent, fontWeight: "700", fontSize: 16 }}>‹ Rehearse</Text>
           </Pressable>
         ) : (
           leave
@@ -731,4 +672,6 @@ const s = StyleSheet.create({
     justifyContent: "center",
   },
   btnText: { fontSize: 15, fontWeight: "700" },
+  step: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  stepText: { fontSize: 13, fontWeight: "800" },
 });
