@@ -147,7 +147,7 @@ const SETUP = [
 const MAX_STEPS = 8;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-10-31a";
+export const PROMPT_VERSION = "2026-11-01a";
 
 const HAND_OVER: ToolSpec = {
   type: "function",
@@ -1973,6 +1973,11 @@ export async function confirmAction(
       note += ` It's a space called “${made}”: say “in ${made}, …” to add records or run a workflow there, and ask for its practice log to see what each person would get. Nothing in it reaches anyone.`;
     if (SETUP.includes(a.tool)) note += " The setup is saved.";
     if (a.tool === "make_setup") after = afterSetupPrompt(a.title, args);
+    // A new space: what the model said it would make in it comes next, in that space (owner,
+    // 2026-11-01: "It doesn't seem to complete the task without me pushing it"; it said "once it
+    // exists, I'll set up the flats, visitors…" and got no turn to).
+    else if (a.tool === "new_space")
+      after = `The space “${String(args.name ?? "")}” now exists. If you said what you'd make in it (lists, a setup, a workflow), propose it now, in that space (pass its name as space on every call), all of it at once. If nothing was planned, say in one short line what they can do there; no recap.`;
     // Any other setup card: the model gets one turn to go on with what it planned (owner,
     // 2026-10-24: Careful said "once confirmed, I'll propose the workflow", and never could,
     // because a Confirm gave it no turn; the flow was never made).

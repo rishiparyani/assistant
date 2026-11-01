@@ -75,6 +75,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     const titles = [...text.matchAll(/due today: ([^;\n]+)/g)].map((m) => m[1]!);
     return say(titles.length ? `Test: ${titles.join(" and ")} is due today.` : "NOTHING");
   }
+  // A space was just made (the app's own prompt): what was planned for it comes next.
+  if (/^The space “.*” now exists\./.test(lastUser)) return say("Test: next, the lists in it.");
   // After a setup is saved (the app's own prompt): how to use it, two messages to try, the
   // flows that fit as answers to tap.
   if (/^Make “.*”.*: saved\./.test(lastUser))

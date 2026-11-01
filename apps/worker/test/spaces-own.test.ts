@@ -116,6 +116,13 @@ describe("spaces of one's own", () => {
       (s) => s.name === "Test band",
     )!;
     expect(band).toBeDefined();
+    // Made, the assistant goes on with what it planned for it, without being asked again (owner,
+    // 2026-11-01: "It doesn't seem to complete the task without me pushing it").
+    const after = await json<ChatView>(await call(`/api/chats/${main.id}`, { cookie: me.cookie }));
+    const texts = after.items.map((i) => i.text);
+    expect(texts.indexOf("Test: next, the lists in it.")).toBeGreaterThan(
+      texts.findIndex((t) => t.startsWith("Done: Make a space")),
+    );
     // In the band's chat, its instructions are set in words, for that space only.
     const inBand = await json<ChatView>(
       await call(`/api/chats/current?space=${band.id}`, { cookie: me.cookie }),
