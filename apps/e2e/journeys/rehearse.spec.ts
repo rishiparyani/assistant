@@ -31,6 +31,13 @@ test("a flow is rehearsed person by person, and End throws it away", async ({ br
     ],
     enabled: false,
   })) as { id: string };
+  // Another flow on the same list: rehearsing this one, it stays quiet (Codex on PR 225).
+  await api(me)("POST", "/workflows", {
+    name: `E2E other gate flow ${RUN}`,
+    when: { event: "added", collection: list },
+    then: [{ do: "notify", text: "E2E other {Title}", to: ["me"] }],
+    enabled: true,
+  });
   const copy = (await api(me)("POST", "/spaces/Personal/practice", {})) as { id: string };
 
   const { page, errors, context } = await openApp(browser, me);
@@ -74,6 +81,7 @@ test("a flow is rehearsed person by person, and End throws it away", async ({ br
   await page.getByText("End and throw it away").click();
   await expect(page.getByText("Here's what happened")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(new RegExp(`was asked: Let E2E Dev ${RUN} in\\?`))).toBeVisible();
+  await expect(page.getByText(new RegExp(`E2E other E2E Dev ${RUN}`))).toHaveCount(0);
   await expect(page.getByText("REHEARSING AS")).toHaveCount(0);
   await expectNoSideways(page);
   // The real flow is still off: it can be turned on from here.

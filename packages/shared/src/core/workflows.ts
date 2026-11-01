@@ -742,7 +742,11 @@ export interface PracticeView {
 
 export const PracticeStartInput = SpaceRef;
 /** Starts one workflow in a practice copy (a sample record, or a run now). */
-export const PracticeRunInput = SpaceRef.extend({ workflow_id: z.string().trim().min(1).max(40) });
+export const PracticeRunInput = SpaceRef.extend({
+  workflow_id: z.string().trim().min(1).max(40),
+  /** false: only make it the one flow that runs, for a person to set it off themselves. */
+  start: z.boolean().default(true),
+});
 /** A rehearsal, as one of its people. */
 export const PracticeAsInput = SpaceRef.extend({ user_id: z.string().trim().min(1).max(64) });
 export const PracticeAsShareInput = PracticeAsInput.extend({

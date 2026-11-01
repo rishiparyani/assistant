@@ -236,22 +236,33 @@ function Rehearse() {
     void playAs({ space, of: view.of, as: id, name, self: myId }, refresh).then(() => router.replace("/"));
   };
   /** Starts rehearsing the flow as this person (yourself too): the whole app becomes theirs. */
+  // First the copy runs only this flow (the others are turned off there; Codex on PR 225), with
+  // nothing added: the person sets it off themselves.
   const begin = (id: string, name: string) => {
     if (!space || !view || !myId) return;
+    setBusy("begin");
     setProblem("");
-    void playAs(
-      {
-        space,
-        of: view.of,
-        as: id,
-        name,
-        self: myId,
-        workflow: workflow ?? null,
-        flow: flow?.workflow.name ?? null,
-        since: view.log[0]?.id ?? null,
-      },
-      refresh,
-    ).then(() => router.replace("/"));
+    void (async () => {
+      if (workflow) await request("POST", `${base}/run`, { workflow_id: workflow, start: false });
+      await playAs(
+        {
+          space,
+          of: view.of,
+          as: id,
+          name,
+          self: myId,
+          workflow: workflow ?? null,
+          flow: flow?.workflow.name ?? null,
+          since: view.log[0]?.id ?? null,
+        },
+        refresh,
+      );
+      router.replace("/");
+    })()
+      .catch((e: unknown) =>
+        setProblem(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e)),
+      )
+      .finally(() => setBusy(null));
   };
 
   const end = async () => {

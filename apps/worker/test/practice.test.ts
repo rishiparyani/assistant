@@ -359,6 +359,57 @@ describe("practice copies", () => {
     );
   });
 
+  it("prepares one flow without starting it: only it runs, and nothing is added", async () => {
+    // Rehearsing as a person (decision 2026-11-01): they set the flow off themselves, so the
+    // copy only turns the other flows off (Codex on PR 225).
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", { body: { name: "Visits", fields: [{ name: "Title", type: "text" }] } });
+    const wf = await json<WorkflowView>(
+      await api(owner)("/workflows", {
+        body: {
+          name: "Test visit",
+          when: { event: "added", collection: "Visits" },
+          then: [{ do: "notify", text: "Visit: {Title}", to: ["me"] }],
+          enabled: false,
+        },
+      }),
+    );
+    const other = await json<WorkflowView>(
+      await api(owner)("/workflows", {
+        body: {
+          name: "Test other visit",
+          when: { event: "added", collection: "Visits" },
+          then: [{ do: "notify", text: "Other: {Title}", to: ["me"] }],
+          enabled: true,
+        },
+      }),
+    );
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    const prepared = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id, start: false } });
+    expect(prepared.status).toBe(200);
+    expect(await json<{ record: unknown }>(prepared)).toEqual({ record: null });
+    const inCopy = await json<WorkflowView[]>(await api(owner)(`/workflows?space=${practice.id}`));
+    expect(inCopy.find((w) => w.id === other.id)?.enabled).toBe(false);
+    expect(inCopy.find((w) => w.id === wf.id)?.enabled).toBe(true);
+    // Nothing was added, so nothing has run yet.
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await json<PracticeView>(await api(owner)(base))).log).toHaveLength(0);
+    // Set off by hand: only this flow speaks.
+    await api(owner)("/collections/Visits/records", {
+      body: { space: practice.id, values: { Title: "Test Dev" } },
+    });
+    expect(
+      await until(async () =>
+        (await json<PracticeView>(await api(owner)(base))).log.some(
+          (l) => (l.body ?? l.title) === "Visit: Test Dev",
+        ),
+      ),
+    ).toBe(true);
+    const log = (await json<PracticeView>(await api(owner)(base))).log;
+    expect(log.some((l) => (l.body ?? l.title).startsWith("Other:"))).toBe(false);
+  });
+
   it("starts a workflow whose record must name a person: the role's stand-in fills it", async () => {
     const owner = await signUp("Test Owner");
     const madeList = await api(owner)("/collections", {
