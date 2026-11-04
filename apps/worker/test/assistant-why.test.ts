@@ -120,6 +120,37 @@ describe("why the assistant couldn't answer", () => {
     expect(new Set(fakeSystems).size).toBe(1);
   });
 
+  it("sends long tools as one line and loads them on demand, only for that request", async () => {
+    const me = await signUp("Test Owner");
+    fakeTools.length = 0;
+    const view = await json<ChatView>(
+      await call("/api/chat", { cookie: me.cookie, body: { text: "Test: load the flow tool" } }),
+    );
+    expect(view.items.at(-1)!.text).toBe("Loaded with its parameters.");
+    const [first, second] = fakeTools.slice(-2);
+    const byName = (ts: typeof first, n: string) => ts!.find((t) => t.function.name === n)!;
+    // The long ones are one line with no parameters; everyday ones are whole.
+    expect(byName(first, "create_workflow").function.parameters).toMatchObject({ properties: {} });
+    expect(byName(first, "make_setup").function.description).toMatch(/load_tools/);
+    expect(Object.keys(byName(first, "add_record").function.parameters.properties as object)).toContain(
+      "values",
+    );
+    expect(JSON.stringify(byName(first, "load_tools"))).toContain("create_workflow");
+    // The same list for every call of a request (cache and signed thinking).
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    // Well under half of what every tool in full was (about 130,000 characters).
+    expect(JSON.stringify(first).length).toBeLessThan(45_000);
+    // The next request doesn't carry the loaded description along.
+    fakeSystems.length = 0;
+    await call("/api/chat", { cookie: me.cookie, body: { text: "hi" } });
+    const ns = (env as unknown as { CHATS: DurableObjectNamespace }).CHATS;
+    const chat = ns.get(ns.idFromName(`chat:${me.id}`)) as unknown as {
+      context(id: string): Promise<{ role: string; content: string | null }[]>;
+    };
+    const history = await chat.context(me.id);
+    expect(history.some((m) => m.role === "tool" && (m.content ?? "").includes('"parameters"'))).toBe(false);
+  });
+
   it("names the person's other spaces and lets every tool say which (owner: a society's lists went to Personal)", async () => {
     const me = await signUp("Test Spaces");
     const spaceParam = () =>

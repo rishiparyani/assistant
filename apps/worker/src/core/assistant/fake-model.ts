@@ -72,6 +72,9 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
         collection: "Reminders",
         values: { Title: "Test call the venue", Due: "2030-01-01T18:00" },
       });
+    // "Test: load the flow tool": says whether the whole description came back.
+    if (asked === "Test: load the flow tool")
+      return say(result.includes('"parameters"') ? "Loaded with its parameters." : "Nothing loaded.");
     if (result.includes('"needs_confirmation"')) return say("Please confirm the card below.");
     if (result.includes('"error"')) return say("That didn't work: " + result.slice(0, 120));
     return say("Done.");
@@ -342,6 +345,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       return call("new_space", { name: "Test band" });
     case "Test: in the band money is split four ways":
       return call("set_space_instructions", { text: "Test: money is always split four ways." });
+    case "Test: load the flow tool":
+      return call("load_tools", { names: ["create_workflow"] });
     case "Test: remember weddings are 25000":
       return call("remember", { text: "Test weddings are ₹25,000 for the band." });
     case "Test: remember weddings are 25000 as the minute turns":

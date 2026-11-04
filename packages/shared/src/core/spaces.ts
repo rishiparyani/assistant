@@ -208,7 +208,7 @@ export const NewSpaceInput = z.object({
     .trim()
     .min(1)
     .max(40)
-    .describe('A space of their own, e.g. "Band", "Home", "Society gate"'),
+    .describe('A space of their own, e.g. "Home", "Family trip", "Office"'),
 });
 export const SpaceInstructionsInput = SpaceRef.extend({
   text: z
