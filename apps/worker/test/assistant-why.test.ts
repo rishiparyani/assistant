@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import type { ChatView } from "@assistant/shared";
 import { describe as cardWords, modelFailure } from "../src/core/assistant/service.ts";
-import { fakeSystems, fakeTools } from "../src/core/assistant/fake-model.ts";
+import { fakeClock, fakeSystems, fakeTools } from "../src/core/assistant/fake-model.ts";
 import { call, json, signUp } from "./http.ts";
 
 const lastReply = async (cookie: string) => {
@@ -102,6 +102,22 @@ describe("why the assistant couldn't answer", () => {
     // The next request sees what was remembered.
     await call("/api/chat", { cookie: me.cookie, body: { text: "hi" } });
     expect(fakeSystems.at(-1)).toMatch(/Test weddings are/);
+  });
+
+  it("keeps the time line the same for every step, even as the minute turns", async () => {
+    const me = await signUp("Test Owner");
+    fakeSystems.length = 0;
+    try {
+      await call("/api/chat", {
+        cookie: me.cookie,
+        body: { text: "Test: remember weddings are 25000 as the minute turns" },
+      });
+    } finally {
+      fakeClock.shiftMs = 0;
+    }
+    expect(fakeSystems.length).toBeGreaterThanOrEqual(2);
+    expect(fakeSystems[0]).toMatch(/Now: /);
+    expect(new Set(fakeSystems).size).toBe(1);
   });
 
   it("names the person's other spaces and lets every tool say which (owner: a society's lists went to Personal)", async () => {

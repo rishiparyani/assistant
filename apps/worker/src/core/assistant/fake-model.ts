@@ -34,11 +34,19 @@ const two = (a: [string, unknown], b: [string, unknown]): ModelAnswer => ({
 
 /** The instructions each call got, newest last (tests check they hold still within a request). */
 export const fakeSystems: string[] = [];
+/** Moves the app's clock on for a test (the time line in the instructions reads it). */
+export const fakeClock = { shiftMs: 0 };
 /** The tools each call was offered, newest last. */
 export const fakeTools: ToolSpec[][] = [];
 
 export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: ToolSpec[]): ModelAnswer {
-  fakeSystems.push(String(messages[0]?.content ?? ""));
+  // Every system message before the conversation: the instructions and the time line.
+  fakeSystems.push(
+    messages
+      .filter((m, i) => m.role === "system" && messages.slice(0, i).every((x) => x.role === "system"))
+      .map((m) => String(m.content ?? ""))
+      .join("\n---\n"),
+  );
   if (fakeSystems.length > 50) fakeSystems.shift();
   fakeTools.push(tools);
   if (fakeTools.length > 50) fakeTools.shift();
@@ -335,6 +343,10 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     case "Test: in the band money is split four ways":
       return call("set_space_instructions", { text: "Test: money is always split four ways." });
     case "Test: remember weddings are 25000":
+      return call("remember", { text: "Test weddings are ₹25,000 for the band." });
+    case "Test: remember weddings are 25000 as the minute turns":
+      // The clock passes a minute between this call and the next (Codex on PR 226).
+      fakeClock.shiftMs += 120_000;
       return call("remember", { text: "Test weddings are ₹25,000 for the band." });
     case "Test: what do you remember":
       // Says whether the remembered fact reached the instructions (they're in the system message).

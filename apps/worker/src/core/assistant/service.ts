@@ -45,6 +45,7 @@ import { workflowSpec } from "../spaces/workflow-operations.ts";
 import { resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed, fasterAnswers, isAdminCtx, requireAssistant } from "./access.ts";
 import { callModel, ModelError, type ChatMessage, type ToolCall, type ToolSpec } from "./client.ts";
+import { fakeClock } from "./fake-model.ts";
 import { EDITABLE_CARDS, type MemoryRow, type StoredMessage } from "./chat-object.ts";
 import {
   FREE_NEURONS_PER_DAY,
@@ -410,7 +411,7 @@ function toolsFor(
 
 const IST = 330 * 60_000;
 function nowIst() {
-  const d = new Date(Date.now() + IST);
+  const d = new Date(Date.now() + fakeClock.shiftMs + IST);
   const day = d.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" });
   return `${day}, ${d.toISOString().slice(0, 10)} ${d.toISOString().slice(11, 16)}`;
 }
@@ -431,7 +432,7 @@ export function inIndiaTime(cols: CollectionView[]) {
 /** The next seven days by name ("Wed 2026-10-14, …"), so "on Saturday" needs no date sums. */
 function comingDays() {
   return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(Date.now() + IST + (i + 1) * 86_400_000);
+    const d = new Date(Date.now() + fakeClock.shiftMs + IST + (i + 1) * 86_400_000);
     return `${d.toLocaleDateString("en-GB", { weekday: "short", timeZone: "UTC" })} ${d.toISOString().slice(0, 10)}`;
   }).join(", ");
 }
@@ -1383,6 +1384,10 @@ async function answerMessage(
   const prompts = new Map<Level, string>();
   let promptLevel: Level = level;
   const stream = streamer(ctx, chatId, requestKey);
+  // The time is read once per request: every step sends the same instructions, or signed
+  // thinking from an earlier step is refused (decision 2026-10-18 "One set of instructions";
+  // Codex on PR 226: a turn crossing a minute changed it).
+  const now = nowLine();
   for (let step = 0; step < MAX_STEPS; step++) {
     // A turn that has run long stops between steps, with what's done kept (owner, 2026-11-01:
     // "it was thinking since a very long time"): eight slow steps could take minutes.
@@ -1404,7 +1409,7 @@ async function answerMessage(
       if (groupWords) system += `\n\n${groupWords}`;
       prompts.set(level, system);
     }
-    const messages: ChatMessage[] = [{ role: "system", content: system }, nowLine(), ...history, ...turn];
+    const messages: ChatMessage[] = [{ role: "system", content: system }, now, ...history, ...turn];
     progress(ctx, chatId, "thinking");
     const why: string[] = [];
     const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast, why, stream);
