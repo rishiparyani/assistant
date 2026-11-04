@@ -137,7 +137,7 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/chat/actions/:action_id/cancel" },
       input: ChatActionRef,
-      handler: (ctx, i) => cancelAction(ctx, i.action_id),
+      handler: (ctx, i) => cancelAction(ctx, all(), i.action_id),
     }),
     defineOperation({
       id: "core.chat_feedback",
@@ -231,7 +231,7 @@ export function assistantOperations(all: () => readonly AnyOperation[]) {
       sessionOnly: true,
       http: { method: "POST", path: "/chats/:chat_id/actions/:action_id/cancel" },
       input: ChatActionIn,
-      handler: (ctx, i) => cancelAction(ctx, i.action_id, i.chat_id),
+      handler: (ctx, i) => cancelAction(ctx, all(), i.action_id, i.chat_id),
     }),
     // Who else may use the assistant (owners and admins switch it per person; it costs them).
     defineOperation({

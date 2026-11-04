@@ -475,6 +475,23 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /**
+   * The request's next step, kept while other cards still wait for a tap ("" clears it): it runs
+   * once the last of them is confirmed or cancelled (Codex on PR 226).
+   */
+  async pendingAfter(userId: string, set?: string): Promise<string | null> {
+    this.own(userId);
+    if (set !== undefined) setMeta(this.sql, "after", set);
+    return getMeta(this.sql, "after") || null;
+  }
+
+  /** The model the person last picked here: the request goes on with it after a Confirm. */
+  async lastPick(userId: string, set?: string): Promise<string | null> {
+    this.own(userId);
+    if (set !== undefined) setMeta(this.sql, "pick", set);
+    return getMeta(this.sql, "pick") ?? null;
+  }
+
   /** The morning line's hour ("HH:MM" India time), "off", or null for the default. */
   async morningSetting(userId: string): Promise<string | null> {
     this.own(userId);
@@ -616,6 +633,17 @@ export class ChatObject extends DurableObject<Env> {
       JSON.stringify(details),
       id,
     );
+  }
+
+  /** How many cards still wait for a tap (expired ones aside): the assistant carries on once none do. */
+  async waitingCount(userId: string): Promise<number> {
+    this.own(userId);
+    return this.sql
+      .exec<{ created_at: string; expires_at: string | null }>(
+        `select created_at, expires_at from actions where status = 'waiting'`,
+      )
+      .toArray()
+      .filter((a) => !expired(a)).length;
   }
 
   async finishAction(userId: string, id: string, status: ActionRow["status"], result: string | null) {
@@ -1045,6 +1073,8 @@ export class ChatObject extends DurableObject<Env> {
       this.sql.exec(`delete from messages`);
       this.sql.exec(`update actions set status = 'cancelled' where status = 'waiting'`);
       setMeta(this.sql, "setup", "0");
+      // A next step kept from a card is part of the conversation that's gone (Codex on PR 226).
+      setMeta(this.sql, "after", "");
       setMeta(this.sql, "summary", "");
       setMeta(this.sql, "summary_upto", "0");
     });

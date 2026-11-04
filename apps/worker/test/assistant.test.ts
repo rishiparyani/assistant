@@ -284,13 +284,51 @@ describe("chat", () => {
     expect((await find(me, "Expenses")).items).toEqual([]);
   });
 
-  it("hands setups over, and says so when Careful is off", async () => {
+  it("does a setup with whichever model answers, as a card, nothing made before Confirm", async () => {
+    // Decision 2026-11-04 "Pick a model, it does the whole job": no hand-over to another model.
     const me = await signUp("Test Owner");
     const view = await say(me, "Test: make a collection for fam jam sign-ups");
-    expect(view.items.at(-1)!.text).toMatch(/needs Careful.*Your lists in the menu/);
-    expect(view.setup_in_progress).toBe(false);
+    expect(view.items.some((i) => i.role === "card" && i.card?.tool === "create_collection")).toBe(true);
+    expect(view.items.some((i) => /Careful|Handing/.test(i.text ?? ""))).toBe(false);
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");
+  });
+
+  it("goes on with the request once the last of several cards is dealt with", async () => {
+    // Codex on PR 226: a setup confirmed while a record card still waited never went on.
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const note = (await find(me, "Notes")).items[0]!;
+    const asked = await say(me, `Test: a list and delete record ${note.id}`);
+    const cards = asked.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
+    expect(cards.map((c) => c.tool)).toEqual(["create_collection", "delete_record"]);
+    const goneOn = (v: ChatView) =>
+      v.items.some((i) => (i.text ?? "").startsWith("Test: add the first records"));
+    const first = await json<ChatView>(
+      await call(`/api/chat/actions/${cards[0]!.action_id}/confirm`, { cookie: me.cookie, body: {} }),
+    );
+    expect(goneOn(first)).toBe(false);
+    const last = await json<ChatView>(
+      await call(`/api/chat/actions/${cards[1]!.action_id}/confirm`, { cookie: me.cookie, body: {} }),
+    );
+    expect(goneOn(last)).toBe(true);
+  });
+
+  it("forgets a kept next step when the chat is cleared", async () => {
+    // Codex on PR 226: confirm one of two cards, clear the chat, then cancel a new card.
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const note = (await find(me, "Notes")).items[0]!;
+    const asked = await say(me, `Test: a list and delete record ${note.id}`);
+    const first = asked.items.find((i) => i.card?.status === "waiting")!.card!;
+    await call(`/api/chat/actions/${first.action_id}/confirm`, { cookie: me.cookie, body: {} });
+    await call("/api/chat", { cookie: me.cookie, method: "DELETE" });
+    const again = await say(me, `Test: delete record ${note.id}`);
+    const card = again.items.find((i) => i.card?.status === "waiting")!.card!;
+    const after = await json<ChatView>(
+      await call(`/api/chat/actions/${card.action_id}/cancel`, { cookie: me.cookie, body: {} }),
+    );
+    expect(after.items.some((i) => (i.text ?? "").startsWith("Test: add the first records"))).toBe(false);
   });
 
   it("answers a repeated send once, and keeps chats private", async () => {

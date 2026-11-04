@@ -21,8 +21,12 @@ export const find = (u: User, collection: string) =>
 /** A card as the person reads it: its title and its lines (a field's card names the field in
  *  the title since 2026-10-23). */
 const cardText = (c: { title: string; details: string[] }) => `${c.title} | ${c.details.join(" | ")}`;
-export const say = (u: User, text: string) =>
-  api(u)("/chat", { body: { text } }).then((r) => json<ChatView>(r));
+/** Says it with the level's model picked: the everyday candidate ("quick") for level 1, the
+ *  setups one ("careful") for level 2 (Codex on PR 226: unpicked, "auto" now means level 2). */
+export const say = (u: User, text: string, level: 1 | 2 = 1) =>
+  api(u)("/chat", { body: { text, model: level === 1 ? "quick" : "careful" } }).then((r) =>
+    json<ChatView>(r),
+  );
 
 /** Dates the way records show them ("13 Oct 2026"), in India time. */
 export function dayIst(offsetDays = 0): string {

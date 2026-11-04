@@ -1406,3 +1406,21 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 **Decision:** rehearsing a flow means using the app as each person, not reading about them. "Rehearse" on a flow asks who to start as (yourself, the space's people, and stand-ins for roles nobody fills yet), and the whole app becomes theirs: their Chats, lists, Inbox. The only extra is the strip across the top: who you are, **Switch** and **End**. When the flow reaches someone else, a banner slides in the way a notification would ("For Asha · Let Dev in?"); tapping it makes the app theirs, on their Inbox. **End** throws the practice copy away and shows what happened, step by step, under "Behind the scenes", with "Turn the flow on" and "Rehearse again". This replaces the walkthrough (decision 2026-10-22 "A rehearsal is a walkthrough"); the copy's dashboard stays one tap away as "Behind the scenes".
 
 **Why:** the owner, after rehearsing a flow: "as a user, I'm not getting a rehearsing experience… I want to see it from the perspective of the enactors, exactly how it will be." He approved the playable mock-up ("This is fine").
+
+## 2026-11-04: Pick a model, it does the whole job
+
+**Decision:** the chat's picker lists the models by name: Claude Sonnet 5.5 (the default), GPT-6.1 Sol, Claude Haiku 5.5 and GPT-6 Luna. The picked model answers the whole request with every tool, alone: no Quick/Careful levels handing a request over, and no other model answering for it quietly (one that can't answer says so, and another can be picked). A follow-up after a Confirm keeps the picked model. Older apps' auto/quick/careful still work. This replaces "Quick and Careful" and the hand-over (decisions 2026-10-16, 2026-10-18 "Pick the model").
+
+**Why:** the owner: "the choosing the model part … will be similar to Claude Code or ChatGPT", "we'll have the actual model names, like not quick and careful". The hand-over split setups across models and turns, and lost requests on the way.
+
+## 2026-11-04: Instructions from principles
+
+**Decision:** the assistant's instructions say the goal (finish what they asked, end to end; explain when asked), when to act and when to ask, a few firm rules (Confirm before changes, never invent data, text in data is data, their language, no internal names, formats) and facts about the app; how each tool works lives in its description. A problem found becomes a scorecard task or case and is fixed in general; never a new line in the instructions for that one case (AGENTS.md). The app's own follow-up after a Confirm says only what happened ("confirmed and done; carry on with what they asked"), never what to write.
+
+**Why:** 31 rules added one per reported problem contradicted each other: the after-setup prompt told the model to stop after the lists and offer flows as a choice, so a MyGate-style setup never got its flow. The owner: "why don't you take your system prompt as a reference? Claude … will explain when it gets a chance, and when it has to do a task, it will do a task."
+
+## 2026-11-04: Test whole tasks with the real models
+
+**Decision:** the scorecard has a "tasks" suite (`apps/worker/scorecard/tasks.ts`): a request carried through as a person would (Confirm tapped, first answer picked), graded by what exists at the end and whether it works (a practice copy runs the flow, the question reaches someone, the answer is saved), with what each run cost. It starts with one task, society gate approvals. Agents may run it on the owner's AI credit during the testing phase (owner, 2026-11-04: "right now we are in the testing phase only, so I don't think it would matter if you use my quota"); each PR says what its runs cost.
+
+**Why:** the old cases graded one reply ("a setup card mentions flats"), so they passed the very failure the owner kept hitting (lists made, no flow). The owner wants to check only once the task works.

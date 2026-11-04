@@ -1337,6 +1337,8 @@ export interface ChatView {
   setup_in_progress: boolean;
   /** Whether the smart model can be used now (prepaid credit set up and budget left). */
   smart_available: boolean;
+  /** The picker's models that can answer now (their key and credit are set up). */
+  models_available?: string[];
   /** Whether this person may ask the assistant (owners always; others when switched on). */
   assistant_on: boolean;
   /** The space this chat is in (decision 2026-10-16 "Spaces"); null for Personal. */
@@ -1393,10 +1395,29 @@ export const RememberInput = z.object({
 export const MemoryRef = z.object({ memory_id: z.string().trim().min(1).max(60) });
 
 /**
- * Which model answers (decision 2026-10-18 "Pick the model"): auto (Quick, Careful for setups
- * and when Quick fails twice), quick (Quick only, never stepping up on its own), careful.
+ * The models people pick from, by name (decision 2026-11-04 "Pick a model, it does the whole
+ * job"): the picked one answers the whole turn, with every tool, and nothing else answers for it.
  */
-export const ChatModelPick = z.enum(["auto", "quick", "careful"]);
+export const PICKER_MODELS = [
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", words: "Strong at setups and everyday things" },
+  { id: "gpt-6.1-sol", label: "GPT-6.1 Sol", words: "Strong at setups and everyday things" },
+  { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", words: "Fast and low-cost, for everyday things" },
+  { id: "gpt-6-luna", label: "GPT-6 Luna", words: "Fast and low-cost, for everyday things" },
+] as const;
+export type PickerModelId = (typeof PICKER_MODELS)[number]["id"];
+export const DEFAULT_PICK: PickerModelId = "claude-sonnet-5-5";
+
+/**
+ * Which model answers: one of the picker's models by id. An older app still sends auto, quick
+ * or careful (decision 2026-10-18 "Pick the model"): quick is the everyday model, the others the
+ * setups model.
+ */
+export const ChatModelPick = z.enum([
+  "auto",
+  "quick",
+  "careful",
+  ...(PICKER_MODELS.map((m) => m.id) as [PickerModelId, ...PickerModelId[]]),
+]);
 export type ChatModelPick = z.infer<typeof ChatModelPick>;
 
 export const ChatSendInput = z.object({

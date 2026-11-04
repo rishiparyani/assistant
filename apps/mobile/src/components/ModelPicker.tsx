@@ -1,33 +1,25 @@
-// Which model answers in the chat (decision 2026-10-18 "Pick the model"; owner: "there should
-// be 3 models in the model selector: auto, quick, and careful"). Kept on the device, for every
-// chat; sent with each message.
+// Which model answers in the chat, by name (decision 2026-11-04 "Pick a model, it does the
+// whole job", owner: "we'll have the actual model names, like not quick and careful"). The
+// picked one answers the whole request alone. Kept on the device, for every chat; sent with
+// each message.
 import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Tap, Text, type } from "@assistant/cards/native";
-import type { ChatModelPick } from "@assistant/shared";
+import { DEFAULT_PICK, PICKER_MODELS, type ChatModelPick } from "@assistant/shared";
 import { Sheet } from "./Sheet";
 import { readJson, writeJson } from "@/storage";
 import { useTheme } from "@/theme";
 
 const KEY = "gigspree:model-pick";
 
-export const PICKS: { id: ChatModelPick; label: string; words: string }[] = [
-  {
-    id: "auto",
-    label: "Auto",
-    words: "Quick for everyday things, Careful for setups and when Quick gets stuck",
-  },
-  { id: "quick", label: "Quick", words: "Fast answers; stays on Quick unless a setup needs Careful" },
-  { id: "careful", label: "Careful", words: "Thinks longer before answering; uses more AI credit" },
-];
+export const pickLabel = (p: ChatModelPick) => PICKER_MODELS.find((x) => x.id === p)?.label ?? p;
 
-export const pickLabel = (p: ChatModelPick) => PICKS.find((x) => x.id === p)!.label;
-
-/** The pick on this device, and a setter that keeps it. */
+/** The pick on this device (an older Auto, Quick or Careful becomes the default), and a setter. */
 export function useModelPick(): [ChatModelPick, (p: ChatModelPick) => void] {
   const [pick, setPick] = useState<ChatModelPick>(() => {
     const saved = readJson<string>(KEY);
-    return PICKS.some((p) => p.id === saved) ? (saved as ChatModelPick) : "auto";
+    const known = PICKER_MODELS.find((p) => p.id === saved);
+    return known ? known.id : DEFAULT_PICK;
   });
   return [
     pick,
@@ -41,15 +33,15 @@ export function useModelPick(): [ChatModelPick, (p: ChatModelPick) => void] {
 export function ModelSheet({
   open,
   pick,
-  carefulOn,
+  available,
   onPick,
   onClose,
   onChanges,
 }: {
   open: boolean;
   pick: ChatModelPick;
-  /** Careful can answer now (AI credit set up, budget left). */
-  carefulOn: boolean;
+  /** The models that can answer now (their key and credit set up); unknown: all of them. */
+  available?: string[];
   onPick: (p: ChatModelPick) => void;
   onClose: () => void;
   /** "What this chat changed" (the undo list) lives under the title too. */
@@ -59,8 +51,8 @@ export function ModelSheet({
   return (
     <Sheet open={open} onClose={onClose} gap={0} accessibilityLabel="Model">
       <Text style={[type.heading, { color: t.fg, marginBottom: 8 }]}>Model</Text>
-      {PICKS.map((p, i) => {
-        const off = p.id === "careful" && !carefulOn;
+      {PICKER_MODELS.map((p, i) => {
+        const off = !!available && !available.includes(p.id);
         const on = p.id === pick;
         return (
           <Tap
@@ -82,7 +74,7 @@ export function ModelSheet({
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={[s.label, { color: on ? t.accent : t.fg }]}>{p.label}</Text>
               <Text style={[type.caption, { color: t.fg2 }]}>
-                {off ? "Not available now: needs AI credit" : p.words}
+                {off ? "Not available now: its AI credit isn't set up" : p.words}
               </Text>
             </View>
             {on ? <Text style={{ color: t.accent, fontWeight: "800", fontSize: 16 }}>✓</Text> : null}

@@ -59,14 +59,14 @@ const repeat = Math.min(5, Math.max(1, Number(vars.SCORECARD_REPEAT) || 1));
 async function runOnce(c: Case): Promise<Row> {
   const u = await signUp("Test Person", undefined, { lists: c.lists !== false });
   await c.seed?.(u);
-  for (const said of c.before ?? []) await say(u, said);
+  for (const said of c.before ?? []) await say(u, said, c.level);
   const since = new Date().toISOString();
   const started = Date.now();
   let ok = false;
   let why: string;
   let cards: NonNullable<ChatView["items"][number]["card"]>[] = [];
   try {
-    const view = await say(u, c.text);
+    const view = await say(u, c.text, c.level);
     const at = view.items.map((i) => i.role).lastIndexOf("user");
     const turn = view.items.slice(at + 1);
     const reply = turn
@@ -98,7 +98,8 @@ async function runOnce(c: Case): Promise<Row> {
   return { c, ok, why, ms, calls: made };
 }
 
-it("scorecard", { timeout: 120 * 60_000 }, async () => {
+// Whole tasks run on their own (tasks.score.ts).
+it.skipIf(suite === "tasks")("scorecard", { timeout: 120 * 60_000 }, async () => {
   const rows: Row[] = [];
   const cases = CASES.filter(
     (c) =>

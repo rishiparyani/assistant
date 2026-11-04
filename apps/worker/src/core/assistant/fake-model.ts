@@ -21,13 +21,32 @@ const both = (content: string, name: string, args: unknown): ModelAnswer => ({
   content,
 });
 
+/** Two tool calls in one answer (two cards proposed together). */
+const two = (a: [string, unknown], b: [string, unknown]): ModelAnswer => ({
+  content: null,
+  tool_calls: [a, b].map(([name, args]) => ({
+    id: `call_${++n}`,
+    type: "function" as const,
+    function: { name, arguments: JSON.stringify(args) },
+  })),
+  usage: { input: 900, output: 60, cached: 0 },
+});
+
 /** The instructions each call got, newest last (tests check they hold still within a request). */
 export const fakeSystems: string[] = [];
+/** Moves the app's clock on for a test (the time line in the instructions reads it). */
+export const fakeClock = { shiftMs: 0 };
 /** The tools each call was offered, newest last. */
 export const fakeTools: ToolSpec[][] = [];
 
 export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: ToolSpec[]): ModelAnswer {
-  fakeSystems.push(String(messages[0]?.content ?? ""));
+  // Every system message before the conversation: the instructions and the time line.
+  fakeSystems.push(
+    messages
+      .filter((m, i) => m.role === "system" && messages.slice(0, i).every((x) => x.role === "system"))
+      .map((m) => String(m.content ?? ""))
+      .join("\n---\n"),
+  );
   if (fakeSystems.length > 50) fakeSystems.shift();
   fakeTools.push(tools);
   if (fakeTools.length > 50) fakeTools.shift();
@@ -82,11 +101,19 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       space: "Test band",
       values: { Title: "Test bring cables" },
     });
-  // A space was just made (the app's own prompt): what was planned for it comes next.
-  if (/^The space “.*” now exists\./.test(lastUser)) return say("Test: next, the lists in it.");
-  // After a setup is saved (the app's own prompt): how to use it, two messages to try, the
-  // flows that fit as answers to tap.
-  if (/^Make “.*”.*: saved\./.test(lastUser))
+  // "Test: a list and delete record <id>": a setup card and a record card together.
+  const pair = /^Test: a list and delete record (\S+)$/.exec(lastUser);
+  if (pair)
+    return two(
+      ["create_collection", { name: "Test trips", fields: [{ name: "Where", type: "text" }] }],
+      ["delete_record", { record_id: pair[1] }],
+    );
+  // A card was confirmed (the app's own note): the request goes on. A new space: what was
+  // planned for it comes next.
+  if (/^“.*” is confirmed and done \(a space called/.test(lastUser))
+    return say("Test: next, the lists in it.");
+  // A setup: how to use it, two messages to try, the flows that fit as answers to tap.
+  if (/^“Make .*” is confirmed and done\./.test(lastUser))
     return both(
       'Test: add the first records, then link the rest to them.\n"Add one"\n"Add another"',
       "ask_choices",
@@ -316,6 +343,10 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     case "Test: in the band money is split four ways":
       return call("set_space_instructions", { text: "Test: money is always split four ways." });
     case "Test: remember weddings are 25000":
+      return call("remember", { text: "Test weddings are ₹25,000 for the band." });
+    case "Test: remember weddings are 25000 as the minute turns":
+      // The clock passes a minute between this call and the next (Codex on PR 226).
+      fakeClock.shiftMs += 120_000;
       return call("remember", { text: "Test weddings are ₹25,000 for the band." });
     case "Test: what do you remember":
       // Says whether the remembered fact reached the instructions (they're in the system message).

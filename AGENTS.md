@@ -119,6 +119,7 @@ Mobile-first and polished (owner's priority): build screens from `apps/web/src/c
 - Put business logic in routes, MCP tools, or the web app.
 - Give any AI raw SQL or unchecked writes, or run code an AI wrote anywhere but a sandbox with no network whose every read and write goes through the operations (decision 2026-10-18 "Try A2UI"; the owner: "I just wanted the running of the code to be safe"). The in-app assistant (allowed since 2026-10-09) goes through the model router, uses only structured tools from the operation registry, and every action is checked by the app; deletes, money changes and new setups need the user's confirmation.
 - Parse users' messages with patterns or rules to decide what they mean (the owner's rule): understanding is the model's job; the router decides only facts (level, budget, errors).
+- Add a line to the assistant's instructions for one reported case (decision 2026-11-04 "Instructions from principles"): add a scorecard task or case (`apps/worker/scorecard`) and fix it in general. Runs on the real models may spend the owner's AI credit during the testing phase; say in the PR what they cost.
 - Put Cloudflare on a paid plan, turn on AI credit auto top-up, or raise the AI cap without the owner's OK.
 - Commit secrets or real personal data (public repo). `.dev.vars` is git-ignored; secrets are GitHub/Worker secrets.
 - Deploy from an agent session or ask the owner to paste a secret into chat.
