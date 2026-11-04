@@ -54,6 +54,34 @@ describe("assistant access", () => {
     expect((await api(friend)("/chat", { body: { text: "hi" } })).status).toBe(403);
   });
 
+  it("cancelling a card still works once it's switched off, but the assistant doesn't go on", async () => {
+    // Codex on PR 226: the next step kept from an earlier Confirm ran after the switch-off.
+    const boss = await theOwner();
+    const friend = await signUp("Test Friend", undefined, { assistant: false });
+    const mine = await json<RecordView>(
+      await api(friend)("/collections/Notes/records", { body: { values: { Title: "Test mine" } } }),
+    );
+    const note = await json<RecordView>(
+      await api(boss)("/collections/Notes/records", { body: { values: { Title: "Test for join" } } }),
+    );
+    const { link } = await json<CreatedShare>(
+      await api(boss)("/shares", { body: { record_id: note.id, access: "view" } }),
+    );
+    await api(friend)("/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    await api(boss)(`/assistant/people/${friend.id}`, { method: "PUT", body: { on: true } });
+    const asked = await json<ChatView>(
+      await api(friend)("/chat", { body: { text: `Test: a list and delete record ${mine.id}` } }),
+    );
+    const cards = asked.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
+    expect(cards).toHaveLength(2);
+    await api(friend)(`/chat/actions/${cards[0]!.action_id}/confirm`, { body: {} });
+    await api(boss)(`/assistant/people/${friend.id}`, { method: "PUT", body: { on: false } });
+    const cancelled = await api(friend)(`/chat/actions/${cards[1]!.action_id}/cancel`, { body: {} });
+    expect(cancelled.status).toBe(200);
+    const view = await json<ChatView>(cancelled);
+    expect(view.items.some((i) => (i.text ?? "").startsWith("Test: add the first records"))).toBe(false);
+  });
+
   it("only owners switch it, and only for people they know", async () => {
     const boss = await theOwner();
     const friend = await signUp("Test Friend", undefined, { assistant: false });

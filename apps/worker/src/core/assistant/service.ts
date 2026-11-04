@@ -2024,6 +2024,8 @@ async function goOn(
   const text = after ?? (await chat.pendingAfter(uid));
   if (!text) return;
   await chat.pendingAfter(uid, "");
+  // Cancelling stays open to everyone; going on is the assistant's work (Codex on PR 226).
+  if (!(await assistantAllowed(ctx))) return;
   let outcome = "failed";
   try {
     outcome = await answerMessage(ctx, ops, { text }, key, chatId, false, null, { quiet: true });

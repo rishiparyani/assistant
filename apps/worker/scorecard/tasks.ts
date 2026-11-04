@@ -47,10 +47,17 @@ const until = async <T>(f: () => Promise<T | null>, ms = 30_000): Promise<T | nu
 
 /**
  * The flow really works: in a practice copy of its space, a sample record on its list sets it
- * off, its question reaches someone, and answering it carries on (the answer saved where the
- * flow says). Returns what went wrong, or nothing.
+ * off, its question reaches the right person (not the owner, and not whoever `wrong` matches),
+ * answering it carries on, and the answer gets back: saved on the record (where the people who
+ * added it see it) or told to someone other than who answered (Codex on PR 226: a flow that
+ * asked the owner, or kept the answer to itself, passed). Returns what went wrong, or nothing.
  */
-async function works(u: User, space: SpaceView, flow: WorkflowView): Promise<string[]> {
+async function works(
+  u: User,
+  space: SpaceView,
+  flow: WorkflowView,
+  wrong: { asked: RegExp; label: string },
+): Promise<string[]> {
   const started = await api(u)(`/spaces/${encodeURIComponent(space.id)}/practice`, { body: {} });
   if (started.status !== 201 && started.status !== 200) return [`practice copy: HTTP ${started.status}`];
   const copy = await json<SpaceView>(started);
@@ -65,23 +72,34 @@ async function works(u: User, space: SpaceView, flow: WorkflowView): Promise<str
       const v = await json<PracticeView>(await api(u)(base));
       return v.waiting.find((w) => w.record_id === record.id && w.on.length > 0) ?? null;
     });
-    if (!wait) return ["the flow's question reached nobody (a sample visitor was added)"];
+    if (!wait) return ["the flow's question reached nobody (a sample record was added)"];
+    const asked = wait.on.map((p) => p.name).join(", ");
+    if (wait.on.some((p) => p.user_id === u.id)) return [`the question went to the owner (asked: ${asked})`];
+    if (wait.on.some((p) => wrong.asked.test(p.name)))
+      return [`the question went to ${wrong.label} (asked: ${asked})`];
     const answer = wait.choices?.[0] ?? "Yes";
+    const at = new Date().toISOString();
     const answered = await api(u)(`${base}/answer`, {
       body: { wait_id: wait.id, as_user_id: wait.on[0]!.user_id, answer },
     });
     if (answered.status !== 200) return [`answering: HTTP ${answered.status}`];
     const ask = flow.then.find((s) => s.do === "ask") as { save_to_id?: string | null } | undefined;
-    if (ask?.save_to_id) {
-      const saved = await until(async () => {
-        const r = await json<RecordView>(
-          await api(u)(`/records/${encodeURIComponent(record.id)}?space=${encodeURIComponent(copy.id)}`),
-        );
-        return String(r.values[ask.save_to_id!] ?? "") === answer ? r : null;
-      }, 15_000);
-      if (!saved) return [`the answer "${answer}" wasn't saved on the visitor`];
-    }
-    return [];
+    const saved = ask?.save_to_id
+      ? await until(async () => {
+          const r = await json<RecordView>(
+            await api(u)(`/records/${encodeURIComponent(record.id)}?space=${encodeURIComponent(copy.id)}`),
+          );
+          return String(r.values[ask.save_to_id!] ?? "") === answer ? r : null;
+        }, 15_000)
+      : null;
+    if (ask?.save_to_id && !saved) return [`the answer "${answer}" wasn't saved on the record`];
+    if (saved) return [];
+    const askedIds = new Set(wait.on.map((p) => p.user_id));
+    const told = await until(async () => {
+      const v = await json<PracticeView>(await api(u)(base));
+      return v.log.find((l) => l.kind === "message" && l.at >= at && !askedIds.has(l.user_id)) ?? null;
+    }, 15_000);
+    return told ? [] : [`the answer "${answer}" goes nowhere: not saved on the record, nobody else told`];
   } finally {
     await api(u)(base, { method: "DELETE" }).catch(() => undefined);
   }
@@ -106,6 +124,13 @@ export const TASKS: TaskCase[] = [
         m.cols.filter((c) => /flat|unit|apartment|resident|home/i.test(c.name)),
       );
       if (!flats.length) problems.push("no flats (or residents) list");
+      // The visitor names their flat: a link from the visitors list to a flats one.
+      else if (
+        !visitors.some(({ c }) =>
+          c.fields.some((f) => f.type === "link" && flats.some((x) => x.id === f.options.target)),
+        )
+      )
+        problems.push("the visitors list doesn't link each visitor to a flat");
       const flow = visitors
         .flatMap(({ m, c }) => m.flows.filter((f) => f.when.collection_id === c.id).map((f) => ({ m, f })))
         .find(({ f }) => f.then.some((s) => s.do === "ask"));
@@ -114,7 +139,13 @@ export const TASKS: TaskCase[] = [
         problems.push(`no flow on the visitors list that asks someone; flows: ${any.join(", ") || "none"}`);
         return problems;
       }
-      return [...problems, ...(await works(u, flow.m.space, flow.f))];
+      return [
+        ...problems,
+        ...(await works(u, flow.m.space, flow.f, {
+          asked: /guard|security|gate/i,
+          label: "the guard, not the flat",
+        })),
+      ];
     },
   },
 ];

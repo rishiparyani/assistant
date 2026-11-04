@@ -1073,6 +1073,8 @@ export class ChatObject extends DurableObject<Env> {
       this.sql.exec(`delete from messages`);
       this.sql.exec(`update actions set status = 'cancelled' where status = 'waiting'`);
       setMeta(this.sql, "setup", "0");
+      // A next step kept from a card is part of the conversation that's gone (Codex on PR 226).
+      setMeta(this.sql, "after", "");
       setMeta(this.sql, "summary", "");
       setMeta(this.sql, "summary_upto", "0");
     });
