@@ -24,6 +24,28 @@ const base: AiSettings = {
 const ids = (ms: { id: string }[]) => ms.map((m) => m.id);
 
 describe("Claude models", () => {
+  it("caches the tools and instructions without the time, and the conversation so far", () => {
+    // Decision 2026-11-04: the time inside the cached part changed it every minute.
+    const out = toAnthropic([
+      { role: "system", content: "Test instructions" },
+      { role: "system", content: "Now: Wednesday, 2026-11-04 18:00 (India time, IST)." },
+      { role: "user", content: "Test hello" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "t1", type: "function", function: { name: "find", arguments: "{}" } }],
+      },
+      { role: "tool", tool_call_id: "t1", content: "Test result" },
+    ]);
+    expect(out.system.map((b) => (b as { cache_control?: unknown }).cache_control ?? null)).toEqual([
+      { type: "ephemeral" },
+      null,
+    ]);
+    const last = out.messages.at(-1)!.content.at(-1) as { type: string; cache_control?: unknown };
+    expect(last.type).toBe("tool_result");
+    expect(last.cache_control).toEqual({ type: "ephemeral" });
+  });
+
   it("answers every day and builds setups once the key is in, with GLM behind it", () => {
     // Without the key: GLM alone, the picks or not (decision 2026-10-15 "Haiku for every day,
     // Sonnet for setups").

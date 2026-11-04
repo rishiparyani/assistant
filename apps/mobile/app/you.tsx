@@ -292,9 +292,9 @@ export default function You() {
                   go: () => openChat({ ask: "How do I " }),
                 },
                 {
-                  title: "Quick and Careful",
-                  text: "Quick answers everyday things in a second. Careful builds setups and takes harder questions; its replies say so.",
-                  go: () => openChat({ ask: "What do you do as Quick, and what as Careful?", send: "1" }),
+                  title: "Choosing a model",
+                  text: "Pick the model at the top of the assistant chat. Claude Sonnet 5.5 and GPT-6.1 Sol are strong at setups and harder questions; Claude Haiku 5.5 and GPT-6 Luna are fast and low-cost for everyday things. The one you pick does the whole job.",
+                  go: () => openChat({ ask: "Which model should I pick for what?", send: "1" }),
                 },
               ]
             : []),

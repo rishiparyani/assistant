@@ -475,6 +475,13 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /** The model the person last picked here: the request goes on with it after a Confirm. */
+  async lastPick(userId: string, set?: string): Promise<string | null> {
+    this.own(userId);
+    if (set !== undefined) setMeta(this.sql, "pick", set);
+    return getMeta(this.sql, "pick") ?? null;
+  }
+
   /** The morning line's hour ("HH:MM" India time), "off", or null for the default. */
   async morningSetting(userId: string): Promise<string | null> {
     this.own(userId);

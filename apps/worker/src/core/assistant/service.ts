@@ -533,11 +533,18 @@ function systemPrompt(
         ]
       : []),
   ];
-  // Last, because it changes every minute: everything above stays the same from call to call,
-  // so the model can reuse what it already read of it (prefix caching).
-  lines.push(`Now: ${nowIst()} (India time, IST). Coming days: ${comingDays()}.`);
   return lines.join("\n");
 }
+
+/**
+ * The time, as its own system message after the instructions: it changes every minute, so the
+ * instructions and tools before it stay the same from call to call and are read from the
+ * makers' prompt caches (decision 2026-11-04: a time inside the cached part spoilt the cache).
+ */
+const nowLine = (): ChatMessage => ({
+  role: "system",
+  content: `Now: ${nowIst()} (India time, IST). Coming days: ${comingDays()}.`,
+});
 
 /** What a confirm card says, from the tool and its arguments. */
 export function describe(
@@ -1313,7 +1320,11 @@ async function answerMessage(
   // Faster answers (Cerebras) for this person: first choice at the everyday level.
   const fast = await fasterAnswers(ctx);
   // The person's pick (decision 2026-10-18 "Pick the model"); "think harder" is the old Careful.
-  const pick = input.model ?? (input.think_harder ? "careful" : "auto");
+  // A turn the app starts (after a Confirm) goes on with the model the person last picked here:
+  // the request keeps its model (the follow-up fell to another model and failed, 2026-11-04).
+  if (input.model) await chat.lastPick(uid, input.model);
+  const pick = (input.model ??
+    (input.think_harder ? "careful" : ((await chat.lastPick(uid)) ?? "auto"))) as ChatModelPick;
   // The model the person picked does the whole job (decision 2026-11-04 "Pick a model, it does
   // the whole job"), alone: nothing else answers for it. An older app's quick is the everyday
   // model, auto and careful the setups model (which, not set up, answers as the everyday one).
@@ -1393,7 +1404,7 @@ async function answerMessage(
       if (groupWords) system += `\n\n${groupWords}`;
       prompts.set(level, system);
     }
-    const messages: ChatMessage[] = [{ role: "system", content: system }, ...history, ...turn];
+    const messages: ChatMessage[] = [{ role: "system", content: system }, nowLine(), ...history, ...turn];
     progress(ctx, chatId, "thinking");
     const why: string[] = [];
     const answer = await ask(ctx, level, messages, specs, `${uid}:${chatId}`, fast, why, stream);

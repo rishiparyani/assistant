@@ -699,17 +699,12 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
               </Text>
               <Text style={[s.title, { color: t.fg3 }]}> ▾</Text>
             </View>
-            {/* Only the exception is named: a model picked by hand, or what the chat is about. */}
-            {pick !== "auto" || card || view?.space_name ? (
-              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
-                {[
-                  pick !== "auto" ? pickLabel(pick) : "",
-                  card ? "about this card" : view?.space_name ? `in ${view.space_name}` : "",
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-              </Text>
-            ) : null}
+            {/* The model answering, by name, and what the chat is about. */}
+            <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
+              {[pickLabel(pick), card ? "about this card" : view?.space_name ? `in ${view.space_name}` : ""]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
           </Tap>
           <View style={s.tools}>
             <Tap
@@ -746,7 +741,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         <ModelSheet
           open={showModel}
           pick={pick}
-          carefulOn={view?.smart_available !== false}
+          available={view?.models_available}
           onPick={setPick}
           onClose={() => setShowModel(false)}
           onChanges={() => setShowChanges(true)}
@@ -1429,8 +1424,6 @@ function Bubble({
       >
         <Markdown text={item.text} style={[s.replyText, { color: t.fg }]} onTry={onSay} onAct={onAct} />
       </Pressable>
-      {/* Only the exception is marked (decision 2026-10-16 "Quick and Careful"): Quick is the default. */}
-      {item.level === 2 ? <Text style={[type.caption, s.careful, { color: t.fg2 }]}>Careful</Text> : null}
     </>
   );
 }

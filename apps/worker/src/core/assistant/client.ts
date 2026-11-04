@@ -363,7 +363,7 @@ const ANTHROPIC_TIMEOUT_MS = 30_000;
 type AnthropicBlock =
   | { type: "text"; text: string; cache_control?: { type: "ephemeral" } }
   | { type: "tool_use"; id: string; name: string; input: unknown }
-  | { type: "tool_result"; tool_use_id: string; content: string }
+  | { type: "tool_result"; tool_use_id: string; content: string; cache_control?: { type: "ephemeral" } }
   | { type: "thinking" | "redacted_thinking"; [k: string]: unknown };
 type AnthropicMessage = { role: "user" | "assistant"; content: AnthropicBlock[] };
 type AnthropicResult = {
@@ -423,9 +423,15 @@ export function toAnthropic(messages: ChatMessage[]): {
       push("user", [{ type: "text", text: m.content }]);
     }
   }
-  // The system prompt is the same for every call of a conversation: keep it in the cache.
-  const lastSystem = system.at(-1);
-  if (lastSystem && lastSystem.type === "text") lastSystem.cache_control = { type: "ephemeral" };
+  // Two cache marks (decision 2026-11-04). The tools and instructions are the same for every
+  // call: marked at the last system block before the time ("Now: …", which changes every
+  // minute). And the conversation so far: marked at its last block, so the next step of the same
+  // request reads it back at a tenth of the price instead of again in full.
+  const stable = system.filter((b) => b.type === "text" && !b.text.startsWith("Now: ")).at(-1);
+  if (stable && stable.type === "text") stable.cache_control = { type: "ephemeral" };
+  const tail = out.at(-1)?.content.at(-1);
+  if (tail && (tail.type === "text" || tail.type === "tool_result"))
+    tail.cache_control = { type: "ephemeral" };
   return { system, messages: out };
 }
 
