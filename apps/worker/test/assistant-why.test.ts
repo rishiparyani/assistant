@@ -151,6 +151,20 @@ describe("why the assistant couldn't answer", () => {
     expect(history.some((m) => m.role === "tool" && (m.content ?? "").includes('"parameters"'))).toBe(false);
   });
 
+  it("answers a one-line tool called wrongly with how to call it, kept only for that request", async () => {
+    const me = await signUp("Test Owner");
+    const view = await json<ChatView>(
+      await call("/api/chat", { cookie: me.cookie, body: { text: "Test: an empty setup" } }),
+    );
+    expect(view.items.at(-1)!.text).toBe("Told how to call it.");
+    const ns = (env as unknown as { CHATS: DurableObjectNamespace }).CHATS;
+    const chat = ns.get(ns.idFromName(`chat:${me.id}`)) as unknown as {
+      context(id: string): Promise<{ role: string; content: string | null }[]>;
+    };
+    const history = await chat.context(me.id);
+    expect(history.some((m) => m.role === "tool" && (m.content ?? "").includes("how_to_call"))).toBe(false);
+  });
+
   it("names the person's other spaces and lets every tool say which (owner: a society's lists went to Personal)", async () => {
     const me = await signUp("Test Spaces");
     const spaceParam = () =>

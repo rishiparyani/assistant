@@ -73,6 +73,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
         values: { Title: "Test call the venue", Due: "2030-01-01T18:00" },
       });
     // "Test: load the flow tool": says whether the whole description came back.
+    if (asked === "Test: an empty setup")
+      return say(result.includes('"how_to_call"') ? "Told how to call it." : "Not told how.");
     if (asked === "Test: load the flow tool")
       return say(result.includes('"parameters"') ? "Loaded with its parameters." : "Nothing loaded.");
     if (result.includes('"needs_confirmation"')) return say("Please confirm the card below.");
@@ -345,6 +347,8 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       return call("new_space", { name: "Test band" });
     case "Test: in the band money is split four ways":
       return call("set_space_instructions", { text: "Test: money is always split four ways." });
+    case "Test: an empty setup":
+      return call("make_setup", {});
     case "Test: load the flow tool":
       return call("load_tools", { names: ["create_workflow"] });
     case "Test: remember weddings are 25000":

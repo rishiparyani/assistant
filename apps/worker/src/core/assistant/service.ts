@@ -1524,6 +1524,7 @@ async function answerMessage(
       progress(ctx, chatId, "tool", progressWords(call));
       // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
       const loading = call.function.name === "load_tools";
+      let teaches = false;
       const result = loading
         ? loadTools(call, deferred)
         : await runTool(
@@ -1537,12 +1538,20 @@ async function answerMessage(
             proposeOnly,
             inSpace,
           );
-      // A one-line tool called with the wrong parameters: say how to get them.
-      if (result.kind === "error" && result.code === "validation_failed" && deferred.has(call.function.name))
+      // A one-line tool called with the wrong parameters (often before loading it, or after a
+      // load in an earlier request): its whole description comes back with the error, so the
+      // next call can be right without a load_tools round of its own.
+      if (
+        result.kind === "error" &&
+        result.code === "validation_failed" &&
+        deferred.has(call.function.name)
+      ) {
         result.text = JSON.stringify({
           ...(JSON.parse(result.text) as object),
-          hint: `Call load_tools with ["${call.function.name}"] for its parameters, then call it again.`,
+          how_to_call: deferred.get(call.function.name)!.function,
         });
+        teaches = true;
+      }
       if (result.kind === "choices") {
         asked = result.choices;
         outcome = "asked";
@@ -1601,8 +1610,13 @@ async function answerMessage(
       // so a long description doesn't ride along in every later message.
       rows.push({
         ...tool,
-        ...(loading && result.kind === "ran"
-          ? { content: JSON.stringify({ loaded_for_that_request_only: "load again when needed" }) }
+        ...((loading && result.kind === "ran") || teaches
+          ? {
+              content: JSON.stringify({
+                ...(teaches ? { error: "Called with the wrong parameters" } : {}),
+                loaded_for_that_request_only: "load again when needed",
+              }),
+            }
           : {}),
         shown: null,
       });

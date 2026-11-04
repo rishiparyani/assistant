@@ -118,7 +118,7 @@ function approval(t: {
   /** The list requests are added to (its name). */
   requests: { name: RegExp; label: string };
   /** Other lists it needs (each by name), and whether a request must link to it. */
-  needs?: { name: RegExp; label: string; linked?: boolean }[];
+  needs?: { name: RegExp; label: string; linked?: boolean; orField?: boolean }[];
   /** Who must not be asked; and whether the owner (the person setting it up) may be. */
   wrong: { asked: RegExp; label: string; ownerOk?: boolean };
 }): TaskCase {
@@ -136,6 +136,13 @@ function approval(t: {
       if (!reqs.length) problems.push(`no ${t.requests.label} list`);
       for (const n of t.needs ?? []) {
         const found = all.flatMap((m) => m.cols.filter((c) => n.name.test(c.name)));
+        // A person or link field on the requests list does as well (a Doctor field naming who).
+        const asField =
+          n.orField &&
+          reqs.some(({ c }) =>
+            c.fields.some((f) => (f.type === "person" || f.type === "link") && n.name.test(f.name)),
+          );
+        if (asField) continue;
         if (!found.length) problems.push(`no ${n.label} list`);
         else if (
           n.linked &&
@@ -179,7 +186,7 @@ export const TASKS: TaskCase[] = [
       "Set up appointment requests for my small clinic. Patients ask for a time slot with one of our doctors, " +
       "that doctor gets asked to accept or decline it, and the patient sees the answer.",
     requests: { name: /appoint|booking|request|slot/i, label: "appointments" },
-    needs: [{ name: /doctor|staff|physician/i, label: "doctor", linked: true }],
+    needs: [{ name: /doctor|staff|physician/i, label: "doctor", linked: true, orField: true }],
     wrong: { asked: /patient/i, label: "the patient, not the doctor" },
   }),
   approval({
