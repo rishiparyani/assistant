@@ -82,11 +82,12 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       space: "Test band",
       values: { Title: "Test bring cables" },
     });
-  // A space was just made (the app's own prompt): what was planned for it comes next.
-  if (/^The space “.*” now exists\./.test(lastUser)) return say("Test: next, the lists in it.");
-  // After a setup is saved (the app's own prompt): how to use it, two messages to try, the
-  // flows that fit as answers to tap.
-  if (/^Make “.*”.*: saved\./.test(lastUser))
+  // A card was confirmed (the app's own note): the request goes on. A new space: what was
+  // planned for it comes next.
+  if (/^“.*” is confirmed and done \(a space called/.test(lastUser))
+    return say("Test: next, the lists in it.");
+  // A setup: how to use it, two messages to try, the flows that fit as answers to tap.
+  if (/^“Make .*” is confirmed and done\./.test(lastUser))
     return both(
       'Test: add the first records, then link the rest to them.\n"Add one"\n"Add another"',
       "ask_choices",

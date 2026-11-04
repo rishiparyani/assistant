@@ -34,6 +34,22 @@ export interface ModelAnswer {
 
 export class ModelError extends Error {}
 
+/**
+ * Why a stream carried an error, as the maker's own code and type ("insufficient_quota",
+ * "invalid_request_error", the parameter it named): never its message, which can quote what
+ * was sent. So the scorecard and the admin numbers say why a model failed.
+ */
+function streamError(ev: unknown): ModelError {
+  const pick = (o: unknown): Record<string, unknown> =>
+    o && typeof o === "object" ? (o as Record<string, unknown>) : {};
+  const e = pick(ev);
+  const inner = pick(e.error ?? pick(e.response).error ?? e);
+  const words = [inner.code, inner.type, inner.param]
+    .filter((x): x is string => typeof x === "string" && x.length > 0 && x.length < 80)
+    .join(", ");
+  return new ModelError(`the stream carried an error${words ? ` (${words})` : ""}`);
+}
+
 /** Words of the answer as the model writes them (decision 2026-10-22 "Replies as they're written"). */
 export type OnText = (text: string) => void;
 
@@ -286,7 +302,7 @@ export async function readChatCompletionsStream(
     } catch {
       continue;
     }
-    if (chunk.error) throw new ModelError("the stream carried an error");
+    if (chunk.error) throw streamError(chunk);
     if (chunk.usage) usage = chunk.usage;
     const delta = chunk.choices?.[0]?.delta;
     if (!delta) continue;
@@ -562,7 +578,7 @@ export async function readAnthropicStream(
       end.whole = true;
       break;
     }
-    if (ev.type === "error") throw new ModelError("the stream carried an error");
+    if (ev.type === "error") throw streamError(ev);
     if (ev.type === "message_start" && "message" in ev) {
       raw.usage = { ...(raw.usage ?? {}), ...(ev.message.usage ?? {}) };
     } else if (ev.type === "content_block_start" && "content_block" in ev) {
@@ -794,8 +810,7 @@ export async function readResponsesStream(
     } catch {
       continue;
     }
-    if (ev.type === "error" || ev.type === "response.failed")
-      throw new ModelError("the stream carried an error");
+    if (ev.type === "error" || ev.type === "response.failed") throw streamError(ev);
     if (ev.type === "response.incomplete") throw new ModelError("the answer was cut off");
     if (ev.type === "response.output_text.delta" && "delta" in ev && ev.delta) onText(ev.delta);
     else if (ev.type === "response.completed" && "response" in ev) {

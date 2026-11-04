@@ -284,11 +284,12 @@ describe("chat", () => {
     expect((await find(me, "Expenses")).items).toEqual([]);
   });
 
-  it("hands setups over, and says so when Careful is off", async () => {
+  it("does a setup with whichever model answers, as a card, nothing made before Confirm", async () => {
+    // Decision 2026-11-04 "Pick a model, it does the whole job": no hand-over to another model.
     const me = await signUp("Test Owner");
     const view = await say(me, "Test: make a collection for fam jam sign-ups");
-    expect(view.items.at(-1)!.text).toMatch(/needs Careful.*Your lists in the menu/);
-    expect(view.setup_in_progress).toBe(false);
+    expect(view.items.some((i) => i.role === "card" && i.card?.tool === "create_collection")).toBe(true);
+    expect(view.items.some((i) => /Careful|Handing/.test(i.text ?? ""))).toBe(false);
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");
   });

@@ -334,6 +334,28 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
  * pinned: the scorecard).
  * `fast`: this person has faster answers (Cerebras first among the fallbacks).
  */
+/** Whether a model can answer now: free, or its maker's key (or the credit route) is set up. */
+export function canUse(id: string, s: AiSettings): boolean {
+  const m = MODELS.find((x) => x.id === id);
+  if (!m) return false;
+  const k = keyed(m);
+  return m.route === "free" || (k ? !!s[k] : !!s.paidGateway);
+}
+
+/**
+ * Settings that make this model the only one to answer (decision 2026-11-04 "Pick a model, it
+ * does the whole job"), and the level it answers at (only which model; every tool is offered).
+ */
+export function pinnedTo(id: string, s: AiSettings): { settings: AiSettings; level: Level } | null {
+  const m = MODELS.find((x) => x.id === id);
+  if (!m || !canUse(id, s)) return null;
+  const level = (m.level >= 2 ? 2 : 1) as Level;
+  return {
+    level,
+    settings: { ...s, ...(level === 1 ? { everydayModel: id } : { setupModel: id }), pinned: true },
+  };
+}
+
 export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry[] {
   const want = level === 1 ? s.everydayModel : level === 2 ? s.setupModel : null;
   // A paid model needs its money: the Cloudflare credit route, or the provider's own key.

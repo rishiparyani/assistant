@@ -618,6 +618,17 @@ export class ChatObject extends DurableObject<Env> {
     );
   }
 
+  /** How many cards still wait for a tap (expired ones aside): the assistant carries on once none do. */
+  async waitingCount(userId: string): Promise<number> {
+    this.own(userId);
+    return this.sql
+      .exec<{ created_at: string; expires_at: string | null }>(
+        `select created_at, expires_at from actions where status = 'waiting'`,
+      )
+      .toArray()
+      .filter((a) => !expired(a)).length;
+  }
+
   async finishAction(userId: string, id: string, status: ActionRow["status"], result: string | null) {
     this.own(userId);
     this.sql.exec(`update actions set status = ?, result = ? where id = ?`, status, result, id);
