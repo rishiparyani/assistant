@@ -56,7 +56,7 @@ async function works(
   u: User,
   space: SpaceView,
   flow: WorkflowView,
-  wrong: { asked: RegExp; label: string; ownerOk?: boolean },
+  wrong: { asked: RegExp; label: string; ownerOk?: boolean; ownerDecides?: boolean },
 ): Promise<string[]> {
   const started = await api(u)(`/spaces/${encodeURIComponent(space.id)}/practice`, { body: {} });
   if (started.status !== 201 && started.status !== 200) return [`practice copy: HTTP ${started.status}`];
@@ -74,6 +74,8 @@ async function works(
     });
     if (!wait) return ["the flow's question reached nobody (a sample record was added)"];
     const asked = wait.on.map((p) => p.name).join(", ");
+    if (wrong.ownerDecides && !wait.on.some((p) => p.user_id === u.id))
+      return [`the question went to someone else, not the one who decides (asked: ${asked})`];
     if (!wrong.ownerOk && wait.on.some((p) => p.user_id === u.id))
       return [`the question went to the owner (asked: ${asked})`];
     if (wait.on.some((p) => wrong.asked.test(p.name)))
@@ -120,7 +122,8 @@ function approval(t: {
   /** Other lists it needs (each by name), and whether a request must link to it. */
   needs?: { name: RegExp; label: string; linked?: boolean; orField?: boolean }[];
   /** Who must not be asked; and whether the owner (the person setting it up) may be. */
-  wrong: { asked: RegExp; label: string; ownerOk?: boolean };
+  /** ownerDecides: the person setting it up is the one who must be asked. */
+  wrong: { asked: RegExp; label: string; ownerOk?: boolean; ownerDecides?: boolean };
 }): TaskCase {
   return {
     id: t.id,
@@ -196,7 +199,7 @@ export const TASKS: TaskCase[] = [
       "Our family shares one car. Set it up so anyone in the family can book it for a time, " +
       "I approve or reject each booking, and the person who booked sees the answer.",
     requests: { name: /book|request|trip|car|reserv/i, label: "bookings" },
-    wrong: { asked: /^$/, label: "", ownerOk: true },
+    wrong: { asked: /^$/, label: "", ownerOk: true, ownerDecides: true },
   }),
   approval({
     id: "school-leave",
@@ -205,6 +208,11 @@ export const TASKS: TaskCase[] = [
       "Set up leave requests for my class at school. Parents send a leave request for their child, " +
       "I'm the class teacher and approve or reject it, and the parent sees the answer.",
     requests: { name: /leave|absen|request/i, label: "leave requests" },
-    wrong: { asked: /parent|student|child|guardian/i, label: "the parent, not the teacher", ownerOk: true },
+    wrong: {
+      asked: /parent|student|child|guardian/i,
+      label: "the parent, not the teacher",
+      ownerOk: true,
+      ownerDecides: true,
+    },
   }),
 ];
