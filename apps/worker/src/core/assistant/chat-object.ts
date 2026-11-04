@@ -475,6 +475,16 @@ export class ChatObject extends DurableObject<Env> {
     return getMeta(this.sql, "setup") === "1";
   }
 
+  /**
+   * The request's next step, kept while other cards still wait for a tap ("" clears it): it runs
+   * once the last of them is confirmed or cancelled (Codex on PR 226).
+   */
+  async pendingAfter(userId: string, set?: string): Promise<string | null> {
+    this.own(userId);
+    if (set !== undefined) setMeta(this.sql, "after", set);
+    return getMeta(this.sql, "after") || null;
+  }
+
   /** The model the person last picked here: the request goes on with it after a Confirm. */
   async lastPick(userId: string, set?: string): Promise<string | null> {
     this.own(userId);

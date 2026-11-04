@@ -21,6 +21,17 @@ const both = (content: string, name: string, args: unknown): ModelAnswer => ({
   content,
 });
 
+/** Two tool calls in one answer (two cards proposed together). */
+const two = (a: [string, unknown], b: [string, unknown]): ModelAnswer => ({
+  content: null,
+  tool_calls: [a, b].map(([name, args]) => ({
+    id: `call_${++n}`,
+    type: "function" as const,
+    function: { name, arguments: JSON.stringify(args) },
+  })),
+  usage: { input: 900, output: 60, cached: 0 },
+});
+
 /** The instructions each call got, newest last (tests check they hold still within a request). */
 export const fakeSystems: string[] = [];
 /** The tools each call was offered, newest last. */
@@ -82,6 +93,13 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       space: "Test band",
       values: { Title: "Test bring cables" },
     });
+  // "Test: a list and delete record <id>": a setup card and a record card together.
+  const pair = /^Test: a list and delete record (\S+)$/.exec(lastUser);
+  if (pair)
+    return two(
+      ["create_collection", { name: "Test trips", fields: [{ name: "Where", type: "text" }] }],
+      ["delete_record", { record_id: pair[1] }],
+    );
   // A card was confirmed (the app's own note): the request goes on. A new space: what was
   // planned for it comes next.
   if (/^“.*” is confirmed and done \(a space called/.test(lastUser))

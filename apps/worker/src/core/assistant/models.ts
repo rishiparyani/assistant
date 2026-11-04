@@ -338,6 +338,8 @@ export const estimateTokens = (text: string) => Math.ceil(text.length / 3.5);
 export function canUse(id: string, s: AiSettings): boolean {
   const m = MODELS.find((x) => x.id === id);
   if (!m) return false;
+  // The scripted test model answers for any model (local runs and the journeys).
+  if (s.fake) return true;
   const k = keyed(m);
   return m.route === "free" || (k ? !!s[k] : !!s.paidGateway);
 }
@@ -347,8 +349,10 @@ export function canUse(id: string, s: AiSettings): boolean {
  * does the whole job"), and the level it answers at (only which model; every tool is offered).
  */
 export function pinnedTo(id: string, s: AiSettings): { settings: AiSettings; level: Level } | null {
+  // Pinned even when it can't answer now: then nothing answers for it, and the person is told
+  // (Codex on PR 226: an unavailable Sonnet was answered by Sol).
   const m = MODELS.find((x) => x.id === id);
-  if (!m || !canUse(id, s)) return null;
+  if (!m) return null;
   const level = (m.level >= 2 ? 2 : 1) as Level;
   return {
     level,
@@ -363,10 +367,12 @@ export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry
     const k = keyed(m);
     return m.route === "free" || (k ? s[k] : !!s.paidGateway);
   };
+  // A model picked by name, with the scripted test model: it answers for it.
+  const pickable = (m: ModelEntry) => funded(m) || (s.pinned && s.fake);
   // A pick may come from a higher level (owner, 2026-10-17: "can we just enable Sonnet? Haiku is
   // not doing very well"): a stronger model can answer every day too, the tools staying the
   // level's; never a weaker one building setups.
-  const picked = want ? MODELS.find((m) => m.id === want && m.level >= level && funded(m)) : null;
+  const picked = want ? MODELS.find((m) => m.id === want && m.level >= level && pickable(m)) : null;
   // With AI credit a Workers AI candidate is billed to it (repeats would use up the free
   // allowance); Cerebras and Anthropic have their own credit.
   const first =
@@ -382,6 +388,8 @@ export function modelsFor(level: Level, s: AiSettings, fast = false): ModelEntry
       funded(m) &&
       (m.provider !== "cerebras" || (s.fast && fast)),
   ).sort((a, b) => fastFirst(a) - fastFirst(b));
-  if (first && s.pinned) return [first];
+  // Pinned to a named model: that model or none, never another in its place (Codex on PR 226).
+  // Pinned with no model named: the usual list.
+  if (s.pinned && want) return first ? [first] : [];
   return first ? [first, ...rest] : rest;
 }

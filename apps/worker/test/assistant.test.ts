@@ -294,6 +294,26 @@ describe("chat", () => {
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");
   });
 
+  it("goes on with the request once the last of several cards is dealt with", async () => {
+    // Codex on PR 226: a setup confirmed while a record card still waited never went on.
+    const me = await signUp("Test Owner");
+    await say(me, "Test: note the PA needs two DI boxes");
+    const note = (await find(me, "Notes")).items[0]!;
+    const asked = await say(me, `Test: a list and delete record ${note.id}`);
+    const cards = asked.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
+    expect(cards.map((c) => c.tool)).toEqual(["create_collection", "delete_record"]);
+    const goneOn = (v: ChatView) =>
+      v.items.some((i) => (i.text ?? "").startsWith("Test: add the first records"));
+    const first = await json<ChatView>(
+      await call(`/api/chat/actions/${cards[0]!.action_id}/confirm`, { cookie: me.cookie, body: {} }),
+    );
+    expect(goneOn(first)).toBe(false);
+    const last = await json<ChatView>(
+      await call(`/api/chat/actions/${cards[1]!.action_id}/confirm`, { cookie: me.cookie, body: {} }),
+    );
+    expect(goneOn(last)).toBe(true);
+  });
+
   it("answers a repeated send once, and keeps chats private", async () => {
     const me = await signUp("Test Owner");
     await say(me, "Hello", "k-1");

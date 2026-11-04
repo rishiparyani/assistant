@@ -73,6 +73,10 @@ describe("Claude models", () => {
     expect(ids(modelsFor(2, { ...base, anthropic: true }))).toEqual(["claude-sonnet-5-5"]);
     // Pinned (the scorecard): the pick alone, so its misses are its own; no pick, the usual list.
     expect(ids(modelsFor(1, { ...on, pinned: true }))).toEqual(["claude-haiku-5-5"]);
+    // Pinned to a model that can't answer: none, never another (Codex on PR 226).
+    expect(
+      ids(modelsFor(1, { ...base, fake: false, everydayModel: "claude-haiku-5-5", pinned: true })),
+    ).toEqual([]);
     expect(ids(modelsFor(1, { ...base, anthropic: true, pinned: true }))).toEqual([
       "@cf/zai-org/glm-4.7-flash",
       "claude-haiku-5-5",

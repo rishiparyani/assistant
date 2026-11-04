@@ -1536,8 +1536,15 @@ async function answerMessage(
       });
       break;
     }
-    // Two failed checks: try the next level up, if there is one (not when Quick was picked).
-    if (pick !== "quick" && failures >= 2 && level < 3 && modelsFor((level + 1) as Level, s).length) {
+    // Two failed checks: try the next level up, if there is one; never for a model picked by
+    // name (it does the whole job; Codex on PR 226) or for Quick.
+    if (
+      !named &&
+      pick !== "quick" &&
+      failures >= 2 &&
+      level < 3 &&
+      modelsFor((level + 1) as Level, s).length
+    ) {
       level = (level + 1) as Level;
       failures = 0;
       rows.push({ role: "assistant", content: "Trying a stronger model…", shown: "note", level });
@@ -1840,8 +1847,9 @@ async function ask(
         why.push(`${m.label}: its daily or per-minute limit is used`);
         continue;
       }
-    } else if (keyed(m) && !ctx.ai.keys[keyed(m)!]) {
-      // A maker called with its own key: nothing to try without it.
+    } else if (keyed(m) && !ctx.ai.keys[keyed(m)!] && !s.fake) {
+      // A maker called with its own key: nothing to try without it (the scripted test model
+      // answers for any model, keys or not).
       why.push(`${m.label}: no key`);
       continue;
     } else if (m.route === "free") {
@@ -1990,22 +1998,39 @@ export async function confirmAction(
     { role: "assistant", content: note, shown: "note" },
     ...(live ? [{ role: "assistant" as const, content: "", shown: "live" as const, live }] : []),
   ]);
-  // A saved setup gets one more turn (owner, 2026-10-23: "how do I use it?"): how to use it,
-  // two messages to try, and the flows that fit as answers to tap. Setting up goes on only
-  // while that question is open (the pick is the next message); any other ending, a plain
-  // answer, no model (Codex on PR 184), an error, puts everyday chat back.
-  if (after && (await chat.waitingCount(uid)) === 0) {
-    let outcome = "failed";
-    try {
-      outcome = await answerMessage(ctx, ops, { text: after }, `after-setup:${a.id}`, chatId, false, null, {
-        quiet: true,
-      });
-    } catch {
-      // The setup is saved either way; the note above says so.
-    }
-    if (outcome !== "asked") await chat.setupInProgress(uid, false);
-  }
+  await goOn(ctx, ops, chat, chatId, after, `after-setup:${a.id}`);
   return chatView(ctx, chatId);
+}
+
+/**
+ * After a card is confirmed or cancelled, the request goes on, once no card waits for a tap
+ * (decision 2026-11-04 "Confirm carries the task on"). A next step from a card confirmed while
+ * others still wait is kept on the chat and runs when the last of them is dealt with, whatever
+ * kind it is (Codex on PR 226).
+ */
+async function goOn(
+  ctx: OpUserCtx,
+  ops: readonly AnyOperation[],
+  chat: Awaited<ReturnType<typeof useChat>>,
+  chatId: string,
+  after: string | null,
+  key: string,
+): Promise<void> {
+  const uid = ctx.user.id;
+  if ((await chat.waitingCount(uid)) > 0) {
+    if (after) await chat.pendingAfter(uid, after);
+    return;
+  }
+  const text = after ?? (await chat.pendingAfter(uid));
+  if (!text) return;
+  await chat.pendingAfter(uid, "");
+  let outcome = "failed";
+  try {
+    outcome = await answerMessage(ctx, ops, { text }, key, chatId, false, null, { quiet: true });
+  } catch {
+    // What was confirmed is saved either way; its note says so.
+  }
+  if (outcome !== "asked") await chat.setupInProgress(uid, false);
 }
 
 /** The morning line's setting: off, or on at an hour ("HH:MM" India time; 08:00 by default). */
@@ -2032,13 +2057,19 @@ export async function rateAnswer(ctx: OpUserCtx, rating: "good" | "bad"): Promis
   return { ok: true };
 }
 
-export async function cancelAction(ctx: OpUserCtx, actionId: string, chatId = MAIN): Promise<ChatView> {
+export async function cancelAction(
+  ctx: OpUserCtx,
+  ops: readonly AnyOperation[],
+  actionId: string,
+  chatId = MAIN,
+): Promise<ChatView> {
   const chat = await useChat(ctx, chatId);
   const a = await chat.takeAction(ctx.user.id, actionId);
   await chat.finishAction(ctx.user.id, a.id, "cancelled", null);
   await quietly(budgetOf(ctx).signal(ctx.user.id, "card_cancelled", a.tool, `card:${a.id}`));
   if (a.tool === "make_setup") await chat.setupInProgress(ctx.user.id, false);
   await chat.append(ctx.user.id, [{ role: "assistant", content: `Cancelled: ${a.title}.`, shown: "note" }]);
+  await goOn(ctx, ops, chat, chatId, null, `after-cancel:${a.id}`);
   return chatView(ctx, chatId);
 }
 
