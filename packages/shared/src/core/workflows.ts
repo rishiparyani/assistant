@@ -76,7 +76,7 @@ const NotifyAction = z.object({
     .max(10)
     .default(["me"])
     .describe(
-      '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Lineup.Player}); up to three links, e.g. {Flat.Residents.App account} for the app accounts of the residents of the record\'s flat',
+      '"me", people you know (names or ids), {Field} for the person in that person field of the record, or {Link.Field} for the people in a person field of linked records (e.g. {Project.Owner}); up to three links, e.g. {Order.Customer.App account} for the app account of the customer on the record\'s order',
     ),
 });
 const SetAction = z.object({
@@ -192,7 +192,7 @@ const ChooseAction = z.object({
     .min(1)
     .max(300)
     .describe(
-      'What to decide about the record, e.g. "Should this visitor be let in?"; {Field} puts in a value',
+      'What to decide about the record, e.g. "Should this order be accepted?"; {Field} puts in a value',
     ),
   options: z
     .array(
@@ -248,7 +248,7 @@ export const WorkflowActionInput = z.discriminatedUnion("do", [
       .min(1)
       .max(10)
       .describe(
-        'Who to ask: "me", people you know (names or ids), {Field} for the person in that field of the record, or {Link.Field} for the people in a person field of linked records (up to three links: {Flat.Residents.App account})',
+        'Who to ask: "me", people you know (names or ids), {Field} for the person in that field of the record, or {Link.Field} for the people in a person field of linked records (up to three links: {Order.Customer.App account})',
       ),
     text: z
       .string()
