@@ -24,6 +24,7 @@ export default defineConfig({
           SCORECARD_ONLY: process.env.SCORECARD_ONLY ?? "",
           SCORECARD_SUITE: process.env.SCORECARD_SUITE ?? "",
           SCORECARD_REPEAT: process.env.SCORECARD_REPEAT ?? "",
+          SCORECARD_PICK: process.env.SCORECARD_PICK ?? "",
           // A candidate everyday model to try (an id from MODELS in core/assistant/models.ts);
           // empty: the live one from wrangler.jsonc's vars.
           ...(process.env.AI_EVERYDAY_MODEL ? { AI_EVERYDAY_MODEL: process.env.AI_EVERYDAY_MODEL } : {}),

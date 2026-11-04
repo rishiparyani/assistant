@@ -18,15 +18,19 @@ on:
         required: false
         default: ""
       suite:
-        description: "Which cases: core (everyday), hard (the harder everyday ones), setups (level 2 only) or all"
+        description: "Which cases: core (everyday), hard (the harder everyday ones), setups (level 2 only), all, or tasks (whole tasks carried through, graded by what works; scorecard/tasks.ts)"
         required: false
         default: "all"
         type: choice
-        options: [all, core, hard, setups]
+        options: [all, core, hard, setups, tasks]
       repeat:
         description: "Runs of each case (1-5), to see how steady a model is"
         required: false
         default: "1"
+      pick:
+        description: "Tasks only: the model the test person picks in the chat (quick or careful)"
+        required: false
+        default: "careful"
       model:
         description: "Everyday model to try instead of the live one (an id from core/assistant/models.ts, e.g. @cf/zai-org/glm-4.7-flash, gpt-oss-120b, gpt-6-luna, gpt-5.4-nano, gemini-3.1-flash-lite; empty: the live one, claude-haiku-5-5)"
         required: false
@@ -67,6 +71,7 @@ jobs:
           SCORECARD_ONLY: ${{ inputs.only }}
           SCORECARD_SUITE: ${{ inputs.suite }}
           SCORECARD_REPEAT: ${{ inputs.repeat }}
+          SCORECARD_PICK: ${{ inputs.pick }}
           AI_EVERYDAY_MODEL: ${{ inputs.model }}
           AI_SETUP_MODEL: ${{ inputs.setup_model }}
           # Faster answers (Cerebras); only used when the model input names gpt-oss-120b.
