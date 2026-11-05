@@ -31,6 +31,7 @@ export default function Shared() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [pulls, setPulls] = useState(0);
   const [more, setMore] = useState(false);
   // Leave was tapped once (a second tap leaves).
   const [leaving, setLeaving] = useState(false);
@@ -119,6 +120,7 @@ export default function Shared() {
               refreshing={refreshing}
               onRefresh={async () => {
                 setRefreshing(true);
+                setPulls((n) => n + 1);
                 await load();
                 setRefreshing(false);
               }}
@@ -154,7 +156,7 @@ export default function Shared() {
           ) : null}
           {opened && "record" in opened && "sections" in opened ? (
             // A card's comments, as on the website (Codex on PR 230).
-            <SharedComments shareId={id} recordId={opened.record.id} />
+            <SharedComments shareId={id} recordId={opened.record.id} refresh={pulls} />
           ) : null}
           {opened && "next_cursor" in opened && opened.next_cursor ? (
             // A long shared list comes a page at a time (Codex on PR 230).

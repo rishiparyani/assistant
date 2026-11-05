@@ -12,7 +12,16 @@ import { radius, useTheme } from "../theme.ts";
 
 const enc = encodeURIComponent;
 
-export function SharedComments({ shareId, recordId }: { shareId: string; recordId: string }) {
+export function SharedComments({
+  shareId,
+  recordId,
+  refresh = 0,
+}: {
+  shareId: string;
+  recordId: string;
+  /** Goes up when the page is pulled to refresh: the comments load again too (Codex on PR 230). */
+  refresh?: number;
+}) {
   const { t } = useTheme();
   const base = `/api/cards/${enc(shareId)}`;
   const [list, setList] = useState<CommentView[] | null>(null);
@@ -27,14 +36,17 @@ export function SharedComments({ shareId, recordId }: { shareId: string; recordI
   const load = useCallback(async () => {
     try {
       setList(await request<CommentView[]>("GET", `${base}/records/${enc(recordId)}/comments`));
+      setNote("");
     } catch (e) {
       fail(e);
     }
   }, [base, recordId]);
   useEffect(() => {
     setList(null);
-    void load();
   }, [load]);
+  useEffect(() => {
+    void load();
+  }, [load, refresh]);
 
   const send = async () => {
     const text = body.trim();
