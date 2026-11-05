@@ -48,6 +48,7 @@ import { SetupEditSheet } from "@/components/SetupEditSheet";
 import { SetupCard, setupOf } from "@/components/SetupCard";
 import { ChatsSheet } from "@/components/ChatsSheet";
 import { ModelSheet, pickLabel, useModelPick } from "@/components/ModelPicker";
+import { BackIcon, ChatsIcon, ChevronDownIcon, NewChatIcon } from "@/components/HeaderIcons";
 import { ApiError, isOffline, request, newKey } from "@/api";
 import { outboxState, send, subscribe } from "@/outbox";
 import { useLive } from "@/live-socket";
@@ -671,64 +672,62 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
         {/* The top, as Claude's and ChatGPT's (owner, 2026-10-23: "the top section is pretty
             clunky"): back on the left, the title in the middle (tap: the model, what this
             chat changed), chats and a new chat on the right. Nothing else. */}
-        <View style={s.head}>
+        <View style={[s.head, { backgroundColor: t.page, borderBottomColor: t.hair }]}>
           <Tap
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={onClose}
             scale={0.9}
             hitSlop={8}
-            style={s.tool}
+            style={[s.tool, { backgroundColor: t.fill }]}
           >
-            <Text style={[s.toolGlyph, { color: t.fg }]}>‹</Text>
+            <BackIcon color={t.fg} />
           </Tap>
+          {/* The title on the left, the model under it (tap: the model, what this chat changed):
+              left-aligned, so one button on the left and two on the right don't push a centred
+              title off the middle (owner, 2026-11-05: "things are not neatly placed"). */}
           <Tap
             accessibilityRole="button"
             accessibilityLabel={`${card ? card : (view?.title ?? "Chat")}. Model: ${pickLabel(pick)}. Options`}
             onPress={() => setShowModel(true)}
-            hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+            scale={0.98}
             style={s.titleBox}
           >
-            <View style={s.titleRow}>
-              <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
-                {card
-                  ? card
-                  : view && view.id !== MAIN && view.title !== "New chat"
-                    ? view.title
-                    : "Gigspree"}
-              </Text>
-              <Text style={[s.title, { color: t.fg3 }]}> ▾</Text>
-            </View>
-            {/* The model answering, by name, and what the chat is about. */}
-            <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
-              {[pickLabel(pick), card ? "about this card" : view?.space_name ? `in ${view.space_name}` : ""]
-                .filter(Boolean)
-                .join(" · ")}
+            <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
+              {card ? card : view && view.id !== MAIN && view.title !== "New chat" ? view.title : "Gigspree"}
             </Text>
+            {/* The model answering, by name, and what the chat is about. */}
+            <View style={s.ctxRow}>
+              <Text style={[s.ctx, { color: t.fg2 }]} numberOfLines={1}>
+                {[pickLabel(pick), card ? "about this card" : view?.space_name ? `in ${view.space_name}` : ""]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Text>
+              <ChevronDownIcon color={t.fg2} size={12} />
+            </View>
           </Tap>
-          <View style={s.tools}>
-            <Tap
-              accessibilityRole="button"
-              accessibilityLabel="Chats"
-              onPress={() => setShowChats(true)}
-              scale={0.9}
-              hitSlop={6}
-              style={s.tool}
-            >
-              <Text style={[s.toolGlyph, { color: t.fg, fontSize: 17 }]}>☰</Text>
-            </Tap>
-            <Tap
-              accessibilityRole="button"
-              accessibilityLabel="New chat"
-              onPress={() => void newChat()}
-              scale={0.9}
-              hitSlop={6}
-              haptic="selection"
-              style={s.tool}
-            >
-              <Text style={[s.toolGlyph, { color: t.fg, fontSize: 18 }]}>✎</Text>
-            </Tap>
-          </View>
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel="Chats"
+            onPress={() => setShowChats(true)}
+            scale={0.9}
+            hitSlop={6}
+            style={[s.tool, { backgroundColor: t.fill }]}
+          >
+            <ChatsIcon color={t.fg} />
+          </Tap>
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel="New chat"
+            onPress={() => void newChat()}
+            scale={0.9}
+            hitSlop={6}
+            haptic="selection"
+            style={[s.tool, { backgroundColor: t.fill }]}
+          >
+            <NewChatIcon color={t.fg} size={20} />
+          </Tap>
         </View>
         <AddRecordSheet
           open={!!adding}
@@ -1449,16 +1448,25 @@ const s = StyleSheet.create({
   },
   stepQ: { fontWeight: "700", letterSpacing: 0.4, textTransform: "uppercase", marginBottom: 2 },
   root: { flex: 1 },
-  head: { height: 56, alignItems: "center", flexDirection: "row", paddingHorizontal: 8, gap: 4 },
-  // The title takes the middle; a long one is cut short.
-  titleBox: { flex: 1, alignItems: "center", justifyContent: "center", minHeight: 44, paddingHorizontal: 4 },
-  titleRow: { flexDirection: "row", alignItems: "center", maxWidth: "100%" },
-  title: { ...type.heading, fontSize: 16, flexShrink: 1 },
-  ctx: { ...type.caption, marginTop: 1 },
-  tools: { flexDirection: "row", alignItems: "center" },
-  // Quiet round targets, no edge: the page is the chrome.
-  tool: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  toolGlyph: { fontSize: 22, lineHeight: 26, fontWeight: "700" },
+  // One row, everything on its centre line; the page's colour under it with a hairline, so
+  // the chat scrolling up doesn't show through.
+  head: {
+    minHeight: 60,
+    alignItems: "center",
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    zIndex: 2,
+  },
+  // The title fills the middle, left-aligned; a long one is cut short.
+  titleBox: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 44, paddingHorizontal: 4 },
+  title: { fontSize: 16, lineHeight: 21, fontWeight: "700", letterSpacing: -0.2 },
+  ctxRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 1 },
+  ctx: { fontSize: 13, lineHeight: 17, fontWeight: "500", flexShrink: 1 },
+  // Round targets of one size, a soft fill so they read as buttons.
+  tool: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   fresh: { paddingTop: 120, paddingHorizontal: 24 },
   // The person's words in a soft bubble on the right; the assistant's as plain text on the
   // page, the width of the screen (decision 2026-10-22 "The chat reads like Claude's").
