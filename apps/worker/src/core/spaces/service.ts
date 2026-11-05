@@ -1,6 +1,13 @@
 // Spaces (docs/design/universal.md): thin services that find the caller's space and hand
 // the call to its object, which checks the caller's role itself.
-import { ulid, nameKey, type SpaceSettings, type SpaceView } from "@assistant/shared";
+import {
+  ulid,
+  nameKey,
+  TRASH_DAYS,
+  type DeletedSpace,
+  type SpaceSettings,
+  type SpaceView,
+} from "@assistant/shared";
 import type { OpUserCtx } from "../operations.ts";
 import type { Actor } from "../objects/storage.ts";
 import { ObjectError } from "../objects/errors.ts";
@@ -178,6 +185,82 @@ export async function endPractice(ctx: OpUserCtx, ref: string): Promise<{ ended:
     ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(space.id),
   ]);
   return { ended: space.id };
+}
+
+/**
+ * Deletes a space of mine, recoverably (decision 2026-11-05 "The space is the setup"): it
+ * leaves everyone's spaces, its links stop working, and its rehearsals end; Recently deleted
+ * brings it back for TRASH_DAYS.
+ */
+export async function deleteSpace(ctx: OpUserCtx, ref: string): Promise<{ deleted: string; name: string }> {
+  const { space, stub, actor } = await spaceOf(ctx, ref);
+  if (space.practice_of) throw new ObjectError("validation_failed", "A rehearsal ends with End");
+  if (space.kind === "personal") throw new ObjectError("validation_failed", "Personal can't be deleted");
+  if (space.role !== "owner") throw new ObjectError("forbidden", "Only the space's owner can delete it");
+  const { name } = await stub.deleteSpace(actor);
+  const now = new Date().toISOString();
+  // Its rehearsals end with it (they're copies of what's gone).
+  const copies = await ctx.d1
+    .prepare(`select id from spaces where practice_of = ? and deleted_at is null`)
+    .bind(space.id)
+    .all<{ id: string }>();
+  await ctx.d1.batch([
+    ctx.d1.prepare(`update spaces set deleted_at = ? where id = ?`).bind(now, space.id),
+    ...copies.results.flatMap((c) => [
+      ctx.d1.prepare(`update spaces set deleted_at = ? where id = ?`).bind(now, c.id),
+      ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(c.id),
+    ]),
+  ]);
+  return { deleted: space.id, name };
+}
+
+/** My deleted spaces that can still come back, newest first. */
+export async function deletedSpaces(ctx: OpUserCtx): Promise<DeletedSpace[]> {
+  const rows = await ctx.d1
+    .prepare(
+      `select id, name from spaces where owner_user_id = ? and deleted_at is not null
+       and practice_of is null and kind = 'shared'`,
+    )
+    .bind(ctx.user.id)
+    .all<{ id: string; name: string }>();
+  const out = await Promise.all(
+    rows.results.map(async (r) => {
+      const info = await ctx.objects.SPACES.getByName(spaceName(r.id))
+        .deletedInfo(actorOf(ctx))
+        .catch(() => null);
+      return info
+        ? [
+            {
+              space_id: r.id,
+              name: r.name,
+              lists: info.lists,
+              deleted_at: info.deleted_at,
+              erase_at: new Date(Date.parse(info.deleted_at) + TRASH_DAYS * 86_400_000).toISOString(),
+            },
+          ]
+        : [];
+    }),
+  );
+  return out.flat().sort((a, b) => (a.deleted_at < b.deleted_at ? 1 : -1));
+}
+
+/** Brings a deleted space of mine back, for everyone who was in it. */
+export async function restoreSpace(ctx: OpUserCtx, id: string): Promise<SpaceView> {
+  const row = await ctx.d1
+    .prepare(
+      `select id, name from spaces where id = ? and owner_user_id = ? and deleted_at is not null
+       and practice_of is null and kind = 'shared'`,
+    )
+    .bind(id, ctx.user.id)
+    .first<{ id: string; name: string }>();
+  if (!row) throw new ObjectError("not_found", "It isn't in Recently deleted");
+  const mine = await mySpaces(ctx);
+  if (mine.some((s) => nameKey(s.name) === nameKey(row.name)))
+    throw new ObjectError("conflict", `You already have a space called “${row.name}”: rename that one first`);
+  if (mine.length >= 20) throw new ObjectError("conflict", "Up to 20 spaces; remove one first");
+  await ctx.objects.SPACES.getByName(spaceName(id)).restoreSpace(actorOf(ctx));
+  await ctx.d1.prepare(`update spaces set deleted_at = null where id = ?`).bind(id).run();
+  return { id, name: row.name, kind: "shared", role: "owner" };
 }
 
 /** One space with its instructions. */

@@ -1134,7 +1134,17 @@ export class SpaceObject extends DurableObject<Env> {
         `select min(deleted_at) as at from records where deleted_at is not null and purged_at is null`,
       )
       .toArray()[0];
-    return row?.at ? Date.parse(row.at) + TRASH_DAYS * 86_400_000 : null;
+    const list = this.sql
+      .exec<{ at: string | null }>(`select min(deleted_at) as at from list_trash`)
+      .toArray()[0];
+    const space =
+      getMeta(this.sql, "space_deleted_at") && !getMeta(this.sql, "space_erased")
+        ? getMeta(this.sql, "space_deleted_at")
+        : null;
+    const times = [row?.at, list?.at, space]
+      .filter((t): t is string => !!t)
+      .map((t) => Date.parse(t) + TRASH_DAYS * 86_400_000);
+    return times.length ? Math.min(...times) : null;
   }
 
   // --- Space and members ---------------------------------------------------------------
@@ -1700,6 +1710,76 @@ export class SpaceObject extends DurableObject<Env> {
       (JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>)[userId] ??
       "Someone"
     );
+  }
+
+  /**
+   * Deletes this space, recoverably (owner, 2026-11-05: deleting the space deletes the setup):
+   * its links stop working, its flows stop (each remembered as on or off), and after
+   * TRASH_DAYS everything in it is erased. Only its owner can, and not a chat's home (the
+   * chat holds it) or a practice copy (End does that).
+   */
+  async deleteSpace(actor: Actor): Promise<{ name: string }> {
+    if (this.memberRole(actor.userId) !== "owner")
+      throw new ObjectError("forbidden", "Only the space's owner can delete it");
+    if (this.practice) throw new ObjectError("validation_failed", "A rehearsal ends with End");
+    const sp = this.sql
+      .exec<{ name: string; kind: string; group_id: string | null }>(`select name, kind, group_id from space`)
+      .toArray()[0];
+    if (!sp) throw new ObjectError("not_found", "Space not found");
+    if (sp.kind === "personal") throw new ObjectError("validation_failed", "Personal can't be deleted");
+    if (sp.group_id)
+      throw new ObjectError("validation_failed", "These are a chat's lists: they go when the chat does");
+    if (getMeta(this.sql, "space_deleted_at")) return { name: sp.name };
+    const ts = nowIso();
+    this.ctx.storage.transactionSync(() => {
+      const on = this.sql
+        .exec<{ id: string }>(`select id from workflows where enabled = 1 and deleted_at is null`)
+        .toArray()
+        .map((w) => w.id);
+      for (const id of on) {
+        this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
+        this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, id);
+        this.dropWaits(id, ts);
+      }
+      setMeta(this.sql, "space_deleted_flows", JSON.stringify(on));
+      setMeta(this.sql, "space_deleted_at", ts);
+      audit(this.sql, actor, { action: "delete_space", entityType: "space", entityId: "space" });
+    });
+    await this.wakeForJobs();
+    return { name: sp.name };
+  }
+
+  /** What a deleted space holds, for Recently deleted (null: not deleted, or erased). */
+  async deletedInfo(actor: Actor): Promise<{ deleted_at: string; lists: number } | null> {
+    if (this.memberRole(actor.userId) !== "owner") return null;
+    const at = getMeta(this.sql, "space_deleted_at");
+    if (!at || getMeta(this.sql, "space_erased")) return null;
+    const lists = this.sql
+      .exec<{ n: number }>(`select count(*) as n from collections where deleted_at is null`)
+      .toArray()[0]!.n;
+    return { deleted_at: at, lists };
+  }
+
+  /** Brings a deleted space back as it was: its links work again, its flows as they were. */
+  async restoreSpace(actor: Actor): Promise<void> {
+    if (this.memberRole(actor.userId) !== "owner")
+      throw new ObjectError("forbidden", "Only the space's owner can bring it back");
+    if (!getMeta(this.sql, "space_deleted_at") || getMeta(this.sql, "space_erased"))
+      throw new ObjectError("not_found", "It isn't in Recently deleted");
+    this.ctx.storage.transactionSync(() => {
+      const on = JSON.parse(getMeta(this.sql, "space_deleted_flows") ?? "[]") as string[];
+      for (const id of on) {
+        this.sql.exec(`update workflows set enabled = 1 where id = ? and deleted_at is null`, id);
+        const w = this.sql
+          .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, id)
+          .toArray()[0];
+        if (w) this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
+      }
+      setMeta(this.sql, "space_deleted_flows", "");
+      setMeta(this.sql, "space_deleted_at", "");
+      audit(this.sql, actor, { action: "restore_space", entityType: "space", entityId: "space" });
+    });
+    await this.wakeForJobs();
   }
 
   /** Ends a practice copy: everything in it is erased (only practice copies can be). */
@@ -6161,6 +6241,15 @@ export class SpaceObject extends DurableObject<Env> {
   /** Records deleted more than TRASH_DAYS ago are erased (from the alarm, a page at a time). */
   private eraseDue() {
     const before = new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString();
+    // A deleted space, past its time: everything in it is erased, every list as one is.
+    const spaceAt = getMeta(this.sql, "space_deleted_at");
+    if (spaceAt && spaceAt <= before && !getMeta(this.sql, "space_erased"))
+      this.ctx.storage.transactionSync(() => {
+        const ts = nowIso();
+        for (const c of this.sql.exec<{ id: string }>(`select id from collections`).toArray())
+          this.eraseList(c.id, ts);
+        setMeta(this.sql, "space_erased", ts);
+      });
     const lists = this.sql
       .exec<{ collection_id: string }>(`select collection_id from list_trash where deleted_at <= ?`, before)
       .toArray();
@@ -10113,6 +10202,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** The live share whose link has this hash. */
   private shareByHash(tokenHash: string): ShareRow | undefined {
+    if (getMeta(this.sql, "space_deleted_at")) return undefined;
     const s = this.sql
       .exec<ShareRow>(`select * from shares where token_hash = ? and revoked_at is null`, tokenHash)
       .toArray()[0];
@@ -10122,6 +10212,8 @@ export class SpaceObject extends DurableObject<Env> {
   /** Not expired, and what it shares still exists. */
   private alive(s: ShareRow): boolean {
     if (s.expires_at && s.expires_at <= nowIso()) return false;
+    // A deleted space's links stop working (they work again if it's brought back).
+    if (getMeta(this.sql, "space_deleted_at")) return false;
     if (s.kind === "card") return !!this.liveRecord(s.target_id);
     if (s.kind === "question") return !!this.liveQuestion(s.target_id);
     try {

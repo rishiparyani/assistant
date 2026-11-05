@@ -37,6 +37,8 @@ import {
   RecordRef,
   RemoveFieldInput,
   SpaceRef,
+  SpaceRefRequired,
+  DeletedSpaceRef,
   UnlinkRecordsInput,
   UpdateCollectionInput,
   UpdateFieldInput,
@@ -49,6 +51,9 @@ import {
 } from "@assistant/shared";
 import { defineOperation } from "../operations.ts";
 import {
+  deleteSpace,
+  deletedSpaces,
+  restoreSpace,
   endPractice,
   mySpaces,
   newSpace,
@@ -77,12 +82,40 @@ export const spaceOperations = [
     id: "core.space_new",
     tool: "new_space",
     description:
-      'A new space of the person\'s own for a separate part of life ("the band", "home", "the society gate"): its own lists, cards, chats, memory and instructions. Shown as a card; made when they tap Confirm.',
+      'A new space of the person\'s own for a separate part of life ("home", "the office", "the club"): its own lists, flows, links, memory and instructions; deleting it later takes the whole setup. Anything other people use (a system with requests, approvals, members) gets a space of its own. Shown as a card; made when they tap Confirm.',
     kind: "write",
     confirm: true,
     http: { method: "POST", path: "/spaces", status: 201 },
     input: NewSpaceInput,
     handler: (ctx, i) => newSpace(ctx, i.name),
+  }),
+  defineOperation({
+    id: "core.space_delete",
+    tool: "delete_space",
+    description: `Delete one of the person's spaces with everything in it (lists, flows, links stop working for everyone in it); it stays in Recently deleted for ${TRASH_DAYS} days and can be brought back. Not Personal. Needs confirmation.`,
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/spaces/:space" },
+    input: SpaceRefRequired,
+    handler: (ctx, i) => deleteSpace(ctx, i.space),
+  }),
+  defineOperation({
+    id: "core.spaces_deleted",
+    tool: "deleted_spaces",
+    description: `The person's spaces in Recently deleted (kept ${TRASH_DAYS} days, then erased).`,
+    kind: "read",
+    http: { method: "GET", path: "/trash/spaces" },
+    input: z.object({}),
+    handler: (ctx) => deletedSpaces(ctx),
+  }),
+  defineOperation({
+    id: "core.space_restore",
+    tool: "restore_space",
+    description: "Bring a deleted space back from Recently deleted, as it was, for everyone who was in it.",
+    kind: "write",
+    http: { method: "POST", path: "/trash/spaces/:space_id/restore" },
+    input: DeletedSpaceRef,
+    handler: (ctx, i) => restoreSpace(ctx, i.space_id),
   }),
   // Practice copies (decision 2026-10-16 "Rehearse a workflow", second part).
   defineOperation({

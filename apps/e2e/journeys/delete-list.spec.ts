@@ -34,7 +34,9 @@ test("a list is deleted from its screen and brought back from Recently deleted",
   await page.goto("/trash");
   await expect(page.getByText("LISTS")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(list, { exact: true })).toBeVisible();
-  await expect(page.getByText("With 1 record, 1 view")).toBeVisible();
+  await expect(
+    page.getByText(list, { exact: true }).locator("..").getByText("With 1 record, 1 view"),
+  ).toBeVisible();
   await expectNoSideways(page);
   await page.getByRole("button", { name: `Restore the list ${list}` }).click();
   await expect(page.getByText(`The list “${list}” is back.`)).toBeVisible({ timeout: 30_000 });
@@ -42,6 +44,38 @@ test("a list is deleted from its screen and brought back from Recently deleted",
   expect(names).toContain(list);
   const views = ((await api(me)("GET", "/views")) as { name: string }[]).map((v) => v.name);
   expect(views).toContain(`E2E Old view ${RUN}`);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a space is deleted from its page and brought back from Recently deleted", async ({ browser }) => {
+  test.setTimeout(90_000);
+  const me = await owner();
+  const name = `E2E Club ${RUN}`;
+  const sp = (await api(me)("POST", "/spaces", { name })) as { id: string };
+  await api(me)("POST", "/collections", {
+    space: sp.id,
+    name: `E2E Members ${RUN}`,
+    fields: [{ name: "Title", type: "text" }],
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/space?id=${sp.id}`);
+  await page.getByRole("tab", { name: /People/ }).click();
+  await page.getByRole("button", { name: "Delete this space" }).click();
+  await expect(page.getByText(`Delete “${name}”?`)).toBeVisible();
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: `Delete ${name}` }).click();
+  await expect
+    .poll(async () => ((await api(me)("GET", "/spaces")) as { name: string }[]).map((s) => s.name))
+    .not.toContain(name);
+
+  await page.goto("/trash");
+  await expect(page.getByText("SPACES")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("With 1 list and what's in them")).toBeVisible();
+  await page.getByRole("button", { name: `Restore the space ${name}` }).click();
+  await expect(page.getByText(`The space “${name}” is back.`)).toBeVisible({ timeout: 30_000 });
+  const names = ((await api(me)("GET", "/spaces")) as { name: string }[]).map((s) => s.name);
+  expect(names).toContain(name);
   expect(errors).toEqual([]);
   await context.close();
 });

@@ -7,7 +7,7 @@ import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-nat
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
-import { TRASH_DAYS, type DeletedList, type TrashItem } from "@assistant/shared";
+import { TRASH_DAYS, type DeletedList, type DeletedSpace, type TrashItem } from "@assistant/shared";
 import { Text } from "@assistant/cards/native";
 import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
@@ -23,6 +23,8 @@ export default function Trash() {
   const [items, setItems] = useState<TrashItem[] | null>(null);
   // Whole lists deleted (with what they took), above the records; not when one list's opened.
   const [lists, setLists] = useState<DeletedList[]>([]);
+  // Whole spaces I deleted: on the main page only (not a space's or a list's).
+  const [spaces, setSpaces] = useState<DeletedSpace[]>([]);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -36,12 +38,14 @@ export default function Trash() {
       ];
       const q = params.length ? `?${params.join("&")}` : "";
       const inSpace = space ? `?space=${enc(space)}` : "";
-      const [records, deletedLists] = await Promise.all([
+      const [records, deletedLists, deletedSpaces] = await Promise.all([
         request<TrashItem[]>("GET", `/api/trash${q}`),
         collection ? Promise.resolve([]) : request<DeletedList[]>("GET", `/api/trash/lists${inSpace}`),
+        collection || space ? Promise.resolve([]) : request<DeletedSpace[]>("GET", "/api/trash/spaces"),
       ]);
       setItems(records);
       setLists(deletedLists);
+      setSpaces(deletedSpaces);
       setNote("");
     } catch (e) {
       setItems((xs) => xs ?? []);
@@ -55,6 +59,21 @@ export default function Trash() {
   }, [load]);
 
   const inSpace = space ? `?space=${enc(space)}` : "";
+  const restoreSpace = async (d: DeletedSpace) => {
+    if (busy) return;
+    setBusy(d.space_id);
+    try {
+      await request("POST", `/api/trash/spaces/${enc(d.space_id)}/restore`, {});
+      setSpaces((xs) => xs.filter((x) => x.space_id !== d.space_id));
+      setNote(`The space “${d.name}” is back.`);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    } catch (e) {
+      setNote(isOffline(e) ? "That needs a connection." : e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const actList = async (l: DeletedList, what: "restore" | "erase") => {
     if (busy) return;
     setBusy(l.collection_id);
@@ -128,9 +147,36 @@ export default function Trash() {
             />
           }
           ListHeaderComponent={
-            lists.length ? (
+            lists.length || spaces.length ? (
               <View style={{ gap: 10, paddingBottom: 6 }}>
-                <Text style={[s.section, { color: t.fg2 }]}>LISTS</Text>
+                {spaces.length ? <Text style={[s.section, { color: t.fg2 }]}>SPACES</Text> : null}
+                {spaces.map((d) => (
+                  <View key={d.space_id} style={[s.card, { backgroundColor: t.cell, shadowColor: t.shadow }]}>
+                    <Text style={[s.itemTitle, { color: t.fg }]} numberOfLines={2}>
+                      {d.name}
+                    </Text>
+                    <Text style={[s.line, { color: t.fg2 }]}>
+                      {d.lists
+                        ? `With ${d.lists} ${d.lists === 1 ? "list" : "lists"} and what's in them`
+                        : "Empty"}
+                    </Text>
+                    <Text style={[s.when, { color: t.fg3 }]}>
+                      Deleted {day(d.deleted_at)} · erased in {daysLeft(d.erase_at)}
+                    </Text>
+                    <View style={s.row}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Restore the space ${d.name}`}
+                        disabled={busy !== null}
+                        onPress={() => void restoreSpace(d)}
+                        style={[s.btn, s.grow, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                      >
+                        <Text style={[s.btnText, { color: t.onAccent }]}>Restore</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+                {lists.length ? <Text style={[s.section, { color: t.fg2 }]}>LISTS</Text> : null}
                 {lists.map((l) => (
                   <View
                     key={l.collection_id}
@@ -195,7 +241,7 @@ export default function Trash() {
             ) : null
           }
           ListEmptyComponent={
-            lists.length ? null : items ? (
+            lists.length || spaces.length ? null : items ? (
               <Text style={[s.empty, { color: t.fg2 }]}>Nothing deleted in the last {TRASH_DAYS} days.</Text>
             ) : (
               <Text style={[s.empty, { color: t.fg2 }]}>Loading…</Text>

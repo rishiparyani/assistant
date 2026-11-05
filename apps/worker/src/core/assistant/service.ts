@@ -127,6 +127,8 @@ const EVERYDAY = [
   // Recently deleted lists, and bringing one back.
   "deleted_lists",
   "restore_list",
+  "deleted_spaces",
+  "restore_space",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -140,6 +142,8 @@ const SETUP = [
   "delete_view",
   // A whole list, with what exists only for it (recoverable from Recently deleted).
   "delete_collection",
+  // A whole space, with everything in it (recoverable from Recently deleted).
+  "delete_space",
   // Workflows (chat-first step 5): saved off; the person turns them on from the card.
   "create_workflow",
   "delete_workflow",
@@ -649,6 +653,14 @@ export function describe(
       return { title: target ? `Change ${target}` : "Change a record", details: pairs };
     case "delete_record":
       return { title: target ? `Delete ${target}` : "Delete a record", details: [] };
+    case "delete_space":
+      return {
+        title: `Delete the space “${typeof args.space === "string" ? args.space : "?"}”`,
+        details: [
+          "With all its lists, flows and links; links stop working for everyone in it",
+          `In Recently deleted for ${TRASH_DAYS} days; it can be brought back`,
+        ],
+      };
     case "delete_collection":
       return {
         title: `Delete the list “${col ?? "?"}”`,

@@ -202,6 +202,8 @@ const nameOrId = (what: string) => z.string().trim().min(1).max(80).describe(`${
 export const SpaceRef = z.object({
   space: nameOrId("Space").optional().describe("Space name or id; leave out for your Personal space"),
 });
+/** A space that must be named (deleting one: never Personal by default). */
+export const SpaceRefRequired = z.object({ space: nameOrId("Space") });
 export const NewSpaceInput = z.object({
   name: z
     .string()
@@ -631,6 +633,16 @@ export const UndoInput = SpaceRef.extend({
 export const TRASH_DAYS = 30;
 
 /** A deleted record in Recently deleted (decision 2026-10-14 "Recently deleted"). */
+/** A space in Recently deleted (only its owner sees it). */
+export interface DeletedSpace {
+  space_id: string;
+  name: string;
+  lists: number;
+  deleted_at: string;
+  erase_at: string;
+}
+export const DeletedSpaceRef = z.object({ space_id: z.string().trim().min(1).max(40) });
+
 /** A list in Recently deleted, with what its delete took along. */
 export interface DeletedList {
   collection_id: string;
