@@ -189,6 +189,22 @@ describe("deleting a list", () => {
     expect(await jobs()).toBe(1);
   });
 
+  it("comes back when a view of its name was made meanwhile, and search can still be rebuilt", async () => {
+    // Codex on PR 230: the restore failed on the views' unique names, and rebuilding search
+    // threw on the deleted list's records.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", { body: { name: "Test Gate", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections/Test Gate/records", { body: { values: { Title: "Test parcel" } } });
+    await api(me)("/views", { body: { name: "Test At gate", collection: "Test Gate" } });
+    await api(me)("/collections/Test Gate", { method: "DELETE" });
+    expect((await api(me)("/search/rebuild", { body: {} })).status).toBeLessThan(300);
+    await api(me)("/views", { body: { name: "Test At gate", collection: "Notes" } });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
+    const views = (await json<SavedView[]>(await api(me)("/views"))).map((v) => v.name);
+    expect(views).toEqual(expect.arrayContaining(["Test At gate", "Test At gate 2"]));
+  });
+
   it("leaves a shared card that showed records of the deleted list readable", async () => {
     // Codex on PR 230: the whole card failed to open once a list linking to it was deleted.
     const me = await signUp("Test Owner");

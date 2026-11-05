@@ -2254,7 +2254,8 @@ export class SpaceObject extends DurableObject<Env> {
     for (;;) {
       const batch = this.sql
         .exec<RecordRow>(
-          `select * from records where deleted_at is null and id > ? order by id limit 200`,
+          `select * from records where deleted_at is null and id > ?
+           and collection_id in (select id from collections where deleted_at is null) order by id limit 200`,
           after,
         )
         .toArray();
@@ -3795,6 +3796,22 @@ export class SpaceObject extends DurableObject<Env> {
       };
       this.sql.exec(`update collections set deleted_at = null, updated_at = ? where id = ?`, ts, id);
       for (const v of took.views) {
+        // A view whose name was taken meanwhile comes back with a free one ("At the gate 2"),
+        // not as a failed restore (Codex on PR 230).
+        const row = this.sql.exec<{ name: string }>(`select name from views where id = ?`, v).toArray()[0];
+        if (row) {
+          let name = row.name;
+          for (
+            let n = 2;
+            this.sql
+              .exec(`select 1 from views where name_key = ? and deleted_at is null`, nameKey(name))
+              .toArray().length;
+            n++
+          )
+            name = `${row.name} ${n}`;
+          if (name !== row.name)
+            this.sql.exec(`update views set name = ?, name_key = ? where id = ?`, name, nameKey(name), v);
+        }
         this.sql.exec(`update views set deleted_at = null, updated_at = ? where id = ?`, ts, v);
         this.logChange("view", v, "upsert", ts);
       }

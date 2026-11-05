@@ -204,6 +204,11 @@ export async function deleteSpace(ctx: OpUserCtx, ref: string): Promise<{ delete
     .prepare(`select id from spaces where practice_of = ? and deleted_at is null`)
     .bind(space.id)
     .all<{ id: string }>();
+  // Each rehearsal's copy is erased, as End does (Codex on PR 230: they kept the data).
+  for (const c of copies.results)
+    await ctx.objects.SPACES.getByName(spaceName(c.id))
+      .endPractice(actorOf(ctx))
+      .catch(() => undefined);
   await ctx.d1.batch([
     ctx.d1.prepare(`update spaces set deleted_at = ? where id = ?`).bind(now, space.id),
     ...copies.results.flatMap((c) => [

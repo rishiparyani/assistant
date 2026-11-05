@@ -64,6 +64,28 @@ describe("deleting a space", () => {
     expect(await json<DeletedSpace[]>(await api(me)("/trash/spaces"))).toEqual([]);
   });
 
+  it("erases its rehearsals' copies with it", async () => {
+    // Codex on PR 230: the copies were hidden but kept the data for good.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Rehearsed" } }));
+    await api(me)("/collections", {
+      body: { space: sp.id, name: "Test Things", fields: [{ name: "Title", type: "text" }] },
+    });
+    const copy = await json<SpaceView>(await api(me)(`/spaces/${sp.id}/practice`, { body: {} }));
+    expect(await env.SPACES.getByName(`space:${copy.id}`).exportData()).not.toBeNull();
+    await api(me)(`/spaces/${sp.id}`, { method: "DELETE" });
+    // Erasing resets the copy's object; it answers again once it has started over, empty.
+    let left: unknown = "not read";
+    for (let i = 0; i < 20 && left === "not read"; i++)
+      left = await env.SPACES.getByName(`space:${copy.id}`)
+        .exportData()
+        .catch(async () => {
+          await new Promise((r) => setTimeout(r, 100));
+          return "not read";
+        });
+    expect(left).toBeNull();
+  });
+
   it("can be restored again after a restore that got only half way", async () => {
     // Codex on PR 230: the space's object was back but the space list still said deleted, and
     // a second restore was refused, leaving it stranded.
