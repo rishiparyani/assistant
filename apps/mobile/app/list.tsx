@@ -26,6 +26,7 @@ import type {
   SavedView,
   StoredValue,
 } from "@assistant/shared";
+import { TRASH_DAYS } from "@assistant/shared";
 import {
   EditableGrid,
   Text,
@@ -102,6 +103,10 @@ export default function ListPage() {
   // The list's ⋯ menu: Recently deleted, the plain setup screen (hidden here on purpose,
   // decision 2026-10-15 "Chat makes, screens can fix"), the CSV file on the website.
   const [menu, setMenu] = useState(false);
+  // Deleting the list: asked first, in its own sheet (decision "Everyone in a setup has a way
+  // in"; owner, 2026-11-05: "How do I delete the setup?").
+  const [deleting, setDeleting] = useState<"ask" | "busy" | null>(null);
+  const [deleteNote, setDeleteNote] = useState("");
   // "+ Add": the list's own form (from-scratch.md §3 List), offline through the outbox.
   const [adding, setAdding] = useState(false);
   const [chatAbout, setChatAbout] = useState<RecordView | null>(null);
@@ -473,7 +478,11 @@ export default function ListPage() {
         {[
           {
             label: "Recently deleted",
-            run: () => router.push({ pathname: "/trash", params: c ? { collection: c.name } : {} }),
+            run: () =>
+              router.push({
+                pathname: "/trash",
+                params: { ...(c ? { collection: c.name } : {}), ...(space ? { space } : {}) },
+              }),
           },
           {
             label: "Fields and cards",
@@ -490,6 +499,7 @@ export default function ListPage() {
                 },
               ]
             : []),
+          ...(c ? [{ label: "Delete this list", run: () => setDeleting("ask") }] : []),
         ].map((x) => (
           <Tap
             key={x.label}
@@ -504,6 +514,65 @@ export default function ListPage() {
             <Text style={{ color: t.fg, fontSize: 16, fontWeight: "600" }}>{x.label}</Text>
           </Tap>
         ))}
+      </Sheet>
+      <Sheet
+        open={!!deleting}
+        onClose={() => {
+          setDeleting(null);
+          setDeleteNote("");
+        }}
+        gap={10}
+        accessibilityLabel="Delete this list"
+      >
+        <Text style={[s.menuTitle, { color: t.fg }]} numberOfLines={2}>
+          Delete “{c?.name}”?
+        </Text>
+        <Text style={{ color: t.fg2, fontSize: 15, lineHeight: 21 }}>
+          Its records, saved views, flows and share links go to Recently deleted together. You can bring them
+          all back for {TRASH_DAYS} days.
+        </Text>
+        {deleteNote ? <Text style={{ color: t.danger, fontSize: 14 }}>{deleteNote}</Text> : null}
+        <Tap
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${c?.name ?? "this list"}`}
+          disabled={deleting === "busy"}
+          onPress={() =>
+            void (async () => {
+              if (!c) return;
+              setDeleting("busy");
+              try {
+                // online-only: deleting a whole list happens on the server, with what it takes.
+                await request("DELETE", `/api/collections/${enc(c.name)}${inSpace}`);
+                setDeleting(null);
+                if (router.canGoBack()) router.back();
+                else router.replace("/");
+              } catch (e) {
+                setDeleting("ask");
+                setDeleteNote(
+                  isOffline(e)
+                    ? "Deleting a list needs a connection."
+                    : e instanceof Error
+                      ? e.message
+                      : String(e),
+                );
+              }
+            })()
+          }
+          scale={0.985}
+          style={[s.menuRow, { backgroundColor: t.danger, opacity: deleting === "busy" ? 0.6 : 1 }]}
+        >
+          <Text style={{ color: t.onAccent, fontSize: 16, fontWeight: "700" }}>
+            {deleting === "busy" ? "Deleting…" : "Delete the list"}
+          </Text>
+        </Tap>
+        <Tap
+          accessibilityRole="button"
+          onPress={() => setDeleting(null)}
+          scale={0.985}
+          style={[s.menuRow, { backgroundColor: t.cell }]}
+        >
+          <Text style={{ color: t.fg, fontSize: 16, fontWeight: "600" }}>Keep it</Text>
+        </Tap>
       </Sheet>
       <Sheet open={!!held} onClose={() => setHeld(null)} gap={8} accessibilityLabel={held?.title}>
         <Text style={[s.menuTitle, { color: t.fg }]} numberOfLines={1}>

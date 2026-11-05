@@ -34,6 +34,7 @@ import {
   type Memory,
   type RuleFilter,
   PICKER_MODELS,
+  TRASH_DAYS,
 } from "@assistant/shared";
 import { cardGuide, cardProblems, type A2Card } from "@assistant/cards/a2ui";
 import { AppError } from "../errors.ts";
@@ -123,6 +124,9 @@ const EVERYDAY = [
   "new_space",
   "space_settings",
   "set_space_instructions",
+  // Recently deleted lists, and bringing one back.
+  "deleted_lists",
+  "restore_list",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -134,6 +138,8 @@ const SETUP = [
   "save_view",
   "update_view",
   "delete_view",
+  // A whole list, with what exists only for it (recoverable from Recently deleted).
+  "delete_collection",
   // Workflows (chat-first step 5): saved off; the person turns them on from the card.
   "create_workflow",
   "delete_workflow",
@@ -643,6 +649,14 @@ export function describe(
       return { title: target ? `Change ${target}` : "Change a record", details: pairs };
     case "delete_record":
       return { title: target ? `Delete ${target}` : "Delete a record", details: [] };
+    case "delete_collection":
+      return {
+        title: `Delete the list “${col ?? "?"}”`,
+        details: [
+          "With its records, views, flows and share links",
+          `In Recently deleted for ${TRASH_DAYS} days; it can be brought back`,
+        ],
+      };
     case "share_with": {
       const what = target ?? (args.view ? `“${show(args.view)}”` : `“${show(args.form)}” as a form`);
       const hidden = Array.isArray(args.hide_fields) ? args.hide_fields : null;

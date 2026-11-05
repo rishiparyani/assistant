@@ -22,6 +22,7 @@ import {
   ImportRecordsInput,
   ExportCsvInput,
   CollectionRef,
+  DeletedListRef,
   CreateCollectionInput,
   FindRecordsInput,
   LinkRecordsInput,
@@ -337,6 +338,58 @@ export const spaceOperations = [
         name: i.name,
         description: i.description,
       });
+    },
+  }),
+  defineOperation({
+    id: "core.delete_collection",
+    tool: "delete_collection",
+    description: `Delete a list with its views, flows, rules and share links (they go to Recently deleted together for ${TRASH_DAYS} days and can be restored together). Needs confirmation.`,
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/collections/:collection" },
+    input: CollectionRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.deleteCollection(actor, ctx.idempotencyKey, i.collection);
+    },
+  }),
+  defineOperation({
+    id: "core.deleted_lists",
+    tool: "deleted_lists",
+    description: `Lists in Recently deleted (kept ${TRASH_DAYS} days, then erased), with what each took along.`,
+    kind: "read",
+    http: { method: "GET", path: "/trash/lists" },
+    input: SpaceRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.trashedLists(actor);
+    },
+  }),
+  defineOperation({
+    id: "core.restore_collection",
+    tool: "restore_list",
+    description:
+      "Bring a deleted list back from Recently deleted, with the views, flows, rules and links it took.",
+    kind: "write",
+    http: { method: "POST", path: "/trash/lists/:collection_id/restore" },
+    input: DeletedListRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.restoreCollection(actor, ctx.idempotencyKey, i.collection_id);
+    },
+  }),
+  defineOperation({
+    id: "core.erase_collection",
+    tool: "erase_list",
+    description:
+      "Erase a deleted list now, for good (its records' values and comments). Can't be undone. Needs confirmation.",
+    kind: "write",
+    confirm: true,
+    http: { method: "DELETE", path: "/trash/lists/:collection_id" },
+    input: DeletedListRef,
+    handler: async (ctx, i) => {
+      const { stub, actor } = await spaceOf(ctx, i.space);
+      return stub.eraseCollection(actor, ctx.idempotencyKey, i.collection_id);
     },
   }),
   defineOperation({

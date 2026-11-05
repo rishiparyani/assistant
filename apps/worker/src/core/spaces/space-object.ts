@@ -20,6 +20,7 @@ import {
   type ChangesView,
   type NotificationsView,
   type TrashItem,
+  type DeletedList,
   type CommentView,
   type CollectionView,
   type FieldOptions,
@@ -591,6 +592,17 @@ const MIGRATIONS: Migrations = [
   // Who a link is for ("Guards"): shown with it, and the name its stand-in plays in a
   // rehearsal before anyone has joined (owner, 2026-11-05: "I can't rehearse as the guard").
   `alter table shares add column for_whom text;`,
+  // Deleting a list (owner, 2026-11-05: "How do I delete the setup?"): what its delete took
+  // with it (its views, flows, rules and links), so restoring brings back exactly those.
+  `
+  create table list_trash (
+    collection_id text primary key,
+    deleted_at text not null,
+    deleted_by text,
+    source text not null,
+    took_json text not null
+  ) without rowid;
+  `,
 ];
 
 type ViewQuery = {
@@ -3515,6 +3527,183 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** Hides a field (its values stay in records, so it can come back). The title can't go. */
+  /**
+   * Deletes a list, recoverably (owner, 2026-11-05: "How do I delete the setup?"): the list
+   * and what exists only for it (its views, flows, rules and the links that share it or its
+   * records) go together to Recently deleted, and come back together. Its records stay as
+   * they are, unreachable until it's back; after TRASH_DAYS they're erased with it.
+   */
+  async deleteCollection(actor: Actor, key: string | null, ref: string): Promise<{ deleted: string }> {
+    this.canArrange(actor);
+    return this.write(actor, key, ["delete_collection", ref], (ts) => {
+      const c = this.requireCollection(ref);
+      const ids = (q: string, ...args: unknown[]) =>
+        this.sql
+          .exec<{ id: string }>(q, ...(args as string[]))
+          .toArray()
+          .map((r) => r.id);
+      const views = ids(`select id from views where collection_id = ? and deleted_at is null`, c.id);
+      const flows = this.sql
+        .exec<{ id: string; enabled: number }>(
+          `select id, enabled from workflows where collection_id = ? and deleted_at is null`,
+          c.id,
+        )
+        .toArray();
+      const rules = ids(`select id from rules where collection_id = ? and deleted_at is null`, c.id);
+      const shares = ids(
+        `select id from shares where revoked_at is null and kind != 'question' and (
+           (kind = 'form' and target_id = ?)
+           or (kind = 'view' and target_id in (select id from views where collection_id = ?))
+           or (kind = 'card' and target_id in (select id from records where collection_id = ?)))`,
+        c.id,
+        c.id,
+        c.id,
+      );
+      this.sql.exec(`update collections set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, c.id);
+      for (const v of views) {
+        this.sql.exec(`update views set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, v);
+        this.logChange("view", v, "delete", ts);
+      }
+      for (const w of flows) {
+        this.sql.exec(`update workflows set deleted_at = ?, enabled = 0 where id = ?`, ts, w.id);
+        this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, w.id);
+        this.dropWaits(w.id, ts);
+      }
+      for (const r of rules) this.sql.exec(`update rules set deleted_at = ? where id = ?`, ts, r);
+      for (const sh of shares) this.sql.exec(`update shares set revoked_at = ? where id = ?`, ts, sh);
+      this.sql.exec(
+        `insert or replace into list_trash (collection_id, deleted_at, deleted_by, source, took_json) values (?, ?, ?, ?, ?)`,
+        c.id,
+        ts,
+        actor.userId,
+        actor.source,
+        JSON.stringify({ views, flows, rules, shares }),
+      );
+      this.logChange("collection", c.id, "delete", ts);
+      audit(this.sql, actor, {
+        action: "delete_collection",
+        entityType: "collection",
+        entityId: c.id,
+        before: { name: c.name },
+      });
+      return { deleted: c.id };
+    });
+  }
+
+  /** Lists in Recently deleted, newest first. */
+  async trashedLists(actor: Actor): Promise<DeletedList[]> {
+    this.canWrite(actor);
+    return this.sql
+      .exec<{
+        collection_id: string;
+        deleted_at: string;
+        deleted_by: string | null;
+        source: string;
+        took_json: string;
+        name: string;
+      }>(
+        `select t.*, c.name from list_trash t join collections c on c.id = t.collection_id
+         where c.deleted_at is not null order by t.deleted_at desc`,
+      )
+      .toArray()
+      .map((t) => {
+        const took = JSON.parse(t.took_json) as { views: string[]; flows: unknown[]; shares: string[] };
+        return {
+          collection_id: t.collection_id,
+          name: t.name,
+          records: this.sql
+            .exec<{ n: number }>(
+              `select count(*) as n from records where collection_id = ? and deleted_at is null`,
+              t.collection_id,
+            )
+            .toArray()[0]!.n,
+          views: took.views.length,
+          flows: took.flows.length,
+          links: took.shares.length,
+          deleted_at: t.deleted_at,
+          deleted_by: this.whoDid(actor, t.deleted_by, t.source),
+          erase_at: new Date(Date.parse(t.deleted_at) + TRASH_DAYS * 86_400_000).toISOString(),
+        };
+      });
+  }
+
+  /** Brings a deleted list back with exactly what its delete took. */
+  async restoreCollection(actor: Actor, key: string | null, id: string): Promise<CollectionView> {
+    this.canArrange(actor);
+    return this.write(actor, key, ["restore_collection", id], (ts) => {
+      const t = this.sql
+        .exec<{ took_json: string }>(`select took_json from list_trash where collection_id = ?`, id)
+        .toArray()[0];
+      const c = this.sql
+        .exec<CollectionRow & { name_key: string; deleted_at: string | null }>(
+          `select * from collections where id = ?`,
+          id,
+        )
+        .toArray()[0];
+      if (!t || !c?.deleted_at) throw new ObjectError("not_found", "It isn't in Recently deleted");
+      if (
+        this.sql
+          .exec(`select 1 from collections where name_key = ? and deleted_at is null`, c.name_key)
+          .toArray().length
+      )
+        throw new ObjectError(
+          "conflict",
+          `There's already a list called “${c.name}”: rename or delete that one first`,
+        );
+      const took = JSON.parse(t.took_json) as {
+        views: string[];
+        flows: { id: string; enabled: number }[];
+        rules: string[];
+        shares: string[];
+      };
+      this.sql.exec(`update collections set deleted_at = null, updated_at = ? where id = ?`, ts, id);
+      for (const v of took.views) {
+        this.sql.exec(`update views set deleted_at = null, updated_at = ? where id = ?`, ts, v);
+        this.logChange("view", v, "upsert", ts);
+      }
+      for (const w of took.flows) {
+        this.sql.exec(`update workflows set deleted_at = null, enabled = ? where id = ?`, w.enabled, w.id);
+        const row = this.sql.exec<WorkflowRow>(`select * from workflows where id = ?`, w.id).toArray()[0];
+        if (row && w.enabled)
+          this.scheduleExisting(row.id, row.collection_id, JSON.parse(row.def_json) as WorkflowDef);
+      }
+      for (const r of took.rules) this.sql.exec(`update rules set deleted_at = null where id = ?`, r);
+      for (const sh of took.shares) this.sql.exec(`update shares set revoked_at = null where id = ?`, sh);
+      this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+      this.logChange("collection", id, "upsert", ts);
+      audit(this.sql, actor, { action: "restore_collection", entityType: "collection", entityId: id });
+      return this.collectionView(this.requireCollection(id));
+    });
+  }
+
+  /** Erases a deleted list now: its records' values go for good. Can't be undone. */
+  async eraseCollection(actor: Actor, key: string | null, id: string): Promise<{ erased: string }> {
+    this.canArrange(actor);
+    return this.write(actor, key, ["erase_collection", id], (ts) => {
+      if (!this.sql.exec(`select 1 from list_trash where collection_id = ?`, id).toArray().length)
+        throw new ObjectError("not_found", "It isn't in Recently deleted");
+      this.eraseList(id, ts);
+      audit(this.sql, actor, { action: "erase_collection", entityType: "collection", entityId: id });
+      return { erased: id };
+    });
+  }
+
+  private eraseList(id: string, ts: string) {
+    // Each record as erasing one does (values, answers, comments, history details).
+    const system: Actor = { userId: null, source: "system" };
+    this.sql.exec(
+      `update records set deleted_at = coalesce(deleted_at, ?) where collection_id = ? and purged_at is null`,
+      ts,
+      id,
+    );
+    const erased: string[] = [];
+    for (const r of this.sql
+      .exec<{ id: string }>(`select id from records where collection_id = ? and purged_at is null`, id)
+      .toArray())
+      this.erase(system, r.id, ts, erased);
+    this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+  }
+
   async removeField(
     actor: Actor,
     key: string | null,
@@ -5972,6 +6161,13 @@ export class SpaceObject extends DurableObject<Env> {
   /** Records deleted more than TRASH_DAYS ago are erased (from the alarm, a page at a time). */
   private eraseDue() {
     const before = new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString();
+    const lists = this.sql
+      .exec<{ collection_id: string }>(`select collection_id from list_trash where deleted_at <= ?`, before)
+      .toArray();
+    if (lists.length)
+      this.ctx.storage.transactionSync(() => {
+        for (const l of lists) this.eraseList(l.collection_id, nowIso());
+      });
     const due = this.sql
       .exec<{ id: string }>(
         `select id from records where deleted_at is not null and purged_at is null and deleted_at <= ?
@@ -9962,7 +10158,11 @@ export class SpaceObject extends DurableObject<Env> {
 
   private liveRecord(id: string): RecordRow | undefined {
     return this.sql
-      .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
+      .exec<RecordRow>(
+        `select * from records where id = ? and deleted_at is null
+         and collection_id in (select id from collections where deleted_at is null)`,
+        id,
+      )
       .toArray()[0];
   }
 
@@ -10724,9 +10924,8 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   private requireRecord(id: string): RecordRow {
-    const r = this.sql
-      .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
-      .toArray()[0];
+    // A record of a deleted list isn't there until the list is back.
+    const r = this.liveRecord(id);
     if (!r) throw new ObjectError("not_found", "Record not found");
     return r;
   }
