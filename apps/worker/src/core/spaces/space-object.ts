@@ -588,6 +588,9 @@ const MIGRATIONS: Migrations = [
   create index workflow_jobs_due_idx on workflow_jobs (due_at);
   create index workflow_jobs_record_idx on workflow_jobs (workflow_id, record_id, kind);
   `,
+  // Who a link is for ("Guards"): shown with it, and the name its stand-in plays in a
+  // rehearsal before anyone has joined (owner, 2026-11-05: "I can't rehearse as the guard").
+  `alter table shares add column for_whom text;`,
 ];
 
 type ViewQuery = {
@@ -693,6 +696,7 @@ type ShareRow = {
   group_id: string | null;
   group_seq: number;
   group_d1: number;
+  for_whom?: string | null;
 };
 
 /** Records reached from the triggering one through a link (either way). */
@@ -1210,6 +1214,25 @@ export class SpaceObject extends DurableObject<Env> {
         )
           this.sql.exec(`delete from ${t}`);
       setMeta(this.sql, "practice_of", init.sourceId);
+      // A link nobody has joined yet (a join link for the guards) is played by a stand-in who
+      // reaches exactly what it gives, so the people who'll come in by it can be rehearsed too
+      // (owner, 2026-11-05: "I can't rehearse as the guard").
+      for (const sh of this.sql
+        .exec<ShareRow>(
+          `select * from shares s where s.kind != 'question' and s.revoked_at is null and s.group_id is null
+           and not exists (select 1 from share_people p where p.share_id = s.id)`,
+        )
+        .toArray()) {
+        const role = sh.for_whom ?? `Someone with the ${this.shareTitle(sh)} link`;
+        const p = this.standIn(role);
+        this.sql.exec(
+          `insert or ignore into share_people (share_id, user_id, name, joined_at) values (?, ?, ?, ?)`,
+          sh.id,
+          p.user_id,
+          p.name,
+          ts,
+        );
+      }
       this.sql.exec(
         `update workflows set enabled = 1, run_count = 0, last_run_at = null where deleted_at is null`,
       );
@@ -6482,6 +6505,8 @@ export class SpaceObject extends DurableObject<Env> {
       public: boolean;
       expiresInDays: number | null;
       tokenHash: string;
+      /** Who the link is for ("Guards"). */
+      forWhom?: string | null;
     },
   ): Promise<{ share: ShareView; token_hash: string }> {
     const { tokenHash, ...request } = input;
@@ -6494,8 +6519,8 @@ export class SpaceObject extends DurableObject<Env> {
       if (made) return { share: this.shareView(made), token_hash: made.token_hash };
       const id = ulid();
       this.sql.exec(
-        `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at, group_id)
-         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `insert into shares (id, record_id, kind, target_id, public, token_hash, access, include_json, hidden_json, expires_at, created_by, created_at, group_id, for_whom)
+         values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         id,
         targetId,
         input.kind,
@@ -6511,6 +6536,7 @@ export class SpaceObject extends DurableObject<Env> {
         actor.userId,
         ts,
         input.kind === "card" ? (input.groupId ?? null) : null,
+        input.forWhom?.trim() || null,
       );
       audit(this.sql, actor, { action: "create_share", entityType: "share", entityId: id, after: request });
       return { share: this.shareView(this.requireShare(id)), token_hash: tokenHash };
@@ -10141,6 +10167,7 @@ export class SpaceObject extends DurableObject<Env> {
       target_id: s.target_id,
       record_id: s.kind === "card" ? s.target_id : null,
       title: this.shareTitle(s),
+      for: s.for_whom ?? null,
       public: !!s.public,
       access: s.access,
       include: include.flatMap((x) => {
