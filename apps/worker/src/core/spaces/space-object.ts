@@ -1773,38 +1773,47 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** Brings a deleted space back as it was: its links work again, its flows as they were. */
-  async restoreSpace(actor: Actor): Promise<void> {
+  async restoreSpace(actor: Actor, key: string | null = null): Promise<void> {
     if (this.memberRole(actor.userId) !== "owner")
       throw new ObjectError("forbidden", "Only the space's owner can bring it back");
     if (getMeta(this.sql, "space_erased")) throw new ObjectError("not_found", "It isn't in Recently deleted");
     // Already back here (a retry after the space list wasn't updated): done, so the retry can
     // finish (Codex on PR 230). The caller only gets here for a space the list says is deleted.
     if (!getMeta(this.sql, "space_deleted_at")) return;
-    this.ctx.storage.transactionSync(() => {
-      const on = JSON.parse(getMeta(this.sql, "space_deleted_flows") ?? "[]") as string[];
-      for (const id of on) {
-        this.sql.exec(`update workflows set enabled = 1 where id = ? and deleted_at is null`, id);
-        const w = this.sql
-          .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, id)
-          .toArray()[0];
-        // Its jobs come back as they were (below), not scheduled again (Codex on PR 230).
-        if (w && !getMeta(this.sql, "space_deleted_runs"))
-          this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
-      }
-      const runs = getMeta(this.sql, "space_deleted_runs");
-      this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
-      setMeta(this.sql, "space_deleted_runs", "");
-      setMeta(this.sql, "space_deleted_flows", "");
-      setMeta(this.sql, "space_deleted_at", "");
-      // Back in everyone's search: every list is indexed again, a page at a time.
-      setMeta(this.sql, "search_drop", "");
-      const lists = this.sql
-        .exec<{ id: string }>(`select id from collections where deleted_at is null`)
-        .toArray()
-        .map((c) => ({ c: c.id, after: "" }));
-      setMeta(this.sql, "search_reindex", JSON.stringify(lists));
-      audit(this.sql, actor, { action: "restore_space", entityType: "space", entityId: "space" });
-    });
+    // Under its Idempotency-Key: a late retry after the space was deleted again answers as the
+    // first time did instead of bringing it back again (Codex on PR 230).
+    await this.write(
+      actor,
+      key,
+      ["restore_space"],
+      () => {
+        const on = JSON.parse(getMeta(this.sql, "space_deleted_flows") ?? "[]") as string[];
+        for (const id of on) {
+          this.sql.exec(`update workflows set enabled = 1 where id = ? and deleted_at is null`, id);
+          const w = this.sql
+            .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, id)
+            .toArray()[0];
+          // Its jobs come back as they were (below), not scheduled again (Codex on PR 230).
+          if (w && !getMeta(this.sql, "space_deleted_runs"))
+            this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
+        }
+        const runs = getMeta(this.sql, "space_deleted_runs");
+        this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
+        setMeta(this.sql, "space_deleted_runs", "");
+        setMeta(this.sql, "space_deleted_flows", "");
+        setMeta(this.sql, "space_deleted_at", "");
+        // Back in everyone's search: every list is indexed again, a page at a time.
+        setMeta(this.sql, "search_drop", "");
+        const lists = this.sql
+          .exec<{ id: string }>(`select id from collections where deleted_at is null`)
+          .toArray()
+          .map((c) => ({ c: c.id, after: "" }));
+        setMeta(this.sql, "search_reindex", JSON.stringify(lists));
+        audit(this.sql, actor, { action: "restore_space", entityType: "space", entityId: "space" });
+        return null;
+      },
+      () => undefined,
+    );
     await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
     await this.wakeForJobs();
   }

@@ -98,6 +98,24 @@ describe("deleting a space", () => {
     expect((await json<SpaceView[]>(await api(me)("/spaces"))).map((s) => s.name)).toContain("Test Twice");
   });
 
+  it("isn't brought back by a late retry after it was deleted again", async () => {
+    // Codex on PR 230: the same Idempotency-Key after a second delete restored it again.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Again" } }));
+    const restore = () =>
+      api(me)(`/trash/spaces/${sp.id}/restore`, { body: {}, idempotencyKey: "test-restore-1" });
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await restore()).status).toBe(200);
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await restore()).status).toBe(200);
+    expect((await json<SpaceView[]>(await api(me)("/spaces"))).map((s) => s.name)).not.toContain(
+      "Test Again",
+    );
+    expect((await json<DeletedSpace[]>(await api(me)("/trash/spaces"))).map((d) => d.name)).toContain(
+      "Test Again",
+    );
+  });
+
   it("erases its rehearsals' copies with it", async () => {
     // Codex on PR 230: the copies were hidden but kept the data for good.
     const me = await signUp("Test Owner");

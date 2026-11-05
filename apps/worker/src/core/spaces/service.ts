@@ -265,7 +265,10 @@ export async function restoreSpace(ctx: OpUserCtx, id: string): Promise<SpaceVie
   if (mine.some((s) => nameKey(s.name) === nameKey(row.name)))
     throw new ObjectError("conflict", `You already have a space called “${row.name}”: rename that one first`);
   if (mine.length >= 20) throw new ObjectError("conflict", "Up to 20 spaces; remove one first");
-  await ctx.objects.SPACES.getByName(spaceName(id)).restoreSpace(actorOf(ctx));
+  const stub = ctx.objects.SPACES.getByName(spaceName(id));
+  await stub.restoreSpace(actorOf(ctx), ctx.idempotencyKey);
+  // A retry answered from its key after the space was deleted again: it stays deleted.
+  if (await stub.deletedInfo(actorOf(ctx))) return { id, name: row.name, kind: "shared", role: "owner" };
   await ctx.d1.prepare(`update spaces set deleted_at = null where id = ?`).bind(id).run();
   return { id, name: row.name, kind: "shared", role: "owner" };
 }
