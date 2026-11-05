@@ -27,6 +27,7 @@ export default function Shared() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [more, setMore] = useState(false);
   const base = `/api/cards/${enc(id)}`;
 
   const load = useCallback(async () => {
@@ -100,9 +101,44 @@ export default function Shared() {
               }
               onAnswer={(answer: string) => request("POST", `${base}/answer`, { answer })}
             />
-          ) : note ? null : (
-            <Text style={{ color: t.fg2, fontSize: 15 }}>Loading…</Text>
-          )}
+          ) : null}
+          {opened && "next_cursor" in opened && opened.next_cursor ? (
+            // A long shared list comes a page at a time (Codex on PR 230).
+            <Tap
+              accessibilityRole="button"
+              disabled={more}
+              onPress={() =>
+                void (async () => {
+                  if (!("next_cursor" in opened) || !opened.next_cursor) return;
+                  setMore(true);
+                  try {
+                    const next = await request<SharedOpened>(
+                      "GET",
+                      `${base}?cursor=${enc(opened.next_cursor)}`,
+                    );
+                    if ("records" in next && "records" in opened)
+                      setOpened({
+                        ...opened,
+                        records: [...opened.records, ...next.records],
+                        next_cursor: next.next_cursor,
+                      });
+                  } catch (e) {
+                    setNote(
+                      isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e),
+                    );
+                  } finally {
+                    setMore(false);
+                  }
+                })()
+              }
+              style={[s.more, { backgroundColor: t.fill, opacity: more ? 0.6 : 1 }]}
+            >
+              <Text style={{ color: t.fg, fontSize: 15, fontWeight: "700" }}>
+                {more ? "Loading…" : "Show more"}
+              </Text>
+            </Tap>
+          ) : null}
+          {opened || note ? null : <Text style={{ color: t.fg2, fontSize: 15 }}>Loading…</Text>}
         </ScrollView>
       </View>
     </View>
@@ -114,4 +150,5 @@ const s = StyleSheet.create({
   column: { flex: 1, width: "100%", maxWidth: 720, alignSelf: "center" },
   top: { paddingHorizontal: 16, paddingBottom: 4 },
   back: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  more: { minHeight: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
 });

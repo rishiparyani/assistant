@@ -1736,11 +1736,12 @@ export class SpaceObject extends DurableObject<Env> {
         .exec<{ id: string }>(`select id from workflows where enabled = 1 and deleted_at is null`)
         .toArray()
         .map((w) => w.id);
-      for (const id of on) {
-        this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
-        this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, id);
-        this.dropWaits(id, ts);
-      }
+      const all = this.sql
+        .exec<{ id: string }>(`select id from workflows where deleted_at is null`)
+        .toArray()
+        .map((w) => w.id);
+      setMeta(this.sql, "space_deleted_runs", JSON.stringify(this.stashRuns(all, ts)));
+      for (const id of on) this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
       setMeta(this.sql, "space_deleted_flows", JSON.stringify(on));
       setMeta(this.sql, "space_deleted_at", ts);
       audit(this.sql, actor, { action: "delete_space", entityType: "space", entityId: "space" });
@@ -1777,6 +1778,9 @@ export class SpaceObject extends DurableObject<Env> {
           .toArray()[0];
         if (w) this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
       }
+      const runs = getMeta(this.sql, "space_deleted_runs");
+      this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
+      setMeta(this.sql, "space_deleted_runs", "");
       setMeta(this.sql, "space_deleted_flows", "");
       setMeta(this.sql, "space_deleted_at", "");
       audit(this.sql, actor, { action: "restore_space", entityType: "space", entityId: "space" });
@@ -3646,11 +3650,12 @@ export class SpaceObject extends DurableObject<Env> {
         this.sql.exec(`update views set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, v);
         this.logChange("view", v, "delete", ts);
       }
-      for (const w of flows) {
+      const runs = this.stashRuns(
+        flows.map((w) => w.id),
+        ts,
+      );
+      for (const w of flows)
         this.sql.exec(`update workflows set deleted_at = ?, enabled = 0 where id = ?`, ts, w.id);
-        this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, w.id);
-        this.dropWaits(w.id, ts);
-      }
       for (const r of rules) this.sql.exec(`update rules set deleted_at = ? where id = ?`, ts, r);
       for (const sh of shares) this.sql.exec(`update shares set revoked_at = ? where id = ?`, ts, sh);
       this.sql.exec(
@@ -3659,7 +3664,7 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
         actor.userId,
         actor.source,
-        JSON.stringify({ views, flows, rules, shares }),
+        JSON.stringify({ views, flows, rules, shares, runs }),
       );
       this.logChange("collection", c.id, "delete", ts);
       audit(this.sql, actor, {
@@ -3670,6 +3675,53 @@ export class SpaceObject extends DurableObject<Env> {
       });
       return { deleted: c.id };
     });
+  }
+
+  /**
+   * The runs of these workflows that are in flight (queued jobs, waits on a question), taken
+   * aside while their list or space is deleted, and their open questions closed; brought back
+   * as they were on a restore (Codex on PR 230: an approval waiting when the list was deleted
+   * was lost for good).
+   */
+  private stashRuns(
+    workflowIds: string[],
+    ts: string,
+  ): { jobs: unknown[]; waits: unknown[]; questions: string[] } {
+    const out = { jobs: [] as unknown[], waits: [] as unknown[], questions: [] as string[] };
+    for (const id of workflowIds) {
+      out.jobs.push(...this.sql.exec(`select * from workflow_jobs where workflow_id = ?`, id).toArray());
+      const waits = this.sql
+        .exec<{ question_id: string }>(`select * from workflow_waits where workflow_id = ?`, id)
+        .toArray();
+      out.waits.push(...waits);
+      for (const w of waits) {
+        const open = this.sql
+          .exec(`select 1 from questions where id = ? and closed_at is null`, w.question_id)
+          .toArray().length;
+        if (open) {
+          this.sql.exec(`update questions set closed_at = ? where id = ?`, ts, w.question_id);
+          out.questions.push(w.question_id);
+        }
+      }
+      this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, id);
+      this.sql.exec(`delete from workflow_waits where workflow_id = ?`, id);
+    }
+    return out;
+  }
+
+  private unstashRuns(stash: { jobs?: unknown[]; waits?: unknown[]; questions?: string[] } | undefined) {
+    if (!stash) return;
+    const put = (table: string, row: Record<string, unknown>) => {
+      const cols = Object.keys(row);
+      this.sql.exec(
+        `insert or ignore into ${table} (${cols.join(", ")}) values (${cols.map(() => "?").join(", ")})`,
+        ...(cols.map((c) => row[c]) as (string | number | null)[]),
+      );
+    };
+    for (const j of stash.jobs ?? []) put("workflow_jobs", j as Record<string, unknown>);
+    for (const w of stash.waits ?? []) put("workflow_waits", w as Record<string, unknown>);
+    for (const q of stash.questions ?? [])
+      this.sql.exec(`update questions set closed_at = null where id = ?`, q);
   }
 
   /** Lists in Recently deleted, newest first. */
@@ -3737,6 +3789,7 @@ export class SpaceObject extends DurableObject<Env> {
         flows: { id: string; enabled: number }[];
         rules: string[];
         shares: string[];
+        runs?: { jobs?: unknown[]; waits?: unknown[]; questions?: string[] };
       };
       this.sql.exec(`update collections set deleted_at = null, updated_at = ? where id = ?`, ts, id);
       for (const v of took.views) {
@@ -3749,6 +3802,7 @@ export class SpaceObject extends DurableObject<Env> {
         if (row && w.enabled)
           this.scheduleExisting(row.id, row.collection_id, JSON.parse(row.def_json) as WorkflowDef);
       }
+      this.unstashRuns(took.runs);
       for (const r of took.rules) this.sql.exec(`update rules set deleted_at = null where id = ?`, r);
       for (const sh of took.shares) this.sql.exec(`update shares set revoked_at = null where id = ?`, sh);
       this.sql.exec(`delete from list_trash where collection_id = ?`, id);
@@ -10477,6 +10531,14 @@ export class SpaceObject extends DurableObject<Env> {
       include: include.flatMap((x) => {
         const f = this.liveField("field" in x ? x.field : x.from_field);
         if (!f) return [];
+        // A list that links here, since deleted, isn't part of it now (Codex on PR 230).
+        if (
+          !("field" in x) &&
+          !this.sql
+            .exec(`select 1 from collections where id = ? and deleted_at is null`, f.collection_id)
+            .toArray().length
+        )
+          return [];
         return "field" in x
           ? [{ key: `field:${f.id}`, title: f.name }]
           : [{ key: `from:${f.id}`, title: this.requireCollection(f.collection_id).name }];

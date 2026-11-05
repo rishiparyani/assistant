@@ -127,6 +127,45 @@ describe("deleting a list", () => {
     expect(left).toEqual({ values: 0, words: 0, title: "" });
   });
 
+  it("keeps a question that was waiting, and brings it back with the list", async () => {
+    // Codex on PR 230: an approval waiting when the list was deleted was lost for good.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Asks",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Answer", type: "text" },
+        ],
+      },
+    });
+    await api(me)("/workflows", {
+      body: {
+        name: "Test ask me",
+        when: { event: "added", collection: "Test Asks" },
+        then: [{ do: "ask", who: ["me"], text: "OK {Title}?", choices: ["Yes", "No"], save_to: "Answer" }],
+        enabled: true,
+      },
+    });
+    await api(me)("/collections/Test Asks/records", { body: { values: { Title: "Test one" } } });
+    const state = () =>
+      inSpace(me, (sql) => ({
+        waits: sql.exec(`select count(*) as n from workflow_waits`).one().n,
+        open: sql.exec(`select count(*) as n from questions where closed_at is null`).one().n,
+      }));
+    let waiting = false;
+    for (let i = 0; i < 40 && !waiting; i++) {
+      waiting = (await state()).waits === 1;
+      if (!waiting) await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(await state()).toEqual({ waits: 1, open: 1 });
+    await api(me)("/collections/Test Asks", { method: "DELETE" });
+    expect(await state()).toEqual({ waits: 0, open: 0 });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} });
+    expect(await state()).toEqual({ waits: 1, open: 1 });
+  });
+
   it("leaves a shared card that showed records of the deleted list readable", async () => {
     // Codex on PR 230: the whole card failed to open once a list linking to it was deleted.
     const me = await signUp("Test Owner");
@@ -158,5 +197,9 @@ describe("deleting a list", () => {
     const opened = await api(friend)(`/cards/${share.id}`);
     expect(opened.status).toBe(200);
     expect(JSON.stringify(await opened.json())).not.toContain("Test beach");
+    // And the owner's list of shares still loads, without the deleted part.
+    const mine = await api(me)("/shares");
+    expect(mine.status).toBe(200);
+    expect(JSON.stringify(await mine.json())).not.toContain("Test Stops");
   });
 });
