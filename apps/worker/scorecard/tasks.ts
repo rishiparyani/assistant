@@ -160,6 +160,10 @@ function approval(t: {
         m.cols.filter((c) => t.requests.name.test(c.name)).map((c) => ({ m, c })),
       );
       if (!reqs.length) problems.push(`no ${t.requests.label} list`);
+      // A system other people use lives in a space of its own, not Personal (decision
+      // 2026-11-05 "The space is the setup": deleting the space removes the whole thing).
+      else if (reqs.every(({ m }) => m.space.kind === "personal"))
+        problems.push(`the ${t.requests.label} list is in Personal, not a space of its own`);
       // The people who raise requests have a way in: a link to add to the list, as a form or
       // a view they can edit (owner, 2026-11-05: "the guard is never shown… how will I even
       // raise a visitor?").
