@@ -153,7 +153,7 @@ const MAX_STEPS = 8;
 const TURN_BUDGET_MS = 90_000;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-11-04b";
+export const PROMPT_VERSION = "2026-11-05a";
 
 /** A question with answers to tap (decision 2026-10-17 "Questions with answers to tap"). */
 const ASK_CHOICES: ToolSpec = {
@@ -399,7 +399,13 @@ const DEFER_OVER = 1_700;
 const ALWAYS_FULL = new Set(["find_records", "query", "ask_choices"]);
 
 function stubOf(full: ToolSpec): ToolSpec {
-  const first = full.function.description.split(/(?<=[.!?])\s/)[0]!.slice(0, 200);
+  // Whole sentences up to about 320 characters: what it's for and when to pick it ("prefer
+  // this over several create_collection calls") both survive.
+  let first = "";
+  for (const sentence of full.function.description.split(/(?<=[.!?])\s/)) {
+    if (first && first.length + sentence.length > 320) break;
+    first = first ? `${first} ${sentence}` : sentence.slice(0, 320);
+  }
   return {
     type: "function",
     function: {
@@ -455,7 +461,7 @@ function toolsFor(
 }
 
 /** load_tools: the full descriptions asked for, whole (never cut like other results). */
-function loadTools(call: ToolCall, deferred: Map<string, ToolSpec>): ToolResult {
+function loadTools(call: ToolCall, deferred: Map<string, ToolSpec>, loaded: Set<string>): ToolResult {
   let names: unknown;
   try {
     names = (JSON.parse(call.function.arguments || "{}") as { names?: unknown }).names;
@@ -473,6 +479,7 @@ function loadTools(call: ToolCall, deferred: Map<string, ToolSpec>): ToolResult 
       code: "validation_failed",
       text: JSON.stringify({ error: `names: any of ${[...deferred.keys()].join(", ")}` }),
     };
+  for (const t of found) loaded.add(t.name);
   return { kind: "ran", text: JSON.stringify({ tools: found }) };
 }
 
@@ -557,7 +564,7 @@ function systemPrompt(
     `You are the assistant in Gigspree, talking with ${ctx.user.name}. Gigspree is for anything in someone's life and the groups they're part of (a home, a family, a club, a team, friends), not about music or performing: take examples from everyday life.`,
     "",
     "How you work:",
-    "- Finish what they asked, end to end. When they ask for something to be done, do all of it with your tools: for a system other people use, that means the lists, who sees and does what, and the flows that make it happen (who is asked or told, when, and where the answer is kept). Don't stop at part of it to explain or to ask whether to go on.",
+    "- Finish what they asked, end to end. When they ask for something to be done, do all of it with your tools: for a system other people use, that means the lists, how each kind of person gets in and what they see and do (a join link for the people who add or use things, create_share with who it's for), and the flows that make it happen (who is asked or told, when, and where the answer is kept). Don't stop at part of it to explain or to ask whether to go on.",
     "- When they ask a question or want to understand something, explain it plainly and briefly.",
     "- Act when you know enough. Ask only when the choice is truly theirs and no sensible default exists; then ask everything you need at once (ask_choices), and otherwise pick the sensible default and say what you picked.",
     "- Changes to their things (new lists or flows, money, deletes, sharing) are shown to them as cards that happen only when they tap Confirm. Propose everything a request needs together, in one go, so they can confirm it all. After they confirm, you get the result and carry on with the same request until it's done. Until a card is confirmed nothing has happened: never say it's made or done.",
@@ -1456,6 +1463,10 @@ async function answerMessage(
   // thinking from an earlier step is refused (decision 2026-10-18 "One set of instructions";
   // Codex on PR 226: a turn crossing a minute changed it).
   const now = nowLine();
+  // One-line tools whose whole description this request has (loaded, or sent back with an
+  // error): any other is answered with its description first, never run on a guess (a list
+  // made empty and filled one field per card took eight taps and never got its flow).
+  const loaded = new Set<string>();
   for (let step = 0; step < MAX_STEPS; step++) {
     // A turn that has run long stops between steps, with what's done kept (owner, 2026-11-01:
     // "it was thinking since a very long time"): eight slow steps could take minutes.
@@ -1525,27 +1536,42 @@ async function answerMessage(
       // Each tool write's key comes from the send's key, so a repeat can't apply it twice.
       const loading = call.function.name === "load_tools";
       let teaches = false;
-      const result = loading
-        ? loadTools(call, deferred)
-        : await runTool(
-            ctx,
-            ops,
-            call,
-            allowed,
-            level,
-            `${requestKey}:${step}:${i}`,
-            cols,
-            proposeOnly,
-            inSpace,
-          );
+      const unread = deferred.has(call.function.name) && !loaded.has(call.function.name);
+      const result: ToolResult = loading
+        ? loadTools(call, deferred, loaded)
+        : unread
+          ? {
+              kind: "error",
+              code: "not_loaded",
+              text: JSON.stringify({
+                error: "Not run: read how to call it first, then call it again",
+                how_to_call: deferred.get(call.function.name)!.function,
+              }),
+            }
+          : await runTool(
+              ctx,
+              ops,
+              call,
+              allowed,
+              level,
+              `${requestKey}:${step}:${i}`,
+              cols,
+              proposeOnly,
+              inSpace,
+            );
       // A one-line tool called with the wrong parameters (often before loading it, or after a
       // load in an earlier request): its whole description comes back with the error, so the
       // next call can be right without a load_tools round of its own.
+      if (unread && !loading) {
+        loaded.add(call.function.name);
+        teaches = true;
+      }
       if (
         result.kind === "error" &&
         result.code === "validation_failed" &&
         deferred.has(call.function.name)
       ) {
+        loaded.add(call.function.name);
         result.text = JSON.stringify({
           ...(JSON.parse(result.text) as object),
           how_to_call: deferred.get(call.function.name)!.function,
@@ -1613,7 +1639,7 @@ async function answerMessage(
         ...((loading && result.kind === "ran") || teaches
           ? {
               content: JSON.stringify({
-                ...(teaches ? { error: "Called with the wrong parameters" } : {}),
+                ...(teaches ? { error: "Not run: it was called before reading how" } : {}),
                 loaded_for_that_request_only: "load again when needed",
               }),
             }

@@ -301,7 +301,9 @@ describe("chat", () => {
     const note = (await find(me, "Notes")).items[0]!;
     const asked = await say(me, `Test: a list and delete record ${note.id}`);
     const cards = asked.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
-    expect(cards.map((c) => c.tool)).toEqual(["create_collection", "delete_record"]);
+    expect(cards.map((c) => c.tool).sort()).toEqual(["create_collection", "delete_record"]);
+    // The setup first, then the other: the request goes on only after the last.
+    cards.sort((a, b) => (a.tool === "create_collection" ? -1 : b.tool === "create_collection" ? 1 : 0));
     const goneOn = (v: ChatView) =>
       v.items.some((i) => (i.text ?? "").startsWith("Test: add the first records"));
     const first = await json<ChatView>(
@@ -320,7 +322,9 @@ describe("chat", () => {
     await say(me, "Test: note the PA needs two DI boxes");
     const note = (await find(me, "Notes")).items[0]!;
     const asked = await say(me, `Test: a list and delete record ${note.id}`);
-    const first = asked.items.find((i) => i.card?.status === "waiting")!.card!;
+    const first = asked.items.find(
+      (i) => i.card?.status === "waiting" && i.card.tool === "create_collection",
+    )!.card!;
     await call(`/api/chat/actions/${first.action_id}/confirm`, { cookie: me.cookie, body: {} });
     await call("/api/chat", { cookie: me.cookie, method: "DELETE" });
     const again = await say(me, `Test: delete record ${note.id}`);
