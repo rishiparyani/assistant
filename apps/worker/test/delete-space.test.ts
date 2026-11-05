@@ -87,6 +87,17 @@ describe("deleting a space", () => {
     expect(await until(1)).toBe(1);
   });
 
+  it("isn't deleted again by a late retry after it came back", async () => {
+    // Codex on PR 230: the same Idempotency-Key after a restore deleted it a second time.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Twice" } }));
+    const del = () => api(me)(`/spaces/${sp.id}`, { method: "DELETE", idempotencyKey: "test-key-1" });
+    expect((await del()).status).toBe(200);
+    expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(200);
+    expect((await del()).status).toBe(200);
+    expect((await json<SpaceView[]>(await api(me)("/spaces"))).map((s) => s.name)).toContain("Test Twice");
+  });
+
   it("erases its rehearsals' copies with it", async () => {
     // Codex on PR 230: the copies were hidden but kept the data for good.
     const me = await signUp("Test Owner");

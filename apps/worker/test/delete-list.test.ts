@@ -127,6 +127,28 @@ describe("deleting a list", () => {
     expect(left).toEqual({ values: 0, words: 0, title: "" });
   });
 
+  it("leaves search when erased straight after the delete", async () => {
+    // Codex on PR 230: erased before search caught up with the delete, its copies stayed.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", { body: { name: "Test Gone", fields: [{ name: "Title", type: "text" }] } });
+    await api(me)("/collections/Test Gone/records", { body: { values: { Title: "Test quibblefrond" } } });
+    const index = env.SEARCH.getByName(`search:${me.id}`);
+    const until = async (n: number) => {
+      let hits = -1;
+      for (let i = 0; i < 80; i++) {
+        hits = (await index.query("quibblefrond")).length;
+        if (hits === n) break;
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      return hits;
+    };
+    expect(await until(1)).toBe(1);
+    await api(me)("/collections/Test Gone", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" });
+    expect(await until(0)).toBe(0);
+  });
+
   it("keeps a question that was waiting, and brings it back with the list", async () => {
     // Codex on PR 230: an approval waiting when the list was deleted was lost for good.
     const me = await signUp("Test Owner");

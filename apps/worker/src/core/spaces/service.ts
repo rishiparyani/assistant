@@ -197,7 +197,9 @@ export async function deleteSpace(ctx: OpUserCtx, ref: string): Promise<{ delete
   if (space.practice_of) throw new ObjectError("validation_failed", "A rehearsal ends with End");
   if (space.kind === "personal") throw new ObjectError("validation_failed", "Personal can't be deleted");
   if (space.role !== "owner") throw new ObjectError("forbidden", "Only the space's owner can delete it");
-  const { name } = await stub.deleteSpace(actor);
+  const { name } = await stub.deleteSpace(actor, ctx.idempotencyKey);
+  // A retry answered from its key after the space came back: nothing more to do.
+  if (!(await stub.deletedInfo(actor))) return { deleted: space.id, name };
   const now = new Date().toISOString();
   // Its rehearsals end with it (they're copies of what's gone).
   const copies = await ctx.d1

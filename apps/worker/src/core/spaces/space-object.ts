@@ -1718,7 +1718,7 @@ export class SpaceObject extends DurableObject<Env> {
    * TRASH_DAYS everything in it is erased. Only its owner can, and not a chat's home (the
    * chat holds it) or a practice copy (End does that).
    */
-  async deleteSpace(actor: Actor): Promise<{ name: string }> {
+  async deleteSpace(actor: Actor, key: string | null = null): Promise<{ name: string }> {
     if (this.memberRole(actor.userId) !== "owner")
       throw new ObjectError("forbidden", "Only the space's owner can delete it");
     if (this.practice) throw new ObjectError("validation_failed", "A rehearsal ends with End");
@@ -1730,24 +1730,32 @@ export class SpaceObject extends DurableObject<Env> {
     if (sp.group_id)
       throw new ObjectError("validation_failed", "These are a chat's lists: they go when the chat does");
     if (getMeta(this.sql, "space_deleted_at")) return { name: sp.name };
-    const ts = nowIso();
-    this.ctx.storage.transactionSync(() => {
-      const on = this.sql
-        .exec<{ id: string }>(`select id from workflows where enabled = 1 and deleted_at is null`)
-        .toArray()
-        .map((w) => w.id);
-      const all = this.sql
-        .exec<{ id: string }>(`select id from workflows where deleted_at is null`)
-        .toArray()
-        .map((w) => w.id);
-      setMeta(this.sql, "space_deleted_runs", JSON.stringify(this.stashRuns(all, ts)));
-      for (const id of on) this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
-      setMeta(this.sql, "space_deleted_flows", JSON.stringify(on));
-      setMeta(this.sql, "space_deleted_at", ts);
-      // Its copies leave everyone's search (Codex on PR 230: they stayed after the erase).
-      setMeta(this.sql, "search_drop", "1");
-      audit(this.sql, actor, { action: "delete_space", entityType: "space", entityId: "space" });
-    });
+    // Under its Idempotency-Key: a late retry after a restore answers as the first time did
+    // instead of deleting the space again (Codex on PR 230).
+    await this.write(
+      actor,
+      key,
+      ["delete_space"],
+      (ts) => {
+        const on = this.sql
+          .exec<{ id: string }>(`select id from workflows where enabled = 1 and deleted_at is null`)
+          .toArray()
+          .map((w) => w.id);
+        const all = this.sql
+          .exec<{ id: string }>(`select id from workflows where deleted_at is null`)
+          .toArray()
+          .map((w) => w.id);
+        setMeta(this.sql, "space_deleted_runs", JSON.stringify(this.stashRuns(all, ts)));
+        for (const id of on) this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
+        setMeta(this.sql, "space_deleted_flows", JSON.stringify(on));
+        setMeta(this.sql, "space_deleted_at", ts);
+        // Its copies leave everyone's search (Codex on PR 230: they stayed after the erase).
+        setMeta(this.sql, "search_drop", "1");
+        audit(this.sql, actor, { action: "delete_space", entityType: "space", entityId: "space" });
+        return { name: sp.name };
+      },
+      () => undefined,
+    );
     await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
     await this.wakeForJobs();
     return { name: sp.name };
@@ -2127,7 +2135,8 @@ export class SpaceObject extends DurableObject<Env> {
       const next = reindex[0]!;
       const batch = this.sql
         .exec<{ id: string }>(
-          `select id from records where collection_id = ? and deleted_at is null and id > ? order by id limit 200`,
+          // Every record of the list, deleted and erased ones too: those are taken out.
+          `select id from records where collection_id = ? and id > ? order by id limit 200`,
           next.c,
           next.after,
         )
@@ -3900,6 +3909,14 @@ export class SpaceObject extends DurableObject<Env> {
       id,
     );
     this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+    // Its records leave everyone's search, even if the delete's reindex hadn't reached them
+    // yet (Codex on PR 230): the list is gone through again from the start.
+    const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];
+    setMeta(
+      this.sql,
+      "search_reindex",
+      JSON.stringify([...reindex.filter((x) => x.c !== id), { c: id, after: "" }]),
+    );
   }
 
   async removeField(
