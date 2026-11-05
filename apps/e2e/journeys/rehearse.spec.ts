@@ -409,3 +409,41 @@ test("a money field changed on a shared list saves the amount typed", async ({ b
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a shared card can be renamed and talked about in the app", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page had no comments and couldn't change a title.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Card friend ${RUN}`);
+  const list = `E2E Plans ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Picnic ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Picnic ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  // The title is a field they may change.
+  const title = page.locator('input[aria-label="Title"]').first();
+  await title.fill(`E2E Lunch ${RUN}`);
+  await title.press("Enter");
+  await expect
+    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${rec.id}`)))
+    .toContain(`E2E Lunch ${RUN}`);
+  // A comment, sent and shown.
+  await expect(page.getByText("No comments yet.")).toBeVisible();
+  await page.getByLabel("Add a comment").fill(`E2E bring cups ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(`E2E bring cups ${RUN}`)).toBeVisible();
+  await expect
+    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${rec.id}/comments`)))
+    .toContain(`E2E bring cups ${RUN}`);
+  expect(errors).toEqual([]);
+  await context.close();
+});

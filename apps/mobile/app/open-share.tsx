@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tap, Text } from "@assistant/cards/native";
 import { ulid, type SharedOpened, type StoredValue } from "@assistant/shared";
 import { isOffline, request } from "@/api";
+import { SharedComments } from "@/components/SharedComments";
 import { SharedPage } from "@/components/SharedPage";
 import { BackIcon } from "@/components/HeaderIcons";
 import { homeChanged } from "@/home";
@@ -113,6 +114,10 @@ export default function Shared() {
               }}
               onAnswer={(answer: string) => request("POST", `${base}/answer`, { answer })}
             />
+          ) : null}
+          {opened && "record" in opened && "sections" in opened ? (
+            // A card's comments, as on the website (Codex on PR 230).
+            <SharedComments shareId={id} recordId={opened.record.id} />
           ) : null}
           {opened && "next_cursor" in opened && opened.next_cursor ? (
             // A long shared list comes a page at a time (Codex on PR 230).
