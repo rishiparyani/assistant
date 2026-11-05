@@ -1518,12 +1518,19 @@ export class SpaceObject extends DurableObject<Env> {
       else if (f.type === "person" && f.required && this.practice) {
         const p = this.standIn(f.name);
         out[f.id] = { user_id: p.user_id, name: p.name };
-      } else if (f.type === "link") {
+      } else if (
+        f.type === "link" &&
+        // Not into a deleted list (Codex on PR 230).
+        (!o.target ||
+          this.sql.exec(`select 1 from collections where id = ? and deleted_at is null`, o.target).toArray()
+            .length)
+      ) {
         const first = this.sql
           .exec<{ id: string }>(
             o.target
               ? `select id from records where collection_id = ? and deleted_at is null order by created_at limit 1`
-              : `select id from records where deleted_at is null and collection_id != ? order by created_at limit 1`,
+              : `select id from records where deleted_at is null and collection_id != ?
+                 and collection_id in (select id from collections where deleted_at is null) order by created_at limit 1`,
             o.target ?? c.id,
           )
           .toArray()[0];
@@ -2691,11 +2698,25 @@ export class SpaceObject extends DurableObject<Env> {
     }
     // Closure over links: a link's target, and the list a rollup counts over.
     const nameOf = (id: string) => this.requireCollection(id).name;
+    // A link or count over a deleted list has nothing to travel with (Codex on PR 230: it broke
+    // sharing the lists that are left): it stays behind, as a field and wherever it's named.
+    const live = (id: string) =>
+      this.sql.exec(`select 1 from collections where id = ? and deleted_at is null`, id).toArray().length > 0;
+    const dangling = (row: FieldRow) => {
+      const o = toField(row).options;
+      if (row.type === "link") return !!o.target && !live(o.target);
+      if (!o.rollup) return false;
+      const via = this.liveField(o.rollup.via);
+      if (!via) return false;
+      const other = o.rollup.dir === "in" ? via.collection_id : (toField(via).options.target ?? null);
+      return !live(via.collection_id) || (!!other && !live(other));
+    };
     for (;;) {
       const before = picked.size;
       for (const c of [...picked.values()])
         for (const f of this.fieldRows(c.id)) {
           const o = toField(f).options;
+          if (dangling(f)) continue;
           if (f.type === "link" && o.target && !picked.has(o.target))
             picked.set(o.target, this.requireCollection(o.target));
           if (o.rollup) {
@@ -2716,8 +2737,10 @@ export class SpaceObject extends DurableObject<Env> {
         `That's ${picked.size} lists with the ones they link to; a setup can hold ${SETUP_LIMITS.collections}. Pick fewer.`,
       );
     const ordered = all.filter((c) => picked.has(c.id));
-    const fieldName = (collectionId: string, id: string) =>
-      this.fieldRows(collectionId).find((f) => f.id === id)?.name ?? null;
+    const fieldName = (collectionId: string, id: string) => {
+      const row = this.fieldRows(collectionId).find((f) => f.id === id);
+      return row && !dangling(row) ? row.name : null;
+    };
     const cond = (collectionId: string, f: { field: string; op: FilterOp; value?: unknown }) => {
       const row = this.fieldRows(collectionId).find((x) => x.id === f.field);
       // A filter on a link holds record ids: data, not setup ("is empty" / "isn't empty" travel).
@@ -2729,7 +2752,8 @@ export class SpaceObject extends DurableObject<Env> {
     const collections = ordered.map((c) => ({
       name: c.name,
       ...(c.description ? { description: c.description } : {}),
-      fields: this.fieldRows(c.id).map((row) => {
+      fields: this.fieldRows(c.id).flatMap((row) => {
+        if (dangling(row)) return [];
         const f = toField(row);
         const o = f.options;
         const options: Record<string, unknown> = {};
@@ -10722,7 +10746,8 @@ export class SpaceObject extends DurableObject<Env> {
       if (f.type !== "link" || hidden.has(f.id) || o.many || !o.target) return [];
       const pick = this.sql
         .exec<{ id: string; title: string }>(
-          `select id, title from records where collection_id = ? and deleted_at is null order by title limit 500`,
+          `select id, title from records where collection_id = ? and deleted_at is null
+           and collection_id in (select id from collections where deleted_at is null) order by title limit 500`,
           o.target,
         )
         .toArray()

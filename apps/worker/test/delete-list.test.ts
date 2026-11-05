@@ -260,6 +260,52 @@ describe("deleting a list", () => {
     expect(Object.values(back.values)).toContain(6);
   });
 
+  it("leaves the lists that link to it working", async () => {
+    // Codex on PR 230: a link to the deleted list broke sharing the setup that's left.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Homes", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Guests",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Home", type: "link", options: { target: "Test Homes" } },
+        ],
+      },
+    });
+    const home = await json<RecordView>(
+      await api(me)("/collections/Test Homes/records", { body: { values: { Title: "Test A1" } } }),
+    );
+    await api(me)("/collections/Test Guests/records", {
+      body: { values: { Title: "Test guest", Home: [home.id] } },
+    });
+    expect((await api(me)("/collections/Test Homes", { method: "DELETE" })).status).toBe(200);
+    // The list that's left reads, adds, and travels as a setup.
+    expect((await api(me)("/collections")).status).toBe(200);
+    expect((await api(me)("/collections/Test Guests")).status).toBe(200);
+    expect(
+      (await api(me)("/collections/Test Guests/records", { body: { values: { Title: "Test later" } } }))
+        .status,
+    ).toBe(201);
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
+      { userId: me.id, source: "web" },
+      null,
+    )) as unknown as { collections: { name: string }[] };
+    expect(setup.collections.map((c) => c.name)).toContain("Test Guests");
+    expect(setup.collections.map((c) => c.name)).not.toContain("Test Homes");
+    // And rehearses.
+    const copy = await api(me)("/spaces/Personal/practice", { body: {} });
+    expect(copy.status).toBeLessThan(300);
+    const practice = await json<SpaceView>(copy);
+    expect(
+      (await api(me)(`/spaces/${practice.id}/practice/run`, { body: { collection: "Test Guests" } })).status,
+    ).not.toBe(500);
+    await api(me)(`/spaces/${practice.id}/practice`, { method: "DELETE" });
+  });
+
   it("brings a scheduled flow back with one next run, not two", async () => {
     // Codex on PR 230: restore scheduled a new run and put the kept one back, so both ran.
     const me = await signUp("Test Owner");
