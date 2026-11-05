@@ -166,6 +166,29 @@ describe("deleting a list", () => {
     expect(await state()).toEqual({ waits: 1, open: 1 });
   });
 
+  it("brings a scheduled flow back with one next run, not two", async () => {
+    // Codex on PR 230: restore scheduled a new run and put the kept one back, so both ran.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Daily", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/workflows", {
+      body: {
+        name: "Test every day",
+        when: { event: "schedule", collection: "Test Daily", every: "day", at: "09:30" },
+        then: [{ do: "notify", text: "Test morning", to: ["me"] }],
+        enabled: true,
+      },
+    });
+    const jobs = () => inSpace(me, (sql) => sql.exec(`select count(*) as n from workflow_jobs`).one().n);
+    expect(await jobs()).toBe(1);
+    await api(me)("/collections/Test Daily", { method: "DELETE" });
+    expect(await jobs()).toBe(0);
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} });
+    expect(await jobs()).toBe(1);
+  });
+
   it("leaves a shared card that showed records of the deleted list readable", async () => {
     // Codex on PR 230: the whole card failed to open once a list linking to it was deleted.
     const me = await signUp("Test Owner");

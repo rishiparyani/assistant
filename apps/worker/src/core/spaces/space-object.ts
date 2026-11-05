@@ -1776,7 +1776,9 @@ export class SpaceObject extends DurableObject<Env> {
         const w = this.sql
           .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, id)
           .toArray()[0];
-        if (w) this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
+        // Its jobs come back as they were (below), not scheduled again (Codex on PR 230).
+        if (w && !getMeta(this.sql, "space_deleted_runs"))
+          this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
       }
       const runs = getMeta(this.sql, "space_deleted_runs");
       this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
@@ -3798,8 +3800,10 @@ export class SpaceObject extends DurableObject<Env> {
       }
       for (const w of took.flows) {
         this.sql.exec(`update workflows set deleted_at = null, enabled = ? where id = ?`, w.enabled, w.id);
+        // Its jobs come back as they were (below), not scheduled again: both would run (Codex
+        // on PR 230). A delete from before runs were kept had none, so it's scheduled anew.
         const row = this.sql.exec<WorkflowRow>(`select * from workflows where id = ?`, w.id).toArray()[0];
-        if (row && w.enabled)
+        if (row && w.enabled && !took.runs)
           this.scheduleExisting(row.id, row.collection_id, JSON.parse(row.def_json) as WorkflowDef);
       }
       this.unstashRuns(took.runs);

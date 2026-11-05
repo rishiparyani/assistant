@@ -364,3 +364,48 @@ test("as the people a list is shared with, its card opens in the app and they ad
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a money field changed on a shared list saves the amount typed", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page sent paise as rupees, so ₹10 saved as ₹1,000.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Money friend ${RUN}`);
+  const list = `E2E Bills ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+    ],
+  });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Tea ${RUN}`, Amount: "5" },
+  })) as { id: string };
+  await api(me)("POST", "/views", { name: `E2E Bills view ${RUN}`, collection: list });
+  const made = (await api(me)("POST", "/shares", {
+    view: `E2E Bills view ${RUN}`,
+    access: "edit",
+    hide_fields: [],
+  })) as { link: string; share: { id: string } };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Tea ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  const amount = page.locator('input[aria-label="Amount"]').first();
+  await amount.fill("10");
+  await amount.press("Enter");
+  await expect
+    .poll(async () => {
+      const r = (await api(me)("GET", `/records/${rec.id}`)) as {
+        values: Record<string, unknown>;
+        named?: Record<string, unknown>;
+      };
+      return JSON.stringify(r);
+    })
+    .toContain("1000");
+  const r = (await api(me)("GET", `/records/${rec.id}`)) as { values: Record<string, unknown> };
+  expect(JSON.stringify(r)).not.toContain("100000");
+  expect(errors).toEqual([]);
+  await context.close();
+});

@@ -94,11 +94,23 @@ export default function Shared() {
               busy={busy}
               run={run}
               onSet={(recordId: string, fieldId: string, value: StoredValue) =>
-                request("PATCH", `${base}/records/${enc(recordId)}`, { values: { [fieldId]: value } })
+                request("PATCH", `${base}/records/${enc(recordId)}`, {
+                  // Money is held in paise; the write reads rupees (Codex on PR 230: ₹10 saved
+                  // as ₹1,000), as the website's sendValues does.
+                  values: {
+                    [fieldId]:
+                      typeof value === "number" && typeOf(opened, recordId, fieldId) === "money"
+                        ? String(value / 100)
+                        : value,
+                  },
+                })
               }
-              onAdd={(section: string, values: Record<string, unknown>) =>
-                request("POST", `${base}/records`, { section, id: ulid(), values })
-              }
+              onAdd={async (section: string, values: Record<string, unknown>) => {
+                await request("POST", `${base}/records`, { section, id: ulid(), values });
+                // Shown at once: the add forms don't go through run (Codex on PR 230).
+                homeChanged();
+                await load();
+              }}
               onAnswer={(answer: string) => request("POST", `${base}/answer`, { answer })}
             />
           ) : null}
@@ -143,6 +155,16 @@ export default function Shared() {
       </View>
     </View>
   );
+}
+
+/** A field's type, from the record that has it in what's open. */
+function typeOf(opened: SharedOpened, recordId: string, fieldId: string): string | undefined {
+  const records = [
+    ...("records" in opened ? opened.records : []),
+    ...("record" in opened ? [opened.record] : []),
+    ...("sections" in opened ? opened.sections.flatMap((x) => x.records) : []),
+  ] as { id: string; fields: { id: string; type: string }[] }[];
+  return records.find((r) => r.id === recordId)?.fields.find((f) => f.id === fieldId)?.type;
 }
 
 const s = StyleSheet.create({

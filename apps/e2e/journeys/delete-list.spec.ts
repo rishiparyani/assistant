@@ -1,7 +1,7 @@
 // Deleting a list (owner, 2026-11-05: "How do I delete the setup?"): asked first, it goes to
 // Recently deleted with what it took, and comes back from there.
 import { expect, test } from "@playwright/test";
-import { RUN, api, expectNoSideways, openApp, owner } from "./helpers";
+import { RUN, api, expectNoSideways, openApp, owner, person } from "./helpers";
 
 test("a list is deleted from its screen and brought back from Recently deleted", async ({ browser }) => {
   test.setTimeout(90_000);
@@ -50,7 +50,8 @@ test("a list is deleted from its screen and brought back from Recently deleted",
 
 test("a space is deleted from its page and brought back from Recently deleted", async ({ browser }) => {
   test.setTimeout(90_000);
-  const me = await owner();
+  // Its own account: the shared test owner can be near its 20 spaces after many runs.
+  const me = await person(`E2E Space owner ${RUN}`);
   const name = `E2E Club ${RUN}`;
   const sp = (await api(me)("POST", "/spaces", { name })) as { id: string };
   await api(me)("POST", "/collections", {

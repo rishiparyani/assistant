@@ -56,7 +56,7 @@ export function NeedsList({
 
   // Shared things open in the app (a rehearsal plays the person there; the website is outside it).
   const openShared = (card: HomeCard) =>
-    card.shared && router.push({ pathname: "/shared", params: { id: card.shared.share_id } });
+    card.shared && router.push({ pathname: "/open-share", params: { id: card.shared.share_id } });
   // online-only: answering a step runs it on the server, which moves the workflow on.
   const act = (card: HomeCard, go: () => Promise<unknown>) => async () => {
     setBusy(card.id);
