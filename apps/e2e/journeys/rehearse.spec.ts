@@ -223,3 +223,47 @@ test("a slow look doesn't bring a banner back, and End keeps the copy if it can'
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await context.close();
 });
+
+test("the people a flow asks can be played before anything has run", async ({ browser }) => {
+  // Owner, 2026-11-05: rehearsing offered only "Yourself" until a record set the flow off.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const list = `E2E Requests ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Approver", type: "person" },
+      { name: "Status", type: "text" },
+    ],
+  });
+  const flow = (await api(me)("POST", "/workflows", {
+    name: `E2E approve flow ${RUN}`,
+    when: { event: "added", collection: list },
+    then: [
+      { do: "ask", who: ["{Approver}"], text: "OK {Title}?", choices: ["Yes", "No"], save_to: "Status" },
+    ],
+    enabled: false,
+  })) as { id: string };
+  const copy = (await api(me)("POST", "/spaces/Personal/practice", {})) as { id: string };
+
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/practice?space=${copy.id}&workflow=${flow.id}`);
+  await expect(page.getByText("Rehearse as…")).toBeVisible({ timeout: 30_000 });
+  // The role is there to start as.
+  await expect(page.getByRole("button", { name: "Rehearse as Approver (stand-in)" })).toBeVisible();
+  await page.getByRole("button", { name: "Rehearse as Yourself" }).click();
+  await expect(page.getByText("REHEARSING AS")).toBeVisible();
+  // And to switch to, with nothing added yet.
+  await page.getByRole("button", { name: "Switch who you play" }).click();
+  const role = page.getByRole("button", { name: "Approver (stand-in)" });
+  await expect(role).toBeVisible();
+  await role.click();
+  await expect(page.getByText("Approver (stand-in)").first()).toBeVisible();
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "End rehearsing" }).click();
+  await page.getByText("End and throw it away").click();
+  await expect(page.getByText("REHEARSING AS")).toHaveCount(0, { timeout: 30_000 });
+  expect(errors).toEqual([]);
+  await context.close();
+});

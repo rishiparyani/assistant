@@ -1296,6 +1296,34 @@ export class SpaceObject extends DurableObject<Env> {
           waiting: 0,
           got: 0,
         });
+    // Every role the copy's flows ask or tell, from the start (owner, 2026-11-05: rehearsing
+    // offered only "Yourself" until a record set a flow off, so there was nobody to be). A role
+    // is named as a run would name its stand-in: the field, or through links the list.
+    for (const w of this.sql
+      .exec<{ def_json: string }>(`select def_json from workflows where deleted_at is null`)
+      .toArray()) {
+      const visit = (v: unknown): void => {
+        if (Array.isArray(v)) return v.forEach(visit);
+        if (!v || typeof v !== "object") return;
+        const o = v as { to_fields?: unknown; to_linked?: unknown };
+        for (const fid of Array.isArray(o.to_fields) ? o.to_fields : [])
+          if (typeof fid === "string") {
+            const p = standInFor(this.liveField(fid)?.name ?? "Someone");
+            if (!people.has(p.user_id)) people.set(p.user_id, { ...p, role: "standin", waiting: 0, got: 0 });
+          }
+        for (const l of (Array.isArray(o.to_linked) ? o.to_linked : []) as LinkedPeople[]) {
+          const role = l.then?.length ? this.listNameOfField(l.person_field_id) : undefined;
+          const p = standInFor(role ?? this.liveField(l.person_field_id)?.name ?? "Someone");
+          if (!people.has(p.user_id)) people.set(p.user_id, { ...p, role: "standin", waiting: 0, got: 0 });
+        }
+        Object.values(v).forEach(visit);
+      };
+      try {
+        visit(JSON.parse(w.def_json));
+      } catch {
+        // A flow that can't be read names nobody.
+      }
+    }
     // Stand-ins only told something (no question shared with them) are played too.
     for (const [id, name] of Object.entries(
       JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>,
@@ -1348,12 +1376,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** A made-up person who plays a role in a practice copy ("Resident (stand-in)"), by role. */
   private standIn(role: string): Person {
-    const id = `standin:${
-      nameKey(role)
-        .replace(/[^a-z0-9]+/g, "-")
-        .slice(0, 40) || "someone"
-    }`;
-    const name = `${role} (stand-in)`;
+    const { user_id: id, name } = standInFor(role);
     const known = JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>;
     if (known[id] !== name) setMeta(this.sql, "practice_standins", JSON.stringify({ ...known, [id]: name }));
     return { user_id: id, name };
@@ -10765,4 +10788,14 @@ function rowOfLive(r: RowLayout, live: Set<string>): RowLayout {
       ? { highlights: r.highlights.filter((h) => h.when.every((flt) => ok(flt.field))) }
       : {}),
   };
+}
+
+/** The stand-in for a role, by its name: the same id every time the role comes up. */
+function standInFor(role: string): Person {
+  const id = `standin:${
+    nameKey(role)
+      .replace(/[^a-z0-9]+/g, "-")
+      .slice(0, 40) || "someone"
+  }`;
+  return { user_id: id, name: `${role} (stand-in)` };
 }
