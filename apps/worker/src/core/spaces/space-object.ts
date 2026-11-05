@@ -1756,7 +1756,10 @@ export class SpaceObject extends DurableObject<Env> {
       },
       () => undefined,
     );
+    // Search catches up now, not only on the next alarm (it lagged on a busy machine); the
+    // alarm stays set to retry what doesn't go through.
     await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+    await this.syncSearch().catch(() => null);
     await this.wakeForJobs();
     return { name: sp.name };
   }
@@ -1819,7 +1822,10 @@ export class SpaceObject extends DurableObject<Env> {
       },
       () => undefined,
     );
+    // Search catches up now, not only on the next alarm (it lagged on a busy machine); the
+    // alarm stays set to retry what doesn't go through.
     await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+    await this.syncSearch().catch(() => null);
     await this.wakeForJobs();
   }
 

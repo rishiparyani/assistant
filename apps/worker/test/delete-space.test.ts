@@ -82,6 +82,7 @@ describe("deleting a space", () => {
     };
     expect(await until(1)).toBe(1);
     await api(me)(`/spaces/${sp.id}`, { method: "DELETE" });
+    expect(await hits()).toBe(0);
     expect(await until(0)).toBe(0);
     expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(200);
     expect(await until(1)).toBe(1);
