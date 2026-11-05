@@ -75,31 +75,34 @@ export default function SpacePage() {
   const load = useCallback(async () => {
     if (!userId) return;
     const where = id === PERSONAL ? "" : `?space=${enc(id)}`;
-    try {
-      const [fresh, wf, sp] = await Promise.all([
+    // The people load on their own: a slow or failed Today or workflows load doesn't keep them
+    // (and the owner's tools, like Delete this space) off the page.
+    const peopleLoad = (async () => {
+      const sp =
+        spaceId ?? (await request<SpaceView[]>("GET", "/api/spaces")).find((x) => x.kind === "personal")?.id;
+      if (!sp) return;
+      setSpaceId(sp);
+      const ps = await request<SpacePerson[]>("GET", `/api/spaces/${enc(sp)}/people`);
+      setPeople(ps);
+      writeJson(saved("people"), ps);
+    })();
+    const restLoad = (async () => {
+      const [fresh, wf] = await Promise.all([
         loadToday(userId),
         request<WorkflowView[]>("GET", `/api/workflows${where}`),
-        spaceId
-          ? Promise.resolve(spaceId)
-          : request<SpaceView[]>("GET", "/api/spaces").then(
-              (all) => all.find((x) => x.kind === "personal")?.id,
-            ),
       ]);
       setToday(fresh);
       setWorkflows(wf);
       writeJson(saved("workflows"), wf);
-      if (sp) {
-        setSpaceId(sp);
-        const ps = await request<SpacePerson[]>("GET", `/api/spaces/${enc(sp)}/people`);
-        setPeople(ps);
-        writeJson(saved("people"), ps);
-      }
-      setNote("");
-    } catch (e) {
-      setNote(
-        isOffline(e) ? "Offline: showing what this phone saved." : e instanceof Error ? e.message : String(e),
-      );
-    }
+    })();
+    const failed = (await Promise.allSettled([peopleLoad, restLoad])).find(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+    if (!failed) return setNote("");
+    const e = failed.reason as unknown;
+    setNote(
+      isOffline(e) ? "Offline: showing what this phone saved." : e instanceof Error ? e.message : String(e),
+    );
   }, [userId, id, spaceId]);
   useEffect(() => {
     void load();
