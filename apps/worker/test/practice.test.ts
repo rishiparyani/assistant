@@ -320,6 +320,14 @@ describe("practice copies", () => {
     const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
     const base = `/spaces/${practice.id}/practice`;
     const view = async () => json<PracticeView>(await api(owner)(base));
+    // Before anything runs, the roles the flows ask are there to be (owner, 2026-11-05: only
+    // "Yourself" was offered until a record set the flow off).
+    expect((await view()).people.map((p) => [p.name, p.role])).toContainEqual([
+      "Resident (stand-in)",
+      "standin",
+    ]);
+    const early = (await view()).people.find((p) => p.name === "Resident (stand-in)")!;
+    expect((await api(owner)(`${base}/as/${encodeURIComponent(early.user_id)}`)).status).toBe(200);
 
     // Start it: a sample visitor at the first flat.
     const started = await api(owner)(`${base}/run`, { body: { workflow_id: wf.id } });
