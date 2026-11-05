@@ -188,6 +188,78 @@ describe("deleting a list", () => {
     expect(await state()).toEqual({ waits: 1, open: 1 });
   });
 
+  it("erases a waiting question with the list, and its link stops working", async () => {
+    // Codex on PR 230: after Delete forever the question kept the record's words, still open
+    // to the people asked.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Gone Asks", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/workflows", {
+      body: {
+        name: "Test ask me too",
+        when: { event: "added", collection: "Test Gone Asks" },
+        then: [{ do: "ask", who: ["me"], text: "OK {Title}?", choices: ["Yes", "No"] }],
+        enabled: true,
+      },
+    });
+    await api(me)("/collections/Test Gone Asks/records", { body: { values: { Title: "Test zephyrine" } } });
+    const asked = () =>
+      inSpace(me, (sql) =>
+        sql
+          .exec<{ text: string; share_id: string; revoked: string | null }>(
+            `select q.text, q.share_id, s.revoked_at as revoked from questions q join shares s on s.id = q.share_id`,
+          )
+          .toArray(),
+      );
+    let qs = await asked();
+    for (let i = 0; i < 40 && !qs.length; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      qs = await asked();
+    }
+    expect(qs[0]?.text).toContain("zephyrine");
+    await api(me)("/collections/Test Gone Asks", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" })).status).toBe(200);
+    const after = await asked();
+    expect(after.map((q) => q.text)).toEqual([""]);
+    expect(after[0]!.revoked).not.toBeNull();
+    expect((await api(me)(`/cards/${after[0]!.share_id}`)).status).toBe(404);
+  });
+
+  it("works its formulas out again when it comes back", async () => {
+    // Codex on PR 230: a today() formula kept the value from before the delete.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Sums",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "N", type: "number" },
+          { name: "Twice", type: "number", options: { formula: "{N} * 2" } },
+        ],
+      },
+    });
+    const rec = await json<RecordView>(
+      await api(me)("/collections/Test Sums/records", { body: { values: { Title: "Test a", N: 3 } } }),
+    );
+    await api(me)("/collections/Test Sums", { method: "DELETE" });
+    // As if the day turned while it was away: its stored result is out of date.
+    await inSpace(me, (sql) => {
+      const r = sql
+        .exec<{ values_json: string }>(`select values_json from records where id = ?`, rec.id)
+        .one();
+      const v = JSON.parse(r.values_json) as Record<string, unknown>;
+      for (const k of Object.keys(v)) if (v[k] === 6) v[k] = 999;
+      sql.exec(`update records set values_json = ? where id = ?`, JSON.stringify(v), rec.id);
+    });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
+    const back = await json<RecordView>(await api(me)(`/records/${rec.id}`));
+    expect(JSON.stringify(back)).not.toContain("999");
+    expect(Object.values(back.values)).toContain(6);
+  });
+
   it("brings a scheduled flow back with one next run, not two", async () => {
     // Codex on PR 230: restore scheduled a new run and put the kept one back, so both ran.
     const me = await signUp("Test Owner");

@@ -1797,6 +1797,11 @@ export class SpaceObject extends DurableObject<Env> {
           if (w && !getMeta(this.sql, "space_deleted_runs"))
             this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
         }
+        // Its formulas as of now, before its runs carry on with them.
+        for (const c of this.sql
+          .exec<{ id: string }>(`select id from collections where deleted_at is null`)
+          .toArray())
+          this.backfill(c.id, nowIso());
         const runs = getMeta(this.sql, "space_deleted_runs");
         this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
         setMeta(this.sql, "space_deleted_runs", "");
@@ -3776,6 +3781,33 @@ export class SpaceObject extends DurableObject<Env> {
       this.sql.exec(`update questions set closed_at = null where id = ?`, q);
   }
 
+  /**
+   * The questions a kept run was waiting on, erased with what they were about (Codex on PR
+   * 230): their text can quote the records, and the people asked could still open them.
+   */
+  private eraseStashedQuestions(stash: { waits?: unknown[]; questions?: string[] } | undefined, ts: string) {
+    if (!stash) return;
+    const ids = new Set([
+      ...(stash.questions ?? []),
+      ...(stash.waits ?? []).map((w) => (w as { question_id?: string }).question_id ?? "").filter(Boolean),
+    ]);
+    for (const id of ids) {
+      const q = this.sql
+        .exec<{ share_id: string }>(`select share_id from questions where id = ?`, id)
+        .toArray()[0];
+      if (!q) continue;
+      this.sql.exec(
+        `update questions set text = '', choices_json = null, closed_at = coalesce(closed_at, ?),
+         deleted_at = coalesce(deleted_at, ?) where id = ?`,
+        ts,
+        ts,
+        id,
+      );
+      this.sql.exec(`delete from question_answers where question_id = ?`, id);
+      this.sql.exec(`update shares set revoked_at = coalesce(revoked_at, ?) where id = ?`, ts, q.share_id);
+    }
+  }
+
   /** Lists in Recently deleted, newest first. */
   async trashedLists(actor: Actor): Promise<DeletedList[]> {
     this.canWrite(actor);
@@ -3872,6 +3904,9 @@ export class SpaceObject extends DurableObject<Env> {
         if (row && w.enabled && !took.runs)
           this.scheduleExisting(row.id, row.collection_id, JSON.parse(row.def_json) as WorkflowDef);
       }
+      // Its formulas as of now (Codex on PR 230: a today() kept the day it was deleted), before
+      // its runs carry on with them.
+      this.backfill(id, ts);
       this.unstashRuns(took.runs);
       for (const r of took.rules) this.sql.exec(`update rules set deleted_at = null where id = ?`, r);
       for (const sh of took.shares) this.sql.exec(`update shares set revoked_at = null where id = ?`, sh);
@@ -3917,6 +3952,14 @@ export class SpaceObject extends DurableObject<Env> {
       `delete from record_words where record_id in (select id from records where collection_id = ?)`,
       id,
     );
+    const trash = this.sql
+      .exec<{ took_json: string }>(`select took_json from list_trash where collection_id = ?`, id)
+      .toArray()[0];
+    if (trash)
+      this.eraseStashedQuestions(
+        (JSON.parse(trash.took_json) as { runs?: { waits?: unknown[]; questions?: string[] } }).runs,
+        ts,
+      );
     this.sql.exec(`delete from list_trash where collection_id = ?`, id);
     // Its records leave everyone's search, even if the delete's reindex hadn't reached them
     // yet (Codex on PR 230): the list is gone through again from the start.
@@ -6392,6 +6435,10 @@ export class SpaceObject extends DurableObject<Env> {
         const ts = nowIso();
         for (const c of this.sql.exec<{ id: string }>(`select id from collections`).toArray())
           this.eraseList(c.id, ts);
+        const runs = getMeta(this.sql, "space_deleted_runs");
+        if (runs)
+          this.eraseStashedQuestions(JSON.parse(runs) as { waits?: unknown[]; questions?: string[] }, ts);
+        setMeta(this.sql, "space_deleted_runs", "");
         setMeta(this.sql, "space_erased", ts);
       });
     const lists = this.sql
