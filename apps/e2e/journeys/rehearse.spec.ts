@@ -306,3 +306,61 @@ test("the people a link is for can be played before anyone has joined it", async
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("as the people a list is shared with, its card opens in the app and they add to it", async ({
+  browser,
+}) => {
+  // Owner, 2026-11-05, rehearsing as the guard: "there is no way I can add a visitor". Shared
+  // things opened the website, which is outside the rehearsal.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const list = `E2E Gate log ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Status", type: "text" },
+    ],
+  });
+  await api(me)("POST", "/views", { name: `E2E At the gate ${RUN}`, collection: list });
+  await api(me)("POST", "/shares", {
+    view: `E2E At the gate ${RUN}`,
+    access: "edit",
+    for: `E2E Guards ${RUN}`,
+  });
+  const flow = (await api(me)("POST", "/workflows", {
+    name: `E2E gate log flow ${RUN}`,
+    when: { event: "added", collection: list },
+    then: [{ do: "notify", text: "E2E arrived {Title}", to: ["me"] }],
+    enabled: false,
+  })) as { id: string };
+  const copy = (await api(me)("POST", "/spaces/Personal/practice", {})) as { id: string };
+
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/practice?space=${copy.id}&workflow=${flow.id}`);
+  await page.getByRole("button", { name: `Rehearse as E2E Guards ${RUN} (stand-in)` }).click();
+  await expect(page.getByText("REHEARSING AS")).toBeVisible();
+  // Their card says how to add, and opens in the app, as theirs.
+  await expect(page.getByText("Nothing yet. Open it to add.").first()).toBeVisible({ timeout: 30_000 });
+  await page.getByText(`E2E At the gate ${RUN}`).first().click();
+  await expect(page.getByText(`Add to ${list}`)).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Title", { exact: true }).fill(`E2E Courier ${RUN}`);
+  await page.getByRole("button", { name: `Add to ${list}` }).click();
+  await expect(page.getByText(`E2E Courier ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await expectNoSideways(page);
+  // It's in the copy, not the real list.
+  const real = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/find`, {})) as {
+    items: unknown[];
+  };
+  expect(real.items).toEqual([]);
+  const inCopy = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/find`, {
+    space: copy.id,
+  })) as {
+    items: { title: string }[];
+  };
+  expect(inCopy.items.map((r) => r.title)).toEqual([`E2E Courier ${RUN}`]);
+  await page.getByRole("button", { name: "End rehearsing" }).click();
+  await page.getByText("End and throw it away").click();
+  expect(errors).toEqual([]);
+  await context.close();
+});
