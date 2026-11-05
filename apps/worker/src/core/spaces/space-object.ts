@@ -1744,8 +1744,11 @@ export class SpaceObject extends DurableObject<Env> {
       for (const id of on) this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
       setMeta(this.sql, "space_deleted_flows", JSON.stringify(on));
       setMeta(this.sql, "space_deleted_at", ts);
+      // Its copies leave everyone's search (Codex on PR 230: they stayed after the erase).
+      setMeta(this.sql, "search_drop", "1");
       audit(this.sql, actor, { action: "delete_space", entityType: "space", entityId: "space" });
     });
+    await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
     await this.wakeForJobs();
     return { name: sp.name };
   }
@@ -1785,8 +1788,16 @@ export class SpaceObject extends DurableObject<Env> {
       setMeta(this.sql, "space_deleted_runs", "");
       setMeta(this.sql, "space_deleted_flows", "");
       setMeta(this.sql, "space_deleted_at", "");
+      // Back in everyone's search: every list is indexed again, a page at a time.
+      setMeta(this.sql, "search_drop", "");
+      const lists = this.sql
+        .exec<{ id: string }>(`select id from collections where deleted_at is null`)
+        .toArray()
+        .map((c) => ({ c: c.id, after: "" }));
+      setMeta(this.sql, "search_reindex", JSON.stringify(lists));
       audit(this.sql, actor, { action: "restore_space", entityType: "space", entityId: "space" });
     });
+    await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
     await this.wakeForJobs();
   }
 
@@ -2071,6 +2082,26 @@ export class SpaceObject extends DurableObject<Env> {
   private async syncSearch(): Promise<number | null> {
     // A practice copy isn't searched (its records would show twice).
     if (this.practice) return null;
+    // A deleted space: its copies are taken out of every member's index, and nothing is sent
+    // while it stays deleted (a restore indexes it all again).
+    if (getMeta(this.sql, "space_deleted_at")) {
+      if (!getMeta(this.sql, "search_drop")) return null;
+      const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
+      const results = await Promise.allSettled(
+        this.sql
+          .exec<{ user_id: string }>(`select user_id from members`)
+          .toArray()
+          .map((m) => searchOf(this.env, m.user_id).removeSpace(spaceId)),
+      );
+      const attempts = Number(getMeta(this.sql, "search_attempts") ?? "0") + 1;
+      if (results.some((r) => r.status === "rejected") && attempts < SEARCH_ATTEMPTS) {
+        setMeta(this.sql, "search_attempts", String(attempts));
+        return retryDelayMs(attempts);
+      }
+      setMeta(this.sql, "search_drop", "");
+      setMeta(this.sql, "search_attempts", "0");
+      return null;
+    }
     const from = Number(getMeta(this.sql, "search_seq") ?? "0");
     const rows = this.sql
       .exec<{ seq: number; kind: string; entity_id: string }>(

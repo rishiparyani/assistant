@@ -64,6 +64,29 @@ describe("deleting a space", () => {
     expect(await json<DeletedSpace[]>(await api(me)("/trash/spaces"))).toEqual([]);
   });
 
+  it("leaves search, and comes back to it", async () => {
+    // Codex on PR 230: its records stayed in the members' search indexes for good.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Found" } }));
+    await api(me)("/collections", {
+      body: { space: sp.id, name: "Test Notes", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)(`/collections/Test Notes/records?space=${sp.id}`, {
+      body: { values: { Title: "Test zorbleplum" } },
+    });
+    const index = env.SEARCH.getByName(`search:${me.id}`);
+    const hits = async () => (await index.query("zorbleplum")).length;
+    const until = async (n: number) => {
+      for (let i = 0; i < 80 && (await hits()) !== n; i++) await new Promise((r) => setTimeout(r, 100));
+      return hits();
+    };
+    expect(await until(1)).toBe(1);
+    await api(me)(`/spaces/${sp.id}`, { method: "DELETE" });
+    expect(await until(0)).toBe(0);
+    expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(200);
+    expect(await until(1)).toBe(1);
+  });
+
   it("erases its rehearsals' copies with it", async () => {
     // Codex on PR 230: the copies were hidden but kept the data for good.
     const me = await signUp("Test Owner");
