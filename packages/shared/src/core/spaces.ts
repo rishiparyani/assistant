@@ -1479,6 +1479,8 @@ export interface ShareView {
   /** Kept for cards (same as target_id). */
   record_id: string | null;
   title: string;
+  /** Who the link is for ("Guards"), when it was said. */
+  for?: string | null;
   /** Anyone with the link, without signing in (views to look at, forms to fill in). */
   public: boolean;
   access: ShareAccess;
@@ -1626,6 +1628,15 @@ export const CreateShareInput = ShareTarget.extend({
     .default(false)
     .describe("Views and forms: anyone with the link, without signing in (views stay read-only)"),
   expires_in_days: z.coerce.number().int().min(1).max(365).optional(),
+  for: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe(
+      'Who the link is for, e.g. "Members", "Drivers" (shown with it; their stand-in when rehearsing)',
+    ),
 }).refine(oneTarget.check, { message: oneTarget.message });
 
 /** People I know: names ("Rahul", "Priya Test") or ids, from list_people. */

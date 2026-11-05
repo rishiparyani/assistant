@@ -62,6 +62,23 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
     const confidence = record.includes("test unsure") ? 0.3 : 0.9;
     return say(JSON.stringify({ choice, confidence }));
   }
+  // A one-line tool called before reading how: call it again, now that its description came
+  // back (as a real model does).
+  if (last.role === "tool") {
+    let at = messages.length - 1;
+    while (at >= 0 && !(messages[at]!.role === "assistant" && messages[at]!.tool_calls?.length)) at--;
+    const again = (messages[at]?.tool_calls ?? []).filter((c) =>
+      messages
+        .slice(at + 1)
+        .some((m) => m.tool_call_id === c.id && (m.content ?? "").includes("read how to call it first")),
+    );
+    if (again.length)
+      return {
+        content: null,
+        tool_calls: again.map((c) => ({ ...c, id: `call_${++n}` })),
+        usage: { input: 900, output: 60, cached: 0 },
+      };
+  }
   // After a tool ran: a short reply that quotes what it got back.
   if (last.role === "tool") {
     const result = last.content ?? "";

@@ -267,3 +267,42 @@ test("the people a flow asks can be played before anything has run", async ({ br
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("the people a link is for can be played before anyone has joined it", async ({ browser }) => {
+  // Owner, 2026-11-05: "I can't rehearse as the guard… how will I even raise a visitor?"
+  test.setTimeout(90_000);
+  const me = await owner();
+  const list = `E2E Arrivals ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Status", type: "text" },
+    ],
+  });
+  await api(me)("POST", "/shares", { form: list, for: `E2E Desk ${RUN}` });
+  const flow = (await api(me)("POST", "/workflows", {
+    name: `E2E arrivals flow ${RUN}`,
+    when: { event: "added", collection: list },
+    then: [{ do: "notify", text: "E2E arrived {Title}", to: ["me"] }],
+    enabled: false,
+  })) as { id: string };
+  const copy = (await api(me)("POST", "/spaces/Personal/practice", {})) as { id: string };
+
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/practice?space=${copy.id}&workflow=${flow.id}`);
+  await expect(page.getByText("Rehearse as…")).toBeVisible({ timeout: 30_000 });
+  const desk = page.getByRole("button", { name: `Rehearse as E2E Desk ${RUN} (stand-in)` });
+  await expect(desk).toBeVisible();
+  await desk.click();
+  await expect(page.getByText("REHEARSING AS")).toBeVisible();
+  // The app is theirs: the form they'd come in by waits in their Inbox, to fill in.
+  await page.getByRole("button", { name: /^Inbox/ }).click();
+  await expect(page.getByText(list).first()).toBeVisible({ timeout: 30_000 });
+  await expectNoSideways(page);
+  await page.getByRole("button", { name: "End rehearsing" }).click();
+  await page.getByText("End and throw it away").click();
+  await expect(page.getByText("REHEARSING AS")).toHaveCount(0, { timeout: 30_000 });
+  expect(errors).toEqual([]);
+  await context.close();
+});

@@ -2,7 +2,15 @@
 // through like a person would, Confirm tapped on every card and the first answer picked when
 // asked, and graded by what exists at the end and whether it works, not by what was said.
 // Fake data only. Run from the Scorecard workflow with suite "tasks".
-import type { CollectionView, PracticeView, RecordView, SpaceView, WorkflowView } from "@assistant/shared";
+import type {
+  CollectionView,
+  PracticeView,
+  RecordView,
+  SavedView,
+  ShareView,
+  SpaceView,
+  WorkflowView,
+} from "@assistant/shared";
 import { json } from "../test/http.ts";
 import { api, type User } from "./cases.ts";
 
@@ -21,6 +29,8 @@ interface Made {
   space: SpaceView;
   cols: CollectionView[];
   flows: WorkflowView[];
+  shares: ShareView[];
+  views: SavedView[];
 }
 
 /** Everything the person has, in every space (practice copies aside). */
@@ -31,7 +41,9 @@ async function everything(u: User): Promise<Made[]> {
     const q = `?space=${encodeURIComponent(space.id)}`;
     const cols = await json<CollectionView[]>(await api(u)(`/collections${q}`));
     const flows = await json<WorkflowView[]>(await api(u)(`/workflows${q}`));
-    out.push({ space, cols, flows });
+    const shares = await json<ShareView[]>(await api(u)(`/shares${q}`));
+    const views = await json<SavedView[]>(await api(u)(`/views${q}`));
+    out.push({ space, cols, flows, shares, views });
   }
   return out;
 }
@@ -57,6 +69,8 @@ async function works(
   space: SpaceView,
   flow: WorkflowView,
   wrong: { asked: RegExp; label: string; ownerOk?: boolean; ownerDecides?: boolean },
+  /** Whether the people who raised it can see the field the answer is saved to. */
+  seen: (fieldId: string) => boolean = () => true,
 ): Promise<string[]> {
   const started = await api(u)(`/spaces/${encodeURIComponent(space.id)}/practice`, { body: {} });
   if (started.status !== 201 && started.status !== 200) return [`practice copy: HTTP ${started.status}`];
@@ -96,13 +110,20 @@ async function works(
         }, 15_000)
       : null;
     if (ask?.save_to_id && !saved) return [`the answer "${answer}" wasn't saved on the record`];
-    if (saved) return [];
+    // Saved where the people who raised it can see it (not a field their link hides).
+    if (saved && seen(ask!.save_to_id!)) return [];
     const askedIds = new Set(wait.on.map((p) => p.user_id));
     const told = await until(async () => {
       const v = await json<PracticeView>(await api(u)(base));
       return v.log.find((l) => l.kind === "message" && l.at >= at && !askedIds.has(l.user_id)) ?? null;
     }, 15_000);
-    return told ? [] : [`the answer "${answer}" goes nowhere: not saved on the record, nobody else told`];
+    return told
+      ? []
+      : [
+          saved
+            ? `the answer "${answer}" is saved in a field the people who raised it can't see, and nobody is told`
+            : `the answer "${answer}" goes nowhere: not saved on the record, nobody else told`,
+        ];
   } finally {
     await api(u)(base, { method: "DELETE" }).catch(() => undefined);
   }
@@ -117,6 +138,8 @@ function approval(t: {
   id: string;
   about: string;
   text: string;
+  /** Who adds the requests (they need a way in). */
+  raisedBy: string;
   /** The list requests are added to (its name). */
   requests: { name: RegExp; label: string };
   /** Other lists it needs (each by name), and whether a request must link to it. */
@@ -137,6 +160,22 @@ function approval(t: {
         m.cols.filter((c) => t.requests.name.test(c.name)).map((c) => ({ m, c })),
       );
       if (!reqs.length) problems.push(`no ${t.requests.label} list`);
+      // The people who raise requests have a way in: a link to add to the list, as a form or
+      // a view they can edit (owner, 2026-11-05: "the guard is never shown… how will I even
+      // raise a visitor?").
+      const wayIn = reqs.some(({ m, c }) =>
+        m.shares.some(
+          (sh) =>
+            (sh.kind === "form" && sh.target_id === c.id) ||
+            (sh.kind === "view" &&
+              sh.access === "edit" &&
+              m.views.some((v) => v.id === sh.target_id && v.collection_id === c.id)),
+        ),
+      );
+      if (reqs.length && !wayIn)
+        problems.push(
+          `${t.raisedBy} have no way in to add to the ${t.requests.label} list (no form or edit link)`,
+        );
       for (const n of t.needs ?? []) {
         const found = all.flatMap((m) => m.cols.filter((c) => n.name.test(c.name)));
         // A person or link field on the requests list does as well (a Doctor field naming who).
@@ -166,7 +205,17 @@ function approval(t: {
         );
         return problems;
       }
-      return [...problems, ...(await works(u, flow.m.space, flow.f, t.wrong))];
+      // The links the requesters come in by: an answer only in fields all of them hide doesn't
+      // reach them.
+      const theirs = flow.m.shares.filter(
+        (sh) =>
+          (sh.kind === "form" && sh.target_id === flow.f.when.collection_id) ||
+          (sh.kind === "view" &&
+            flow.m.views.some((v) => v.id === sh.target_id && v.collection_id === flow.f.when.collection_id)),
+      );
+      const seen = (fieldId: string) =>
+        !theirs.length || theirs.some((sh) => !sh.hidden_fields.some((h) => h.id === fieldId));
+      return [...problems, ...(await works(u, flow.m.space, flow.f, t.wrong, seen))];
     },
   };
 }
@@ -174,6 +223,7 @@ function approval(t: {
 export const TASKS: TaskCase[] = [
   approval({
     id: "society-gate",
+    raisedBy: "the guards",
     about: "gate approvals for a housing society (guards add visitors, the flat approves)",
     text:
       "Set up visitor approvals for our housing society, like MyGate. The security guards add each visitor at the gate, " +
@@ -184,6 +234,7 @@ export const TASKS: TaskCase[] = [
   }),
   approval({
     id: "clinic-appointments",
+    raisedBy: "patients",
     about: "appointment requests at a small clinic (the doctor on duty accepts)",
     text:
       "Set up appointment requests for my small clinic. Patients ask for a time slot with one of our doctors, " +
@@ -194,6 +245,7 @@ export const TASKS: TaskCase[] = [
   }),
   approval({
     id: "family-car",
+    raisedBy: "family members",
     about: "booking a shared family car (the owner approves)",
     text:
       "Our family shares one car. Set it up so anyone in the family can book it for a time, " +
@@ -203,6 +255,7 @@ export const TASKS: TaskCase[] = [
   }),
   approval({
     id: "school-leave",
+    raisedBy: "parents",
     about: "leave requests for a class (parents ask, the class teacher decides)",
     text:
       "Set up leave requests for my class at school. Parents send a leave request for their child, " +

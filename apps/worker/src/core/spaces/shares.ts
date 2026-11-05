@@ -64,6 +64,7 @@ export async function createShare(
     hide: i.hide_fields ?? [],
     expiresInDays: i.expires_in_days ?? null,
     tokenHash: await hashToken(token),
+    forWhom: i.for ?? null,
   });
   return { share: made.share, link: linkFor(ctx, token, made.share) };
 }

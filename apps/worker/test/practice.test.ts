@@ -559,4 +559,66 @@ describe("practice copies", () => {
     const theirs = await json<{ mine: RecordView[] }>(await api(asha)(`/cards/${form.share_id}`));
     expect(theirs.mine ?? []).toEqual([]);
   });
+
+  it("plays the people a link is for before anyone has joined it, and they set the flow off", async () => {
+    // Owner, 2026-11-05: "I can't rehearse as the guard", so no visitor could be raised.
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Arrivals",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Host", type: "person" },
+          { name: "Status", type: "text" },
+        ],
+      },
+    });
+    const made = await json<CreatedShare>(
+      await api(owner)("/shares", { body: { form: "Arrivals", for: "Front desk" } }),
+    );
+    expect(made.share.for).toBe("Front desk");
+    // Another link nobody joined, without a "for": named after what it opens.
+    await api(owner)("/collections", { body: { name: "Notes2", fields: [{ name: "Title", type: "text" }] } });
+    await api(owner)("/shares", { body: { form: "Notes2" } });
+    await api(owner)("/workflows", {
+      body: {
+        name: "Tell the host",
+        when: { event: "added", collection: "Arrivals" },
+        then: [
+          {
+            do: "ask",
+            who: ["{Host}"],
+            text: "{Title} is here. Let in?",
+            choices: ["Yes", "No"],
+            save_to: "Status",
+          },
+        ],
+        enabled: false,
+      },
+    });
+    const practice = await json<SpaceView>(await api(owner)("/spaces/Personal/practice", { body: {} }));
+    const base = `/spaces/${practice.id}/practice`;
+    const view = async () => json<PracticeView>(await api(owner)(base));
+    const names = (await view()).people.map((p) => p.name);
+    expect(names).toContain("Front desk (stand-in)");
+    expect(names).toContain("Someone with the Notes2 link (stand-in)");
+    expect(names).toContain("Host (stand-in)");
+    // The front desk adds an arrival through its form, as they would; the flow asks the host.
+    const desk = (await view()).people.find((p) => p.name === "Front desk (stand-in)")!.user_id;
+    const theirs = await json<PracticeAsView>(await api(owner)(`${base}/as/${encodeURIComponent(desk)}`));
+    expect(theirs.cards.map((c) => [c.kind, c.title])).toEqual([["form", "Arrivals"]]);
+    const sent = await api(owner)(
+      `${base}/as/${encodeURIComponent(desk)}/cards/${theirs.cards[0]!.share_id}/records`,
+      { body: { section: "form", values: { Title: "Test courier" } } },
+    );
+    expect(sent.status).toBe(201);
+    expect(
+      await until(async () =>
+        (await view()).people.some((p) => p.name === "Host (stand-in)" && p.waiting === 1),
+      ),
+    ).toBe(true);
+    // A real space has no stand-ins in its links.
+    const real = await json<{ share: { people: unknown[] } }[]>(await api(owner)("/shares"));
+    expect(JSON.stringify(real)).not.toContain("standin:");
+  });
 });
