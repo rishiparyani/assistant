@@ -1,6 +1,7 @@
 // Deleting a space (decision 2026-11-05 "The space is the setup"): it leaves everyone's spaces,
 // its links stop working and its flows stop; Recently deleted brings it all back. Fake data only.
 import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
 import type { CreatedShare, DeletedSpace, SpaceView, WorkflowView } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
@@ -61,6 +62,17 @@ describe("deleting a space", () => {
     const flows = await json<WorkflowView[]>(await api(me)(`/workflows${q}`));
     expect(flows.find((w) => w.id === flow.id)?.enabled).toBe(true);
     expect(await json<DeletedSpace[]>(await api(me)("/trash/spaces"))).toEqual([]);
+  });
+
+  it("can be restored again after a restore that got only half way", async () => {
+    // Codex on PR 230: the space's object was back but the space list still said deleted, and
+    // a second restore was refused, leaving it stranded.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Half" } }));
+    await api(me)(`/spaces/${sp.id}`, { method: "DELETE" });
+    await env.SPACES.getByName(`space:${sp.id}`).restoreSpace({ userId: me.id, source: "web" });
+    expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(200);
+    expect((await json<SpaceView[]>(await api(me)("/spaces"))).map((s) => s.name)).toContain("Test Half");
   });
 
   it("says when a space with that name is back already", async () => {

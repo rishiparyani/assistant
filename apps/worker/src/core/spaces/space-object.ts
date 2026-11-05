@@ -1764,8 +1764,10 @@ export class SpaceObject extends DurableObject<Env> {
   async restoreSpace(actor: Actor): Promise<void> {
     if (this.memberRole(actor.userId) !== "owner")
       throw new ObjectError("forbidden", "Only the space's owner can bring it back");
-    if (!getMeta(this.sql, "space_deleted_at") || getMeta(this.sql, "space_erased"))
-      throw new ObjectError("not_found", "It isn't in Recently deleted");
+    if (getMeta(this.sql, "space_erased")) throw new ObjectError("not_found", "It isn't in Recently deleted");
+    // Already back here (a retry after the space list wasn't updated): done, so the retry can
+    // finish (Codex on PR 230). The caller only gets here for a space the list says is deleted.
+    if (!getMeta(this.sql, "space_deleted_at")) return;
     this.ctx.storage.transactionSync(() => {
       const on = JSON.parse(getMeta(this.sql, "space_deleted_flows") ?? "[]") as string[];
       for (const id of on) {
@@ -3781,6 +3783,16 @@ export class SpaceObject extends DurableObject<Env> {
       .exec<{ id: string }>(`select id from records where collection_id = ? and purged_at is null`, id)
       .toArray())
       this.erase(system, r.id, ts, erased);
+    // Its records' indexed copies too (a single record's delete removes them first; a list's
+    // delete keeps them for a restore; Codex on PR 230).
+    this.sql.exec(
+      `delete from record_values where record_id in (select id from records where collection_id = ?)`,
+      id,
+    );
+    this.sql.exec(
+      `delete from record_words where record_id in (select id from records where collection_id = ?)`,
+      id,
+    );
     this.sql.exec(`delete from list_trash where collection_id = ?`, id);
   }
 
@@ -10681,6 +10693,7 @@ export class SpaceObject extends DurableObject<Env> {
           .exec<RecordRow>(
             `select r.* from links l join records r on r.id = l.to_id
              where l.field_id = ? and l.from_id = ? and r.deleted_at is null
+               and r.collection_id in (select id from collections where deleted_at is null)
              order by l.position, l.created_at limit 500`,
             f.id,
             card.id,
@@ -10695,6 +10708,14 @@ export class SpaceObject extends DurableObject<Env> {
           records: rows.map((r) => this.sharedRecord(r, target ? fields : [], edit, actor)),
         });
       } else {
+        // A list that links here, since deleted: its part of the card goes with it (Codex on
+        // PR 230: the whole card failed to open).
+        if (
+          !this.sql
+            .exec(`select 1 from collections where id = ? and deleted_at is null`, f.collection_id)
+            .toArray().length
+        )
+          continue;
         const fields = this.sharedFields(s, f.collection_id);
         const rows = this.sql
           .exec<RecordRow>(

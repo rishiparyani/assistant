@@ -2,12 +2,15 @@
 // deleted with its views, flows, rules and share links, and comes back with exactly those.
 // Fake data only.
 import { describe, expect, it } from "vitest";
+import { env } from "cloudflare:workers";
+import { runInDurableObject } from "cloudflare:test";
 import type {
   CollectionView,
   CreatedShare,
   DeletedList,
   RecordView,
   SavedView,
+  SpaceView,
   WorkflowView,
 } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
@@ -17,6 +20,14 @@ const api =
   (u: User) =>
   (path: string, init: Parameters<typeof call>[1] = {}) =>
     call(`/api${path}`, { cookie: u.cookie, ...init });
+
+/** Runs SQL inside my Personal space. */
+async function inSpace<T>(me: User, run: (sql: SqlStorage) => T) {
+  const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+  return runInDurableObject(env.SPACES.getByName(`space:${space!.id}`), async (_i, state) =>
+    run(state.storage.sql),
+  );
+}
 
 describe("deleting a list", () => {
   it("takes its views, flows and links with it, and brings them all back", async () => {
@@ -107,5 +118,45 @@ describe("deleting a list", () => {
     expect(await json<DeletedList[]>(await api(me)("/trash/lists"))).toEqual([]);
     expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(404);
     expect((await api(me)(`/records/${rec.id}`)).status).toBe(404);
+    // Nothing of its values stays, the search copies included (Codex on PR 230).
+    const left = await inSpace(me, (sql) => ({
+      values: sql.exec(`select count(*) as n from record_values where record_id = ?`, rec.id).one().n,
+      words: sql.exec(`select count(*) as n from record_words where record_id = ?`, rec.id).one().n,
+      title: sql.exec(`select title from records where id = ?`, rec.id).one().title,
+    }));
+    expect(left).toEqual({ values: 0, words: 0, title: "" });
+  });
+
+  it("leaves a shared card that showed records of the deleted list readable", async () => {
+    // Codex on PR 230: the whole card failed to open once a list linking to it was deleted.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Trips", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Stops",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Trip", type: "link", options: { target: "Test Trips" } },
+        ],
+      },
+    });
+    const trip = await json<RecordView>(
+      await api(me)("/collections/Test Trips/records", { body: { values: { Title: "Test Goa" } } }),
+    );
+    await api(me)("/collections/Test Stops/records", {
+      body: { values: { Title: "Test beach", Trip: [trip.id] } },
+    });
+    const { link, share } = await json<CreatedShare>(
+      await api(me)("/shares", { body: { record_id: trip.id, include: ["Test Stops"] } }),
+    );
+    const friend = await signUp("Test Friend");
+    await api(friend)("/cards/join", { body: { token: link.slice(link.indexOf("#") + 1) } });
+    expect((await api(friend)(`/cards/${share.id}`)).status).toBe(200);
+    await api(me)("/collections/Test Stops", { method: "DELETE" });
+    const opened = await api(friend)(`/cards/${share.id}`);
+    expect(opened.status).toBe(200);
+    expect(JSON.stringify(await opened.json())).not.toContain("Test beach");
   });
 });
