@@ -69,6 +69,8 @@ async function works(
   space: SpaceView,
   flow: WorkflowView,
   wrong: { asked: RegExp; label: string; ownerOk?: boolean; ownerDecides?: boolean },
+  /** Whether the people who raised it can see the field the answer is saved to. */
+  seen: (fieldId: string) => boolean = () => true,
 ): Promise<string[]> {
   const started = await api(u)(`/spaces/${encodeURIComponent(space.id)}/practice`, { body: {} });
   if (started.status !== 201 && started.status !== 200) return [`practice copy: HTTP ${started.status}`];
@@ -108,13 +110,20 @@ async function works(
         }, 15_000)
       : null;
     if (ask?.save_to_id && !saved) return [`the answer "${answer}" wasn't saved on the record`];
-    if (saved) return [];
+    // Saved where the people who raised it can see it (not a field their link hides).
+    if (saved && seen(ask!.save_to_id!)) return [];
     const askedIds = new Set(wait.on.map((p) => p.user_id));
     const told = await until(async () => {
       const v = await json<PracticeView>(await api(u)(base));
       return v.log.find((l) => l.kind === "message" && l.at >= at && !askedIds.has(l.user_id)) ?? null;
     }, 15_000);
-    return told ? [] : [`the answer "${answer}" goes nowhere: not saved on the record, nobody else told`];
+    return told
+      ? []
+      : [
+          saved
+            ? `the answer "${answer}" is saved in a field the people who raised it can't see, and nobody is told`
+            : `the answer "${answer}" goes nowhere: not saved on the record, nobody else told`,
+        ];
   } finally {
     await api(u)(base, { method: "DELETE" }).catch(() => undefined);
   }
@@ -196,7 +205,17 @@ function approval(t: {
         );
         return problems;
       }
-      return [...problems, ...(await works(u, flow.m.space, flow.f, t.wrong))];
+      // The links the requesters come in by: an answer only in fields all of them hide doesn't
+      // reach them.
+      const theirs = flow.m.shares.filter(
+        (sh) =>
+          (sh.kind === "form" && sh.target_id === flow.f.when.collection_id) ||
+          (sh.kind === "view" &&
+            flow.m.views.some((v) => v.id === sh.target_id && v.collection_id === flow.f.when.collection_id)),
+      );
+      const seen = (fieldId: string) =>
+        !theirs.length || theirs.some((sh) => !sh.hidden_fields.some((h) => h.id === fieldId));
+      return [...problems, ...(await works(u, flow.m.space, flow.f, t.wrong, seen))];
     },
   };
 }
