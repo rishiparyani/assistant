@@ -447,3 +447,47 @@ test("a shared card can be renamed and talked about in the app", async ({ browse
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a share taken back while open stops showing, and one can be left", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page kept showing a revoked share and had no Leave.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Leave friend ${RUN}`);
+  const list = `E2E Errands ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const share = async (title: string) => {
+    const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+      values: { Title: title },
+    })) as { id: string };
+    const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+      link: string;
+      share: { id: string };
+    };
+    await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+    return made.share.id;
+  };
+  const taken = await share(`E2E Post office ${RUN}`);
+  const left = await share(`E2E Bakery ${RUN}`);
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // Taken back while it's open: the next change says so, and its contents go.
+  await page.goto(`/open-share?id=${taken}`);
+  await expect(page.getByText(`E2E Post office ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await api(me)("DELETE", `/shares/${taken}`);
+  const title = page.locator('input[aria-label="Title"]').first();
+  await title.fill(`E2E Post office later ${RUN}`);
+  await title.press("Enter");
+  await expect(page.getByText("This isn't shared with you any more.")).toBeVisible();
+  await expect(page.locator('input[aria-label="Title"]')).toHaveCount(0);
+
+  // Left: off the friend's list.
+  await page.goto(`/open-share?id=${left}`);
+  await expect(page.getByText(`E2E Bakery ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Leave", exact: true }).click();
+  await page.getByRole("button", { name: "Leave: tap again to leave" }).click();
+  await expect
+    .poll(async () => ((await api(friend)("GET", "/cards")) as { share_id: string }[]).map((c) => c.share_id))
+    .not.toContain(left);
+  expect(errors).toEqual([]);
+  await context.close();
+});

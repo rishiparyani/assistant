@@ -10,7 +10,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tap, Text } from "@assistant/cards/native";
 import { ulid, type SharedOpened, type StoredValue } from "@assistant/shared";
-import { isOffline, request } from "@/api";
+import { ApiError, isOffline, request } from "@/api";
 import { SharedComments } from "@/components/SharedComments";
 import { SharedPage } from "@/components/SharedPage";
 import { BackIcon } from "@/components/HeaderIcons";
@@ -18,6 +18,9 @@ import { homeChanged } from "@/home";
 import { useTheme } from "@/theme";
 
 const enc = encodeURIComponent;
+/** The share was taken back, or what it showed is gone (not a connection problem). */
+const gone = (e: unknown) => e instanceof ApiError && (e.status === 404 || e.status === 403);
+const GONE = "This isn't shared with you any more.";
 
 export default function Shared() {
   const { t } = useTheme();
@@ -29,6 +32,8 @@ export default function Shared() {
   const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [more, setMore] = useState(false);
+  // Leave was tapped once (a second tap leaves).
+  const [leaving, setLeaving] = useState(false);
   const base = `/api/cards/${enc(id)}`;
 
   const load = useCallback(async () => {
@@ -36,7 +41,18 @@ export default function Shared() {
       setOpened(await request<SharedOpened>("GET", base));
       setNote("");
     } catch (e) {
-      setNote(isOffline(e) ? "This needs a connection." : e instanceof Error ? e.message : String(e));
+      // Taken back or gone: what it showed goes too, as on the website (Codex on PR 230). A
+      // dropped connection keeps it.
+      if (gone(e)) setOpened(null);
+      setNote(
+        gone(e)
+          ? GONE
+          : isOffline(e)
+            ? "This needs a connection."
+            : e instanceof Error
+              ? e.message
+              : String(e),
+      );
     }
   }, [base]);
   useEffect(() => {
@@ -53,11 +69,32 @@ export default function Shared() {
         homeChanged();
         await load();
       } catch (e) {
-        setNote(isOffline(e) ? "That needs a connection." : e instanceof Error ? e.message : String(e));
+        if (gone(e)) setOpened(null);
+        setNote(
+          gone(e)
+            ? GONE
+            : isOffline(e)
+              ? "That needs a connection."
+              : e instanceof Error
+                ? e.message
+                : String(e),
+        );
       } finally {
         setBusy(null);
       }
     })();
+  };
+  // Off my Shared with you list (Codex on PR 230: the website's Leave was lost). Coming back
+  // takes the link again.
+  const leave = () => {
+    if (!leaving) return setLeaving(true);
+    setLeaving(false);
+    run("leave", async () => {
+      await request("DELETE", base);
+      homeChanged();
+      if (router.canGoBack()) router.back();
+      else router.replace("/");
+    });
   };
 
   return (
@@ -154,6 +191,24 @@ export default function Shared() {
                 {more ? "Loading…" : "Show more"}
               </Text>
             </Tap>
+          ) : null}
+          {opened && opened.share.kind !== "question" ? (
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel={leaving ? "Leave: tap again to leave" : "Leave"}
+              disabled={busy === "leave"}
+              onPress={leave}
+              style={[s.more, { backgroundColor: t.fill }]}
+            >
+              <Text style={{ color: t.danger, fontSize: 15, fontWeight: "700" }}>
+                {leaving ? "Tap again to leave" : "Leave"}
+              </Text>
+            </Tap>
+          ) : null}
+          {leaving ? (
+            <Text style={{ color: t.fg2, fontSize: 13, textAlign: "center" }}>
+              It goes from your Shared with you list. You'd need the link again to come back.
+            </Text>
           ) : null}
           {opened || note ? null : <Text style={{ color: t.fg2, fontSize: 15 }}>Loading…</Text>}
         </ScrollView>
