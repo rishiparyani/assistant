@@ -454,6 +454,59 @@ describe("deleting a list", () => {
     expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
   });
 
+  it("leaves out formulas reading a left-out field across a link", async () => {
+    // Codex on PR 230: Orders' {Client.Rate} * 2 stayed while Clients' Rate (from the deleted
+    // Firms) was left out, and making the setup failed.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Agencies",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Rate", type: "number" },
+        ],
+      },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Buyers",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Agency", type: "link", options: { target: "Test Agencies" } },
+        ],
+      },
+    });
+    await api(me)("/collections/Test Buyers/fields", {
+      body: { field: { name: "Rate", type: "number", options: { formula: "{Agency.Rate} * 2" } } },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Sales",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Buyer", type: "link", options: { target: "Test Buyers" } },
+        ],
+      },
+    });
+    expect(
+      (
+        await api(me)("/collections/Test Sales/fields", {
+          body: { field: { name: "Fee", type: "number", options: { formula: "{Buyer.Rate} * 2" } } },
+        })
+      ).status,
+    ).toBe(201);
+    await api(me)("/collections/Test Agencies", { method: "DELETE" });
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
+      { userId: me.id, source: "web" },
+      ["Test Sales"],
+    )) as unknown as { collections: { name: string; fields: { name: string }[] }[] };
+    const sales = setup.collections.find((c) => c.name === "Test Sales")!;
+    expect(sales.fields.map((f) => f.name)).not.toContain("Fee");
+    const friend = await signUp("Test Friend");
+    expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
+  });
+
   it("works out the totals over it again when it comes back", async () => {
     // Codex on PR 230: an order edited while its items were away kept 0 after they came back.
     const me = await signUp("Test Owner");

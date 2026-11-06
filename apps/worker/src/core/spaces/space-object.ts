@@ -2741,27 +2741,58 @@ export class SpaceObject extends DurableObject<Env> {
     };
     // And a formula reading one of those ({Client.Rate} once Client stays behind), or reading
     // such a formula, and so on (Codex on PR 230: the setup couldn't be made).
+    // Across links too: {Client.Rate} once Clients' Rate stays behind (Codex on PR 230). Every
+    // list is worked out together until nothing more is left out.
     const left = new Map<string, Set<string>>();
-    const leftOf = (collectionId: string) => {
-      let out = left.get(collectionId);
-      if (out) return out;
-      const rows = this.fieldRows(collectionId);
-      out = new Set(rows.filter(direct).map((r) => r.id));
-      for (let grew = true; grew;) {
-        grew = false;
-        const gone = new Set(rows.filter((r) => out!.has(r.id)).map((r) => nameKey(r.name)));
-        for (const r of rows) {
-          const f = toField(r).options.formula;
-          if (!f || out.has(r.id)) continue;
-          const reads = [...f.matchAll(/\{([^}.]+)/g)].map((m) => nameKey(m[1]!.trim()));
-          if (reads.some((n) => gone.has(n))) {
-            out.add(r.id);
-            grew = true;
+    const leftOf = (collectionId: string): Set<string> => {
+      if (!left.size) {
+        const ids = this.sql
+          .exec<{ id: string }>(`select id from collections where deleted_at is null`)
+          .toArray()
+          .map((c) => c.id);
+        const rowsOf = new Map(ids.map((id) => [id, this.fieldRows(id)]));
+        for (const id of ids)
+          left.set(
+            id,
+            new Set(
+              rowsOf
+                .get(id)!
+                .filter(direct)
+                .map((r) => r.id),
+            ),
+          );
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const id of ids) {
+            const rows = rowsOf.get(id)!;
+            const out = left.get(id)!;
+            const byName = new Map(rows.map((r) => [nameKey(r.name), r]));
+            for (const r of rows) {
+              const f = toField(r).options.formula;
+              if (!f || out.has(r.id)) continue;
+              const reads = [...f.matchAll(/\{([^}]+)\}/g)].map((m) =>
+                m[1]!.split(".").map((x) => nameKey(x.trim())),
+              );
+              const gone = reads.some(([first, second]) => {
+                const head = first ? byName.get(first) : undefined;
+                if (!head) return false;
+                if (out.has(head.id)) return true;
+                if (!second || head.type !== "link") return false;
+                const target = toField(head).options.target;
+                const field = target
+                  ? rowsOf.get(target)?.find((x) => nameKey(x.name) === second)
+                  : undefined;
+                return !!field && !!left.get(target!)?.has(field.id);
+              });
+              if (gone) {
+                out.add(r.id);
+                grew = true;
+              }
+            }
           }
         }
       }
-      left.set(collectionId, out);
-      return out;
+      return left.get(collectionId) ?? new Set();
     };
     const dangling = (row: FieldRow) => leftOf(row.collection_id).has(row.id);
     for (;;) {

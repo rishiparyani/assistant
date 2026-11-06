@@ -193,6 +193,28 @@ describe("deleting a space", () => {
     expect(left).toBe(0);
   });
 
+  it("keeps listing a rehearsal it couldn't erase, so it can still be ended", async () => {
+    // Codex on PR 230: a copy whose erase failed was hidden with its data left behind.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Stuck" } }));
+    // A copy whose object won't end (it was never made a practice copy).
+    const stuck = `01STUCK${crypto.randomUUID().replace(/-/g, "").slice(0, 19).toUpperCase()}`;
+    await env.DB.batch([
+      env.DB.prepare(
+        `insert into spaces (id, name, kind, owner_user_id, practice_of) values (?, 'Practice: Test Stuck', 'shared', ?, ?)`,
+      ).bind(stuck, me.id, sp.id),
+      env.DB.prepare(`insert into space_members (space_id, user_id, role) values (?, ?, 'owner')`).bind(
+        stuck,
+        me.id,
+      ),
+    ]);
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    const row = await env.DB.prepare(`select deleted_at from spaces where id = ?`)
+      .bind(stuck)
+      .first<{ deleted_at: string | null }>();
+    expect(row?.deleted_at).toBeNull();
+  });
+
   it("erases its rehearsals' copies with it", async () => {
     // Codex on PR 230: the copies were hidden but kept the data for good.
     const me = await signUp("Test Owner");

@@ -207,13 +207,20 @@ export async function deleteSpace(ctx: OpUserCtx, ref: string): Promise<{ delete
     .bind(space.id)
     .all<{ id: string }>();
   // Each rehearsal's copy is erased, as End does (Codex on PR 230: they kept the data).
+  // One that couldn't be erased stays listed, so its owner can still end it (Codex on PR 230:
+  // it was hidden with its data left behind).
+  const ended: { id: string }[] = [];
   for (const c of copies.results)
-    await ctx.objects.SPACES.getByName(spaceName(c.id))
-      .endPractice(actorOf(ctx))
-      .catch(() => undefined);
+    if (
+      await ctx.objects.SPACES.getByName(spaceName(c.id))
+        .endPractice(actorOf(ctx))
+        .then(() => true)
+        .catch(() => false)
+    )
+      ended.push(c);
   await ctx.d1.batch([
     ctx.d1.prepare(`update spaces set deleted_at = ? where id = ?`).bind(now, space.id),
-    ...copies.results.flatMap((c) => [
+    ...ended.flatMap((c) => [
       ctx.d1.prepare(`update spaces set deleted_at = ? where id = ?`).bind(now, c.id),
       ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(c.id),
     ]),
