@@ -4006,7 +4006,14 @@ export class SpaceObject extends DurableObject<Env> {
     for (const c of this.sql
       .exec<{ id: string }>(`select id from collections where deleted_at is null and id != ?`, id)
       .toArray())
-      if (this.fieldRows(c.id).some((f) => toField(f).options.rollup)) this.backfill(c.id, ts);
+      if (
+        this.fieldRows(c.id).some((f) => {
+          const o = toField(f).options;
+          // Counts over it, and formulas reading it through a link ({Client.Rate}).
+          return !!o.rollup || !!o.formula;
+        })
+      )
+        this.backfill(c.id, ts);
     // Its records leave everyone's search, even if the delete's reindex hadn't reached them
     // yet (Codex on PR 230): the list is gone through again from the start.
     const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];

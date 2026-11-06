@@ -495,3 +495,44 @@ test("a share taken back while open stops showing, and one can be left", async (
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a slow comments load doesn't take back a comment just sent", async ({ browser }) => {
+  // Codex on PR 230: an older load answering last showed the thread as it was before the post.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Slow friend ${RUN}`);
+  const list = `E2E Trips ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Hike ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // The looks at the comments before the post are slow; the one after it isn't.
+  let posted = false;
+  await context.route("**/comments", async (route) => {
+    if (route.request().method() === "POST") posted = true;
+    else if (!posted) {
+      // Read now (before the post), handed over late.
+      const res = await route.fetch();
+      await new Promise((r) => setTimeout(r, 3000));
+      return route.fulfill({ response: res });
+    }
+    await route.continue();
+  });
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Hike ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Add a comment").fill(`E2E bring water ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(`E2E bring water ${RUN}`)).toBeVisible();
+  // The slow first look lands now: the comment stays.
+  await page.waitForTimeout(3500);
+  await expect(page.getByText(`E2E bring water ${RUN}`)).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});

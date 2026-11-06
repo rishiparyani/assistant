@@ -3,7 +3,7 @@
 // the record here. Text people type is shown as text.
 // online-only: comments are checked by the space that holds the record; reading and writing
 // them needs a connection.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Tap, Text, TextInput, type } from "@assistant/cards/native";
 import { formatDateTimeIST, ulid, type CommentView } from "@assistant/shared";
@@ -33,12 +33,18 @@ export function SharedComments({
 
   const fail = (e: unknown) =>
     setNote(isOffline(e) ? "That needs a connection." : e instanceof Error ? e.message : String(e));
+  // Each load is numbered: a slow older one (a pull to refresh) answering after a post's or a
+  // delete's reload never brings back the thread as it was (Codex on PR 230).
+  const gen = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++gen.current;
     try {
-      setList(await request<CommentView[]>("GET", `${base}/records/${enc(recordId)}/comments`));
+      const v = await request<CommentView[]>("GET", `${base}/records/${enc(recordId)}/comments`);
+      if (mine !== gen.current) return;
+      setList(v);
       setNote("");
     } catch (e) {
-      fail(e);
+      if (mine === gen.current) fail(e);
     }
   }, [base, recordId]);
   useEffect(() => {
