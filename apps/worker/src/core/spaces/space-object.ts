@@ -2802,9 +2802,14 @@ export class SpaceObject extends DurableObject<Env> {
               }
               const f = toField(r).options.formula;
               if (!f) continue;
-              const reads = [...f.matchAll(/\{([^}]+)\}/g)].map((m) =>
-                m[1]!.split(".").map((x) => nameKey(x.trim())),
-              );
+              // The whole name first, as formulas resolve it (a field may be called "Fee.total"),
+              // then a link and the field on its list (Codex on PR 230).
+              const reads = [...f.matchAll(/\{([^}]+)\}/g)].map((m) => {
+                const raw = m[1]!.trim();
+                if (byName.has(nameKey(raw))) return [nameKey(raw)];
+                const dot = raw.indexOf(".");
+                return dot < 0 ? [nameKey(raw)] : [nameKey(raw.slice(0, dot)), nameKey(raw.slice(dot + 1))];
+              });
               const gone = reads.some(([first, second]) => {
                 const head = first ? byName.get(first) : undefined;
                 if (!head) return false;
@@ -4126,7 +4131,42 @@ export class SpaceObject extends DurableObject<Env> {
         this.backfill(c.id, ts);
   }
 
+  /**
+   * Questions its flows asked before questions kept their flow and record (Codex on PR 230):
+   * each flow's ask, filled in for each of the list's records as it would have been, matched
+   * against the unlinked workflow questions word for word. Read before the records are erased.
+   */
+  private legacyQuestions(collectionId: string): string[] {
+    const asks = this.sql
+      .exec<{ def_json: string }>(`select def_json from workflows where collection_id = ?`, collectionId)
+      .toArray()
+      .flatMap((w) => (JSON.parse(w.def_json) as WorkflowDef).then)
+      .flatMap((step) => (step.do === "ask" ? [step.text] : []));
+    if (!asks.length) return [];
+    const texts = new Set<string>();
+    for (const r of this.sql
+      .exec<RecordRow>(`select * from records where collection_id = ? and purged_at is null`, collectionId)
+      .toArray())
+      for (const t of asks) {
+        try {
+          texts.add(this.fillTemplate(t, r));
+        } catch {
+          // A template that no longer fills in matches nothing.
+        }
+      }
+    if (!texts.size) return [];
+    return this.sql
+      .exec<{ id: string; text: string }>(
+        `select q.id, q.text from questions q join shares s on s.id = q.share_id
+         where q.workflow_id is null and q.record_id is null and s.token_hash like 'wf:%'`,
+      )
+      .toArray()
+      .filter((q) => texts.has(q.text))
+      .map((q) => q.id);
+  }
+
   private eraseList(id: string, ts: string) {
+    const legacy = this.legacyQuestions(id);
     // Each record as erasing one does (values, answers, comments, history details).
     const system: Actor = { userId: null, source: "system" };
     this.sql.exec(
@@ -4163,7 +4203,8 @@ export class SpaceObject extends DurableObject<Env> {
             id,
           )
           .toArray()
-          .map((q) => q.id),
+          .map((q) => q.id)
+          .concat(legacy),
       },
       ts,
     );

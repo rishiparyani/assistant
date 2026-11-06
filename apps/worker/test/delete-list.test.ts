@@ -401,6 +401,81 @@ describe("deleting a list", () => {
     expect(answers).toBe(0);
   });
 
+  it("erases a question asked before questions kept their flow", async () => {
+    // Codex on PR 230: questions from before the upgrade have no flow or record on them.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Old Asks", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/workflows", {
+      body: {
+        name: "Test ask long ago",
+        when: { event: "added", collection: "Test Old Asks" },
+        then: [{ do: "ask", who: ["me"], text: "OK {Title}?", choices: ["Yes", "No"] }],
+        enabled: true,
+      },
+    });
+    await api(me)("/collections/Test Old Asks/records", { body: { values: { Title: "Test bramblewick" } } });
+    const asked = () =>
+      inSpace(me, (sql) =>
+        sql
+          .exec<{ id: string; text: string; share_id: string }>(`select id, text, share_id from questions`)
+          .toArray(),
+      );
+    let qs = await asked();
+    for (let i = 0; i < 40 && !qs.length; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      qs = await asked();
+    }
+    expect((await api(me)(`/cards/${qs[0]!.share_id}/answer`, { body: { answer: "Yes" } })).status).toBe(200);
+    const waits = () =>
+      inSpace(me, (sql) => Number(sql.exec(`select count(*) as n from workflow_waits`).one().n));
+    for (let i = 0; i < 40 && (await waits()) > 0; i++) await new Promise((r) => setTimeout(r, 200));
+    // As it was before the upgrade: no flow or record on it.
+    await inSpace(me, (sql) => sql.exec(`update questions set workflow_id = null, record_id = null`));
+    await api(me)("/collections/Test Old Asks", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await asked()).map((q) => q.text)).toEqual([""]);
+  });
+
+  it("reads a field whose name has a dot in it as one name", async () => {
+    // Codex on PR 230: {Fee.total} was read as a link Fee, so it stayed once Fee.total went.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Venues",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Rate", type: "number" },
+        ],
+      },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Bookings2",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Venue", type: "link", options: { target: "Test Venues" } },
+        ],
+      },
+    });
+    for (const field of [
+      { name: "Fee.total", type: "number", options: { formula: "{Venue.Rate} * 2" } },
+      { name: "Double", type: "number", options: { formula: "{Fee.total} * 2" } },
+    ])
+      expect((await api(me)("/collections/Test Bookings2/fields", { body: { field } })).status).toBe(201);
+    await api(me)("/collections/Test Venues", { method: "DELETE" });
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
+      { userId: me.id, source: "web" },
+      ["Test Bookings2"],
+    )) as unknown as { collections: { name: string; fields: { name: string }[] }[] };
+    expect(setup.collections[0]!.fields.map((f) => f.name)).toEqual(["Title"]);
+    const friend = await signUp("Test Friend");
+    expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
+  });
+
   it("works out again the formulas that read it through a link when erased", async () => {
     // Codex on PR 230: {Client.Rate} * 2 still read 24 after Clients was erased.
     const me = await signUp("Test Owner");
