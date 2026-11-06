@@ -507,6 +507,93 @@ describe("deleting a list", () => {
     expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
   });
 
+  it("leaves out totals over a left-out field", async () => {
+    // Codex on PR 230: Orders' Total summed Clients' Fee, Fee was left out once Firms was
+    // deleted, and making the setup failed with "Say which field to sum".
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Studios",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Rate", type: "number" },
+        ],
+      },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Artists",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Studio", type: "link", options: { target: "Test Studios" } },
+        ],
+      },
+    });
+    await api(me)("/collections/Test Artists/fields", {
+      body: { field: { name: "Fee", type: "number", options: { formula: "{Studio.Rate} * 2" } } },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Shows",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Artists", type: "link", options: { target: "Test Artists", many: true } },
+        ],
+      },
+    });
+    expect(
+      (
+        await api(me)("/collections/Test Shows/fields", {
+          body: {
+            field: {
+              name: "Total",
+              type: "number",
+              options: { rollup: { via: "Artists", fn: "sum", of: "Fee" } },
+            },
+          },
+        })
+      ).status,
+    ).toBe(201);
+    await api(me)("/collections/Test Studios", { method: "DELETE" });
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
+      { userId: me.id, source: "web" },
+      ["Test Shows"],
+    )) as unknown as { collections: { name: string; fields: { name: string }[] }[] };
+    expect(setup.collections.find((c) => c.name === "Test Shows")!.fields.map((f) => f.name)).not.toContain(
+      "Total",
+    );
+    const friend = await signUp("Test Friend");
+    expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
+  });
+
+  it("lets go of what its records linked to when erased", async () => {
+    // Codex on PR 230: a firm an erased client linked to (block on delete) couldn't be deleted.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Offices", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Staff",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Office", type: "link", options: { target: "Test Offices", on_delete: "block" } },
+        ],
+      },
+    });
+    const office = await json<RecordView>(
+      await api(me)("/collections/Test Offices/records", { body: { values: { Title: "Test HQ" } } }),
+    );
+    await api(me)("/collections/Test Staff/records", {
+      body: { values: { Title: "Test Asha", Office: [office.id] } },
+    });
+    await api(me)("/collections/Test Staff", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await api(me)(`/records/${office.id}`, { method: "DELETE" })).status).toBeLessThan(300);
+  });
+
   it("works out the totals over it again when it comes back", async () => {
     // Codex on PR 230: an order edited while its items were away kept 0 after they came back.
     const me = await signUp("Test Owner");

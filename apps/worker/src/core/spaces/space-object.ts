@@ -2768,8 +2768,29 @@ export class SpaceObject extends DurableObject<Env> {
             const out = left.get(id)!;
             const byName = new Map(rows.map((r) => [nameKey(r.name), r]));
             for (const r of rows) {
+              if (out.has(r.id)) continue;
+              // A count or sum over a field left out on the other list (Codex on PR 230: a
+              // Total summing Clients' Fee once Fee stayed behind).
+              const ro = toField(r).options.rollup;
+              if (ro) {
+                const via = this.liveField(ro.via);
+                const other = via
+                  ? ro.dir === "in"
+                    ? via.collection_id
+                    : (toField(via).options.target ?? null)
+                  : null;
+                const there = other ? left.get(other) : undefined;
+                if (
+                  there &&
+                  ((ro.of && there.has(ro.of)) || (ro.where ?? []).some((w) => there.has(w.field)))
+                ) {
+                  out.add(r.id);
+                  grew = true;
+                }
+                continue;
+              }
               const f = toField(r).options.formula;
-              if (!f || out.has(r.id)) continue;
+              if (!f) continue;
               const reads = [...f.matchAll(/\{([^}]+)\}/g)].map((m) =>
                 m[1]!.split(".").map((x) => nameKey(x.trim())),
               );
@@ -4119,6 +4140,14 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
       );
     this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+    // Its records' links go too, both ways (Codex on PR 230: a record they linked to couldn't
+    // be deleted, "still linked", with nothing left to unlink).
+    this.sql.exec(
+      `delete from links where from_id in (select id from records where collection_id = ?)
+       or to_id in (select id from records where collection_id = ?)`,
+      id,
+      id,
+    );
     // Totals and counts it fed on the lists that are left come down (Codex on PR 230: an order
     // kept totalling its erased line items).
     this.recalcOthers(id, ts);
