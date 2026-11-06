@@ -3394,9 +3394,11 @@ export class SpaceObject extends DurableObject<Env> {
       .exec<{ id: string }>(
         dir === "in"
           ? `select l.from_id as id from links l join records x on x.id = l.from_id
-             where l.field_id = ? and l.to_id = ? and x.deleted_at is null`
+             where l.field_id = ? and l.to_id = ? and x.deleted_at is null
+             and x.collection_id in (select id from collections where deleted_at is null)`
           : `select l.to_id as id from links l join records x on x.id = l.to_id
-             where l.field_id = ? and l.from_id = ? and x.deleted_at is null`,
+             where l.field_id = ? and l.from_id = ? and x.deleted_at is null
+             and x.collection_id in (select id from collections where deleted_at is null)`,
         via,
         recordId,
       )
@@ -3872,6 +3874,9 @@ export class SpaceObject extends DurableObject<Env> {
         JSON.stringify({ views, flows, rules, shares, runs }),
       );
       this.logChange("collection", c.id, "delete", ts);
+      // What the lists that are left count or read of it comes down while it's away (Codex on
+      // PR 230: an order still counted its deleted items); a restore works it out again.
+      this.recalcOthers(c.id, ts);
       audit(this.sql, actor, {
         action: "delete_collection",
         entityType: "collection",

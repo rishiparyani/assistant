@@ -633,7 +633,10 @@ describe("deleting a list", () => {
       (await json<RecordView>(await api(me)(`/records/${basket.id}`))).values[totalId] ?? null;
     expect(await total()).toBe(12);
     await api(me)("/collections/Test Fruit", { method: "DELETE" });
+    // Away, it counts for nothing (Codex on PR 230: the total kept counting its records).
+    expect([0, null]).toContain(await total());
     await api(me)(`/records/${basket.id}`, { method: "PATCH", body: { values: { Title: "Test basket 2" } } });
+    expect([0, null]).toContain(await total());
     const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
     expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
     expect(await total()).toBe(12);
