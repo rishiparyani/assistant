@@ -2849,6 +2849,17 @@ export class SpaceObject extends DurableObject<Env> {
       this.ruleRows(c.id).flatMap((r) => {
         const def = JSON.parse(r.def_json) as RuleDef;
         const names = (ids: string[]) => ids.flatMap((id) => fieldName(c.id, id) ?? []);
+        // A rule on a field left behind stays behind whole: with part of it gone it could
+        // fail to be made or mean something stricter (Codex on PR 230: one job per Firm).
+        const rows = this.fieldRows(c.id);
+        const touched = [
+          ...def.fields,
+          def.of,
+          def.field,
+          ...def.require.map((f) => f.field),
+          ...def.only_if.map((f) => f.field),
+        ].filter((id): id is string => !!id);
+        if (touched.some((id) => rows.some((row) => row.id === id && dangling(row)))) return [];
         // A check made only of link filters (record ids, data) has nothing left to travel:
         // it stays behind rather than sending a rule that can't be made.
         if (r.kind === "check" && !conds(c.id, def.require).length) return [];

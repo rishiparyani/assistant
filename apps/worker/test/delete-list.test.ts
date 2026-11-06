@@ -438,6 +438,10 @@ describe("deleting a list", () => {
         })
       ).status,
     ).toBe(201);
+    // And a rule on it: one gig per firm (Codex on PR 230).
+    expect(
+      (await api(me)("/collections/Test Gigs/rules", { body: { kind: "unique", fields: ["Firm"] } })).status,
+    ).toBe(201);
     await api(me)("/collections/Test Firms", { method: "DELETE" });
     const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
     const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
