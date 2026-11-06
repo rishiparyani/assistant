@@ -306,6 +306,54 @@ describe("deleting a list", () => {
     await api(me)(`/spaces/${practice.id}/practice`, { method: "DELETE" });
   });
 
+  it("brings the totals it fed down to nothing when erased", async () => {
+    // Codex on PR 230: an order still totalled 12 after its line items were erased.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Orders", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Items",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "N", type: "number" },
+          { name: "Order", type: "link", options: { target: "Test Orders" } },
+        ],
+      },
+    });
+    expect(
+      (
+        await api(me)("/collections/Test Orders/fields", {
+          body: {
+            field: {
+              name: "Total",
+              type: "number",
+              options: { rollup: { via: "Test Items", fn: "sum", of: "N" } },
+            },
+          },
+        })
+      ).status,
+    ).toBe(201);
+    const order = await json<RecordView>(
+      await api(me)("/collections/Test Orders/records", { body: { values: { Title: "Test order" } } }),
+    );
+    await api(me)("/collections/Test Items/records", {
+      body: { values: { Title: "Test item", N: 12, Order: [order.id] } },
+    });
+    const orders = await json<{ fields: { id: string; name: string }[] }>(
+      await api(me)("/collections/Test Orders"),
+    );
+    const totalId = orders.fields.find((x) => x.name === "Total")!.id;
+    const total = async () =>
+      (await json<RecordView>(await api(me)(`/records/${order.id}`))).values[totalId] ?? null;
+    expect(await total()).toBe(12);
+    await api(me)("/collections/Test Items", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" })).status).toBe(200);
+    expect([0, null]).toContain(await total());
+  });
+
   it("brings a scheduled flow back with one next run, not two", async () => {
     // Codex on PR 230: restore scheduled a new run and put the kept one back, so both ran.
     const me = await signUp("Test Owner");

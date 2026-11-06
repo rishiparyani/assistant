@@ -4001,6 +4001,12 @@ export class SpaceObject extends DurableObject<Env> {
         ts,
       );
     this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+    // Totals and counts it fed on the lists that are left come down (Codex on PR 230: an order
+    // kept totalling its erased line items).
+    for (const c of this.sql
+      .exec<{ id: string }>(`select id from collections where deleted_at is null and id != ?`, id)
+      .toArray())
+      if (this.fieldRows(c.id).some((f) => toField(f).options.rollup)) this.backfill(c.id, ts);
     // Its records leave everyone's search, even if the delete's reindex hadn't reached them
     // yet (Codex on PR 230): the list is gone through again from the start.
     const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];

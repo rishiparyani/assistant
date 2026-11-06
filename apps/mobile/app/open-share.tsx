@@ -4,7 +4,7 @@
 // rehearsal; here the app's calls carry the person played, so it is exactly their page.
 // online-only: what's shared lives with its owner's space; reading and changing it needs a
 // connection.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -37,11 +37,18 @@ export default function Shared() {
   const [leaving, setLeaving] = useState(false);
   const base = `/api/cards/${enc(id)}`;
 
+  // Each load is numbered: an older one that answers late (a slow pull to refresh, then an
+  // edit's reload) never overwrites what a newer one showed (Codex on PR 230).
+  const gen = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++gen.current;
     try {
-      setOpened(await request<SharedOpened>("GET", base));
+      const v = await request<SharedOpened>("GET", base);
+      if (mine !== gen.current) return;
+      setOpened(v);
       setNote("");
     } catch (e) {
+      if (mine !== gen.current) return;
       // Taken back or gone: what it showed goes too, as on the website (Codex on PR 230). A
       // dropped connection keeps it.
       if (gone(e)) setOpened(null);
@@ -167,12 +174,13 @@ export default function Shared() {
                 void (async () => {
                   if (!("next_cursor" in opened) || !opened.next_cursor) return;
                   setMore(true);
+                  const mine = gen.current;
                   try {
                     const next = await request<SharedOpened>(
                       "GET",
                       `${base}?cursor=${enc(opened.next_cursor)}`,
                     );
-                    if ("records" in next && "records" in opened)
+                    if (mine === gen.current && "records" in next && "records" in opened)
                       setOpened({
                         ...opened,
                         records: [...opened.records, ...next.records],
