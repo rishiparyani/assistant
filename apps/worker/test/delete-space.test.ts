@@ -156,6 +156,30 @@ describe("deleting a space", () => {
     expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(404);
   });
 
+  it("holds back a message waiting to go out, and sends it if it comes back", async () => {
+    // Codex on PR 230: a pending message reached the inbox after the space was deleted.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Quiet" } }));
+    const stub = env.SPACES.getByName(`space:${sp.id}`);
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    const waiting = () =>
+      runInDurableObject(stub, async (_i, state) =>
+        Number(state.storage.sql.exec(`select count(*) as n from workflow_notes`).one().n),
+      );
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(
+        `insert into workflow_notes (id, user_id, note_json, next_at) values ('n1', ?, ?, '2000-01-01T00:00:00.000Z')`,
+        me.id,
+        JSON.stringify({ kind: "message", title: "Test held back" }),
+      );
+    });
+    await runDurableObjectAlarm(stub);
+    expect(await waiting()).toBe(1);
+    expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(200);
+    await runDurableObjectAlarm(stub);
+    expect(await waiting()).toBe(0);
+  });
+
   it("erases its rehearsals' copies with it", async () => {
     // Codex on PR 230: the copies were hidden but kept the data for good.
     const me = await signUp("Test Owner");

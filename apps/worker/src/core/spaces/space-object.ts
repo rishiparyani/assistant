@@ -2103,6 +2103,17 @@ export class SpaceObject extends DurableObject<Env> {
       await wipeStorage(this.ctx);
       return;
     }
+    // A deleted space reaches nobody (Codex on PR 230: a message waiting to be sent still went
+    // out): its jobs and messages wait as they are for a restore, and only search is kept
+    // up. It wakes next for that, or to be erased, not for what it's holding back.
+    if (spaceAt) {
+      const searchIn = await this.syncSearch();
+      const eraseAt = Date.parse(spaceAt) + TRASH_DAYS * 86_400_000;
+      await this.ctx.storage.setAlarm(
+        Math.max(Date.now() + 50, Math.min(eraseAt, ...(searchIn === null ? [] : [Date.now() + searchIn]))),
+      );
+      return;
+    }
     this.eraseDue();
     this.refreshDaily();
     await this.runDueJobs();
