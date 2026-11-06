@@ -225,6 +225,13 @@ export async function deleteSpace(ctx: OpUserCtx, ref: string): Promise<{ delete
       ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(c.id),
     ]),
   ]);
+  // Brought back while this was still on its way (a slow rehearsal cleanup, then a restore):
+  // the restore stands, not this older delete (Codex on PR 230: it hid a restored space).
+  if (!(await stub.deletedInfo(actor)))
+    await ctx.d1
+      .prepare(`update spaces set deleted_at = null where id = ? and deleted_at = ?`)
+      .bind(space.id, now)
+      .run();
   // Open screens hear of it again now the list says so (the first ping may have come first).
   await stub.listed(actor);
   return { deleted: space.id, name };
@@ -279,6 +286,13 @@ export async function restoreSpace(ctx: OpUserCtx, id: string): Promise<SpaceVie
   // A retry answered from its key after the space was deleted again: it stays deleted.
   if (await stub.deletedInfo(actorOf(ctx))) return { id, name: row.name, kind: "shared", role: "owner" };
   await ctx.d1.prepare(`update spaces set deleted_at = null where id = ?`).bind(id).run();
+  // Deleted again while this was on its way: that newer delete stands (Codex on PR 230).
+  const again = await stub.deletedInfo(actorOf(ctx));
+  if (again)
+    await ctx.d1
+      .prepare(`update spaces set deleted_at = ? where id = ? and deleted_at is null`)
+      .bind(again.deleted_at, id)
+      .run();
   await stub.listed(actorOf(ctx));
   return { id, name: row.name, kind: "shared", role: "owner" };
 }

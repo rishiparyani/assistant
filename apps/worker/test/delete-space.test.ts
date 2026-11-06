@@ -5,6 +5,7 @@ import { env } from "cloudflare:workers";
 import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import type { CreatedShare, DeletedSpace, SpaceView, WorkflowView } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
+import { deleteSpace, spaceName } from "../src/core/spaces/service.ts";
 
 type User = Awaited<ReturnType<typeof signUp>>;
 const api =
@@ -285,6 +286,37 @@ describe("deleting a space", () => {
     // The list is updated now: another ping is owed.
     expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
     expect(await notes()).toBe(1);
+  });
+
+  it("a delete that finishes after the space was brought back leaves it back", async () => {
+    // Codex on PR 230: an older delete, slow on its rehearsals, hid a space restored meanwhile.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Overlap" } }));
+    const copy = await json<SpaceView>(await api(me)(`/spaces/${sp.id}/practice`, { body: {} }));
+    const actor = { userId: me.id, source: "web" as const };
+    const main = env.SPACES.getByName(spaceName(sp.id));
+    // While the delete ends the rehearsal, the space is brought back (as a second request would).
+    const SPACES = {
+      getByName: (name: string) =>
+        name === spaceName(copy.id)
+          ? {
+              endPractice: async (a: typeof actor) => {
+                await env.SPACES.getByName(name).endPractice(a);
+                await main.restoreSpace(actor);
+                await env.DB.prepare(`update spaces set deleted_at = null where id = ?`).bind(sp.id).run();
+              },
+            }
+          : env.SPACES.getByName(name),
+    };
+    const ctx = {
+      d1: env.DB,
+      objects: { ...env, SPACES },
+      user: { id: me.id, name: me.name },
+      source: "web",
+      idempotencyKey: null,
+    } as unknown as Parameters<typeof deleteSpace>[0];
+    await deleteSpace(ctx, sp.id);
+    expect((await json<SpaceView[]>(await api(me)("/spaces"))).map((s) => s.name)).toContain("Test Overlap");
   });
 
   it("keeps listing a rehearsal it couldn't erase, so it can still be ended", async () => {
