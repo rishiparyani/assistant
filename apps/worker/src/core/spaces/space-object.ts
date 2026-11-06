@@ -616,6 +616,14 @@ const MIGRATIONS: Migrations = [
   alter table questions add column record_id text;
   create index questions_workflow_idx on questions (workflow_id);
   `,
+  // A question still waiting for its answer knows its flow and record from its wait: fill them
+  // in, so erasing a list finds it without guessing from its words (Codex on PR 230).
+  `
+  update questions set
+    workflow_id = (select w.workflow_id from workflow_waits w where w.question_id = questions.id limit 1),
+    record_id = (select w.record_id from workflow_waits w where w.question_id = questions.id limit 1)
+  where workflow_id is null and exists (select 1 from workflow_waits w where w.question_id = questions.id);
+  `,
 ];
 
 type ViewQuery = {
@@ -4134,35 +4142,51 @@ export class SpaceObject extends DurableObject<Env> {
   /**
    * Questions its flows asked before questions kept their flow and record (Codex on PR 230):
    * each flow's ask, filled in for each of the list's records as it would have been, matched
-   * against the unlinked workflow questions word for word. Read before the records are erased.
+   * against the unlinked workflow questions word for word. A text another list's flows would
+   * also ask belongs to nobody for sure, so it's left alone. Read before the records are erased.
    */
   private legacyQuestions(collectionId: string): string[] {
-    const asks = this.sql
-      .exec<{ def_json: string }>(`select def_json from workflows where collection_id = ?`, collectionId)
-      .toArray()
-      .flatMap((w) => (JSON.parse(w.def_json) as WorkflowDef).then)
-      .flatMap((step) => (step.do === "ask" ? [step.text] : []));
-    if (!asks.length) return [];
-    const texts = new Set<string>();
-    for (const r of this.sql
-      .exec<RecordRow>(`select * from records where collection_id = ? and purged_at is null`, collectionId)
-      .toArray())
-      for (const t of asks) {
-        try {
-          texts.add(this.fillTemplate(t, r));
-        } catch {
-          // A template that no longer fills in matches nothing.
-        }
-      }
-    if (!texts.size) return [];
+    const mine = this.askTexts(`w.collection_id = ?`, collectionId);
+    if (!mine.size) return [];
+    const theirs = this.askTexts(`w.collection_id <> ?`, collectionId);
     return this.sql
       .exec<{ id: string; text: string }>(
         `select q.id, q.text from questions q join shares s on s.id = q.share_id
          where q.workflow_id is null and q.record_id is null and s.token_hash like 'wf:%'`,
       )
       .toArray()
-      .filter((q) => texts.has(q.text))
+      .filter((q) => mine.has(q.text) && !theirs.has(q.text))
       .map((q) => q.id);
+  }
+
+  /** Every text the matching flows' asks fill in to, for each record of each flow's own list. */
+  private askTexts(where: string, collectionId: string): Set<string> {
+    const texts = new Set<string>();
+    for (const w of this.sql
+      .exec<{ def_json: string; collection_id: string }>(
+        `select w.def_json, w.collection_id from workflows w where ${where} and w.collection_id is not null`,
+        collectionId,
+      )
+      .toArray()) {
+      const asks = (JSON.parse(w.def_json) as WorkflowDef).then.flatMap((step) =>
+        step.do === "ask" ? [step.text] : [],
+      );
+      if (!asks.length) continue;
+      for (const r of this.sql
+        .exec<RecordRow>(
+          `select * from records where collection_id = ? and purged_at is null`,
+          w.collection_id,
+        )
+        .toArray())
+        for (const t of asks) {
+          try {
+            texts.add(this.fillTemplate(t, r));
+          } catch {
+            // A template that no longer fills in matches nothing.
+          }
+        }
+    }
+    return texts;
   }
 
   private eraseList(id: string, ts: string) {

@@ -439,6 +439,36 @@ describe("deleting a list", () => {
     expect((await asked()).map((q) => q.text)).toEqual([""]);
   });
 
+  it("leaves an old question alone when another list's flow asks the same words", async () => {
+    // Codex on PR 230: two lists both asking "Approve?"; erasing one wiped the other's question.
+    const me = await signUp("Test Owner");
+    for (const name of ["Test Asks A", "Test Asks B"]) {
+      await api(me)("/collections", { body: { name, fields: [{ name: "Title", type: "text" }] } });
+      await api(me)("/workflows", {
+        body: {
+          name: `Test approve ${name}`,
+          when: { event: "added", collection: name },
+          then: [{ do: "ask", who: ["me"], text: "Approve?", choices: ["Yes", "No"] }],
+          enabled: true,
+        },
+      });
+      await api(me)(`/collections/${name}/records`, { body: { values: { Title: "Test quillfern" } } });
+    }
+    const asked = () =>
+      inSpace(me, (sql) => sql.exec<{ text: string }>(`select text from questions`).toArray());
+    for (let i = 0; i < 40 && (await asked()).length < 2; i++) await new Promise((r) => setTimeout(r, 200));
+    expect((await asked()).length).toBe(2);
+    // As before the upgrade, with nothing waiting to tell them apart.
+    await inSpace(me, (sql) => {
+      sql.exec(`update questions set workflow_id = null, record_id = null`);
+      sql.exec(`delete from workflow_waits`);
+    });
+    await api(me)("/collections/Test Asks A", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await asked()).map((q) => q.text)).toEqual(["Approve?", "Approve?"]);
+  });
+
   it("reads a field whose name has a dot in it as one name", async () => {
     // Codex on PR 230: {Fee.total} was read as a link Fee, so it stayed once Fee.total went.
     const me = await signUp("Test Owner");
