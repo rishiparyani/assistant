@@ -193,6 +193,24 @@ describe("deleting a space", () => {
     expect(left).toBe(0);
   });
 
+  it("tells open screens again once the space list says it's gone", async () => {
+    // Codex on PR 230: the ping could go out before the list was updated, and nothing followed.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Late List" } }));
+    const stub = env.SPACES.getByName(`space:${sp.id}`);
+    // The space deletes and its ping goes out before the list hears of it.
+    await stub.deleteSpace({ userId: me.id, source: "web" });
+    await runDurableObjectAlarm(stub);
+    const notes = () =>
+      runInDurableObject(stub, async (_i, state) =>
+        Number(state.storage.sql.exec(`select count(*) as n from _outbox`).one().n),
+      );
+    expect(await notes()).toBe(0);
+    // The list is updated now: another ping is owed.
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(await notes()).toBe(1);
+  });
+
   it("keeps listing a rehearsal it couldn't erase, so it can still be ended", async () => {
     // Codex on PR 230: a copy whose erase failed was hidden with its data left behind.
     const me = await signUp("Test Owner");

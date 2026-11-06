@@ -354,6 +354,67 @@ describe("deleting a list", () => {
     expect([0, null]).toContain(await total());
   });
 
+  it("brings a total of totals down too, whatever order the lists come in", async () => {
+    // Codex on PR 230: Summary summed Orders.Total, Orders summed Items.N; deleting Items left
+    // Summary at 12.
+    const me = await signUp("Test Owner");
+    const add = async (name: string, fields: unknown[]) =>
+      expect((await api(me)("/collections", { body: { name, fields } })).status).toBe(201);
+    const rollup = async (list: string, via: string, of: string) =>
+      expect(
+        (
+          await api(me)(`/collections/${list}/fields`, {
+            body: { field: { name: "Total", type: "number", options: { rollup: { via, fn: "sum", of } } } },
+          })
+        ).status,
+      ).toBe(201);
+    await add("Test Orders2", [{ name: "Title", type: "text" }]);
+    await add("Test Items2", [
+      { name: "Title", type: "text" },
+      { name: "N", type: "number" },
+      { name: "Order", type: "link", options: { target: "Test Orders2" } },
+    ]);
+    // Its name comes first, so it's looked at before the list it reads.
+    await add("Test All Orders", [
+      { name: "Title", type: "text" },
+      { name: "Orders", type: "link", options: { target: "Test Orders2" } },
+    ]);
+    await rollup("Test Orders2", "Test Items2", "N");
+    await rollup("Test All Orders", "Orders", "Total");
+    const order = await json<RecordView>(
+      await api(me)("/collections/Test Orders2/records", { body: { values: { Title: "Test order" } } }),
+    );
+    await api(me)("/collections/Test Items2/records", {
+      body: { values: { Title: "Test item", N: 12, Order: [order.id] } },
+    });
+    const summary = await json<RecordView>(
+      await api(me)("/collections/Test All Orders/records", {
+        body: { values: { Title: "Test all", Orders: [order.id] } },
+      }),
+    );
+    const totalId = (
+      await json<{ fields: { id: string; name: string }[] }>(await api(me)("/collections/Test All Orders"))
+    ).fields.find((x) => x.name === "Total")!.id;
+    const stored = () =>
+      inSpace(
+        me,
+        (sql) =>
+          sql
+            .exec<{ v: number | null }>(
+              `select json_extract(values_json, '$."' || ? || '"') as v from records where id = ?`,
+              totalId,
+              summary.id,
+            )
+            .one().v,
+      );
+    expect(await stored()).toBe(12);
+    await api(me)("/collections/Test Items2", { method: "DELETE" });
+    expect([0, null]).toContain(await stored());
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
+    expect(await stored()).toBe(12);
+  });
+
   it("erases an answered question with the list too", async () => {
     // Codex on PR 230: a question answered before the delete kept its words, answers and link.
     const me = await signUp("Test Owner");

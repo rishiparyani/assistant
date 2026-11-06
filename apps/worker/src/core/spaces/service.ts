@@ -225,6 +225,8 @@ export async function deleteSpace(ctx: OpUserCtx, ref: string): Promise<{ delete
       ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(c.id),
     ]),
   ]);
+  // Open screens hear of it again now the list says so (the first ping may have come first).
+  await stub.listed(actor);
   return { deleted: space.id, name };
 }
 
@@ -277,6 +279,7 @@ export async function restoreSpace(ctx: OpUserCtx, id: string): Promise<SpaceVie
   // A retry answered from its key after the space was deleted again: it stays deleted.
   if (await stub.deletedInfo(actorOf(ctx))) return { id, name: row.name, kind: "shared", role: "owner" };
   await ctx.d1.prepare(`update spaces set deleted_at = null where id = ?`).bind(id).run();
+  await stub.listed(actorOf(ctx));
   return { id, name: row.name, kind: "shared", role: "owner" };
 }
 

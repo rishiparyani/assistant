@@ -1792,6 +1792,17 @@ export class SpaceObject extends DurableObject<Env> {
     return { name: sp.name };
   }
 
+  /**
+   * The space list now says it's deleted or back: open screens hear it again, so one that
+   * reloaded on an earlier ping, before the list said so, doesn't keep the old answer (Codex on
+   * PR 230).
+   */
+  async listed(actor: Actor): Promise<void> {
+    if (this.memberRole(actor.userId) !== "owner") return;
+    if (!this.sql.exec(`select 1 from space`).toArray().length) return;
+    this.changed();
+  }
+
   /** What a deleted space holds, for Recently deleted (null: not deleted, or erased). */
   async deletedInfo(actor: Actor): Promise<{ deleted_at: string; lists: number } | null> {
     if (this.memberRole(actor.userId) !== "owner") return null;
@@ -4127,16 +4138,22 @@ export class SpaceObject extends DurableObject<Env> {
    * and the formulas reading it through a link change when it goes or comes back.
    */
   private recalcOthers(id: string, ts: string) {
-    for (const c of this.sql
+    const lists = this.sql
       .exec<{ id: string }>(`select id from collections where deleted_at is null and id != ?`, id)
-      .toArray())
-      if (
+      .toArray()
+      .filter((c) =>
         this.fieldRows(c.id).some((f) => {
           const o = toField(f).options;
           return !!o.rollup || !!o.formula;
-        })
-      )
-        this.backfill(c.id, ts);
+        }),
+      );
+    // Again until nothing moves: a total of totals settles whatever order the lists come in
+    // (Codex on PR 230). A chain is at most as long as there are lists.
+    for (let pass = 0; pass <= lists.length; pass++) {
+      let moved = 0;
+      for (const c of lists) moved += this.backfill(c.id, ts);
+      if (!moved) break;
+    }
   }
 
   /**
