@@ -403,6 +403,161 @@ describe("deleting a list", () => {
     expect(await double()).not.toBe(24);
   });
 
+  it("travels as a setup that can be made, without the formulas that read it", async () => {
+    // Codex on PR 230: {Client.Rate} * 2 stayed in the setup once Client was left out, and
+    // making it failed with "No field Client.Rate".
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Firms",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Rate", type: "number" },
+        ],
+      },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Gigs",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Firm", type: "link", options: { target: "Test Firms" } },
+        ],
+      },
+    });
+    for (const field of [
+      { name: "Double", type: "number", options: { formula: "{Firm.Rate} * 2" } },
+      { name: "Quad", type: "number", options: { formula: "{Double} * 2" } },
+    ])
+      expect((await api(me)("/collections/Test Gigs/fields", { body: { field } })).status).toBe(201);
+    await api(me)("/collections/Test Firms", { method: "DELETE" });
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
+      { userId: me.id, source: "web" },
+      ["Test Gigs"],
+    )) as unknown as { collections: { name: string; fields: { name: string }[] }[] };
+    expect(setup.collections.map((c) => c.name)).toEqual(["Test Gigs"]);
+    expect(setup.collections[0]!.fields.map((f) => f.name)).toEqual(["Title"]);
+    const friend = await signUp("Test Friend");
+    expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
+  });
+
+  it("works out the totals over it again when it comes back", async () => {
+    // Codex on PR 230: an order edited while its items were away kept 0 after they came back.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Baskets", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Fruit",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "N", type: "number" },
+          { name: "Basket", type: "link", options: { target: "Test Baskets" } },
+        ],
+      },
+    });
+    await api(me)("/collections/Test Baskets/fields", {
+      body: {
+        field: {
+          name: "Total",
+          type: "number",
+          options: { rollup: { via: "Test Fruit", fn: "sum", of: "N" } },
+        },
+      },
+    });
+    const basket = await json<RecordView>(
+      await api(me)("/collections/Test Baskets/records", { body: { values: { Title: "Test basket" } } }),
+    );
+    await api(me)("/collections/Test Fruit/records", {
+      body: { values: { Title: "Test apple", N: 12, Basket: [basket.id] } },
+    });
+    const col = await json<{ fields: { id: string; name: string }[] }>(
+      await api(me)("/collections/Test Baskets"),
+    );
+    const totalId = col.fields.find((x) => x.name === "Total")!.id;
+    const total = async () =>
+      (await json<RecordView>(await api(me)(`/records/${basket.id}`))).values[totalId] ?? null;
+    expect(await total()).toBe(12);
+    await api(me)("/collections/Test Fruit", { method: "DELETE" });
+    await api(me)(`/records/${basket.id}`, { method: "PATCH", body: { values: { Title: "Test basket 2" } } });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
+    expect(await total()).toBe(12);
+  });
+
+  it("holds back its flows' messages while away, and sends them when it comes back", async () => {
+    // Codex on PR 230: a message waiting to go out was sent after its list was deleted.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Quiet", fields: [{ name: "Title", type: "text" }] },
+    });
+    const flow = await json<{ id: string }>(
+      await api(me)("/workflows", {
+        body: {
+          name: "Test tell",
+          when: { event: "added", collection: "Test Quiet" },
+          then: [{ do: "notify", text: "{Title}", to: ["me"] }],
+          enabled: true,
+        },
+      }),
+    );
+    await api(me)("/collections/Test Quiet", { method: "DELETE" });
+    const notes = () =>
+      inSpace(me, (sql) =>
+        Number(sql.exec(`select count(*) as n from workflow_notes where workflow_id = ?`, flow.id).one().n),
+      );
+    // Restored, a message it had waiting is there to go out again.
+    await inSpace(me, (sql) => {
+      const t = sql.exec<{ took_json: string }>(`select took_json from list_trash`).one();
+      const took = JSON.parse(t.took_json) as { runs: { notes?: unknown[] } };
+      took.runs.notes = [
+        {
+          id: "n1",
+          user_id: me.id,
+          note_json: JSON.stringify({ kind: "message", title: "Test" }),
+          attempts: 0,
+          next_at: "2100-01-01T00:00:00.000Z",
+          workflow_id: flow.id,
+        },
+      ];
+      sql.exec(`update list_trash set took_json = ?`, JSON.stringify(took));
+    });
+    expect(await notes()).toBe(0);
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} });
+    expect(await notes()).toBe(1);
+  });
+
+  it("takes its flows' waiting messages aside when deleted", async () => {
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", { body: { name: "Test Hush", fields: [{ name: "Title", type: "text" }] } });
+    const flow = await json<{ id: string }>(
+      await api(me)("/workflows", {
+        body: {
+          name: "Test tell 2",
+          when: { event: "added", collection: "Test Hush" },
+          then: [{ do: "notify", text: "{Title}", to: ["me"] }],
+          enabled: true,
+        },
+      }),
+    );
+    await inSpace(me, (sql) =>
+      sql.exec(
+        `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values ('n2', ?, ?, '2100-01-01T00:00:00.000Z', ?)`,
+        me.id,
+        JSON.stringify({ kind: "message", title: "Test" }),
+        flow.id,
+      ),
+    );
+    await api(me)("/collections/Test Hush", { method: "DELETE" });
+    const left = await inSpace(me, (sql) =>
+      Number(sql.exec(`select count(*) as n from workflow_notes where workflow_id = ?`, flow.id).one().n),
+    );
+    expect(left).toBe(0);
+  });
+
   it("brings a scheduled flow back with one next run, not two", async () => {
     // Codex on PR 230: restore scheduled a new run and put the kept one back, so both ran.
     const me = await signUp("Test Owner");

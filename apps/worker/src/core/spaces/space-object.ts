@@ -603,6 +603,12 @@ const MIGRATIONS: Migrations = [
     took_json text not null
   ) without rowid;
   `,
+  // Which workflow a waiting message came from, so a deleted list holds back its own messages
+  // with its runs (Codex on PR 230).
+  `
+  alter table workflow_notes add column workflow_id text;
+  create index workflow_notes_workflow_idx on workflow_notes (workflow_id);
+  `,
 ];
 
 type ViewQuery = {
@@ -2723,7 +2729,7 @@ export class SpaceObject extends DurableObject<Env> {
     // sharing the lists that are left): it stays behind, as a field and wherever it's named.
     const live = (id: string) =>
       this.sql.exec(`select 1 from collections where id = ? and deleted_at is null`, id).toArray().length > 0;
-    const dangling = (row: FieldRow) => {
+    const direct = (row: FieldRow) => {
       const o = toField(row).options;
       if (row.type === "link") return !!o.target && !live(o.target);
       if (!o.rollup) return false;
@@ -2732,6 +2738,31 @@ export class SpaceObject extends DurableObject<Env> {
       const other = o.rollup.dir === "in" ? via.collection_id : (toField(via).options.target ?? null);
       return !live(via.collection_id) || (!!other && !live(other));
     };
+    // And a formula reading one of those ({Client.Rate} once Client stays behind), or reading
+    // such a formula, and so on (Codex on PR 230: the setup couldn't be made).
+    const left = new Map<string, Set<string>>();
+    const leftOf = (collectionId: string) => {
+      let out = left.get(collectionId);
+      if (out) return out;
+      const rows = this.fieldRows(collectionId);
+      out = new Set(rows.filter(direct).map((r) => r.id));
+      for (let grew = true; grew;) {
+        grew = false;
+        const gone = new Set(rows.filter((r) => out!.has(r.id)).map((r) => nameKey(r.name)));
+        for (const r of rows) {
+          const f = toField(r).options.formula;
+          if (!f || out.has(r.id)) continue;
+          const reads = [...f.matchAll(/\{([^}.]+)/g)].map((m) => nameKey(m[1]!.trim()));
+          if (reads.some((n) => gone.has(n))) {
+            out.add(r.id);
+            grew = true;
+          }
+        }
+      }
+      left.set(collectionId, out);
+      return out;
+    };
+    const dangling = (row: FieldRow) => leftOf(row.collection_id).has(row.id);
     for (;;) {
       const before = picked.size;
       for (const c of [...picked.values()])
@@ -3794,10 +3825,18 @@ export class SpaceObject extends DurableObject<Env> {
   private stashRuns(
     workflowIds: string[],
     ts: string,
-  ): { jobs: unknown[]; waits: unknown[]; questions: string[] } {
-    const out = { jobs: [] as unknown[], waits: [] as unknown[], questions: [] as string[] };
+  ): { jobs: unknown[]; waits: unknown[]; questions: string[]; notes: unknown[] } {
+    const out = {
+      jobs: [] as unknown[],
+      waits: [] as unknown[],
+      questions: [] as string[],
+      notes: [] as unknown[],
+    };
     for (const id of workflowIds) {
       out.jobs.push(...this.sql.exec(`select * from workflow_jobs where workflow_id = ?`, id).toArray());
+      // Its messages still to go out wait with it (Codex on PR 230: they were sent anyway).
+      out.notes.push(...this.sql.exec(`select * from workflow_notes where workflow_id = ?`, id).toArray());
+      this.sql.exec(`delete from workflow_notes where workflow_id = ?`, id);
       const waits = this.sql
         .exec<{ question_id: string }>(`select * from workflow_waits where workflow_id = ?`, id)
         .toArray();
@@ -3817,7 +3856,9 @@ export class SpaceObject extends DurableObject<Env> {
     return out;
   }
 
-  private unstashRuns(stash: { jobs?: unknown[]; waits?: unknown[]; questions?: string[] } | undefined) {
+  private unstashRuns(
+    stash: { jobs?: unknown[]; waits?: unknown[]; questions?: string[]; notes?: unknown[] } | undefined,
+  ) {
     if (!stash) return;
     const put = (table: string, row: Record<string, unknown>) => {
       const cols = Object.keys(row);
@@ -3828,6 +3869,7 @@ export class SpaceObject extends DurableObject<Env> {
     };
     for (const j of stash.jobs ?? []) put("workflow_jobs", j as Record<string, unknown>);
     for (const w of stash.waits ?? []) put("workflow_waits", w as Record<string, unknown>);
+    for (const n of stash.notes ?? []) put("workflow_notes", n as Record<string, unknown>);
     for (const q of stash.questions ?? [])
       this.sql.exec(`update questions set closed_at = null where id = ?`, q);
   }
@@ -3924,7 +3966,7 @@ export class SpaceObject extends DurableObject<Env> {
         flows: { id: string; enabled: number }[];
         rules: string[];
         shares: string[];
-        runs?: { jobs?: unknown[]; waits?: unknown[]; questions?: string[] };
+        runs?: { jobs?: unknown[]; waits?: unknown[]; questions?: string[]; notes?: unknown[] };
       };
       this.sql.exec(`update collections set deleted_at = null, updated_at = ? where id = ?`, ts, id);
       for (const v of took.views) {
@@ -3958,6 +4000,9 @@ export class SpaceObject extends DurableObject<Env> {
       // Its formulas as of now (Codex on PR 230: a today() kept the day it was deleted), before
       // its runs carry on with them.
       this.backfill(id, ts);
+      // And the lists that count over it or read it (Codex on PR 230: an order edited while
+      // its items were away kept a total of 0 after they came back).
+      this.recalcOthers(id, ts);
       this.unstashRuns(took.runs);
       for (const r of took.rules) this.sql.exec(`update rules set deleted_at = null where id = ?`, r);
       for (const sh of took.shares) this.sql.exec(`update shares set revoked_at = null where id = ?`, sh);
@@ -3978,6 +4023,23 @@ export class SpaceObject extends DurableObject<Env> {
       audit(this.sql, actor, { action: "erase_collection", entityType: "collection", entityId: id });
       return { erased: id };
     });
+  }
+
+  /**
+   * Works out again the calculated fields of every live list but this one: the counts over it
+   * and the formulas reading it through a link change when it goes or comes back.
+   */
+  private recalcOthers(id: string, ts: string) {
+    for (const c of this.sql
+      .exec<{ id: string }>(`select id from collections where deleted_at is null and id != ?`, id)
+      .toArray())
+      if (
+        this.fieldRows(c.id).some((f) => {
+          const o = toField(f).options;
+          return !!o.rollup || !!o.formula;
+        })
+      )
+        this.backfill(c.id, ts);
   }
 
   private eraseList(id: string, ts: string) {
@@ -4014,17 +4076,7 @@ export class SpaceObject extends DurableObject<Env> {
     this.sql.exec(`delete from list_trash where collection_id = ?`, id);
     // Totals and counts it fed on the lists that are left come down (Codex on PR 230: an order
     // kept totalling its erased line items).
-    for (const c of this.sql
-      .exec<{ id: string }>(`select id from collections where deleted_at is null and id != ?`, id)
-      .toArray())
-      if (
-        this.fieldRows(c.id).some((f) => {
-          const o = toField(f).options;
-          // Counts over it, and formulas reading it through a link ({Client.Rate}).
-          return !!o.rollup || !!o.formula;
-        })
-      )
-        this.backfill(c.id, ts);
+    this.recalcOthers(id, ts);
     // Its records leave everyone's search, even if the delete's reindex hadn't reached them
     // yet (Codex on PR 230): the list is gone through again from the start.
     const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];
@@ -8908,11 +8960,12 @@ export class SpaceObject extends DurableObject<Env> {
   private keepTells(j: WorkflowJobRow, tell: Tell[]) {
     for (const t of tell)
       this.sql.exec(
-        `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+        `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
         ulid(),
         t.userId,
         JSON.stringify(t.n),
         nowIso(),
+        j.workflow_id,
       );
     if (this.runCause && tell.length)
       for (const title of new Set(tell.map((t) => t.n.title)))
