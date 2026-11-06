@@ -24,6 +24,9 @@ test("a messy account still fits the phone on every main screen", async ({ brows
 
   const { page, errors, context } = await openApp(browser, me);
   await expectNoSideways(page);
+  // Settled first: with 24 long lists the home is still drawing, and a tap on the bell then can
+  // be lost to a re-render (twice on CI, 2026-11-06), as openChat waits before typing.
+  await page.waitForLoadState("networkidle").catch(() => undefined);
   await bell(page).click();
   await expect(page.getByText("NEEDS YOU", { exact: true })).toBeVisible();
   await expectNoSideways(page);
