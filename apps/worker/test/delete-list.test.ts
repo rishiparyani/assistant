@@ -354,6 +354,53 @@ describe("deleting a list", () => {
     expect([0, null]).toContain(await total());
   });
 
+  it("erases an answered question with the list too", async () => {
+    // Codex on PR 230: a question answered before the delete kept its words, answers and link.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Done Asks", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/workflows", {
+      body: {
+        name: "Test ask once",
+        when: { event: "added", collection: "Test Done Asks" },
+        then: [{ do: "ask", who: ["me"], text: "OK {Title}?", choices: ["Yes", "No"] }],
+        enabled: true,
+      },
+    });
+    await api(me)("/collections/Test Done Asks/records", { body: { values: { Title: "Test quillwort" } } });
+    const asked = () =>
+      inSpace(me, (sql) =>
+        sql
+          .exec<{ text: string; share_id: string; revoked: string | null }>(
+            `select q.text, q.share_id, s.revoked_at as revoked from questions q join shares s on s.id = q.share_id`,
+          )
+          .toArray(),
+      );
+    let qs = await asked();
+    for (let i = 0; i < 40 && !qs.length; i++) {
+      await new Promise((r) => setTimeout(r, 200));
+      qs = await asked();
+    }
+    expect(qs[0]?.text).toContain("quillwort");
+    expect((await api(me)(`/cards/${qs[0]!.share_id}/answer`, { body: { answer: "Yes" } })).status).toBe(200);
+    // The run has gone on: nothing waits on the question any more.
+    const waits = () =>
+      inSpace(me, (sql) => Number(sql.exec(`select count(*) as n from workflow_waits`).one().n));
+    for (let i = 0; i < 40 && (await waits()) > 0; i++) await new Promise((r) => setTimeout(r, 200));
+    expect(await waits()).toBe(0);
+    await api(me)("/collections/Test Done Asks", { method: "DELETE" });
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}`, { method: "DELETE" })).status).toBe(200);
+    const after = await asked();
+    expect(after.map((q) => q.text)).toEqual([""]);
+    expect(after[0]!.revoked).not.toBeNull();
+    const answers = await inSpace(me, (sql) =>
+      Number(sql.exec(`select count(*) as n from question_answers`).one().n),
+    );
+    expect(answers).toBe(0);
+  });
+
   it("works out again the formulas that read it through a link when erased", async () => {
     // Codex on PR 230: {Client.Rate} * 2 still read 24 after Clients was erased.
     const me = await signUp("Test Owner");
@@ -660,11 +707,18 @@ describe("deleting a list", () => {
     }
     const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
     const stub = env.SPACES.getByName(`space:${space!.id}`);
-    await inSpace(me, (sql) => sql.exec(`delete from workflow_notes`));
-    await stub.nudgeNow({ userId: me.id, source: "web" }, null, waitId!);
-    const tagged = await inSpace(me, (sql) =>
-      sql.exec<{ workflow_id: string | null }>(`select workflow_id from workflow_notes`).toArray(),
-    );
+    // Nudged and read in one go inside the space, before its alarm can send them (CI: they
+    // were sometimes gone already).
+    const tagged = await runInDurableObject(stub, async (instance, state) => {
+      state.storage.sql.exec(`delete from workflow_notes`);
+      const space = instance as unknown as {
+        nudgeNow: (a: { userId: string; source: string }, k: null, id: string) => Promise<unknown>;
+      };
+      await space.nudgeNow({ userId: me.id, source: "web" }, null, waitId!);
+      return state.storage.sql
+        .exec<{ workflow_id: string | null }>(`select workflow_id from workflow_notes`)
+        .toArray();
+    });
     expect(tagged.length).toBeGreaterThan(0);
     expect(tagged.every((n) => n.workflow_id === flow.id)).toBe(true);
     await api(me)("/collections/Test Nudged", { method: "DELETE" });

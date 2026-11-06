@@ -609,6 +609,13 @@ const MIGRATIONS: Migrations = [
   alter table workflow_notes add column workflow_id text;
   create index workflow_notes_workflow_idx on workflow_notes (workflow_id);
   `,
+  // Which flow and record a workflow's question came from, so erasing a list erases them all,
+  // answered ones too (Codex on PR 230).
+  `
+  alter table questions add column workflow_id text;
+  alter table questions add column record_id text;
+  create index questions_workflow_idx on questions (workflow_id);
+  `,
 ];
 
 type ViewQuery = {
@@ -4145,6 +4152,21 @@ export class SpaceObject extends DurableObject<Env> {
     const trash = this.sql
       .exec<{ took_json: string }>(`select took_json from list_trash where collection_id = ?`, id)
       .toArray()[0];
+    // And every question its flows asked, answered ones too: their text can quote the records.
+    this.eraseStashedQuestions(
+      {
+        questions: this.sql
+          .exec<{ id: string }>(
+            `select id from questions where workflow_id in (select id from workflows where collection_id = ?)
+             or record_id in (select id from records where collection_id = ?)`,
+            id,
+            id,
+          )
+          .toArray()
+          .map((q) => q.id),
+      },
+      ts,
+    );
     if (trash)
       this.eraseStashedQuestions(
         (JSON.parse(trash.took_json) as { runs?: { waits?: unknown[]; questions?: string[] } }).runs,
@@ -9546,13 +9568,16 @@ export class SpaceObject extends DurableObject<Env> {
           ts,
         );
         this.sql.exec(
-          `insert into questions (id, text, choices_json, share_id, created_by, created_at) values (?, ?, ?, ?, ?, ?)`,
+          `insert into questions (id, text, choices_json, share_id, created_by, created_at, workflow_id, record_id)
+           values (?, ?, ?, ?, ?, ?, ?, ?)`,
           questionId,
           text,
           a.choices ? JSON.stringify(a.choices) : null,
           shareId,
           w.created_by,
           ts,
+          w.id,
+          r?.id ?? null,
         );
         for (const p of people)
           this.sql.exec(
