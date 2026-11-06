@@ -430,6 +430,14 @@ describe("deleting a list", () => {
       { name: "Quad", type: "number", options: { formula: "{Double} * 2" } },
     ])
       expect((await api(me)("/collections/Test Gigs/fields", { body: { field } })).status).toBe(201);
+    // A view filtered on the link that stays behind (Codex on PR 230).
+    expect(
+      (
+        await api(me)("/views", {
+          body: { name: "Test No firm", collection: "Test Gigs", filters: [{ field: "Firm", op: "empty" }] },
+        })
+      ).status,
+    ).toBe(201);
     await api(me)("/collections/Test Firms", { method: "DELETE" });
     const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
     const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(

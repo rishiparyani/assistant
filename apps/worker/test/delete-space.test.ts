@@ -180,6 +180,19 @@ describe("deleting a space", () => {
     expect(await waiting()).toBe(0);
   });
 
+  it("tells the screens that have it open that it's gone", async () => {
+    // Codex on PR 230: the deleted space's change note never went out, so open homes kept it.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Seen" } }));
+    const stub = env.SPACES.getByName(`space:${sp.id}`);
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    await runDurableObjectAlarm(stub);
+    const left = await runInDurableObject(stub, async (_i, state) =>
+      Number(state.storage.sql.exec(`select count(*) as n from _outbox`).one().n),
+    );
+    expect(left).toBe(0);
+  });
+
   it("erases its rehearsals' copies with it", async () => {
     // Codex on PR 230: the copies were hidden but kept the data for good.
     const me = await signUp("Test Owner");

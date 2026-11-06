@@ -2114,10 +2114,11 @@ export class SpaceObject extends DurableObject<Env> {
     // up. It wakes next for that, or to be erased, not for what it's holding back.
     if (spaceAt) {
       const searchIn = await this.syncSearch();
+      // Open screens still hear that it changed (it's gone), so they drop it (Codex on PR 230).
+      const liveIn = await this.pingLive();
       const eraseAt = Date.parse(spaceAt) + TRASH_DAYS * 86_400_000;
-      await this.ctx.storage.setAlarm(
-        Math.max(Date.now() + 50, Math.min(eraseAt, ...(searchIn === null ? [] : [Date.now() + searchIn]))),
-      );
+      const soon = [searchIn, liveIn].flatMap((ms) => (ms === null ? [] : [Date.now() + ms]));
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, Math.min(eraseAt, ...soon)));
       return;
     }
     this.eraseDue();
@@ -2796,7 +2797,9 @@ export class SpaceObject extends DurableObject<Env> {
     const cond = (collectionId: string, f: { field: string; op: FilterOp; value?: unknown }) => {
       const row = this.fieldRows(collectionId).find((x) => x.id === f.field);
       // A filter on a link holds record ids: data, not setup ("is empty" / "isn't empty" travel).
-      if (!row || (row.type === "link" && f.op !== "empty" && f.op !== "not_empty")) return null;
+      // Nor one on a field left behind (Codex on PR 230: "Client is empty" with Client gone).
+      if (!row || dangling(row) || (row.type === "link" && f.op !== "empty" && f.op !== "not_empty"))
+        return null;
       return { field: row.name, op: f.op, ...(f.value === undefined ? {} : { value: f.value }) };
     };
     const conds = (collectionId: string, list: { field: string; op: FilterOp; value?: unknown }[]) =>
