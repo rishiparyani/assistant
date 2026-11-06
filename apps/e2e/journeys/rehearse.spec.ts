@@ -474,9 +474,13 @@ test("a share taken back while open stops showing, and one can be left", async (
   await page.goto(`/open-share?id=${taken}`);
   await expect(page.getByText(`E2E Post office ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
   await api(me)("DELETE", `/shares/${taken}`);
+  // The page may hear of it first and clear itself (CI, 2026-11-06); if not, the next change
+  // finds out.
   const title = page.locator('input[aria-label="Title"]').first();
-  await title.fill(`E2E Post office later ${RUN}`);
-  await title.press("Enter");
+  if (await title.isVisible().catch(() => false)) {
+    await title.fill(`E2E Post office later ${RUN}`).catch(() => undefined);
+    await title.press("Enter").catch(() => undefined);
+  }
   await expect(page.getByText("This isn't shared with you any more.")).toBeVisible();
   await expect(page.locator('input[aria-label="Title"]')).toHaveCount(0);
 

@@ -59,13 +59,17 @@ describe("faster answers", () => {
     for (let n = 0; n < 4; n++) expect(await take(60)).toBe(true);
     expect(await take(60)).toBe(false);
     expect(await Promise.all([take(60), take(60)])).toEqual([false, false]);
-    // Slots from earlier today don't count for the minute, but do for the day.
+    // The day's cap counts every slot of the day (a wide minute shows it alone): the fifth fits
+    // a cap of 5, the sixth doesn't, a bigger cap still has room.
+    expect(await take(5, 99)).toBe(true);
+    expect(await take(5, 99)).toBe(false);
+    expect(await take(60, 99)).toBe(true);
+    // Slots from over a minute ago don't count for the minute. (Moved back a minute only, so a
+    // run just after midnight UTC doesn't push them into yesterday: CI, 2026-11-06.)
     await runInDurableObject(stub, async (_i, state) => {
-      state.storage.sql.exec(`update fast_slots set at = ?`, new Date(Date.now() - 5 * 60_000).toISOString());
+      state.storage.sql.exec(`update fast_slots set at = ?`, new Date(Date.now() - 61_000).toISOString());
     });
-    expect(await take(5)).toBe(true);
-    expect(await take(5)).toBe(false);
-    expect(await take(60)).toBe(true);
+    expect(await take(600)).toBe(true);
     // Other models' slots don't count.
     expect(await stub.takeFastSlot("@cf/zai-org/glm-4.7-flash", 5, 4)).toBe(true);
   });
