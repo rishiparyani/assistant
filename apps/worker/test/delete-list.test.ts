@@ -256,7 +256,8 @@ describe("deleting a list", () => {
     const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
     expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
     const back = await json<RecordView>(await api(me)(`/records/${rec.id}`));
-    expect(JSON.stringify(back)).not.toContain("999");
+    // The values only: a field id can have 999 in it by chance (CI, 2026-11-06).
+    expect(Object.values(back.values)).not.toContain(999);
     expect(Object.values(back.values)).toContain(6);
   });
 

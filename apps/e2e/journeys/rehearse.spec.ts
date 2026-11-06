@@ -395,17 +395,14 @@ test("a money field changed on a shared list saves the amount typed", async ({ b
   const amount = page.locator('input[aria-label="Amount"]').first();
   await amount.fill("10");
   await amount.press("Enter");
+  // The values only: an id can have these digits in it by chance. ₹10 is 1000 paise.
   await expect
-    .poll(async () => {
-      const r = (await api(me)("GET", `/records/${rec.id}`)) as {
-        values: Record<string, unknown>;
-        named?: Record<string, unknown>;
-      };
-      return JSON.stringify(r);
-    })
-    .toContain("1000");
-  const r = (await api(me)("GET", `/records/${rec.id}`)) as { values: Record<string, unknown> };
-  expect(JSON.stringify(r)).not.toContain("100000");
+    .poll(async () =>
+      Object.values(
+        ((await api(me)("GET", `/records/${rec.id}`)) as { values: Record<string, unknown> }).values,
+      ),
+    )
+    .toContain(1000);
   expect(errors).toEqual([]);
   await context.close();
 });
@@ -569,10 +566,14 @@ test("a money field changed on a sent form saves the amount typed", async ({ bro
   const amount = page.locator('input[aria-label="Amount"]').last();
   await amount.fill("10");
   await amount.press("Enter");
+  // The values only: an id can have these digits in it by chance. ₹10 is 1000 paise.
   await expect
-    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${sent.id}`)))
-    .toContain("1000");
-  expect(JSON.stringify(await api(me)("GET", `/records/${sent.id}`))).not.toContain("100000");
+    .poll(async () =>
+      Object.values(
+        ((await api(me)("GET", `/records/${sent.id}`)) as { values: Record<string, unknown> }).values,
+      ),
+    )
+    .toContain(1000);
   expect(errors).toEqual([]);
   await context.close();
 });
