@@ -536,3 +536,87 @@ test("a slow comments load doesn't take back a comment just sent", async ({ brow
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a money field changed on a sent form saves the amount typed", async ({ browser }) => {
+  // Codex on PR 230: a form's own sent records weren't looked at for their field types, so ₹10
+  // typed there saved as ₹1,000.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Form friend ${RUN}`);
+  const list = `E2E Claims ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+    ],
+  });
+  const made = (await api(me)("POST", "/shares", { form: list, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+  const form = (await api(friend)("POST", `/cards/${made.share.id}/records`, {
+    section: "form",
+    values: { Title: `E2E Taxi ${RUN}`, Amount: "5" },
+  })) as { mine: { id: string }[] };
+  const sent = { id: form.mine[0]!.id };
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Taxi ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  // The sent record's Amount, after the form's own empty one.
+  const amount = page.locator('input[aria-label="Amount"]').last();
+  await amount.fill("10");
+  await amount.press("Enter");
+  await expect
+    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${sent.id}`)))
+    .toContain("1000");
+  expect(JSON.stringify(await api(me)("GET", `/records/${sent.id}`))).not.toContain("100000");
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a comment sent again after its answer was lost is posted once", async ({ browser }) => {
+  // Codex on PR 230: the retry had a new id and key, so the comment showed twice.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Lost friend ${RUN}`);
+  const list = `E2E Chores ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Laundry ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // The first post reaches the app's server, but its answer never comes back.
+  let lost = false;
+  await context.route("**/comments", async (route) => {
+    if (route.request().method() === "POST" && !lost) {
+      lost = true;
+      await route.fetch();
+      return route.abort("connectionreset");
+    }
+    await route.continue();
+  });
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Laundry ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Add a comment").fill(`E2E fold towels ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => lost).toBe(true);
+  // Still typed: send it again.
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(`E2E fold towels ${RUN}`).first()).toBeVisible();
+  await page.waitForTimeout(1000);
+  await expect(page.getByText(`E2E fold towels ${RUN}`)).toHaveCount(1);
+  const all = (await api(me)("GET", `/records/${rec.id}/comments`)) as { body: string }[];
+  expect(all.filter((c) => c.body === `E2E fold towels ${RUN}`)).toHaveLength(1);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|connection/i.test(e))).toEqual([]);
+  await context.close();
+});

@@ -233,6 +233,8 @@ function typeOf(opened: SharedOpened, recordId: string, fieldId: string): string
     ...("records" in opened ? opened.records : []),
     ...("record" in opened ? [opened.record] : []),
     ...("sections" in opened ? opened.sections.flatMap((x) => x.records) : []),
+    // A form's own submitted records, editable on the form (Codex on PR 230).
+    ...("mine" in opened && Array.isArray(opened.mine) ? opened.mine : []),
   ] as { id: string; fields: { id: string; type: string }[] }[];
   return records.find((r) => r.id === recordId)?.fields.find((f) => f.id === fieldId)?.type;
 }

@@ -54,13 +54,21 @@ export function SharedComments({
     void load();
   }, [load, refresh]);
 
+  const draft = useRef<{ where: string; body: string; id: string; key: string } | null>(null);
   const send = async () => {
     const text = body.trim();
     if (!text || busy) return;
     setBusy(true);
     try {
-      // One id per comment typed: a retry of the same send is the same comment.
-      await request("POST", `${base}/records/${enc(recordId)}/comments`, { id: ulid(), body: text });
+      // One id and one request key per comment typed, kept until it's known to have landed: a
+      // retry after a lost answer is the same comment, not a second one (Codex on PR 230).
+      const where = `${base}/records/${enc(recordId)}/comments`;
+      const d =
+        draft.current?.where === where && draft.current.body === text
+          ? draft.current
+          : (draft.current = { where, body: text, id: ulid(), key: ulid() });
+      await request("POST", where, { id: d.id, body: text }, d.key);
+      if (draft.current === d) draft.current = null;
       setBody("");
       setNote("");
       await load();
