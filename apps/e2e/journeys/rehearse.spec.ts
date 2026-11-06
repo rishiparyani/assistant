@@ -661,3 +661,33 @@ test("a form sent again after its answer was lost adds one record", async ({ bro
   expect(errors.filter((e) => !/Failed to fetch|NetworkError|connection/i.test(e))).toEqual([]);
   await context.close();
 });
+
+test("an open shared card shows the owner's changes without a pull", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page never heard of changes, so it showed old values
+  // until pulled.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Live friend ${RUN}`);
+  const list = `E2E Outings ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Zoo ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "view" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Zoo ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("No comments yet.")).toBeVisible();
+  // The owner changes it and says something about it, elsewhere.
+  await api(me)("PATCH", `/records/${rec.id}`, { values: { Title: `E2E Aquarium ${RUN}` } });
+  await api(me)("POST", `/records/${rec.id}/comments`, { body: `E2E bring snacks ${RUN}` });
+  await expect(page.getByText(`E2E Aquarium ${RUN}`).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(`E2E bring snacks ${RUN}`)).toBeVisible({ timeout: 20_000 });
+  expect(errors).toEqual([]);
+  await context.close();
+});

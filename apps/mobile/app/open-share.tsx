@@ -13,6 +13,7 @@ import { ulid, type SharedOpened, type StoredValue } from "@assistant/shared";
 import { ApiError, isOffline, request } from "@/api";
 import { SharedComments } from "@/components/SharedComments";
 import { SharedPage } from "@/components/SharedPage";
+import { useLive } from "@/live-socket";
 import { BackIcon } from "@/components/HeaderIcons";
 import { homeChanged } from "@/home";
 import { useTheme } from "@/theme";
@@ -68,6 +69,18 @@ export default function Shared() {
   useEffect(() => {
     void load();
   }, [load]);
+  // Live: the owner changing it, closing a question or taking it back shows here without a
+  // pull, comments too, as the website's shared page did (Codex on PR 230).
+  const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useLive((m) => {
+    if (m.type !== "space_changed" && m.type !== "reconnected") return;
+    clearTimeout(liveLoad.current);
+    liveLoad.current = setTimeout(() => {
+      void load();
+      setPulls((n) => n + 1);
+    }, 400);
+  });
+  useEffect(() => () => clearTimeout(liveLoad.current), []);
 
   const run = (key: string, go: () => Promise<unknown>) => {
     if (busy) return;
