@@ -62,7 +62,14 @@ test("a space is deleted from its page and brought back from Recently deleted", 
   const { page, errors, context } = await openApp(browser, me);
   await page.goto(`/space?id=${sp.id}`);
   await page.getByRole("tab", { name: /People/ }).click();
-  await page.getByRole("button", { name: "Delete this space" }).click();
+  // The owner's tools show once the people have loaded (twice on CI the button never came
+  // within 15 s, never locally): wait for them, and say what the page showed if they don't.
+  const del = page.getByRole("button", { name: "Delete this space" });
+  await del.waitFor({ timeout: 45_000 }).catch(async () => {
+    const shown = (await page.locator("body").innerText()).slice(0, 1500);
+    throw new Error(`No Delete this space; the page shows:\n${shown}`);
+  });
+  await del.click();
   await expect(page.getByText(`Delete “${name}”?`)).toBeVisible();
   await expectNoSideways(page);
   await page.getByRole("button", { name: `Delete ${name}` }).click();
