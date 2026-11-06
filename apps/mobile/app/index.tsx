@@ -285,9 +285,9 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       pathname: "/list",
       params: { collection, ...(view ? { view } : {}), ...(spaceId ? { space: spaceId } : {}) },
     });
-  // online-only: the website's shared pages (a form to fill in) open in the browser.
-  const openOnWeb = (card: HomeCard) =>
-    card.shared && void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(card.shared.share_id)}`);
+  // Shared things open in the app (a rehearsal plays the person there; the website is outside it).
+  const openShared = (card: HomeCard) =>
+    card.shared && router.push({ pathname: "/open-share", params: { id: card.shared.share_id } });
   const openAssistant = () => {
     const last = userId ? lastChat(userId) : null;
     openChat(last ? { id: last } : {});
@@ -511,7 +511,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
               pathname: "/process",
               params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
             });
-          else openOnWeb(card);
+          else openShared(card);
         }}
         onOpenList={(id, sp) => {
           setQuery("");
@@ -601,7 +601,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
               <Card
                 card={card}
                 natural
-                onOpen={() => openOnWeb(card)}
+                onOpen={() => openShared(card)}
                 onOpenRecord={(record) => setOpened(sharedItem(card, record))}
               />
             </Boundary>

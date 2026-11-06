@@ -2,10 +2,9 @@
 // form waiting on me, each with its buttons, at the top of the Inbox. Reads what Today keeps on
 // the device first (offline-first rule 17).
 import { useCallback, useEffect, useState } from "react";
-import { Linking, View } from "react-native";
+import { View } from "react-native";
 import { Boundary, Card, Text, type } from "@assistant/cards/native";
 import { useRouter } from "expo-router";
-import { API_URL } from "@/config";
 import { isOffline } from "@/api";
 import { answerWaiting, nudgeWaiting, onHomeChanged, type HomeCard } from "@/home";
 import { loadToday, savedToday, type Today } from "@/today";
@@ -55,9 +54,9 @@ export function NeedsList({
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
 
-  // online-only: the website's shared pages (a form to fill in) open in the browser.
-  const openOnWeb = (card: HomeCard) =>
-    card.shared && void Linking.openURL(`${API_URL}/shared/${encodeURIComponent(card.shared.share_id)}`);
+  // Shared things open in the app (a rehearsal plays the person there; the website is outside it).
+  const openShared = (card: HomeCard) =>
+    card.shared && router.push({ pathname: "/open-share", params: { id: card.shared.share_id } });
   // online-only: answering a step runs it on the server, which moves the workflow on.
   const act = (card: HomeCard, go: () => Promise<unknown>) => async () => {
     setBusy(card.id);
@@ -92,7 +91,7 @@ export function NeedsList({
                     params: { id: card.waiting.workflow_id, waiting: JSON.stringify(card.waiting) },
                   })
                 : card.shared?.kind === "form"
-                  ? openOnWeb(card)
+                  ? openShared(card)
                   : undefined
             }
             onAnswer={

@@ -237,7 +237,8 @@ function Fields({
   onSet: (recordId: string, fieldId: string, value: StoredValue) => Promise<unknown>;
 }) {
   const { t } = useTheme();
-  const fields = record.fields.filter((f) => !f.title && (f.editable || shownOf(f)));
+  // The title too when they may change it (Codex on PR 230: shared records couldn't be renamed).
+  const fields = record.fields.filter((f) => f.editable || (!f.title && shownOf(f)));
   if (!fields.length) return null;
   return (
     <View style={[s.box, { backgroundColor: t.cell, borderColor: t.hair }]}>
@@ -270,7 +271,7 @@ function Row(props: {
 }) {
   const { t } = useTheme();
   const { record } = props;
-  const editable = record.fields.some((f) => f.editable && !f.title);
+  const editable = record.fields.some((f) => f.editable);
   const line = record.fields
     .filter((f) => !f.title && !f.editable)
     .map(shownOf)

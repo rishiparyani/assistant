@@ -21,6 +21,8 @@ import { readJson, writeJson } from "@/storage";
 import { colourFor, useTheme } from "@/theme";
 import { Avatar, when } from "@/components/ChatBits";
 import { SpaceNewChat } from "@/components/SpaceNewChat";
+import { Sheet } from "@/components/Sheet";
+import { TRASH_DAYS } from "@assistant/shared";
 
 /** The personal space's key in Today's rows. */
 const PERSONAL = "p";
@@ -58,6 +60,9 @@ export default function SpacePage() {
   const { chats: chatList, reload: reloadChats } = useChats();
   const chats = chatList ?? [];
   const [starting, setStarting] = useState(false);
+  // Deleting the space (decision 2026-11-05 "The space is the setup"): asked first.
+  const [deleting, setDeleting] = useState<"ask" | "busy" | null>(null);
+  const [deleteNote, setDeleteNote] = useState("");
   const assistant = me?.assistant !== false;
 
   useEffect(() => {
@@ -70,31 +75,34 @@ export default function SpacePage() {
   const load = useCallback(async () => {
     if (!userId) return;
     const where = id === PERSONAL ? "" : `?space=${enc(id)}`;
-    try {
-      const [fresh, wf, sp] = await Promise.all([
+    // The people load on their own: a slow or failed Today or workflows load doesn't keep them
+    // (and the owner's tools, like Delete this space) off the page.
+    const peopleLoad = (async () => {
+      const sp =
+        spaceId ?? (await request<SpaceView[]>("GET", "/api/spaces")).find((x) => x.kind === "personal")?.id;
+      if (!sp) return;
+      setSpaceId(sp);
+      const ps = await request<SpacePerson[]>("GET", `/api/spaces/${enc(sp)}/people`);
+      setPeople(ps);
+      writeJson(saved("people"), ps);
+    })();
+    const restLoad = (async () => {
+      const [fresh, wf] = await Promise.all([
         loadToday(userId),
         request<WorkflowView[]>("GET", `/api/workflows${where}`),
-        spaceId
-          ? Promise.resolve(spaceId)
-          : request<SpaceView[]>("GET", "/api/spaces").then(
-              (all) => all.find((x) => x.kind === "personal")?.id,
-            ),
       ]);
       setToday(fresh);
       setWorkflows(wf);
       writeJson(saved("workflows"), wf);
-      if (sp) {
-        setSpaceId(sp);
-        const ps = await request<SpacePerson[]>("GET", `/api/spaces/${enc(sp)}/people`);
-        setPeople(ps);
-        writeJson(saved("people"), ps);
-      }
-      setNote("");
-    } catch (e) {
-      setNote(
-        isOffline(e) ? "Offline: showing what this phone saved." : e instanceof Error ? e.message : String(e),
-      );
-    }
+    })();
+    const failed = (await Promise.allSettled([peopleLoad, restLoad])).find(
+      (r): r is PromiseRejectedResult => r.status === "rejected",
+    );
+    if (!failed) return setNote("");
+    const e = failed.reason as unknown;
+    setNote(
+      isOffline(e) ? "Offline: showing what this phone saved." : e instanceof Error ? e.message : String(e),
+    );
   }, [userId, id, spaceId]);
   useEffect(() => {
     void load();
@@ -438,6 +446,32 @@ export default function SpacePage() {
   ) : (
     <Text style={[s.empty, { color: t.fg3 }]}>Loading…</Text>
   );
+  const owner = !!people?.some((p) => p.user_id === userId && p.role === "owner");
+  const spaceTools =
+    !personal && spaceId ? (
+      <>
+        {section("This space", "")}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push({ pathname: "/trash", params: { space: spaceId } })}
+          style={rowStyle}
+        >
+          <View style={[s.dot, { backgroundColor: t.fg3 }]} />
+          <View style={s.words}>
+            <Text style={[s.rowTitle, { color: t.fg }]}>Recently deleted</Text>
+          </View>
+          <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
+        </Pressable>
+        {owner ? (
+          <Pressable accessibilityRole="button" onPress={() => setDeleting("ask")} style={rowStyle}>
+            <View style={[s.dot, { backgroundColor: t.danger }]} />
+            <View style={s.words}>
+              <Text style={[s.rowTitle, { color: t.danger }]}>Delete this space</Text>
+            </View>
+          </Pressable>
+        ) : null}
+      </>
+    ) : null;
 
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 6 }]}>
@@ -504,6 +538,7 @@ export default function SpacePage() {
         >
           {note ? <Text style={[s.note, { color: t.fg2 }]}>{note}</Text> : null}
           {tab === "chats" ? chatsTab : tab === "lists" ? listsTab : tab === "flows" ? flowsTab : peopleTab}
+          {tab === "people" ? spaceTools : null}
         </ScrollView>
         <Composer about={{ kind: "space", title: name }} params={chatIn} />
       </View>
@@ -520,6 +555,62 @@ export default function SpacePage() {
           }}
         />
       ) : null}
+      <Sheet
+        open={!!deleting}
+        onClose={() => {
+          setDeleting(null);
+          setDeleteNote("");
+        }}
+        gap={10}
+        accessibilityLabel="Delete this space"
+      >
+        <Text style={[type.heading, { color: t.fg }]} numberOfLines={2}>
+          Delete “{name}”?
+        </Text>
+        <Text style={{ color: t.fg2, fontSize: 15, lineHeight: 21 }}>
+          Everything in it goes: its lists, flows and links, for everyone in it. You can bring it all back
+          from Recently deleted for {TRASH_DAYS} days.
+        </Text>
+        {deleteNote ? <Text style={{ color: t.danger, fontSize: 14 }}>{deleteNote}</Text> : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${name}`}
+          disabled={deleting === "busy"}
+          onPress={() =>
+            void (async () => {
+              if (!spaceId) return;
+              setDeleting("busy");
+              try {
+                // online-only: a space is deleted on the server, for everyone in it.
+                await request("DELETE", `/api/spaces/${enc(spaceId)}`);
+                setDeleting(null);
+                router.replace("/");
+              } catch (e) {
+                setDeleting("ask");
+                setDeleteNote(
+                  isOffline(e)
+                    ? "Deleting a space needs a connection."
+                    : e instanceof Error
+                      ? e.message
+                      : String(e),
+                );
+              }
+            })()
+          }
+          style={[s.sheetBtn, { backgroundColor: t.danger, opacity: deleting === "busy" ? 0.6 : 1 }]}
+        >
+          <Text style={{ color: t.onAccent, fontSize: 16, fontWeight: "700" }}>
+            {deleting === "busy" ? "Deleting…" : "Delete the space"}
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => setDeleting(null)}
+          style={[s.sheetBtn, { backgroundColor: t.cell }]}
+        >
+          <Text style={{ color: t.fg, fontSize: 16, fontWeight: "600" }}>Keep it</Text>
+        </Pressable>
+      </Sheet>
       <RecordSheet
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
@@ -568,6 +659,13 @@ function Lock({ colour }: { colour: string }) {
 }
 
 const s = StyleSheet.create({
+  sheetBtn: {
+    minHeight: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 16,
+  },
   root: { flex: 1 },
   column: { flex: 1, width: "100%", maxWidth: 760, alignSelf: "center" },
   top: { paddingHorizontal: 16, paddingBottom: 10, flexDirection: "row", alignItems: "center", gap: 10 },

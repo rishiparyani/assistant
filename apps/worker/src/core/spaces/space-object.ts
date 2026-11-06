@@ -20,6 +20,7 @@ import {
   type ChangesView,
   type NotificationsView,
   type TrashItem,
+  type DeletedList,
   type CommentView,
   type CollectionView,
   type FieldOptions,
@@ -591,6 +592,38 @@ const MIGRATIONS: Migrations = [
   // Who a link is for ("Guards"): shown with it, and the name its stand-in plays in a
   // rehearsal before anyone has joined (owner, 2026-11-05: "I can't rehearse as the guard").
   `alter table shares add column for_whom text;`,
+  // Deleting a list (owner, 2026-11-05: "How do I delete the setup?"): what its delete took
+  // with it (its views, flows, rules and links), so restoring brings back exactly those.
+  `
+  create table list_trash (
+    collection_id text primary key,
+    deleted_at text not null,
+    deleted_by text,
+    source text not null,
+    took_json text not null
+  ) without rowid;
+  `,
+  // Which workflow a waiting message came from, so a deleted list holds back its own messages
+  // with its runs (Codex on PR 230).
+  `
+  alter table workflow_notes add column workflow_id text;
+  create index workflow_notes_workflow_idx on workflow_notes (workflow_id);
+  `,
+  // Which flow and record a workflow's question came from, so erasing a list erases them all,
+  // answered ones too (Codex on PR 230).
+  `
+  alter table questions add column workflow_id text;
+  alter table questions add column record_id text;
+  create index questions_workflow_idx on questions (workflow_id);
+  `,
+  // A question still waiting for its answer knows its flow and record from its wait: fill them
+  // in, so erasing a list finds it without guessing from its words (Codex on PR 230).
+  `
+  update questions set
+    workflow_id = (select w.workflow_id from workflow_waits w where w.question_id = questions.id limit 1),
+    record_id = (select w.record_id from workflow_waits w where w.question_id = questions.id limit 1)
+  where workflow_id is null and exists (select 1 from workflow_waits w where w.question_id = questions.id);
+  `,
 ];
 
 type ViewQuery = {
@@ -888,7 +921,7 @@ const MAX_WORKFLOW_DEPTH = 3;
 /** A process nudges the people it waits on at most this often. */
 const MAX_NUDGES = 10;
 /** Someone to tell after a run; a question's share also goes in their "shared with me". */
-type Tell = { userId: string; n: NewNotification & { share_id?: string } };
+type Tell = { userId: string; n: NewNotification & { share_id?: string }; workflowId?: string | null };
 /** A rehearsal's "choose" step: the person answers as the app, or says it wouldn't be sure. */
 const THE_APP = "the app";
 const NOT_SURE = "Not sure";
@@ -1122,7 +1155,17 @@ export class SpaceObject extends DurableObject<Env> {
         `select min(deleted_at) as at from records where deleted_at is not null and purged_at is null`,
       )
       .toArray()[0];
-    return row?.at ? Date.parse(row.at) + TRASH_DAYS * 86_400_000 : null;
+    const list = this.sql
+      .exec<{ at: string | null }>(`select min(deleted_at) as at from list_trash`)
+      .toArray()[0];
+    const space =
+      getMeta(this.sql, "space_deleted_at") && !getMeta(this.sql, "space_erased")
+        ? getMeta(this.sql, "space_deleted_at")
+        : null;
+    const times = [row?.at, list?.at, space]
+      .filter((t): t is string => !!t)
+      .map((t) => Date.parse(t) + TRASH_DAYS * 86_400_000);
+    return times.length ? Math.min(...times) : null;
   }
 
   // --- Space and members ---------------------------------------------------------------
@@ -1496,12 +1539,19 @@ export class SpaceObject extends DurableObject<Env> {
       else if (f.type === "person" && f.required && this.practice) {
         const p = this.standIn(f.name);
         out[f.id] = { user_id: p.user_id, name: p.name };
-      } else if (f.type === "link") {
+      } else if (
+        f.type === "link" &&
+        // Not into a deleted list (Codex on PR 230).
+        (!o.target ||
+          this.sql.exec(`select 1 from collections where id = ? and deleted_at is null`, o.target).toArray()
+            .length)
+      ) {
         const first = this.sql
           .exec<{ id: string }>(
             o.target
               ? `select id from records where collection_id = ? and deleted_at is null order by created_at limit 1`
-              : `select id from records where deleted_at is null and collection_id != ? order by created_at limit 1`,
+              : `select id from records where deleted_at is null and collection_id != ?
+                 and collection_id in (select id from collections where deleted_at is null) order by created_at limit 1`,
             o.target ?? c.id,
           )
           .toArray()[0];
@@ -1688,6 +1738,135 @@ export class SpaceObject extends DurableObject<Env> {
       (JSON.parse(getMeta(this.sql, "practice_standins") ?? "{}") as Record<string, string>)[userId] ??
       "Someone"
     );
+  }
+
+  /**
+   * Deletes this space, recoverably (owner, 2026-11-05: deleting the space deletes the setup):
+   * its links stop working, its flows stop (each remembered as on or off), and after
+   * TRASH_DAYS everything in it is erased. Only its owner can, and not a chat's home (the
+   * chat holds it) or a practice copy (End does that).
+   */
+  async deleteSpace(actor: Actor, key: string | null = null): Promise<{ name: string }> {
+    if (this.memberRole(actor.userId) !== "owner")
+      throw new ObjectError("forbidden", "Only the space's owner can delete it");
+    if (this.practice) throw new ObjectError("validation_failed", "A rehearsal ends with End");
+    const sp = this.sql
+      .exec<{ name: string; kind: string; group_id: string | null }>(`select name, kind, group_id from space`)
+      .toArray()[0];
+    if (!sp) throw new ObjectError("not_found", "Space not found");
+    if (sp.kind === "personal") throw new ObjectError("validation_failed", "Personal can't be deleted");
+    if (sp.group_id)
+      throw new ObjectError("validation_failed", "These are a chat's lists: they go when the chat does");
+    if (getMeta(this.sql, "space_deleted_at")) return { name: sp.name };
+    // Under its Idempotency-Key: a late retry after a restore answers as the first time did
+    // instead of deleting the space again (Codex on PR 230).
+    await this.write(
+      actor,
+      key,
+      ["delete_space"],
+      (ts) => {
+        const on = this.sql
+          .exec<{ id: string }>(`select id from workflows where enabled = 1 and deleted_at is null`)
+          .toArray()
+          .map((w) => w.id);
+        const all = this.sql
+          .exec<{ id: string }>(`select id from workflows where deleted_at is null`)
+          .toArray()
+          .map((w) => w.id);
+        setMeta(this.sql, "space_deleted_runs", JSON.stringify(this.stashRuns(all, ts)));
+        for (const id of on) this.sql.exec(`update workflows set enabled = 0 where id = ?`, id);
+        setMeta(this.sql, "space_deleted_flows", JSON.stringify(on));
+        setMeta(this.sql, "space_deleted_at", ts);
+        // Its copies leave everyone's search (Codex on PR 230: they stayed after the erase).
+        setMeta(this.sql, "search_drop", "1");
+        audit(this.sql, actor, { action: "delete_space", entityType: "space", entityId: "space" });
+        return { name: sp.name };
+      },
+      () => undefined,
+    );
+    // Search catches up now, not only on the next alarm (it lagged on a busy machine); the
+    // alarm stays set to retry what doesn't go through.
+    await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+    await this.syncSearch().catch(() => null);
+    await this.wakeForJobs();
+    return { name: sp.name };
+  }
+
+  /**
+   * The space list now says it's deleted or back: open screens hear it again, so one that
+   * reloaded on an earlier ping, before the list said so, doesn't keep the old answer (Codex on
+   * PR 230).
+   */
+  async listed(actor: Actor): Promise<void> {
+    if (this.memberRole(actor.userId) !== "owner") return;
+    if (!this.sql.exec(`select 1 from space`).toArray().length) return;
+    this.changed();
+  }
+
+  /** What a deleted space holds, for Recently deleted (null: not deleted, or erased). */
+  async deletedInfo(actor: Actor): Promise<{ deleted_at: string; lists: number } | null> {
+    if (this.memberRole(actor.userId) !== "owner") return null;
+    const at = getMeta(this.sql, "space_deleted_at");
+    if (!at || getMeta(this.sql, "space_erased")) return null;
+    const lists = this.sql
+      .exec<{ n: number }>(`select count(*) as n from collections where deleted_at is null`)
+      .toArray()[0]!.n;
+    return { deleted_at: at, lists };
+  }
+
+  /** Brings a deleted space back as it was: its links work again, its flows as they were. */
+  async restoreSpace(actor: Actor, key: string | null = null): Promise<void> {
+    // Erased (wiped whole after TRASH_DAYS): nothing is left to bring back.
+    if (!this.sql.exec(`select 1 from space`).toArray().length)
+      throw new ObjectError("not_found", "It isn't in Recently deleted");
+    if (this.memberRole(actor.userId) !== "owner")
+      throw new ObjectError("forbidden", "Only the space's owner can bring it back");
+    if (getMeta(this.sql, "space_erased")) throw new ObjectError("not_found", "It isn't in Recently deleted");
+    // Already back here (a retry after the space list wasn't updated): done, so the retry can
+    // finish (Codex on PR 230). The caller only gets here for a space the list says is deleted.
+    if (!getMeta(this.sql, "space_deleted_at")) return;
+    // Under its Idempotency-Key: a late retry after the space was deleted again answers as the
+    // first time did instead of bringing it back again (Codex on PR 230).
+    await this.write(
+      actor,
+      key,
+      ["restore_space"],
+      () => {
+        const on = JSON.parse(getMeta(this.sql, "space_deleted_flows") ?? "[]") as string[];
+        for (const id of on) {
+          this.sql.exec(`update workflows set enabled = 1 where id = ? and deleted_at is null`, id);
+          const w = this.sql
+            .exec<WorkflowRow>(`select * from workflows where id = ? and deleted_at is null`, id)
+            .toArray()[0];
+          // Its jobs come back as they were (below), not scheduled again (Codex on PR 230).
+          if (w && !getMeta(this.sql, "space_deleted_runs"))
+            this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
+        }
+        // Its formulas as of now, before its runs carry on with them.
+        // Again until nothing moves, so a total of totals settles too (Codex on PR 230).
+        this.recalcOthers("", nowIso());
+        const runs = getMeta(this.sql, "space_deleted_runs");
+        this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
+        setMeta(this.sql, "space_deleted_runs", "");
+        setMeta(this.sql, "space_deleted_flows", "");
+        setMeta(this.sql, "space_deleted_at", "");
+        // Back in everyone's search: every list is indexed again, a page at a time.
+        setMeta(this.sql, "search_drop", "");
+        const lists = this.sql
+          .exec<{ id: string }>(`select id from collections where deleted_at is null`)
+          .toArray()
+          .map((c) => ({ c: c.id, after: "" }));
+        setMeta(this.sql, "search_reindex", JSON.stringify(lists));
+        audit(this.sql, actor, { action: "restore_space", entityType: "space", entityId: "space" });
+        return null;
+      },
+      () => undefined,
+    );
+    // Search catches up now, not only on the next alarm (it lagged on a busy machine); the
+    // alarm stays set to retry what doesn't go through.
+    await this.ctx.storage.setAlarm(Date.now() + LIVE_DELAY_MS);
+    await this.syncSearch().catch(() => null);
+    await this.wakeForJobs();
   }
 
   /** Ends a practice copy: everything in it is erased (only practice copies can be). */
@@ -1947,6 +2126,25 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
+    // A deleted space past its time is erased whole, as ending a rehearsal is (Codex on PR 230:
+    // erasing it piece by piece left questions, answers and more behind).
+    const spaceAt = getMeta(this.sql, "space_deleted_at");
+    if (spaceAt && spaceAt <= new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString()) {
+      await wipeStorage(this.ctx);
+      return;
+    }
+    // A deleted space reaches nobody (Codex on PR 230: a message waiting to be sent still went
+    // out): its jobs and messages wait as they are for a restore, and only search is kept
+    // up. It wakes next for that, or to be erased, not for what it's holding back.
+    if (spaceAt) {
+      const searchIn = await this.syncSearch();
+      // Open screens still hear that it changed (it's gone), so they drop it (Codex on PR 230).
+      const liveIn = await this.pingLive();
+      const eraseAt = Date.parse(spaceAt) + TRASH_DAYS * 86_400_000;
+      const soon = [searchIn, liveIn].flatMap((ms) => (ms === null ? [] : [Date.now() + ms]));
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 50, Math.min(eraseAt, ...soon)));
+      return;
+    }
     this.eraseDue();
     this.refreshDaily();
     await this.runDueJobs();
@@ -1971,6 +2169,26 @@ export class SpaceObject extends DurableObject<Env> {
   private async syncSearch(): Promise<number | null> {
     // A practice copy isn't searched (its records would show twice).
     if (this.practice) return null;
+    // A deleted space: its copies are taken out of every member's index, and nothing is sent
+    // while it stays deleted (a restore indexes it all again).
+    if (getMeta(this.sql, "space_deleted_at")) {
+      if (!getMeta(this.sql, "search_drop")) return null;
+      const spaceId = this.sql.exec<{ id: string }>(`select id from space limit 1`).toArray()[0]?.id ?? "";
+      const results = await Promise.allSettled(
+        this.sql
+          .exec<{ user_id: string }>(`select user_id from members`)
+          .toArray()
+          .map((m) => searchOf(this.env, m.user_id).removeSpace(spaceId)),
+      );
+      const attempts = Number(getMeta(this.sql, "search_attempts") ?? "0") + 1;
+      if (results.some((r) => r.status === "rejected") && attempts < SEARCH_ATTEMPTS) {
+        setMeta(this.sql, "search_attempts", String(attempts));
+        return retryDelayMs(attempts);
+      }
+      setMeta(this.sql, "search_drop", "");
+      setMeta(this.sql, "search_attempts", "0");
+      return null;
+    }
     const from = Number(getMeta(this.sql, "search_seq") ?? "0");
     const rows = this.sql
       .exec<{ seq: number; kind: string; entity_id: string }>(
@@ -1996,7 +2214,8 @@ export class SpaceObject extends DurableObject<Env> {
       const next = reindex[0]!;
       const batch = this.sql
         .exec<{ id: string }>(
-          `select id from records where collection_id = ? and deleted_at is null and id > ? order by id limit 200`,
+          // Every record of the list, deleted and erased ones too: those are taken out.
+          `select id from records where collection_id = ? and id > ? order by id limit 200`,
           next.c,
           next.after,
         )
@@ -2154,7 +2373,8 @@ export class SpaceObject extends DurableObject<Env> {
     for (;;) {
       const batch = this.sql
         .exec<RecordRow>(
-          `select * from records where deleted_at is null and id > ? order by id limit 200`,
+          `select * from records where deleted_at is null and id > ?
+           and collection_id in (select id from collections where deleted_at is null) order by id limit 200`,
           after,
         )
         .toArray();
@@ -2530,11 +2750,113 @@ export class SpaceObject extends DurableObject<Env> {
     }
     // Closure over links: a link's target, and the list a rollup counts over.
     const nameOf = (id: string) => this.requireCollection(id).name;
+    // A link or count over a deleted list has nothing to travel with (Codex on PR 230: it broke
+    // sharing the lists that are left): it stays behind, as a field and wherever it's named.
+    const live = (id: string) =>
+      this.sql.exec(`select 1 from collections where id = ? and deleted_at is null`, id).toArray().length > 0;
+    const direct = (row: FieldRow) => {
+      const o = toField(row).options;
+      if (row.type === "link") return !!o.target && !live(o.target);
+      if (!o.rollup) return false;
+      const via = this.liveField(o.rollup.via);
+      if (!via) return false;
+      const other = o.rollup.dir === "in" ? via.collection_id : (toField(via).options.target ?? null);
+      return !live(via.collection_id) || (!!other && !live(other));
+    };
+    // And a formula reading one of those ({Client.Rate} once Client stays behind), or reading
+    // such a formula, and so on (Codex on PR 230: the setup couldn't be made).
+    // Across links too: {Client.Rate} once Clients' Rate stays behind (Codex on PR 230). Every
+    // list is worked out together until nothing more is left out.
+    const left = new Map<string, Set<string>>();
+    const leftOf = (collectionId: string): Set<string> => {
+      if (!left.size) {
+        const ids = this.sql
+          .exec<{ id: string }>(`select id from collections where deleted_at is null`)
+          .toArray()
+          .map((c) => c.id);
+        const rowsOf = new Map(ids.map((id) => [id, this.fieldRows(id)]));
+        for (const id of ids)
+          left.set(
+            id,
+            new Set(
+              rowsOf
+                .get(id)!
+                .filter(direct)
+                .map((r) => r.id),
+            ),
+          );
+        for (let grew = true; grew;) {
+          grew = false;
+          for (const id of ids) {
+            const rows = rowsOf.get(id)!;
+            const out = left.get(id)!;
+            // By name or any alias, as formulas resolve them (Codex on PR 230: {Customer.Rate}
+            // for a link named Client with the alias Customer).
+            const byName = new Map(
+              rows.flatMap((r) => [r.name, ...toField(r).aliases].map((n) => [nameKey(n), r] as const)),
+            );
+            for (const r of rows) {
+              if (out.has(r.id)) continue;
+              // A count or sum over a field left out on the other list (Codex on PR 230: a
+              // Total summing Clients' Fee once Fee stayed behind).
+              const ro = toField(r).options.rollup;
+              if (ro) {
+                const via = this.liveField(ro.via);
+                const other = via
+                  ? ro.dir === "in"
+                    ? via.collection_id
+                    : (toField(via).options.target ?? null)
+                  : null;
+                const there = other ? left.get(other) : undefined;
+                if (
+                  there &&
+                  ((ro.of && there.has(ro.of)) || (ro.where ?? []).some((w) => there.has(w.field)))
+                ) {
+                  out.add(r.id);
+                  grew = true;
+                }
+                continue;
+              }
+              const f = toField(r).options.formula;
+              if (!f) continue;
+              // The whole name first, as formulas resolve it (a field may be called "Fee.total"),
+              // then a link and the field on its list (Codex on PR 230).
+              const reads = [...f.matchAll(/\{([^}]+)\}/g)].map((m) => {
+                const raw = m[1]!.trim();
+                if (byName.has(nameKey(raw))) return [nameKey(raw)];
+                const dot = raw.indexOf(".");
+                return dot < 0 ? [nameKey(raw)] : [nameKey(raw.slice(0, dot)), nameKey(raw.slice(dot + 1))];
+              });
+              const gone = reads.some(([first, second]) => {
+                const head = first ? byName.get(first) : undefined;
+                if (!head) return false;
+                if (out.has(head.id)) return true;
+                if (!second || head.type !== "link") return false;
+                const target = toField(head).options.target;
+                const field = target
+                  ? rowsOf
+                      .get(target)
+                      ?.find((x) => [x.name, ...toField(x).aliases].some((n) => nameKey(n) === second))
+                  : undefined;
+                return !!field && !!left.get(target!)?.has(field.id);
+              });
+              if (gone) {
+                out.add(r.id);
+                grew = true;
+              }
+            }
+          }
+        }
+      }
+      return left.get(collectionId) ?? new Set();
+    };
+    const dangling = (row: FieldRow) => leftOf(row.collection_id).has(row.id);
     for (;;) {
       const before = picked.size;
       for (const c of [...picked.values()])
         for (const f of this.fieldRows(c.id)) {
           const o = toField(f).options;
+          if (dangling(f)) continue;
           if (f.type === "link" && o.target && !picked.has(o.target))
             picked.set(o.target, this.requireCollection(o.target));
           if (o.rollup) {
@@ -2555,12 +2877,16 @@ export class SpaceObject extends DurableObject<Env> {
         `That's ${picked.size} lists with the ones they link to; a setup can hold ${SETUP_LIMITS.collections}. Pick fewer.`,
       );
     const ordered = all.filter((c) => picked.has(c.id));
-    const fieldName = (collectionId: string, id: string) =>
-      this.fieldRows(collectionId).find((f) => f.id === id)?.name ?? null;
+    const fieldName = (collectionId: string, id: string) => {
+      const row = this.fieldRows(collectionId).find((f) => f.id === id);
+      return row && !dangling(row) ? row.name : null;
+    };
     const cond = (collectionId: string, f: { field: string; op: FilterOp; value?: unknown }) => {
       const row = this.fieldRows(collectionId).find((x) => x.id === f.field);
       // A filter on a link holds record ids: data, not setup ("is empty" / "isn't empty" travel).
-      if (!row || (row.type === "link" && f.op !== "empty" && f.op !== "not_empty")) return null;
+      // Nor one on a field left behind (Codex on PR 230: "Client is empty" with Client gone).
+      if (!row || dangling(row) || (row.type === "link" && f.op !== "empty" && f.op !== "not_empty"))
+        return null;
       return { field: row.name, op: f.op, ...(f.value === undefined ? {} : { value: f.value }) };
     };
     const conds = (collectionId: string, list: { field: string; op: FilterOp; value?: unknown }[]) =>
@@ -2568,7 +2894,8 @@ export class SpaceObject extends DurableObject<Env> {
     const collections = ordered.map((c) => ({
       name: c.name,
       ...(c.description ? { description: c.description } : {}),
-      fields: this.fieldRows(c.id).map((row) => {
+      fields: this.fieldRows(c.id).flatMap((row) => {
+        if (dangling(row)) return [];
         const f = toField(row);
         const o = f.options;
         const options: Record<string, unknown> = {};
@@ -2609,6 +2936,17 @@ export class SpaceObject extends DurableObject<Env> {
       this.ruleRows(c.id).flatMap((r) => {
         const def = JSON.parse(r.def_json) as RuleDef;
         const names = (ids: string[]) => ids.flatMap((id) => fieldName(c.id, id) ?? []);
+        // A rule on a field left behind stays behind whole: with part of it gone it could
+        // fail to be made or mean something stricter (Codex on PR 230: one job per Firm).
+        const rows = this.fieldRows(c.id);
+        const touched = [
+          ...def.fields,
+          def.of,
+          def.field,
+          ...def.require.map((f) => f.field),
+          ...def.only_if.map((f) => f.field),
+        ].filter((id): id is string => !!id);
+        if (touched.some((id) => rows.some((row) => row.id === id && dangling(row)))) return [];
         // A check made only of link filters (record ids, data) has nothing left to travel:
         // it stays behind rather than sending a rule that can't be made.
         if (r.kind === "check" && !conds(c.id, def.require).length) return [];
@@ -3091,9 +3429,11 @@ export class SpaceObject extends DurableObject<Env> {
       .exec<{ id: string }>(
         dir === "in"
           ? `select l.from_id as id from links l join records x on x.id = l.from_id
-             where l.field_id = ? and l.to_id = ? and x.deleted_at is null`
+             where l.field_id = ? and l.to_id = ? and x.deleted_at is null
+             and x.collection_id in (select id from collections where deleted_at is null)`
           : `select l.to_id as id from links l join records x on x.id = l.to_id
-             where l.field_id = ? and l.from_id = ? and x.deleted_at is null`,
+             where l.field_id = ? and l.from_id = ? and x.deleted_at is null
+             and x.collection_id in (select id from collections where deleted_at is null)`,
         via,
         recordId,
       )
@@ -3515,6 +3855,425 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   /** Hides a field (its values stay in records, so it can come back). The title can't go. */
+  /**
+   * Deletes a list, recoverably (owner, 2026-11-05: "How do I delete the setup?"): the list
+   * and what exists only for it (its views, flows, rules and the links that share it or its
+   * records) go together to Recently deleted, and come back together. Its records stay as
+   * they are, unreachable until it's back; after TRASH_DAYS they're erased with it.
+   */
+  async deleteCollection(actor: Actor, key: string | null, ref: string): Promise<{ deleted: string }> {
+    this.canArrange(actor);
+    return this.write(actor, key, ["delete_collection", ref], (ts) => {
+      const c = this.requireCollection(ref);
+      const ids = (q: string, ...args: unknown[]) =>
+        this.sql
+          .exec<{ id: string }>(q, ...(args as string[]))
+          .toArray()
+          .map((r) => r.id);
+      const views = ids(`select id from views where collection_id = ? and deleted_at is null`, c.id);
+      const flows = this.sql
+        .exec<{ id: string; enabled: number }>(
+          `select id, enabled from workflows where collection_id = ? and deleted_at is null`,
+          c.id,
+        )
+        .toArray();
+      const rules = ids(`select id from rules where collection_id = ? and deleted_at is null`, c.id);
+      const shares = ids(
+        `select id from shares where revoked_at is null and kind != 'question' and (
+           (kind = 'form' and target_id = ?)
+           or (kind = 'view' and target_id in (select id from views where collection_id = ?))
+           or (kind = 'card' and target_id in (select id from records where collection_id = ?)))`,
+        c.id,
+        c.id,
+        c.id,
+      );
+      this.sql.exec(`update collections set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, c.id);
+      for (const v of views) {
+        this.sql.exec(`update views set deleted_at = ?, updated_at = ? where id = ?`, ts, ts, v);
+        this.logChange("view", v, "delete", ts);
+      }
+      const runs = this.stashRuns(
+        flows.map((w) => w.id),
+        ts,
+      );
+      for (const w of flows)
+        this.sql.exec(`update workflows set deleted_at = ?, enabled = 0 where id = ?`, ts, w.id);
+      for (const r of rules) this.sql.exec(`update rules set deleted_at = ? where id = ?`, ts, r);
+      for (const sh of shares) this.sql.exec(`update shares set revoked_at = ? where id = ?`, ts, sh);
+      this.sql.exec(
+        `insert or replace into list_trash (collection_id, deleted_at, deleted_by, source, took_json) values (?, ?, ?, ?, ?)`,
+        c.id,
+        ts,
+        actor.userId,
+        actor.source,
+        JSON.stringify({ views, flows, rules, shares, runs }),
+      );
+      this.logChange("collection", c.id, "delete", ts);
+      // What the lists that are left count or read of it comes down while it's away (Codex on
+      // PR 230: an order still counted its deleted items); a restore works it out again.
+      this.recalcOthers(c.id, ts);
+      audit(this.sql, actor, {
+        action: "delete_collection",
+        entityType: "collection",
+        entityId: c.id,
+        before: { name: c.name },
+      });
+      return { deleted: c.id };
+    });
+  }
+
+  /**
+   * The runs of these workflows that are in flight (queued jobs, waits on a question), taken
+   * aside while their list or space is deleted, and their open questions closed; brought back
+   * as they were on a restore (Codex on PR 230: an approval waiting when the list was deleted
+   * was lost for good).
+   */
+  private stashRuns(
+    workflowIds: string[],
+    ts: string,
+  ): { jobs: unknown[]; waits: unknown[]; questions: string[]; notes: unknown[] } {
+    const out = {
+      jobs: [] as unknown[],
+      waits: [] as unknown[],
+      questions: [] as string[],
+      notes: [] as unknown[],
+    };
+    for (const id of workflowIds) {
+      out.jobs.push(...this.sql.exec(`select * from workflow_jobs where workflow_id = ?`, id).toArray());
+      // Its messages still to go out wait with it (Codex on PR 230: they were sent anyway).
+      out.notes.push(...this.sql.exec(`select * from workflow_notes where workflow_id = ?`, id).toArray());
+      this.sql.exec(`delete from workflow_notes where workflow_id = ?`, id);
+      const waits = this.sql
+        .exec<{ question_id: string }>(`select * from workflow_waits where workflow_id = ?`, id)
+        .toArray();
+      out.waits.push(...waits);
+      for (const w of waits) {
+        const open = this.sql
+          .exec(`select 1 from questions where id = ? and closed_at is null`, w.question_id)
+          .toArray().length;
+        if (open) {
+          this.sql.exec(`update questions set closed_at = ? where id = ?`, ts, w.question_id);
+          out.questions.push(w.question_id);
+        }
+      }
+      this.sql.exec(`delete from workflow_jobs where workflow_id = ?`, id);
+      this.sql.exec(`delete from workflow_waits where workflow_id = ?`, id);
+    }
+    return out;
+  }
+
+  private unstashRuns(
+    stash: { jobs?: unknown[]; waits?: unknown[]; questions?: string[]; notes?: unknown[] } | undefined,
+  ) {
+    if (!stash) return;
+    const put = (table: string, row: Record<string, unknown>) => {
+      const cols = Object.keys(row);
+      this.sql.exec(
+        `insert or ignore into ${table} (${cols.join(", ")}) values (${cols.map(() => "?").join(", ")})`,
+        ...(cols.map((c) => row[c]) as (string | number | null)[]),
+      );
+    };
+    for (const j of stash.jobs ?? []) put("workflow_jobs", j as Record<string, unknown>);
+    for (const w of stash.waits ?? []) put("workflow_waits", w as Record<string, unknown>);
+    for (const n of stash.notes ?? []) put("workflow_notes", n as Record<string, unknown>);
+    for (const q of stash.questions ?? [])
+      this.sql.exec(`update questions set closed_at = null where id = ?`, q);
+  }
+
+  /**
+   * The questions a kept run was waiting on, erased with what they were about (Codex on PR
+   * 230): their text can quote the records, and the people asked could still open them.
+   */
+  private eraseStashedQuestions(stash: { waits?: unknown[]; questions?: string[] } | undefined, ts: string) {
+    if (!stash) return;
+    const ids = new Set([
+      ...(stash.questions ?? []),
+      ...(stash.waits ?? []).map((w) => (w as { question_id?: string }).question_id ?? "").filter(Boolean),
+    ]);
+    for (const id of ids) {
+      const q = this.sql
+        .exec<{ share_id: string }>(`select share_id from questions where id = ?`, id)
+        .toArray()[0];
+      if (!q) continue;
+      this.sql.exec(
+        `update questions set text = '', choices_json = null, closed_at = coalesce(closed_at, ?),
+         deleted_at = coalesce(deleted_at, ?) where id = ?`,
+        ts,
+        ts,
+        id,
+      );
+      this.sql.exec(`delete from question_answers where question_id = ?`, id);
+      this.sql.exec(`update shares set revoked_at = coalesce(revoked_at, ?) where id = ?`, ts, q.share_id);
+    }
+  }
+
+  /** Lists in Recently deleted, newest first. */
+  async trashedLists(actor: Actor): Promise<DeletedList[]> {
+    this.canWrite(actor);
+    return this.sql
+      .exec<{
+        collection_id: string;
+        deleted_at: string;
+        deleted_by: string | null;
+        source: string;
+        took_json: string;
+        name: string;
+      }>(
+        `select t.*, c.name from list_trash t join collections c on c.id = t.collection_id
+         where c.deleted_at is not null order by t.deleted_at desc`,
+      )
+      .toArray()
+      .map((t) => {
+        const took = JSON.parse(t.took_json) as { views: string[]; flows: unknown[]; shares: string[] };
+        return {
+          collection_id: t.collection_id,
+          name: t.name,
+          records: this.sql
+            .exec<{ n: number }>(
+              `select count(*) as n from records where collection_id = ? and deleted_at is null`,
+              t.collection_id,
+            )
+            .toArray()[0]!.n,
+          views: took.views.length,
+          flows: took.flows.length,
+          links: took.shares.length,
+          deleted_at: t.deleted_at,
+          deleted_by: this.whoDid(actor, t.deleted_by, t.source),
+          erase_at: new Date(Date.parse(t.deleted_at) + TRASH_DAYS * 86_400_000).toISOString(),
+        };
+      });
+  }
+
+  /** Brings a deleted list back with exactly what its delete took. */
+  async restoreCollection(actor: Actor, key: string | null, id: string): Promise<CollectionView> {
+    this.canArrange(actor);
+    return this.write(actor, key, ["restore_collection", id], (ts) => {
+      const t = this.sql
+        .exec<{ took_json: string }>(`select took_json from list_trash where collection_id = ?`, id)
+        .toArray()[0];
+      const c = this.sql
+        .exec<CollectionRow & { name_key: string; deleted_at: string | null }>(
+          `select * from collections where id = ?`,
+          id,
+        )
+        .toArray()[0];
+      if (!t || !c?.deleted_at) throw new ObjectError("not_found", "It isn't in Recently deleted");
+      if (
+        this.sql
+          .exec(`select 1 from collections where name_key = ? and deleted_at is null`, c.name_key)
+          .toArray().length
+      )
+        throw new ObjectError(
+          "conflict",
+          `There's already a list called “${c.name}”: rename or delete that one first`,
+        );
+      const took = JSON.parse(t.took_json) as {
+        views: string[];
+        flows: { id: string; enabled: number }[];
+        rules: string[];
+        shares: string[];
+        runs?: { jobs?: unknown[]; waits?: unknown[]; questions?: string[]; notes?: unknown[] };
+      };
+      this.sql.exec(`update collections set deleted_at = null, updated_at = ? where id = ?`, ts, id);
+      for (const v of took.views) {
+        // A view whose name was taken meanwhile comes back with a free one ("At the gate 2"),
+        // not as a failed restore (Codex on PR 230).
+        const row = this.sql.exec<{ name: string }>(`select name from views where id = ?`, v).toArray()[0];
+        if (row) {
+          let name = row.name;
+          for (
+            let n = 2;
+            this.sql
+              .exec(`select 1 from views where name_key = ? and deleted_at is null`, nameKey(name))
+              .toArray().length;
+            n++
+          )
+            name = `${row.name} ${n}`;
+          if (name !== row.name)
+            this.sql.exec(`update views set name = ?, name_key = ? where id = ?`, name, nameKey(name), v);
+        }
+        this.sql.exec(`update views set deleted_at = null, updated_at = ? where id = ?`, ts, v);
+        this.logChange("view", v, "upsert", ts);
+      }
+      for (const w of took.flows) {
+        this.sql.exec(`update workflows set deleted_at = null, enabled = ? where id = ?`, w.enabled, w.id);
+        // Its jobs come back as they were (below), not scheduled again: both would run (Codex
+        // on PR 230). A delete from before runs were kept had none, so it's scheduled anew.
+        const row = this.sql.exec<WorkflowRow>(`select * from workflows where id = ?`, w.id).toArray()[0];
+        if (row && w.enabled && !took.runs)
+          this.scheduleExisting(row.id, row.collection_id, JSON.parse(row.def_json) as WorkflowDef);
+      }
+      // Its formulas as of now (Codex on PR 230: a today() kept the day it was deleted), before
+      // its runs carry on with them.
+      this.backfill(id, ts);
+      // And the lists that count over it or read it (Codex on PR 230: an order edited while
+      // its items were away kept a total of 0 after they came back).
+      this.recalcOthers(id, ts);
+      this.unstashRuns(took.runs);
+      for (const r of took.rules) this.sql.exec(`update rules set deleted_at = null where id = ?`, r);
+      for (const sh of took.shares) this.sql.exec(`update shares set revoked_at = null where id = ?`, sh);
+      this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+      this.logChange("collection", id, "upsert", ts);
+      audit(this.sql, actor, { action: "restore_collection", entityType: "collection", entityId: id });
+      return this.collectionView(this.requireCollection(id));
+    });
+  }
+
+  /** Erases a deleted list now: its records' values go for good. Can't be undone. */
+  async eraseCollection(actor: Actor, key: string | null, id: string): Promise<{ erased: string }> {
+    this.canArrange(actor);
+    return this.write(actor, key, ["erase_collection", id], (ts) => {
+      if (!this.sql.exec(`select 1 from list_trash where collection_id = ?`, id).toArray().length)
+        throw new ObjectError("not_found", "It isn't in Recently deleted");
+      this.eraseList(id, ts);
+      audit(this.sql, actor, { action: "erase_collection", entityType: "collection", entityId: id });
+      return { erased: id };
+    });
+  }
+
+  /**
+   * Works out again the calculated fields of every live list but this one: the counts over it
+   * and the formulas reading it through a link change when it goes or comes back.
+   */
+  private recalcOthers(id: string, ts: string) {
+    const lists = this.sql
+      .exec<{ id: string }>(`select id from collections where deleted_at is null and id != ?`, id)
+      .toArray()
+      .filter((c) =>
+        this.fieldRows(c.id).some((f) => {
+          const o = toField(f).options;
+          return !!o.rollup || !!o.formula;
+        }),
+      );
+    // Again until nothing moves: a total of totals settles whatever order the lists come in
+    // (Codex on PR 230). A chain is at most as long as there are lists. ("" is every list.)
+    for (let pass = 0; pass <= lists.length; pass++) {
+      let moved = 0;
+      for (const c of lists) moved += this.backfill(c.id, ts);
+      if (!moved) break;
+    }
+  }
+
+  /**
+   * Questions its flows asked before questions kept their flow and record (Codex on PR 230):
+   * each flow's ask, filled in for each of the list's records as it would have been, matched
+   * against the unlinked workflow questions word for word. A text another list's flows would
+   * also ask belongs to nobody for sure, so it's left alone. Read before the records are erased.
+   */
+  private legacyQuestions(collectionId: string): string[] {
+    const mine = this.askTexts(`w.collection_id = ?`, collectionId);
+    if (!mine.size) return [];
+    const theirs = this.askTexts(`w.collection_id <> ?`, collectionId);
+    return this.sql
+      .exec<{ id: string; text: string }>(
+        `select q.id, q.text from questions q join shares s on s.id = q.share_id
+         where q.workflow_id is null and q.record_id is null and s.token_hash like 'wf:%'`,
+      )
+      .toArray()
+      .filter((q) => mine.has(q.text) && !theirs.has(q.text))
+      .map((q) => q.id);
+  }
+
+  /** Every text the matching flows' asks fill in to, for each record of each flow's own list. */
+  private askTexts(where: string, collectionId: string): Set<string> {
+    const texts = new Set<string>();
+    for (const w of this.sql
+      .exec<{ def_json: string; collection_id: string }>(
+        `select w.def_json, w.collection_id from workflows w where ${where} and w.collection_id is not null`,
+        collectionId,
+      )
+      .toArray()) {
+      const asks = (JSON.parse(w.def_json) as WorkflowDef).then.flatMap((step) =>
+        step.do === "ask" ? [step.text] : [],
+      );
+      if (!asks.length) continue;
+      for (const r of this.sql
+        .exec<RecordRow>(
+          `select * from records where collection_id = ? and purged_at is null`,
+          w.collection_id,
+        )
+        .toArray())
+        for (const t of asks) {
+          try {
+            texts.add(this.fillTemplate(t, r));
+          } catch {
+            // A template that no longer fills in matches nothing.
+          }
+        }
+    }
+    return texts;
+  }
+
+  private eraseList(id: string, ts: string) {
+    const legacy = this.legacyQuestions(id);
+    // Each record as erasing one does (values, answers, comments, history details).
+    const system: Actor = { userId: null, source: "system" };
+    this.sql.exec(
+      `update records set deleted_at = coalesce(deleted_at, ?) where collection_id = ? and purged_at is null`,
+      ts,
+      id,
+    );
+    const erased: string[] = [];
+    for (const r of this.sql
+      .exec<{ id: string }>(`select id from records where collection_id = ? and purged_at is null`, id)
+      .toArray())
+      this.erase(system, r.id, ts, erased);
+    // Its records' indexed copies too (a single record's delete removes them first; a list's
+    // delete keeps them for a restore; Codex on PR 230).
+    this.sql.exec(
+      `delete from record_values where record_id in (select id from records where collection_id = ?)`,
+      id,
+    );
+    this.sql.exec(
+      `delete from record_words where record_id in (select id from records where collection_id = ?)`,
+      id,
+    );
+    const trash = this.sql
+      .exec<{ took_json: string }>(`select took_json from list_trash where collection_id = ?`, id)
+      .toArray()[0];
+    // And every question its flows asked, answered ones too: their text can quote the records.
+    this.eraseStashedQuestions(
+      {
+        questions: this.sql
+          .exec<{ id: string }>(
+            `select id from questions where workflow_id in (select id from workflows where collection_id = ?)
+             or record_id in (select id from records where collection_id = ?)`,
+            id,
+            id,
+          )
+          .toArray()
+          .map((q) => q.id)
+          .concat(legacy),
+      },
+      ts,
+    );
+    if (trash)
+      this.eraseStashedQuestions(
+        (JSON.parse(trash.took_json) as { runs?: { waits?: unknown[]; questions?: string[] } }).runs,
+        ts,
+      );
+    this.sql.exec(`delete from list_trash where collection_id = ?`, id);
+    // Its records' links go too, both ways (Codex on PR 230: a record they linked to couldn't
+    // be deleted, "still linked", with nothing left to unlink).
+    this.sql.exec(
+      `delete from links where from_id in (select id from records where collection_id = ?)
+       or to_id in (select id from records where collection_id = ?)`,
+      id,
+      id,
+    );
+    // Totals and counts it fed on the lists that are left come down (Codex on PR 230: an order
+    // kept totalling its erased line items).
+    this.recalcOthers(id, ts);
+    // Its records leave everyone's search, even if the delete's reindex hadn't reached them
+    // yet (Codex on PR 230): the list is gone through again from the start.
+    const reindex = JSON.parse(getMeta(this.sql, "search_reindex") ?? "[]") as { c: string; after: string }[];
+    setMeta(
+      this.sql,
+      "search_reindex",
+      JSON.stringify([...reindex.filter((x) => x.c !== id), { c: id, after: "" }]),
+    );
+  }
+
   async removeField(
     actor: Actor,
     key: string | null,
@@ -4652,8 +5411,11 @@ export class SpaceObject extends DurableObject<Env> {
       if (f.type === "link") {
         const refs = this.sql
           .exec<{ id: string; collection_id: string; title: string }>(
+            // Not records of a deleted list: they can't be opened (Codex on PR 230).
             `select r.id, r.collection_id, r.title from links l join records r on r.id = l.to_id
-             where l.field_id = ? and l.from_id = ? and r.deleted_at is null order by l.position, l.created_at`,
+             where l.field_id = ? and l.from_id = ? and r.deleted_at is null
+               and r.collection_id in (select id from collections where deleted_at is null)
+             order by l.position, l.created_at`,
             f.id,
             r.id,
           )
@@ -5972,6 +6734,14 @@ export class SpaceObject extends DurableObject<Env> {
   /** Records deleted more than TRASH_DAYS ago are erased (from the alarm, a page at a time). */
   private eraseDue() {
     const before = new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString();
+    // (A deleted space past its time is wiped whole by the alarm, before this.)
+    const lists = this.sql
+      .exec<{ collection_id: string }>(`select collection_id from list_trash where deleted_at <= ?`, before)
+      .toArray();
+    if (lists.length)
+      this.ctx.storage.transactionSync(() => {
+        for (const l of lists) this.eraseList(l.collection_id, nowIso());
+      });
     const due = this.sql
       .exec<{ id: string }>(
         `select id from records where deleted_at is not null and purged_at is null and deleted_at <= ?
@@ -8366,11 +9136,12 @@ export class SpaceObject extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       for (const t of this.runNudges())
         this.sql.exec(
-          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
           ulid(),
           t.userId,
           JSON.stringify(t.n),
           nowIso(),
+          t.workflowId ?? null,
         );
     });
     await this.sendNotes();
@@ -8380,11 +9151,12 @@ export class SpaceObject extends DurableObject<Env> {
   private keepTells(j: WorkflowJobRow, tell: Tell[]) {
     for (const t of tell)
       this.sql.exec(
-        `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+        `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
         ulid(),
         t.userId,
         JSON.stringify(t.n),
         nowIso(),
+        j.workflow_id,
       );
     if (this.runCause && tell.length)
       for (const title of new Set(tell.map((t) => t.n.title)))
@@ -8879,13 +9651,16 @@ export class SpaceObject extends DurableObject<Env> {
           ts,
         );
         this.sql.exec(
-          `insert into questions (id, text, choices_json, share_id, created_by, created_at) values (?, ?, ?, ?, ?, ?)`,
+          `insert into questions (id, text, choices_json, share_id, created_by, created_at, workflow_id, record_id)
+           values (?, ?, ?, ?, ?, ?, ?, ?)`,
           questionId,
           text,
           a.choices ? JSON.stringify(a.choices) : null,
           shareId,
           w.created_by,
           ts,
+          w.id,
+          r?.id ?? null,
         );
         for (const p of people)
           this.sql.exec(
@@ -9137,7 +9912,7 @@ export class SpaceObject extends DurableObject<Env> {
             ? people.map((p) => `${p.name}: ${p.answer ?? "no answer"}`).join(" · ")
             : `${name} answered “${answer}”`;
         this.sql.exec(
-          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
           ulid(),
           r.created_by,
           JSON.stringify({
@@ -9146,6 +9921,7 @@ export class SpaceObject extends DurableObject<Env> {
             body: decided,
           } satisfies NewNotification),
           nowIso(),
+          w.id,
         );
       }
       // The rest of the steps run from the alarm, like any job (a set or add there may start
@@ -9191,7 +9967,8 @@ export class SpaceObject extends DurableObject<Env> {
       )
       .toArray();
     for (const wait of due) {
-      tell.push(...this.nudge(wait, now));
+      // Each tagged with its workflow, so a deleted list holds it back (Codex on PR 230).
+      tell.push(...this.nudge(wait, now).map((t) => ({ ...t, workflowId: wait.workflow_id })));
     }
     return tell;
   }
@@ -9285,11 +10062,12 @@ export class SpaceObject extends DurableObject<Env> {
       if (!wait) throw new ObjectError("not_found", "Nothing is waiting here any more");
       for (const t of this.nudge(wait, ts))
         this.sql.exec(
-          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
           ulid(),
           t.userId,
           JSON.stringify(t.n),
           ts,
+          wait.workflow_id,
         );
       audit(this.sql, actor, { action: "nudge", entityType: "workflow", entityId: wait.workflow_id });
       void this.wakeForJobs();
@@ -9917,6 +10695,7 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** The live share whose link has this hash. */
   private shareByHash(tokenHash: string): ShareRow | undefined {
+    if (getMeta(this.sql, "space_deleted_at")) return undefined;
     const s = this.sql
       .exec<ShareRow>(`select * from shares where token_hash = ? and revoked_at is null`, tokenHash)
       .toArray()[0];
@@ -9926,6 +10705,8 @@ export class SpaceObject extends DurableObject<Env> {
   /** Not expired, and what it shares still exists. */
   private alive(s: ShareRow): boolean {
     if (s.expires_at && s.expires_at <= nowIso()) return false;
+    // A deleted space's links stop working (they work again if it's brought back).
+    if (getMeta(this.sql, "space_deleted_at")) return false;
     if (s.kind === "card") return !!this.liveRecord(s.target_id);
     if (s.kind === "question") return !!this.liveQuestion(s.target_id);
     try {
@@ -9962,7 +10743,11 @@ export class SpaceObject extends DurableObject<Env> {
 
   private liveRecord(id: string): RecordRow | undefined {
     return this.sql
-      .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
+      .exec<RecordRow>(
+        `select * from records where id = ? and deleted_at is null
+         and collection_id in (select id from collections where deleted_at is null)`,
+        id,
+      )
       .toArray()[0];
   }
 
@@ -10173,6 +10958,14 @@ export class SpaceObject extends DurableObject<Env> {
       include: include.flatMap((x) => {
         const f = this.liveField("field" in x ? x.field : x.from_field);
         if (!f) return [];
+        // A list that links here, since deleted, isn't part of it now (Codex on PR 230).
+        if (
+          !("field" in x) &&
+          !this.sql
+            .exec(`select 1 from collections where id = ? and deleted_at is null`, f.collection_id)
+            .toArray().length
+        )
+          return [];
         return "field" in x
           ? [{ key: `field:${f.id}`, title: f.name }]
           : [{ key: `from:${f.id}`, title: this.requireCollection(f.collection_id).name }];
@@ -10225,7 +11018,8 @@ export class SpaceObject extends DurableObject<Env> {
       if (f.type !== "link" || hidden.has(f.id) || o.many || !o.target) return [];
       const pick = this.sql
         .exec<{ id: string; title: string }>(
-          `select id, title from records where collection_id = ? and deleted_at is null order by title limit 500`,
+          `select id, title from records where collection_id = ? and deleted_at is null
+           and collection_id in (select id from collections where deleted_at is null) order by title limit 500`,
           o.target,
         )
         .toArray()
@@ -10389,6 +11183,7 @@ export class SpaceObject extends DurableObject<Env> {
           .exec<RecordRow>(
             `select r.* from links l join records r on r.id = l.to_id
              where l.field_id = ? and l.from_id = ? and r.deleted_at is null
+               and r.collection_id in (select id from collections where deleted_at is null)
              order by l.position, l.created_at limit 500`,
             f.id,
             card.id,
@@ -10403,6 +11198,14 @@ export class SpaceObject extends DurableObject<Env> {
           records: rows.map((r) => this.sharedRecord(r, target ? fields : [], edit, actor)),
         });
       } else {
+        // A list that links here, since deleted: its part of the card goes with it (Codex on
+        // PR 230: the whole card failed to open).
+        if (
+          !this.sql
+            .exec(`select 1 from collections where id = ? and deleted_at is null`, f.collection_id)
+            .toArray().length
+        )
+          continue;
         const fields = this.sharedFields(s, f.collection_id);
         const rows = this.sql
           .exec<RecordRow>(
@@ -10724,9 +11527,8 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   private requireRecord(id: string): RecordRow {
-    const r = this.sql
-      .exec<RecordRow>(`select * from records where id = ? and deleted_at is null`, id)
-      .toArray()[0];
+    // A record of a deleted list isn't there until the list is back.
+    const r = this.liveRecord(id);
     if (!r) throw new ObjectError("not_found", "Record not found");
     return r;
   }

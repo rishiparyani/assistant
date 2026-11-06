@@ -34,6 +34,7 @@ import {
   type Memory,
   type RuleFilter,
   PICKER_MODELS,
+  TRASH_DAYS,
 } from "@assistant/shared";
 import { cardGuide, cardProblems, type A2Card } from "@assistant/cards/a2ui";
 import { AppError } from "../errors.ts";
@@ -123,6 +124,11 @@ const EVERYDAY = [
   "new_space",
   "space_settings",
   "set_space_instructions",
+  // Recently deleted lists, and bringing one back.
+  "deleted_lists",
+  "restore_list",
+  "deleted_spaces",
+  "restore_space",
 ];
 /** Setup tools, added at level 2 and above. */
 const SETUP = [
@@ -134,6 +140,10 @@ const SETUP = [
   "save_view",
   "update_view",
   "delete_view",
+  // A whole list, with what exists only for it (recoverable from Recently deleted).
+  "delete_collection",
+  // A whole space, with everything in it (recoverable from Recently deleted).
+  "delete_space",
   // Workflows (chat-first step 5): saved off; the person turns them on from the card.
   "create_workflow",
   "delete_workflow",
@@ -153,7 +163,7 @@ const MAX_STEPS = 8;
 const TURN_BUDGET_MS = 90_000;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-11-05a";
+export const PROMPT_VERSION = "2026-11-05b";
 
 /** A question with answers to tap (decision 2026-10-17 "Questions with answers to tap"). */
 const ASK_CHOICES: ToolSpec = {
@@ -564,7 +574,7 @@ function systemPrompt(
     `You are the assistant in Gigspree, talking with ${ctx.user.name}. Gigspree is for anything in someone's life and the groups they're part of (a home, a family, a club, a team, friends), not about music or performing: take examples from everyday life.`,
     "",
     "How you work:",
-    "- Finish what they asked, end to end. When they ask for something to be done, do all of it with your tools: for a system other people use, that means the lists, how each kind of person gets in and what they see and do (a join link for the people who add or use things, create_share with who it's for), and the flows that make it happen (who is asked or told, when, and where the answer is kept). Don't stop at part of it to explain or to ask whether to go on.",
+    "- Finish what they asked, end to end. When they ask for something to be done, do all of it with your tools: for a system other people use, that means a space of its own (new_space first: Personal is the person's alone, and the space is what they'd delete to remove the whole thing), the lists, how each kind of person gets in and what they see and do (a join link for the people who add or use things, create_share with who it's for), and the flows that make it happen (who is asked or told, when, and where the answer is kept). Don't stop at part of it to explain or to ask whether to go on.",
     "- When they ask a question or want to understand something, explain it plainly and briefly.",
     "- Act when you know enough. Ask only when the choice is truly theirs and no sensible default exists; then ask everything you need at once (ask_choices), and otherwise pick the sensible default and say what you picked.",
     "- Changes to their things (new lists or flows, money, deletes, sharing) are shown to them as cards that happen only when they tap Confirm. Propose everything a request needs together, in one go, so they can confirm it all. After they confirm, you get the result and carry on with the same request until it's done. Until a card is confirmed nothing has happened: never say it's made or done.",
@@ -643,6 +653,22 @@ export function describe(
       return { title: target ? `Change ${target}` : "Change a record", details: pairs };
     case "delete_record":
       return { title: target ? `Delete ${target}` : "Delete a record", details: [] };
+    case "delete_space":
+      return {
+        title: `Delete the space “${typeof args.space === "string" ? args.space : "?"}”`,
+        details: [
+          "With all its lists, flows and links; links stop working for everyone in it",
+          `In Recently deleted for ${TRASH_DAYS} days; it can be brought back`,
+        ],
+      };
+    case "delete_collection":
+      return {
+        title: `Delete the list “${col ?? "?"}”`,
+        details: [
+          "With its records, views, flows and share links",
+          `In Recently deleted for ${TRASH_DAYS} days; it can be brought back`,
+        ],
+      };
     case "share_with": {
       const what = target ?? (args.view ? `“${show(args.view)}”` : `“${show(args.form)}” as a form`);
       const hidden = Array.isArray(args.hide_fields) ? args.hide_fields : null;

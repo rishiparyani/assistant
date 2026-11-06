@@ -202,6 +202,8 @@ const nameOrId = (what: string) => z.string().trim().min(1).max(80).describe(`${
 export const SpaceRef = z.object({
   space: nameOrId("Space").optional().describe("Space name or id; leave out for your Personal space"),
 });
+/** A space that must be named (deleting one: never Personal by default). */
+export const SpaceRefRequired = z.object({ space: nameOrId("Space") });
 export const NewSpaceInput = z.object({
   name: z
     .string()
@@ -350,6 +352,8 @@ export const CaptureInput = SpaceRef.extend({
 });
 
 export const CollectionRef = SpaceRef.extend({ collection: nameOrId("Collection") });
+/** A list in Recently deleted, by its id (its name may be taken again by now). */
+export const DeletedListRef = SpaceRef.extend({ collection_id: z.string().trim().min(1).max(40) });
 
 export const AddFieldInput = CollectionRef.extend({ field: FieldInput });
 
@@ -629,6 +633,30 @@ export const UndoInput = SpaceRef.extend({
 export const TRASH_DAYS = 30;
 
 /** A deleted record in Recently deleted (decision 2026-10-14 "Recently deleted"). */
+/** A space in Recently deleted (only its owner sees it). */
+export interface DeletedSpace {
+  space_id: string;
+  name: string;
+  lists: number;
+  deleted_at: string;
+  erase_at: string;
+}
+export const DeletedSpaceRef = z.object({ space_id: z.string().trim().min(1).max(40) });
+
+/** A list in Recently deleted, with what its delete took along. */
+export interface DeletedList {
+  collection_id: string;
+  name: string;
+  records: number;
+  views: number;
+  flows: number;
+  links: number;
+  deleted_at: string;
+  /** "you", a name, or "a workflow". */
+  deleted_by: string;
+  erase_at: string;
+}
+
 export interface TrashItem {
   record_id: string;
   title: string;

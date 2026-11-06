@@ -50,6 +50,12 @@ export interface HomeCard {
  * An empty card teaches the one way in (design pass, 2026-10-23: "empty states that teach"):
  * the list's name in the message to send, so "Nothing yet" is never a dead end.
  */
-export function emptyWords(card: Pick<HomeCard, "collection">): string {
+export function emptyWords(card: Pick<HomeCard, "collection"> & { shared?: HomeCard["shared"] }): string {
+  // Shared with someone: they open it to add (they may have no chat with the assistant at all;
+  // owner, 2026-11-05, as the guard: "there is no way I can add a visitor").
+  if (card.shared)
+    return card.shared.kind === "form" || card.shared.access === "edit"
+      ? "Nothing yet. Open it to add."
+      : "Nothing yet.";
   return card.collection ? `Nothing yet. Tell the chat: “Add to ${card.collection.name}”.` : "Nothing yet.";
 }

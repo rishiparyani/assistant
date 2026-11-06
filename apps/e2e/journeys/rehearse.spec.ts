@@ -306,3 +306,388 @@ test("the people a link is for can be played before anyone has joined it", async
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("as the people a list is shared with, its card opens in the app and they add to it", async ({
+  browser,
+}) => {
+  // Owner, 2026-11-05, rehearsing as the guard: "there is no way I can add a visitor". Shared
+  // things opened the website, which is outside the rehearsal.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const list = `E2E Gate log ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Status", type: "text" },
+    ],
+  });
+  await api(me)("POST", "/views", { name: `E2E At the gate ${RUN}`, collection: list });
+  await api(me)("POST", "/shares", {
+    view: `E2E At the gate ${RUN}`,
+    access: "edit",
+    for: `E2E Guards ${RUN}`,
+  });
+  const flow = (await api(me)("POST", "/workflows", {
+    name: `E2E gate log flow ${RUN}`,
+    when: { event: "added", collection: list },
+    then: [{ do: "notify", text: "E2E arrived {Title}", to: ["me"] }],
+    enabled: false,
+  })) as { id: string };
+  const copy = (await api(me)("POST", "/spaces/Personal/practice", {})) as { id: string };
+
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/practice?space=${copy.id}&workflow=${flow.id}`);
+  await page.getByRole("button", { name: `Rehearse as E2E Guards ${RUN} (stand-in)` }).click();
+  await expect(page.getByText("REHEARSING AS")).toBeVisible();
+  // Their card says how to add, and opens in the app, as theirs.
+  await expect(page.getByText("Nothing yet. Open it to add.").first()).toBeVisible({ timeout: 30_000 });
+  await page.getByText(`E2E At the gate ${RUN}`).first().click();
+  await expect(page.getByText(`Add to ${list}`)).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Title", { exact: true }).fill(`E2E Courier ${RUN}`);
+  await page.getByRole("button", { name: `Add to ${list}` }).click();
+  await expect(page.getByText(`E2E Courier ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await expectNoSideways(page);
+  // It's in the copy, not the real list.
+  const real = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/find`, {})) as {
+    items: unknown[];
+  };
+  expect(real.items).toEqual([]);
+  const inCopy = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/find`, {
+    space: copy.id,
+  })) as {
+    items: { title: string }[];
+  };
+  expect(inCopy.items.map((r) => r.title)).toEqual([`E2E Courier ${RUN}`]);
+  await page.getByRole("button", { name: "End rehearsing" }).click();
+  await page.getByText("End and throw it away").click();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a money field changed on a shared list saves the amount typed", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page sent paise as rupees, so ₹10 saved as ₹1,000.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Money friend ${RUN}`);
+  const list = `E2E Bills ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+    ],
+  });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Tea ${RUN}`, Amount: "5" },
+  })) as { id: string };
+  await api(me)("POST", "/views", { name: `E2E Bills view ${RUN}`, collection: list });
+  const made = (await api(me)("POST", "/shares", {
+    view: `E2E Bills view ${RUN}`,
+    access: "edit",
+    hide_fields: [],
+  })) as { link: string; share: { id: string } };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Tea ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  const amount = page.locator('input[aria-label="Amount"]').first();
+  await amount.fill("10");
+  await amount.press("Enter");
+  await expect
+    .poll(async () => {
+      const r = (await api(me)("GET", `/records/${rec.id}`)) as {
+        values: Record<string, unknown>;
+        named?: Record<string, unknown>;
+      };
+      return JSON.stringify(r);
+    })
+    .toContain("1000");
+  const r = (await api(me)("GET", `/records/${rec.id}`)) as { values: Record<string, unknown> };
+  expect(JSON.stringify(r)).not.toContain("100000");
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a shared card can be renamed and talked about in the app", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page had no comments and couldn't change a title.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Card friend ${RUN}`);
+  const list = `E2E Plans ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Picnic ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Picnic ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  // The title is a field they may change.
+  const title = page.locator('input[aria-label="Title"]').first();
+  await title.fill(`E2E Lunch ${RUN}`);
+  await title.press("Enter");
+  await expect
+    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${rec.id}`)))
+    .toContain(`E2E Lunch ${RUN}`);
+  // A comment, sent and shown.
+  await expect(page.getByText("No comments yet.")).toBeVisible();
+  await page.getByLabel("Add a comment").fill(`E2E bring cups ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(`E2E bring cups ${RUN}`)).toBeVisible();
+  await expect
+    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${rec.id}/comments`)))
+    .toContain(`E2E bring cups ${RUN}`);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a share taken back while open stops showing, and one can be left", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page kept showing a revoked share and had no Leave.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Leave friend ${RUN}`);
+  const list = `E2E Errands ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const share = async (title: string) => {
+    const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+      values: { Title: title },
+    })) as { id: string };
+    const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+      link: string;
+      share: { id: string };
+    };
+    await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+    return made.share.id;
+  };
+  const taken = await share(`E2E Post office ${RUN}`);
+  const left = await share(`E2E Bakery ${RUN}`);
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // Taken back while it's open: the next change says so, and its contents go.
+  await page.goto(`/open-share?id=${taken}`);
+  await expect(page.getByText(`E2E Post office ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await api(me)("DELETE", `/shares/${taken}`);
+  // The page may hear of it first and clear itself (CI, 2026-11-06); if not, the next change
+  // finds out.
+  const title = page.locator('input[aria-label="Title"]').first();
+  if (await title.isVisible().catch(() => false)) {
+    await title.fill(`E2E Post office later ${RUN}`).catch(() => undefined);
+    await title.press("Enter").catch(() => undefined);
+  }
+  await expect(page.getByText("This isn't shared with you any more.")).toBeVisible();
+  await expect(page.locator('input[aria-label="Title"]')).toHaveCount(0);
+
+  // Left: off the friend's list.
+  await page.goto(`/open-share?id=${left}`);
+  await expect(page.getByText(`E2E Bakery ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Leave", exact: true }).click();
+  await page.getByRole("button", { name: "Leave: tap again to leave" }).click();
+  await expect
+    .poll(async () => ((await api(friend)("GET", "/cards")) as { share_id: string }[]).map((c) => c.share_id))
+    .not.toContain(left);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a slow comments load doesn't take back a comment just sent", async ({ browser }) => {
+  // Codex on PR 230: an older load answering last showed the thread as it was before the post.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Slow friend ${RUN}`);
+  const list = `E2E Trips ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Hike ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // The looks at the comments before the post are slow; the one after it isn't.
+  let posted = false;
+  await context.route("**/comments", async (route) => {
+    if (route.request().method() === "POST") posted = true;
+    else if (!posted) {
+      // Read now (before the post), handed over late.
+      const res = await route.fetch();
+      await new Promise((r) => setTimeout(r, 3000));
+      return route.fulfill({ response: res });
+    }
+    await route.continue();
+  });
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Hike ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Add a comment").fill(`E2E bring water ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(`E2E bring water ${RUN}`)).toBeVisible();
+  // The slow first look lands now: the comment stays.
+  await page.waitForTimeout(3500);
+  await expect(page.getByText(`E2E bring water ${RUN}`)).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a money field changed on a sent form saves the amount typed", async ({ browser }) => {
+  // Codex on PR 230: a form's own sent records weren't looked at for their field types, so ₹10
+  // typed there saved as ₹1,000.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Form friend ${RUN}`);
+  const list = `E2E Claims ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+    ],
+  });
+  const made = (await api(me)("POST", "/shares", { form: list, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+  const form = (await api(friend)("POST", `/cards/${made.share.id}/records`, {
+    section: "form",
+    values: { Title: `E2E Taxi ${RUN}`, Amount: "5" },
+  })) as { mine: { id: string }[] };
+  const sent = { id: form.mine[0]!.id };
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Taxi ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  // The sent record's Amount, after the form's own empty one.
+  const amount = page.locator('input[aria-label="Amount"]').last();
+  await amount.fill("10");
+  await amount.press("Enter");
+  await expect
+    .poll(async () => JSON.stringify(await api(me)("GET", `/records/${sent.id}`)))
+    .toContain("1000");
+  expect(JSON.stringify(await api(me)("GET", `/records/${sent.id}`))).not.toContain("100000");
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a comment sent again after its answer was lost is posted once", async ({ browser }) => {
+  // Codex on PR 230: the retry had a new id and key, so the comment showed twice.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Lost friend ${RUN}`);
+  const list = `E2E Chores ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Laundry ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "edit" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // The first post reaches the app's server, but its answer never comes back.
+  let lost = false;
+  await context.route("**/comments", async (route) => {
+    if (route.request().method() === "POST" && !lost) {
+      lost = true;
+      await route.fetch();
+      return route.abort("connectionreset");
+    }
+    await route.continue();
+  });
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Laundry ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel("Add a comment").fill(`E2E fold towels ${RUN}`);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect.poll(() => lost).toBe(true);
+  // Still typed: send it again.
+  await expect(page.getByRole("button", { name: "Send" })).toBeEnabled();
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(`E2E fold towels ${RUN}`).first()).toBeVisible();
+  await page.waitForTimeout(1000);
+  await expect(page.getByText(`E2E fold towels ${RUN}`)).toHaveCount(1);
+  const all = (await api(me)("GET", `/records/${rec.id}/comments`)) as { body: string }[];
+  expect(all.filter((c) => c.body === `E2E fold towels ${RUN}`)).toHaveLength(1);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|connection/i.test(e))).toEqual([]);
+  await context.close();
+});
+
+test("a form sent again after its answer was lost adds one record", async ({ browser }) => {
+  // Codex on PR 230: the retry had a new record id and key, so the form added it twice.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Resend friend ${RUN}`);
+  const list = `E2E Bulb asks ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const made = (await api(me)("POST", "/shares", { form: list })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // The first send reaches the app's server, but its answer never comes back.
+  let lost = false;
+  await context.route(`**/api/cards/${made.share.id}/records`, async (route) => {
+    if (route.request().method() === "POST" && !lost) {
+      lost = true;
+      await route.fetch();
+      return route.abort("connectionreset");
+    }
+    await route.continue();
+  });
+  await page.goto(`/open-share?id=${made.share.id}`);
+  const title = page.locator('input[aria-label="Title"]').first();
+  await expect(title).toBeVisible({ timeout: 30_000 });
+  await title.fill(`E2E new bulb ${RUN}`);
+  await page.getByRole("button", { name: `Send to ${list}` }).click();
+  await expect.poll(() => lost).toBe(true);
+  // Still typed: send it again.
+  await expect(title).toHaveValue(`E2E new bulb ${RUN}`);
+  await page.getByRole("button", { name: `Send to ${list}` }).click();
+  await expect(page.getByText(`E2E new bulb ${RUN}`).first()).toBeVisible();
+  // What they've sent, as the form keeps it.
+  const form = (await api(friend)("GET", `/cards/${made.share.id}`)) as { mine: { title: string }[] };
+  expect(form.mine.filter((r) => r.title === `E2E new bulb ${RUN}`)).toHaveLength(1);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|connection/i.test(e))).toEqual([]);
+  await context.close();
+});
+
+test("an open shared card shows the owner's changes without a pull", async ({ browser }) => {
+  // Codex on PR 230: the in-app shared page never heard of changes, so it showed old values
+  // until pulled.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Live friend ${RUN}`);
+  const list = `E2E Outings ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const rec = (await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: `E2E Zoo ${RUN}` },
+  })) as { id: string };
+  const made = (await api(me)("POST", "/shares", { record_id: rec.id, access: "view" })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  await page.goto(`/open-share?id=${made.share.id}`);
+  await expect(page.getByText(`E2E Zoo ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("No comments yet.")).toBeVisible();
+  // The owner changes it and says something about it, elsewhere.
+  await api(me)("PATCH", `/records/${rec.id}`, { values: { Title: `E2E Aquarium ${RUN}` } });
+  await api(me)("POST", `/records/${rec.id}/comments`, { body: `E2E bring snacks ${RUN}` });
+  await expect(page.getByText(`E2E Aquarium ${RUN}`).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(`E2E bring snacks ${RUN}`)).toBeVisible({ timeout: 20_000 });
+  expect(errors).toEqual([]);
+  await context.close();
+});
