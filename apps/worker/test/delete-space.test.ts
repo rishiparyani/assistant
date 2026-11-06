@@ -193,6 +193,82 @@ describe("deleting a space", () => {
     expect(left).toBe(0);
   });
 
+  it("settles a total of totals when it comes back", async () => {
+    // Codex on PR 230: one pass on restore left a summary at 999 after its source refreshed.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Sums" } }));
+    const add = async (name: string, fields: unknown[]) =>
+      expect((await api(me)("/collections", { body: { space: sp.id, name, fields } })).status).toBe(201);
+    const rollup = async (list: string, via: string, of: string) =>
+      expect(
+        (
+          await api(me)(`/collections/${list}/fields`, {
+            body: {
+              space: sp.id,
+              field: { name: "Total", type: "number", options: { rollup: { via, fn: "sum", of } } },
+            },
+          })
+        ).status,
+      ).toBe(201);
+    await add("Test Orders", [{ name: "Title", type: "text" }]);
+    await add("Test Items", [
+      { name: "Title", type: "text" },
+      { name: "N", type: "number" },
+      { name: "Order", type: "link", options: { target: "Test Orders" } },
+    ]);
+    // Its name comes first, so it's looked at before the list it reads.
+    await add("Test All", [
+      { name: "Title", type: "text" },
+      { name: "Orders", type: "link", options: { target: "Test Orders" } },
+    ]);
+    await rollup("Test Orders", "Test Items", "N");
+    await rollup("Test All", "Orders", "Total");
+    const rec = async (list: string, values: Record<string, unknown>) =>
+      json<{ id: string }>(await api(me)(`/collections/${list}/records`, { body: { space: sp.id, values } }));
+    const order = await rec("Test Orders", { Title: "Test order" });
+    await rec("Test Items", { Title: "Test item", N: 6, Order: [order.id] });
+    const all = await rec("Test All", { Title: "Test all", Orders: [order.id] });
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    const stub = env.SPACES.getByName(`space:${sp.id}`);
+    // Both totals stale while it's away.
+    const stored = () =>
+      runInDurableObject(stub, async (_i, state) => {
+        const sql = state.storage.sql;
+        const f = sql
+          .exec<{ id: string }>(
+            `select f.id from fields f join collections c on c.id = f.collection_id
+             where c.name = 'Test All' and f.name = 'Total'`,
+          )
+          .one().id;
+        return sql
+          .exec<{ v: number }>(
+            `select json_extract(values_json, '$."' || ? || '"') as v from records where id = ?`,
+            f,
+            all.id,
+          )
+          .one().v;
+      });
+    await runInDurableObject(stub, async (_i, state) => {
+      const sql = state.storage.sql;
+      for (const { id, rid } of sql
+        .exec<{ id: string; rid: string }>(
+          `select f.id, r.id as rid from fields f join records r on r.collection_id = f.collection_id
+           where f.name = 'Total'`,
+        )
+        .toArray()) {
+        sql.exec(
+          `update records set values_json = json_set(values_json, '$."' || ? || '"', 999) where id = ?`,
+          id,
+          rid,
+        );
+        sql.exec(`update record_values set num = 999 where field_id = ? and record_id = ?`, id, rid);
+      }
+    });
+    expect(await stored()).toBe(999);
+    expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(200);
+    expect(await stored()).toBe(6);
+  });
+
   it("tells open screens again once the space list says it's gone", async () => {
     // Codex on PR 230: the ping could go out before the list was updated, and nothing followed.
     const me = await signUp("Test Owner");

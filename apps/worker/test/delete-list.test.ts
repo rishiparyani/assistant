@@ -306,6 +306,39 @@ describe("deleting a list", () => {
     await api(me)(`/spaces/${practice.id}/practice`, { method: "DELETE" });
   });
 
+  it("doesn't show links to its records on the lists that stay", async () => {
+    // Codex on PR 230: a booking still named a venue of the deleted list, which wouldn't open.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Places", fields: [{ name: "Title", type: "text" }] },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Visits",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Place", type: "link", options: { target: "Test Places" } },
+        ],
+      },
+    });
+    const place = await json<RecordView>(
+      await api(me)("/collections/Test Places/records", { body: { values: { Title: "Test harbour" } } }),
+    );
+    const visit = await json<RecordView>(
+      await api(me)("/collections/Test Visits/records", {
+        body: { values: { Title: "Test morning", Place: [place.id] } },
+      }),
+    );
+    const seen = async () => JSON.stringify(await json<RecordView>(await api(me)(`/records/${visit.id}`)));
+    expect(await seen()).toContain("Test harbour");
+    await api(me)("/collections/Test Places", { method: "DELETE" });
+    expect(await seen()).not.toContain("Test harbour");
+    expect(await seen()).not.toContain(place.id);
+    const [t] = await json<DeletedList[]>(await api(me)("/trash/lists"));
+    expect((await api(me)(`/trash/lists/${t!.collection_id}/restore`, { body: {} })).status).toBe(200);
+    expect(await seen()).toContain("Test harbour");
+  });
+
   it("brings the totals it fed down to nothing when erased", async () => {
     // Codex on PR 230: an order still totalled 12 after its line items were erased.
     const me = await signUp("Test Owner");

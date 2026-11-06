@@ -1843,10 +1843,8 @@ export class SpaceObject extends DurableObject<Env> {
             this.scheduleExisting(w.id, w.collection_id, JSON.parse(w.def_json) as WorkflowDef);
         }
         // Its formulas as of now, before its runs carry on with them.
-        for (const c of this.sql
-          .exec<{ id: string }>(`select id from collections where deleted_at is null`)
-          .toArray())
-          this.backfill(c.id, nowIso());
+        // Again until nothing moves, so a total of totals settles too (Codex on PR 230).
+        this.recalcOthers("", nowIso());
         const runs = getMeta(this.sql, "space_deleted_runs");
         this.unstashRuns(runs ? (JSON.parse(runs) as Parameters<SpaceObject["unstashRuns"]>[0]) : undefined);
         setMeta(this.sql, "space_deleted_runs", "");
@@ -4148,7 +4146,7 @@ export class SpaceObject extends DurableObject<Env> {
         }),
       );
     // Again until nothing moves: a total of totals settles whatever order the lists come in
-    // (Codex on PR 230). A chain is at most as long as there are lists.
+    // (Codex on PR 230). A chain is at most as long as there are lists. ("" is every list.)
     for (let pass = 0; pass <= lists.length; pass++) {
       let moved = 0;
       for (const c of lists) moved += this.backfill(c.id, ts);
@@ -5413,8 +5411,11 @@ export class SpaceObject extends DurableObject<Env> {
       if (f.type === "link") {
         const refs = this.sql
           .exec<{ id: string; collection_id: string; title: string }>(
+            // Not records of a deleted list: they can't be opened (Codex on PR 230).
             `select r.id, r.collection_id, r.title from links l join records r on r.id = l.to_id
-             where l.field_id = ? and l.from_id = ? and r.deleted_at is null order by l.position, l.created_at`,
+             where l.field_id = ? and l.from_id = ? and r.deleted_at is null
+               and r.collection_id in (select id from collections where deleted_at is null)
+             order by l.position, l.created_at`,
             f.id,
             r.id,
           )
