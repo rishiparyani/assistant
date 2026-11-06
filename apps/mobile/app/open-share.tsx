@@ -40,6 +40,8 @@ export default function Shared() {
   // Each load is numbered: an older one that answers late (a slow pull to refresh, then an
   // edit's reload) never overwrites what a newer one showed (Codex on PR 230).
   const gen = useRef(0);
+  // A send whose answer never came back, so sending it again is the same one.
+  const sending = useRef<{ what: string; id: string; key: string } | null>(null);
   const load = useCallback(async () => {
     const mine = ++gen.current;
     try {
@@ -153,7 +155,15 @@ export default function Shared() {
                 })
               }
               onAdd={async (section: string, values: Record<string, unknown>) => {
-                await request("POST", `${base}/records`, { section, id: ulid(), values });
+                // One record id and request key per thing typed, kept until it's known to have
+                // landed: sending it again after a lost answer is the same record (Codex on PR 230).
+                const what = JSON.stringify([base, section, values]);
+                const d =
+                  sending.current?.what === what
+                    ? sending.current
+                    : (sending.current = { what, id: ulid(), key: ulid() });
+                await request("POST", `${base}/records`, { section, id: d.id, values }, d.key);
+                if (sending.current === d) sending.current = null;
                 // Shown at once: the add forms don't go through run (Codex on PR 230).
                 homeChanged();
                 await load();

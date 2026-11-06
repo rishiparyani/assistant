@@ -620,3 +620,44 @@ test("a comment sent again after its answer was lost is posted once", async ({ b
   expect(errors.filter((e) => !/Failed to fetch|NetworkError|connection/i.test(e))).toEqual([]);
   await context.close();
 });
+
+test("a form sent again after its answer was lost adds one record", async ({ browser }) => {
+  // Codex on PR 230: the retry had a new record id and key, so the form added it twice.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const friend = await person(`E2E Resend friend ${RUN}`);
+  const list = `E2E Bulb asks ${RUN}`;
+  await api(me)("POST", "/collections", { name: list, fields: [{ name: "Title", type: "text" }] });
+  const made = (await api(me)("POST", "/shares", { form: list })) as {
+    link: string;
+    share: { id: string };
+  };
+  await api(friend)("POST", "/cards/join", { token: made.link.slice(made.link.indexOf("#") + 1) });
+
+  const { page, errors, context } = await openApp(browser, friend);
+  // The first send reaches the app's server, but its answer never comes back.
+  let lost = false;
+  await context.route(`**/api/cards/${made.share.id}/records`, async (route) => {
+    if (route.request().method() === "POST" && !lost) {
+      lost = true;
+      await route.fetch();
+      return route.abort("connectionreset");
+    }
+    await route.continue();
+  });
+  await page.goto(`/open-share?id=${made.share.id}`);
+  const title = page.locator('input[aria-label="Title"]').first();
+  await expect(title).toBeVisible({ timeout: 30_000 });
+  await title.fill(`E2E new bulb ${RUN}`);
+  await page.getByRole("button", { name: `Send to ${list}` }).click();
+  await expect.poll(() => lost).toBe(true);
+  // Still typed: send it again.
+  await expect(title).toHaveValue(`E2E new bulb ${RUN}`);
+  await page.getByRole("button", { name: `Send to ${list}` }).click();
+  await expect(page.getByText(`E2E new bulb ${RUN}`).first()).toBeVisible();
+  // What they've sent, as the form keeps it.
+  const form = (await api(friend)("GET", `/cards/${made.share.id}`)) as { mine: { title: string }[] };
+  expect(form.mine.filter((r) => r.title === `E2E new bulb ${RUN}`)).toHaveLength(1);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|connection/i.test(e))).toEqual([]);
+  await context.close();
+});
