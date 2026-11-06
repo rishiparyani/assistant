@@ -2,6 +2,7 @@
 // its links stop working and its flows stop; Recently deleted brings it all back. Fake data only.
 import { describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
+import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import type { CreatedShare, DeletedSpace, SpaceView, WorkflowView } from "@assistant/shared";
 import { call, json, signUp } from "./http.ts";
 
@@ -115,6 +116,44 @@ describe("deleting a space", () => {
     expect((await json<DeletedSpace[]>(await api(me)("/trash/spaces"))).map((d) => d.name)).toContain(
       "Test Again",
     );
+  });
+
+  it("is erased whole once its time is up, questions and all", async () => {
+    // Codex on PR 230: questions asked outside a flow kept their words and answers for good.
+    const me = await signUp("Test Owner");
+    const sp = await json<SpaceView>(await api(me)("/spaces", { body: { name: "Test Old Club" } }));
+    await api(me)("/collections", {
+      body: { space: sp.id, name: "Test Things", fields: [{ name: "Title", type: "text" }] },
+    });
+    const stub = env.SPACES.getByName(`space:${sp.id}`);
+    await runInDurableObject(stub, async (_i, state) => {
+      const sql = state.storage.sql;
+      sql.exec(
+        `insert into questions (id, text, share_id, created_at) values ('q1', 'Test marzipan?', 'sh1', '2026-01-01')`,
+      );
+      sql.exec(
+        `insert into question_answers (question_id, user_id, answer, at) values ('q1', 'u1', 'Yes', '2026-01-01')`,
+      );
+    });
+    expect((await api(me)(`/spaces/${sp.id}`, { method: "DELETE" })).status).toBe(200);
+    // Its time is up.
+    await runInDurableObject(stub, async (_i, state) => {
+      state.storage.sql.exec(
+        `update _meta set value = '2000-01-01T00:00:00.000Z' where key = 'space_deleted_at'`,
+      );
+    });
+    await runDurableObjectAlarm(stub).catch(() => undefined);
+    let left: unknown = "not read";
+    for (let i = 0; i < 20 && left === "not read"; i++)
+      left = await env.SPACES.getByName(`space:${sp.id}`)
+        .exportData()
+        .catch(async () => {
+          await new Promise((r) => setTimeout(r, 100));
+          return "not read";
+        });
+    expect(left).toBeNull();
+    expect(await json<DeletedSpace[]>(await api(me)("/trash/spaces"))).toEqual([]);
+    expect((await api(me)(`/trash/spaces/${sp.id}/restore`, { body: {} })).status).toBe(404);
   });
 
   it("erases its rehearsals' copies with it", async () => {

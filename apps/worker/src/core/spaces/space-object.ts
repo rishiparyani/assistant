@@ -1784,6 +1784,9 @@ export class SpaceObject extends DurableObject<Env> {
 
   /** Brings a deleted space back as it was: its links work again, its flows as they were. */
   async restoreSpace(actor: Actor, key: string | null = null): Promise<void> {
+    // Erased (wiped whole after TRASH_DAYS): nothing is left to bring back.
+    if (!this.sql.exec(`select 1 from space`).toArray().length)
+      throw new ObjectError("not_found", "It isn't in Recently deleted");
     if (this.memberRole(actor.userId) !== "owner")
       throw new ObjectError("forbidden", "Only the space's owner can bring it back");
     if (getMeta(this.sql, "space_erased")) throw new ObjectError("not_found", "It isn't in Recently deleted");
@@ -2093,6 +2096,13 @@ export class SpaceObject extends DurableObject<Env> {
   }
 
   override async alarm(): Promise<void> {
+    // A deleted space past its time is erased whole, as ending a rehearsal is (Codex on PR 230:
+    // erasing it piece by piece left questions, answers and more behind).
+    const spaceAt = getMeta(this.sql, "space_deleted_at");
+    if (spaceAt && spaceAt <= new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString()) {
+      await wipeStorage(this.ctx);
+      return;
+    }
     this.eraseDue();
     this.refreshDaily();
     await this.runDueJobs();
@@ -6458,19 +6468,7 @@ export class SpaceObject extends DurableObject<Env> {
   /** Records deleted more than TRASH_DAYS ago are erased (from the alarm, a page at a time). */
   private eraseDue() {
     const before = new Date(Date.now() - TRASH_DAYS * 86_400_000).toISOString();
-    // A deleted space, past its time: everything in it is erased, every list as one is.
-    const spaceAt = getMeta(this.sql, "space_deleted_at");
-    if (spaceAt && spaceAt <= before && !getMeta(this.sql, "space_erased"))
-      this.ctx.storage.transactionSync(() => {
-        const ts = nowIso();
-        for (const c of this.sql.exec<{ id: string }>(`select id from collections`).toArray())
-          this.eraseList(c.id, ts);
-        const runs = getMeta(this.sql, "space_deleted_runs");
-        if (runs)
-          this.eraseStashedQuestions(JSON.parse(runs) as { waits?: unknown[]; questions?: string[] }, ts);
-        setMeta(this.sql, "space_deleted_runs", "");
-        setMeta(this.sql, "space_erased", ts);
-      });
+    // (A deleted space past its time is wiped whole by the alarm, before this.)
     const lists = this.sql
       .exec<{ collection_id: string }>(`select collection_id from list_trash where deleted_at <= ?`, before)
       .toArray();
