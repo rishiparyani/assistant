@@ -906,7 +906,7 @@ const MAX_WORKFLOW_DEPTH = 3;
 /** A process nudges the people it waits on at most this often. */
 const MAX_NUDGES = 10;
 /** Someone to tell after a run; a question's share also goes in their "shared with me". */
-type Tell = { userId: string; n: NewNotification & { share_id?: string } };
+type Tell = { userId: string; n: NewNotification & { share_id?: string }; workflowId?: string | null };
 /** A rehearsal's "choose" step: the person answers as the app, or says it wouldn't be sure. */
 const THE_APP = "the app";
 const NOT_SURE = "Not sure";
@@ -2766,7 +2766,11 @@ export class SpaceObject extends DurableObject<Env> {
           for (const id of ids) {
             const rows = rowsOf.get(id)!;
             const out = left.get(id)!;
-            const byName = new Map(rows.map((r) => [nameKey(r.name), r]));
+            // By name or any alias, as formulas resolve them (Codex on PR 230: {Customer.Rate}
+            // for a link named Client with the alias Customer).
+            const byName = new Map(
+              rows.flatMap((r) => [r.name, ...toField(r).aliases].map((n) => [nameKey(n), r] as const)),
+            );
             for (const r of rows) {
               if (out.has(r.id)) continue;
               // A count or sum over a field left out on the other list (Codex on PR 230: a
@@ -2801,7 +2805,9 @@ export class SpaceObject extends DurableObject<Env> {
                 if (!second || head.type !== "link") return false;
                 const target = toField(head).options.target;
                 const field = target
-                  ? rowsOf.get(target)?.find((x) => nameKey(x.name) === second)
+                  ? rowsOf
+                      .get(target)
+                      ?.find((x) => [x.name, ...toField(x).aliases].some((n) => nameKey(n) === second))
                   : undefined;
                 return !!field && !!left.get(target!)?.has(field.id);
               });
@@ -9025,11 +9031,12 @@ export class SpaceObject extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       for (const t of this.runNudges())
         this.sql.exec(
-          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
           ulid(),
           t.userId,
           JSON.stringify(t.n),
           nowIso(),
+          t.workflowId ?? null,
         );
     });
     await this.sendNotes();
@@ -9797,7 +9804,7 @@ export class SpaceObject extends DurableObject<Env> {
             ? people.map((p) => `${p.name}: ${p.answer ?? "no answer"}`).join(" · ")
             : `${name} answered “${answer}”`;
         this.sql.exec(
-          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
           ulid(),
           r.created_by,
           JSON.stringify({
@@ -9806,6 +9813,7 @@ export class SpaceObject extends DurableObject<Env> {
             body: decided,
           } satisfies NewNotification),
           nowIso(),
+          w.id,
         );
       }
       // The rest of the steps run from the alarm, like any job (a set or add there may start
@@ -9851,7 +9859,8 @@ export class SpaceObject extends DurableObject<Env> {
       )
       .toArray();
     for (const wait of due) {
-      tell.push(...this.nudge(wait, now));
+      // Each tagged with its workflow, so a deleted list holds it back (Codex on PR 230).
+      tell.push(...this.nudge(wait, now).map((t) => ({ ...t, workflowId: wait.workflow_id })));
     }
     return tell;
   }
@@ -9945,11 +9954,12 @@ export class SpaceObject extends DurableObject<Env> {
       if (!wait) throw new ObjectError("not_found", "Nothing is waiting here any more");
       for (const t of this.nudge(wait, ts))
         this.sql.exec(
-          `insert into workflow_notes (id, user_id, note_json, next_at) values (?, ?, ?, ?)`,
+          `insert into workflow_notes (id, user_id, note_json, next_at, workflow_id) values (?, ?, ?, ?, ?)`,
           ulid(),
           t.userId,
           JSON.stringify(t.n),
           ts,
+          wait.workflow_id,
         );
       audit(this.sql, actor, { action: "nudge", entityType: "workflow", entityId: wait.workflow_id });
       void this.wakeForJobs();

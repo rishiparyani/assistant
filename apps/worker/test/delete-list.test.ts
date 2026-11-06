@@ -594,6 +594,85 @@ describe("deleting a list", () => {
     expect((await api(me)(`/records/${office.id}`, { method: "DELETE" })).status).toBeLessThan(300);
   });
 
+  it("leaves out formulas that read a left-out field by its alias", async () => {
+    // Codex on PR 230: {Customer.Rate} for a link named Client (alias Customer) stayed.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: {
+        name: "Test Patrons",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Rate", type: "number" },
+        ],
+      },
+    });
+    await api(me)("/collections", {
+      body: {
+        name: "Test Tabs",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Patron", type: "link", options: { target: "Test Patrons" }, aliases: ["Guest"] },
+        ],
+      },
+    });
+    expect(
+      (
+        await api(me)("/collections/Test Tabs/fields", {
+          body: { field: { name: "Double", type: "number", options: { formula: "{Guest.Rate} * 2" } } },
+        })
+      ).status,
+    ).toBe(201);
+    await api(me)("/collections/Test Patrons", { method: "DELETE" });
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const setup = (await env.SPACES.getByName(`space:${space!.id}`).describeSetup(
+      { userId: me.id, source: "web" },
+      ["Test Tabs"],
+    )) as unknown as { collections: { name: string; fields: { name: string }[] }[] };
+    expect(setup.collections[0]!.fields.map((f) => f.name)).toEqual(["Title"]);
+    const friend = await signUp("Test Friend");
+    expect((await api(friend)("/setups", { body: setup })).status).toBe(201);
+  });
+
+  it("tags a nudge with its flow, so it's held back with the list", async () => {
+    // Codex on PR 230: a nudge waiting to go out had no flow, and went out after the delete.
+    const me = await signUp("Test Owner");
+    await api(me)("/collections", {
+      body: { name: "Test Nudged", fields: [{ name: "Title", type: "text" }] },
+    });
+    const flow = await json<{ id: string }>(
+      await api(me)("/workflows", {
+        body: {
+          name: "Test ask again",
+          when: { event: "added", collection: "Test Nudged" },
+          then: [{ do: "ask", who: ["me"], text: "OK {Title}?", choices: ["Yes", "No"] }],
+          enabled: true,
+        },
+      }),
+    );
+    await api(me)("/collections/Test Nudged/records", { body: { values: { Title: "Test one" } } });
+    let waitId: string | undefined;
+    for (let i = 0; i < 40 && !waitId; i++) {
+      waitId = await inSpace(
+        me,
+        (sql) => sql.exec<{ id: string }>(`select id from workflow_waits limit 1`).toArray()[0]?.id,
+      );
+      if (!waitId) await new Promise((r) => setTimeout(r, 200));
+    }
+    const [space] = await json<SpaceView[]>(await api(me)("/spaces"));
+    const stub = env.SPACES.getByName(`space:${space!.id}`);
+    await inSpace(me, (sql) => sql.exec(`delete from workflow_notes`));
+    await stub.nudgeNow({ userId: me.id, source: "web" }, null, waitId!);
+    const tagged = await inSpace(me, (sql) =>
+      sql.exec<{ workflow_id: string | null }>(`select workflow_id from workflow_notes`).toArray(),
+    );
+    expect(tagged.length).toBeGreaterThan(0);
+    expect(tagged.every((n) => n.workflow_id === flow.id)).toBe(true);
+    await api(me)("/collections/Test Nudged", { method: "DELETE" });
+    expect(
+      await inSpace(me, (sql) => Number(sql.exec(`select count(*) as n from workflow_notes`).one().n)),
+    ).toBe(0);
+  });
+
   it("works out the totals over it again when it comes back", async () => {
     // Codex on PR 230: an order edited while its items were away kept 0 after they came back.
     const me = await signUp("Test Owner");
