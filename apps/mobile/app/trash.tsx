@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { BackIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import { TRASH_DAYS, type DeletedList, type DeletedSpace, type TrashItem } from "@assistant/shared";
@@ -120,9 +121,9 @@ export default function Trash() {
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={() => router.back()}
-            style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.back, { backgroundColor: t.fill }]}
           >
-            <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+            <BackIcon color={t.fg} />
           </Pressable>
         </View>
         <View style={s.head}>
@@ -353,9 +354,6 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
   },
   head: { paddingHorizontal: 20, paddingTop: 6, gap: 2 },
   title: { fontSize: 30, fontWeight: "800", letterSpacing: -0.8 },

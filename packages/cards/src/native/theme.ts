@@ -3,21 +3,22 @@
 import { useColorScheme, type TextStyle } from "react-native";
 
 export const light = {
-  // Jamun (decision 2026-10-28 "Chats as home, Jamun, a polished look"): a pale plum ground,
-  // white cards on it, deep plum for what you tap.
-  canvas: "#ede6f2",
-  page: "#f7f2fa",
+  // A quiet near-white ground with white cards on it, and deep plum as the one colour for
+  // what you tap (decision 2026-11-09 "A calmer look, and a home that shows your day"; it was
+  // a pale plum ground since 2026-10-28, which with each list's own colour read as busy).
+  canvas: "#f1eff5",
+  page: "#faf9fc",
   cell: "#ffffff",
   fg: "#1e1424",
-  fg2: "rgba(30,20,36,0.62)",
-  fg3: "rgba(30,20,36,0.34)",
-  hair: "rgba(30,20,36,0.07)",
+  fg2: "rgba(30,20,36,0.66)",
+  fg3: "rgba(30,20,36,0.5)",
+  hair: "rgba(30,20,36,0.09)",
   sep: "rgba(30,20,36,0.06)",
-  fill: "rgba(78,40,100,0.07)",
-  fill2: "rgba(78,40,100,0.14)",
+  fill: "rgba(60,40,80,0.07)",
+  fill2: "rgba(60,40,80,0.13)",
   glass: "rgba(255,255,255,0.8)",
-  accent: "#6e2e91",
-  accentSoft: "#f3e9f9",
+  accent: "#6b2fa0",
+  accentSoft: "#f1eaf8",
   onAccent: "#ffffff",
   danger: "#dc2626",
   shadow: "rgba(30,20,36,0.08)",
@@ -40,7 +41,7 @@ export const dark: typeof light = {
   cell: "#21162b",
   fg: "#f2eaf6",
   fg2: "rgba(242,234,246,0.64)",
-  fg3: "rgba(242,234,246,0.34)",
+  fg3: "rgba(242,234,246,0.5)",
   hair: "rgba(242,234,246,0.08)",
   sep: "rgba(242,234,246,0.08)",
   fill: "rgba(242,234,246,0.07)",

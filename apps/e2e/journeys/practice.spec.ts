@@ -16,7 +16,7 @@ test("a rehearsal that has ended is left on its own", async ({ browser }) => {
   );
   await page.reload();
   await expect(page.getByText("Chats", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /^Assistant/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open the chat" })).toBeVisible();
   await expect
     .poll(() => page.evaluate((k) => localStorage.getItem(k), `gigspree@${me.id}:practice-as`))
     .toBeNull();

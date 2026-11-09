@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
+import { BackIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Tap, Text, type } from "@assistant/cards/native";
 import { isOffline } from "@/api";
@@ -94,9 +95,9 @@ export default function You() {
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-            style={[s.round, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.round, { backgroundColor: t.fill }]}
           >
-            <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+            <BackIcon color={t.fg} />
           </Pressable>
         </View>
         <View style={s.me}>
@@ -314,9 +315,6 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
   },
   me: { alignItems: "center", gap: 4, paddingVertical: 8 },
   label: { marginTop: 10, paddingHorizontal: 4 },

@@ -50,12 +50,36 @@ export interface SpaceRow {
   lists: SpaceList[];
 }
 
+/**
+ * A list at a glance on the home (decision 2026-11-09 "A calmer look, and a home that shows your
+ * day"): a list with a tick box shows what's still open, how many, and what they add up to, and
+ * is ticked right there.
+ */
+export interface Glance {
+  key: string;
+  collection: CollectionView;
+  /** The space, when not the personal one. */
+  space?: string;
+  spaceName: string;
+  /** The yes/no field a tick sets. */
+  tick: string;
+  /** The first few still open. */
+  open: RecordView[];
+  /** How many are open (of those read: `more` says there may be others). */
+  left: number;
+  more: boolean;
+  /** What the open ones' first money field adds up to, in paise (none: the list has no money). */
+  sum: number | null;
+}
+
 export interface Today {
   /** Process questions waiting on me first, then the rest, then questions and forms shared with me. */
   needs: HomeCard[];
   upnext: UpNextItem[];
   /** Lists and records shared with me, as cards (the only way to open them on the phone). */
   shared: HomeCard[];
+  /** Lists with a tick box, as they stand (older saved copies have none). */
+  glance?: Glance[];
   spaces: SpaceRow[];
   /** Every list, for the bar's search. */
   lists: { id: string; name: string; space?: string; space_name?: string }[];
@@ -84,7 +108,12 @@ export async function loadToday(userId: string): Promise<Today> {
   const cat = await loadCatalog();
   // The library and the chat's action pills read the same catalogue from the device.
   rememberCatalog(userId, cat);
-  const [needs, upnext, shared] = await Promise.all([needsOf(cat), upNextOf(cat), sharedOf(cat)]);
+  const [needs, upnext, shared, glance] = await Promise.all([
+    needsOf(cat),
+    upNextOf(cat),
+    sharedOf(cat),
+    glanceOf(cat),
+  ]);
   const spaces = spacesOf(cat);
   const lists = new Map<string, Today["lists"][number]>();
   for (const e of cat.entries)
@@ -94,7 +123,15 @@ export async function loadToday(userId: string): Promise<Today> {
         name: e.collection.name,
         ...(e.space ? { space: e.space, space_name: e.group } : {}),
       });
-  const today: Today = { needs, upnext, shared, spaces, lists: [...lists.values()], complete: cat.complete };
+  const today: Today = {
+    needs,
+    upnext,
+    shared,
+    glance,
+    spaces,
+    lists: [...lists.values()],
+    complete: cat.complete,
+  };
   rememberToday(userId, today);
   return today;
 }
@@ -195,6 +232,61 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
     }),
   );
   return found.flat().sort((a, b) => a.at - b.at);
+}
+
+/** How many lists the home shows at a glance, how many rows each reads, and how many it shows. */
+const GLANCE_LISTS = 4;
+const GLANCE_READ = 60;
+export const GLANCE_ROWS = 3;
+
+/** The yes/no field a tick sets on this list, if it has one the person may change. */
+export const tickField = (c: CollectionView) =>
+  c.fields.find((f) => f.type === "boolean" && !f.options.formula && !f.options.personal)?.id ?? null;
+
+/** The first lists with a tick box, with what's still open in each. */
+async function glanceOf(cat: Catalog): Promise<Glance[]> {
+  const seen = new Set<string>();
+  const picks: { e: CatalogEntry; tick: string }[] = [];
+  for (const e of cat.entries) {
+    const c = e.collection;
+    if (!c || e.kind !== "list" || seen.has(c.id)) continue;
+    seen.add(c.id);
+    const tick = tickField(c);
+    // A list with dates shows through Coming up; here it would say the same things twice.
+    const dated = c.fields.some((f) => f.type === "date" || f.type === "datetime");
+    if (tick && !dated) picks.push({ e, tick });
+    if (picks.length >= GLANCE_LISTS) break;
+  }
+  const out = await Promise.all(
+    picks.map(async ({ e, tick }): Promise<Glance | null> => {
+      const c = e.collection!;
+      try {
+        const records = await findAll(c.id, e.space ? { space: e.space } : {}, GLANCE_READ);
+        const open = records.filter((r) => r.values[tick] !== true);
+        if (!open.length) return null;
+        const money = c.fields.find((f) => f.type === "money")?.id;
+        return {
+          key: `glance:${c.id}`,
+          collection: c,
+          ...(e.space ? { space: e.space } : {}),
+          spaceName: e.space ? e.group : "Personal",
+          tick,
+          open: open.slice(0, GLANCE_ROWS),
+          left: open.length,
+          more: records.length >= GLANCE_READ,
+          sum: money
+            ? open.reduce(
+                (n, r) => n + (typeof r.values[money] === "number" ? (r.values[money] as number) : 0),
+                0,
+              )
+            : null,
+        };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return out.filter((g): g is Glance => !!g);
 }
 
 const istDay = (ms: number) => Math.floor((ms + IST) / DAY);

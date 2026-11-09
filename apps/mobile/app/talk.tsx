@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
+import { BackIcon, MoreIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Text, TextInput } from "@assistant/cards/native";
 import { sendChatMessage, useChat, type GroupMessage, type Pending } from "@/chats";
@@ -162,9 +163,9 @@ export default function Talk() {
               accessibilityRole="button"
               accessibilityLabel="Back"
               onPress={() => router.back()}
-              style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+              style={[s.back, { backgroundColor: t.fill }]}
             >
-              <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+              <BackIcon color={t.fg} />
             </Pressable>
             {/* The chat's name opens its info: lists, flows, people (chats-base.md step 2). */}
             <Pressable
@@ -189,9 +190,9 @@ export default function Talk() {
                 accessibilityRole="button"
                 accessibilityLabel="Chat info"
                 onPress={openInfo}
-                style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+                style={[s.back, { backgroundColor: t.fill }]}
               >
-                <Text style={{ color: t.fg, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>···</Text>
+                <MoreIcon color={t.fg} />
               </Pressable>
             ) : null}
           </View>
@@ -528,10 +529,6 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
   title: { fontSize: 17, fontWeight: "800" },
   tabs: { flexDirection: "row", gap: 4, padding: 4, borderRadius: 22, marginHorizontal: 12, marginBottom: 6 },

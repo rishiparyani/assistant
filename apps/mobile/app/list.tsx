@@ -17,6 +17,7 @@ import {
 } from "react-native";
 import { Sheet } from "@/components/Sheet";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { BackIcon, MoreIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type {
   CollectionView,
@@ -316,16 +317,16 @@ export default function ListPage() {
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={() => router.back()}
-            style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.back, { backgroundColor: t.fill }]}
           >
-            <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+            <BackIcon color={t.fg} />
           </Pressable>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={asSheet ? "Show as a list" : "Show as a sheet"}
             accessibilityState={{ selected: asSheet }}
             onPress={() => setSheet(!asSheet)}
-            style={[s.deleted, { backgroundColor: asSheet ? t.fg : t.cell, shadowColor: t.shadow }]}
+            style={[s.deleted, { backgroundColor: asSheet ? t.fg : t.fill }]}
           >
             <Text style={{ color: asSheet ? t.page : t.fg2, fontSize: 14, fontWeight: "700" }}>
               {asSheet ? "List" : "Sheet"}
@@ -336,7 +337,7 @@ export default function ListPage() {
               accessibilityRole="button"
               accessibilityLabel={`Add to ${c.name}`}
               onPress={() => setAdding(true)}
-              style={[s.deleted, { backgroundColor: t.accent, shadowColor: t.shadow }]}
+              style={[s.deleted, { backgroundColor: t.accent }]}
             >
               <Text style={{ color: t.onAccent, fontSize: 14, fontWeight: "800" }}>+ Add</Text>
             </Pressable>
@@ -345,9 +346,9 @@ export default function ListPage() {
             accessibilityRole="button"
             accessibilityLabel="More"
             onPress={() => setMenu(true)}
-            style={[s.deleted, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.deleted, { backgroundColor: t.fill }]}
           >
-            <Text style={{ color: t.fg2, fontSize: 18, fontWeight: "800", lineHeight: 20 }}>⋯</Text>
+            <MoreIcon color={t.fg} />
           </Pressable>
         </View>
         <View style={s.head}>
@@ -807,9 +808,6 @@ const s = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 22,
     justifyContent: "center",
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
   },
   back: {
     width: 44,
@@ -817,10 +815,6 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
   },
   head: {
     flexDirection: "row",

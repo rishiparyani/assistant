@@ -298,7 +298,8 @@ test("the people a link is for can be played before anyone has joined it", async
   await expect(page.getByText("REHEARSING AS")).toBeVisible();
   // The app is theirs: the form they'd come in by waits in their Inbox, to fill in.
   await page.getByRole("button", { name: /^Inbox/ }).click();
-  await expect(page.getByText(list).first()).toBeVisible({ timeout: 30_000 });
+  // The home shows it too now, under the Inbox: the one on top is the Inbox's.
+  await expect(page.getByText(list).last()).toBeVisible({ timeout: 30_000 });
   await expectNoSideways(page);
   await page.getByRole("button", { name: "End rehearsing" }).click();
   await page.getByText("End and throw it away").click();

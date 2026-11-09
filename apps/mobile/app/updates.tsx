@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { useRouter, type Href } from "expo-router";
+import { BackIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isClassicPath, type NotificationView } from "@assistant/shared";
 import { Tap, Text, type } from "@assistant/cards/native";
@@ -111,9 +112,9 @@ export default function Inbox() {
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
-            style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.back, { backgroundColor: t.fill }]}
           >
-            <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+            <BackIcon color={t.fg} />
           </Pressable>
         </View>
         <FlatList
@@ -186,9 +187,6 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 1,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
   },
   top: { gap: 8, paddingBottom: 4 },
   head: { paddingHorizontal: 4, paddingTop: 2, gap: 2 },
