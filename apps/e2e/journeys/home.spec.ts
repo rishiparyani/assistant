@@ -173,3 +173,37 @@ test("the home's bar opens the chat that was last open", async ({ browser }) => 
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("done things don't crowd what's open off the home", async ({ browser }) => {
+  // Codex on PR 232: six done dated rows hid the open seventh; four finished lists hid the fifth.
+  test.setTimeout(120_000);
+  const me = await person(`E2E Crowded person ${RUN}`);
+  const fields = [
+    { name: "Title", type: "text" },
+    { name: "Done", type: "boolean" },
+  ];
+  const dated = `E2E Appointments ${RUN}`;
+  await api(me)("POST", "/collections", { name: dated, fields: [...fields, { name: "When", type: "date" }] });
+  for (let i = 0; i < 7; i++)
+    await api(me)("POST", `/collections/${encodeURIComponent(dated)}/records`, {
+      values: { Title: `E2E earlier ${i}`, When: day(1), Done: true },
+    });
+  await api(me)("POST", `/collections/${encodeURIComponent(dated)}/records`, {
+    values: { Title: `E2E Dentist ${RUN}`, When: day(3) },
+  });
+  // Four lists with everything done, then one with something open.
+  for (const n of ["A", "B", "C", "D", "E"]) {
+    const name = `E2E List ${n} ${RUN}`;
+    await api(me)("POST", "/collections", { name, fields });
+    await api(me)("POST", `/collections/${encodeURIComponent(name)}/records`, {
+      values: { Title: n === "E" ? `E2E Still open ${RUN}` : `E2E finished ${n}`, Done: n !== "E" },
+    });
+  }
+  const { page, errors, context } = await openApp(browser, me);
+  await expect(page.getByLabel("Coming up", { exact: true }).getByText(`E2E Dentist ${RUN}`)).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByText(`E2E Still open ${RUN}`)).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});

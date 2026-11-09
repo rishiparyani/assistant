@@ -195,6 +195,11 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
           e.collection!.id,
           {
             filters: [
+              // Done things aren't coming up, and are left out before the read's limit so they
+              // can't crowd out what's still open (Codex on PR 232).
+              ...(tickField(e.collection!)
+                ? [{ field: tickField(e.collection!)!, op: "ne", value: true }]
+                : []),
               { field, op: "period", value: "next_7_days" },
               ...(type === "datetime" ? [{ field, op: "gte", value: fromNow }] : []),
             ],
@@ -236,6 +241,8 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
 
 /** How many lists the home shows at a glance, how many rows each reads, and how many it shows. */
 const GLANCE_LISTS = 4;
+/** How many lists are looked at to find them. */
+const GLANCE_TRY = 12;
 const GLANCE_READ = 60;
 export const GLANCE_ROWS = 3;
 
@@ -257,7 +264,8 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
     // A list with dates shows through Coming up; here it would say the same things twice.
     const dated = c.fields.some((f) => f.type === "date" || f.type === "datetime");
     if (tick && !dated) picks.push({ e, tick });
-    if (picks.length >= GLANCE_LISTS) break;
+    // More than are shown: ones with nothing open make way for the next (Codex on PR 232).
+    if (picks.length >= GLANCE_TRY) break;
   }
   const out = await Promise.all(
     picks.map(async ({ e, tick }): Promise<Glance | null> => {
@@ -294,7 +302,7 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
       }
     }),
   );
-  return out.filter((g): g is Glance => !!g);
+  return out.filter((g): g is Glance => !!g).slice(0, GLANCE_LISTS);
 }
 
 const istDay = (ms: number) => Math.floor((ms + IST) / DAY);
