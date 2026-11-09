@@ -27,7 +27,7 @@ import type {
   SavedView,
   StoredValue,
 } from "@assistant/shared";
-import { TRASH_DAYS } from "@assistant/shared";
+import { TRASH_DAYS, formatINR } from "@assistant/shared";
 import {
   EditableGrid,
   Text,
@@ -39,7 +39,8 @@ import {
   shown,
   tint,
 } from "@assistant/cards/native";
-import { Boundary, Tap } from "@assistant/cards/native";
+import { Boundary, Tap, type } from "@assistant/cards/native";
+import { ASKS_ROOM, Asks } from "@/components/Asks";
 import { isOffline, request } from "@/api";
 import { openChat } from "@/chat-open";
 import { Composer } from "@/components/Composer";
@@ -295,13 +296,7 @@ export default function ListPage() {
       writeJson(pageKey, { ...kept, items: kept.items.map((x) => (x.id === r.id ? next : x)) });
   };
   const money = c?.fields.filter((f) => f.type === "money") ?? [];
-  const total =
-    money[0] && records && !cursor
-      ? records.reduce(
-          (n, r) => n + (typeof r.values[money[0]!.id] === "number" ? (r.values[money[0]!.id] as number) : 0),
-          0,
-        )
-      : null;
+  const summary = summaryOf(records ?? [], money[0]?.id ?? null, tickField, !!cursor);
   const listColour = colour(colourFor(c?.name ?? ""));
   // The chat about this list, or one of its records (the chip says which; decision 2026-10-24
   // "The chat from any screen").
@@ -355,11 +350,17 @@ export default function ListPage() {
           <Text style={[s.title, { color: t.fg }]} numberOfLines={1}>
             {c?.name ?? "…"}
           </Text>
-          <Text style={[s.meta, { color: t.fg2 }]} numberOfLines={1}>
-            {records ? `${records.length}${cursor ? "+" : ""}` : ""}
-            {total !== null ? ` · ₹${(total / 100).toLocaleString("en-IN")}` : ""}
-          </Text>
         </View>
+        {/* What the list comes to, up front (decision 2026-11-09 "A calmer look, and a home that
+            shows your day"): what's left when it has a tick box, else all of it. */}
+        {records?.length ? (
+          <View style={s.sum} accessibilityLabel="Summary">
+            <Text style={[type.num, s.figure, { color: t.fg }]}>{summary.figure}</Text>
+            <Text style={[type.small, { color: t.fg2, flexShrink: 1 }]} numberOfLines={1}>
+              {summary.words}
+            </Text>
+          </View>
+        ) : null}
         {chips.length > 1 ? (
           <ScrollView
             horizontal
@@ -391,7 +392,7 @@ export default function ListPage() {
         {note ? <Text style={[s.note, { color: t.fg2 }]}>{note}</Text> : null}
         {asSheet ? (
           <ScrollView
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110 }}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110 + ASKS_ROOM }}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
@@ -425,7 +426,11 @@ export default function ListPage() {
           <FlatList
             data={rows}
             keyExtractor={(x) => x.id}
-            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 110, gap: 8 }}
+            contentContainerStyle={{
+              paddingHorizontal: 16,
+              paddingBottom: insets.bottom + 110 + ASKS_ROOM,
+              gap: 8,
+            }}
             onEndReached={() => cursor && void loadPage(cursor)}
             onEndReachedThreshold={0.6}
             refreshControl={
@@ -464,6 +469,13 @@ export default function ListPage() {
             }
           />
         )}
+        {c ? (
+          <Asks
+            asks={asksFor(c, !!tickField)}
+            // Put in the chat's box to finish and send: it's about this list.
+            onAsk={(a) => openChat({ ...chatIn, ask: a }, { kind: "list", title: c.name })}
+          />
+        ) : null}
         <Composer about={{ kind: "list", title: c?.name ?? "this list" }} params={chatIn} />
         {c ? (
           <ListAddSheet
@@ -648,6 +660,8 @@ function Row({
   const { t, dark } = useTheme();
   const byId = (id: string) => c.fields.find((f) => f.id === id);
   const layout = view?.card?.row ?? null;
+  // No layout of its own: one tight row (about nine to a screen), the amount at the right.
+  const compact = !layout;
   const plain = (f: FieldView) =>
     f.id !== c.title_field_id && f.id !== dateField && ["text", "choice", "link", "person"].includes(f.type);
   const details = (layout?.details.length ? layout.details.map(byId) : c.fields.filter(plain).slice(0, 2))
@@ -688,6 +702,7 @@ function Row({
       onAccessibilityAction={(e) => e.nativeEvent.actionName === "longpress" && onHold()}
       style={({ pressed }) => [
         s.card,
+        compact && s.tight,
         { backgroundColor: t.cell, borderColor: t.hair, opacity: pressed ? 0.92 : 1 },
         hitColour
           ? {
@@ -709,7 +724,7 @@ function Row({
           <Tick done={done} />
         </Pressable>
       ) : null}
-      {day ? (
+      {day && !compact ? (
         <View
           style={[
             s.tile,
@@ -737,7 +752,7 @@ function Row({
           <Text style={[s.details, { color: t.fg2 }]} numberOfLines={1}>
             {[
               ...details,
-              ...(when && day
+              ...(when && day && !compact
                 ? [when.split(" · ").slice(1).join(" · ")].filter(Boolean)
                 : when
                   ? [when]
@@ -745,7 +760,7 @@ function Row({
             ].join(" · ")}
           </Text>
         ) : null}
-        {pills.length || hit?.label ? (
+        {(pills.length && !compact) || hit?.label ? (
           <View style={s.pills}>
             {hit?.label && hitColour ? (
               <Text
@@ -754,7 +769,7 @@ function Row({
                 {hit.label}
               </Text>
             ) : null}
-            {pills.map((p) => (
+            {(compact ? [] : pills).map((p) => (
               <Text
                 key={p}
                 style={[s.pill, { color: t.warn, backgroundColor: tint(t.warn, dark ? 0.2 : 0.12) }]}
@@ -776,6 +791,18 @@ function Row({
           </Text>
         ) : null}
       </View>
+      {compact && pills.length ? (
+        <View style={s.amounts}>
+          {pills.slice(0, 2).map((p, i) => (
+            <Text
+              key={p + i}
+              style={[type.small, type.num, { letterSpacing: 0, color: done || i ? t.fg2 : t.fg }]}
+            >
+              {p}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       {action?.value ? (
         <Pressable
           accessibilityRole="button"
@@ -788,6 +815,48 @@ function Row({
       ) : null}
     </Pressable>
   );
+}
+
+/** A few things to ask of this list, by what it has and hasn't (everyday words, any list). */
+function asksFor(c: CollectionView, ticks: boolean): string[] {
+  const has = (...types: string[]) => c.fields.some((f) => types.includes(f.type));
+  return [
+    has("date", "datetime") ? "What's coming up here?" : "Add a date to these",
+    ...(has("money") ? ["Show the total by month"] : []),
+    ...(ticks ? [] : ["Add a tick box"]),
+    "Remind me about these",
+    "Add a field",
+  ].slice(0, 4);
+}
+
+/**
+ * The line under a list's name: with a tick box, what's still open ("₹550" "left · 5 of 7 to
+ * do"); without, all of it ("₹1,015" "7 in all"). `more`: only part of the list is read, so it
+ * says "+" and leaves the sum out.
+ */
+function summaryOf(
+  records: RecordView[],
+  money: string | null,
+  tick: string | null,
+  more: boolean,
+): { figure: string; words: string } {
+  const n = (rs: RecordView[]) => `${rs.length}${more ? "+" : ""}`;
+  const sum = (rs: RecordView[]) =>
+    money && !more
+      ? rs.reduce((x, r) => x + (typeof r.values[money] === "number" ? (r.values[money] as number) : 0), 0)
+      : 0;
+  if (tick) {
+    const open = records.filter((r) => r.values[tick] !== true);
+    if (!open.length && !more) return { figure: "Done", words: `all ${records.length}` };
+    const left = sum(open);
+    return left > 0
+      ? { figure: formatINR(left), words: `left · ${n(open)} of ${n(records)} to do` }
+      : { figure: n(open), words: `of ${n(records)} left to do` };
+  }
+  const total = sum(records);
+  return total > 0
+    ? { figure: formatINR(total), words: `${n(records)} in all` }
+    : { figure: n(records), words: "in all" };
 }
 
 const s = StyleSheet.create({
@@ -858,6 +927,10 @@ const s = StyleSheet.create({
     borderRadius: radius.row,
     borderWidth: StyleSheet.hairlineWidth,
   },
+  tight: { paddingVertical: 8, minHeight: 52 },
+  amounts: { alignItems: "flex-end", gap: 1 },
+  sum: { flexDirection: "row", alignItems: "baseline", gap: 8, paddingHorizontal: 20, paddingBottom: 6 },
+  figure: { fontSize: 26, lineHeight: 30, letterSpacing: -0.8 },
   tile: { width: 50, height: 56, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   tileDow: { fontSize: 10, fontWeight: "800", letterSpacing: 0.6 },
   tileDay: { fontSize: 22, fontWeight: "800", letterSpacing: -0.8, lineHeight: 26 },

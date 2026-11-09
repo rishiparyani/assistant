@@ -62,12 +62,13 @@ export function CloseIcon({ color, size = 20 }: Props) {
   );
 }
 
+/** Settings, as two sliders (a gear this small read as a sun). */
 export function GearIcon({ color, size = 22 }: Props) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" {...stroke(color)} />
+      <Path d="M4 8h9M19 8h1M4 16h1M11 16h9" {...stroke(color)} />
       <Path
-        d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"
+        d="M16 10.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM8 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"
         {...stroke(color)}
       />
     </Svg>

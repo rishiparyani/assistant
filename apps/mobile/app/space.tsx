@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Boundary, Card, Text, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { BackIcon } from "@/components/HeaderIcons";
+import { BackIcon, GearIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
@@ -63,6 +63,7 @@ export default function SpacePage() {
   const [starting, setStarting] = useState(false);
   // Deleting the space (decision 2026-11-05 "The space is the setup"): asked first.
   const [deleting, setDeleting] = useState<"ask" | "busy" | null>(null);
+  const [menu, setMenu] = useState(false);
   const [deleteNote, setDeleteNote] = useState("");
   const assistant = me?.assistant !== false;
 
@@ -283,7 +284,7 @@ export default function SpacePage() {
         </Pressable>
       ) : null}
       {!chatsHere.length && !assistant ? (
-        <Text style={[s.empty, { color: t.fg3 }]}>No chats here yet.</Text>
+        <Empty title="No chats here yet" body={`A chat here is about what's in ${name}.`} />
       ) : null}
     </>
   );
@@ -357,7 +358,7 @@ export default function SpacePage() {
           </View>
         </Pressable>
       ) : (
-        <Text style={[s.empty, { color: t.fg3 }]}>No lists here yet.</Text>
+        <Empty title="No lists here yet" body="Whoever has the assistant makes them in the chat." />
       )}
     </>
   );
@@ -390,14 +391,23 @@ export default function SpacePage() {
             <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
           </Pressable>
         ))
+      ) : workflows === null ? (
+        <Text style={[s.empty, { color: t.fg2 }]}>Loading…</Text>
       ) : (
-        <Text style={[s.empty, { color: t.fg3 }]}>
-          {workflows === null
-            ? "Loading…"
-            : "No flows here yet. Flows run steps for you when something changes."}
-        </Text>
+        <Empty
+          title="No flows here yet"
+          body="A flow does something on its own when things change, like a reminder the day before something is due."
+          action={
+            assistant
+              ? {
+                  label: "Ask for one",
+                  go: () => openChat({ ask: `I'd like a flow in ${name} that `, ...chatIn }),
+                }
+              : undefined
+          }
+        />
       )}
-      {assistant ? (
+      {assistant && workflows?.length ? (
         <Pressable
           accessibilityRole="button"
           onPress={() => openChat({ ask: `I'd like a flow in ${name} that `, ...chatIn })}
@@ -448,31 +458,6 @@ export default function SpacePage() {
     <Text style={[s.empty, { color: t.fg3 }]}>Loading…</Text>
   );
   const owner = !!people?.some((p) => p.user_id === userId && p.role === "owner");
-  const spaceTools =
-    !personal && spaceId ? (
-      <>
-        {section("This space", "")}
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push({ pathname: "/trash", params: { space: spaceId } })}
-          style={rowStyle}
-        >
-          <View style={[s.dot, { backgroundColor: t.fg3 }]} />
-          <View style={s.words}>
-            <Text style={[s.rowTitle, { color: t.fg }]}>Recently deleted</Text>
-          </View>
-          <Text style={[s.rowEnd, { color: t.fg3 }]}>›</Text>
-        </Pressable>
-        {owner ? (
-          <Pressable accessibilityRole="button" onPress={() => setDeleting("ask")} style={rowStyle}>
-            <View style={[s.dot, { backgroundColor: t.danger }]} />
-            <View style={s.words}>
-              <Text style={[s.rowTitle, { color: t.danger }]}>Delete this space</Text>
-            </View>
-          </Pressable>
-        ) : null}
-      </>
-    ) : null;
 
   return (
     <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top + 6 }]}>
@@ -497,8 +482,20 @@ export default function SpacePage() {
               {metaWords}
             </Text>
           </View>
+          {/* Everything about the space itself in one place (decision 2026-11-09 "A calmer look,
+              and a home that shows your day": deleting it sat under People). */}
+          {spaceId ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Space settings"
+              onPress={() => setMenu(true)}
+              style={[s.back, { backgroundColor: t.fill }]}
+            >
+              <GearIcon color={t.fg} />
+            </Pressable>
+          ) : null}
         </View>
-        <View style={[s.tabs, { backgroundColor: t.fill }]} accessibilityRole="tablist">
+        <View style={s.tabs} accessibilityRole="tablist">
           {tabs.map((x) => {
             const on = tab === x.key;
             return (
@@ -507,9 +504,9 @@ export default function SpacePage() {
                 accessibilityRole="tab"
                 accessibilityState={{ selected: on }}
                 onPress={() => setTab(x.key)}
-                style={[s.tab, on && { backgroundColor: t.cell, shadowColor: t.shadow }, on && s.tabOn]}
+                style={[s.tab, on && { backgroundColor: t.accentSoft }]}
               >
-                <Text style={[type.label, { color: on ? t.fg : t.fg2, fontSize: 14 }]}>{x.label}</Text>
+                <Text style={[type.label, { color: on ? t.accent : t.fg2, fontSize: 14 }]}>{x.label}</Text>
                 {x.n ? (
                   <View style={[s.tabBadge, { backgroundColor: t.accent }]}>
                     <Text style={[s.badgeText, { color: t.onAccent }]}>{x.n > 9 ? "9+" : x.n}</Text>
@@ -539,7 +536,6 @@ export default function SpacePage() {
         >
           {note ? <Text style={[s.note, { color: t.fg2 }]}>{note}</Text> : null}
           {tab === "chats" ? chatsTab : tab === "lists" ? listsTab : tab === "flows" ? flowsTab : peopleTab}
-          {tab === "people" ? spaceTools : null}
         </ScrollView>
         <Composer about={{ kind: "space", title: name }} params={chatIn} />
       </View>
@@ -556,6 +552,57 @@ export default function SpacePage() {
           }}
         />
       ) : null}
+      <Sheet open={menu} onClose={() => setMenu(false)} gap={4} accessibilityLabel="Space settings">
+        <Text
+          style={[type.caption, { color: t.fg2, paddingHorizontal: 4, paddingBottom: 4 }]}
+          numberOfLines={1}
+        >
+          {name}
+        </Text>
+        {personal ? null : (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              setMenu(false);
+              setTab("people");
+            }}
+            style={s.menuRow}
+          >
+            <Text style={[type.body, { color: t.fg, fontWeight: "600", flex: 1 }]}>People</Text>
+            <Text style={[type.small, { color: t.fg2 }]}>{everyone || ""}</Text>
+          </Pressable>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => {
+            setMenu(false);
+            router.push({ pathname: "/trash", params: personal ? {} : { space: spaceId! } });
+          }}
+          style={s.menuRow}
+        >
+          <Text style={[type.body, { color: t.fg, fontWeight: "600", flex: 1 }]}>Recently deleted</Text>
+        </Pressable>
+        {personal ? (
+          <Text style={[type.small, { color: t.fg2, paddingHorizontal: 4, paddingTop: 6 }]}>
+            Personal is yours alone and can't be deleted.
+          </Text>
+        ) : owner ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Delete this space"
+            onPress={() => {
+              setMenu(false);
+              setDeleting("ask");
+            }}
+            style={s.menuRow}
+          >
+            <Text style={[type.body, { color: t.danger, fontWeight: "600", flex: 1 }]}>
+              Delete this space
+            </Text>
+            <Text style={[type.small, { color: t.fg2 }]}>Kept {TRASH_DAYS} days</Text>
+          </Pressable>
+        ) : null}
+      </Sheet>
       <Sheet
         open={!!deleting}
         onClose={() => {
@@ -659,7 +706,45 @@ function Lock({ colour }: { colour: string }) {
   );
 }
 
+/** An empty tab: what it's for, and one thing to do about it when there is one. */
+function Empty({
+  title,
+  body,
+  action,
+}: {
+  title: string;
+  body: string;
+  action?: { label: string; go: () => void };
+}) {
+  const { t } = useTheme();
+  return (
+    <View style={s.emptyBox}>
+      <Text style={[type.heading, { color: t.fg, textAlign: "center" }]}>{title}</Text>
+      <Text style={[type.small, { color: t.fg2, textAlign: "center", maxWidth: 300 }]}>{body}</Text>
+      {action ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={action.go}
+          style={[s.emptyGo, { backgroundColor: t.accent }]}
+        >
+          <Text style={[type.label, { color: t.onAccent }]}>{action.label}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
+  menuRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 4 },
+  emptyBox: { alignItems: "center", gap: 8, paddingVertical: 32, paddingHorizontal: 16 },
+  emptyGo: {
+    minHeight: 44,
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
   sheetBtn: {
     minHeight: 48,
     borderRadius: 24,
@@ -676,13 +761,12 @@ const s = StyleSheet.create({
   tab: {
     flex: 1,
     minHeight: 44,
-    borderRadius: 11,
+    borderRadius: 22,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  tabOn: { shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
   tabBadge: {
     minWidth: 18,
     height: 18,
