@@ -544,7 +544,9 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   ) : (
     <View style={{ gap: 10 }}>
       {error ? <Text style={[type.small, { color: t.danger }]}>{error}</Text> : null}
-      {filter === "all" ? (
+      {/* Kept while Unread is showing (hidden, not removed), so ticks made here and still
+          waiting to be sent aren't forgotten (Codex on PR 232). */}
+      <View style={filter === "all" ? null : s.hidden}>
         <DayHome
           needs={needs.filter(onMe)}
           coming={coming}
@@ -559,7 +561,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           onOpenList={(collection, spaceId) => openList(collection, undefined, spaceId)}
           onAsk={openAssistant}
         />
-      ) : null}
+      </View>
       <View style={s.chatsHead}>
         <Text style={[type.eyebrow, { color: t.fg2 }]}>Chats</Text>
         <View style={s.filters}>
@@ -725,7 +727,11 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           </ScrollView>
         </View>
       ) : null}
-      <Composer placeholder="Ask, add or arrange" />
+      {/* The empty bar opens the chat last open, as the assistant's card did (Codex on PR 232). */}
+      <Composer
+        placeholder="Ask, add or arrange"
+        params={userId && lastChat(userId) ? { id: lastChat(userId)! } : undefined}
+      />
       <View
         style={[s.bottom, { paddingBottom: insets.bottom + (assistant ? 130 : 16) }]}
         pointerEvents="box-none"
@@ -972,6 +978,7 @@ const s = StyleSheet.create({
     ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineStyle: "none" } as object) : {}),
   },
   clear: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  hidden: { display: "none" },
   chatsHead: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, paddingLeft: 4 },
   filters: { flex: 1, flexDirection: "row", gap: 4 },
   asks: { position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 8 },

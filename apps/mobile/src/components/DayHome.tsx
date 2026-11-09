@@ -8,6 +8,7 @@ import Svg, { Path } from "react-native-svg";
 import { Tap, Text, type } from "@assistant/cards/native";
 import { formatINR, type CollectionView, type RecordView } from "@assistant/shared";
 import { writeValue, type HomeCard } from "@/home";
+import { outboxState } from "@/outbox";
 import { tickField, whenWords, type Glance, type UpNextItem } from "@/today";
 import { radius, useTheme } from "@/theme";
 import { NeedsList } from "./NeedsList";
@@ -48,8 +49,11 @@ export function DayHome({
   // Ticks made here, by record: shown at once, and kept until the next read brings them back.
   const [ticked, setTicked] = useState<Record<string, boolean>>({});
   const [all, setAll] = useState(false);
-  // A fresh read has the ticks in it: what was kept here would only go stale.
-  useEffect(() => setTicked({}), [fresh]);
+  // A fresh read has the ticks in it, so what was kept here would only go stale; unless changes
+  // are still waiting to be sent (offline), when the read is older than the ticks.
+  useEffect(() => {
+    if (!outboxState().waiting.length) setTicked({});
+  }, [fresh]);
 
   const done = (r: RecordView, field: string) => ticked[r.id] ?? r.values[field] === true;
   const tick = (c: CollectionView, r: RecordView, field: string, space?: string) => {

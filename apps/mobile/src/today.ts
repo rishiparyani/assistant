@@ -249,7 +249,9 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
   const picks: { e: CatalogEntry; tick: string }[] = [];
   for (const e of cat.entries) {
     const c = e.collection;
-    if (!c || e.kind !== "list" || seen.has(c.id)) continue;
+    // A list shows in the catalogue as itself or, once it has saved views, as those (Codex on
+    // PR 232: a list with a view had no card): either way it is one list here.
+    if (!c || (e.kind !== "list" && e.kind !== "view") || seen.has(c.id)) continue;
     seen.add(c.id);
     const tick = tickField(c);
     // A list with dates shows through Coming up; here it would say the same things twice.
@@ -261,7 +263,13 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
     picks.map(async ({ e, tick }): Promise<Glance | null> => {
       const c = e.collection!;
       try {
-        const records = await findAll(c.id, e.space ? { space: e.space } : {}, GLANCE_READ);
+        // Only the open ones are asked for, so a long history of done ones can't crowd them out
+        // of what's read (Codex on PR 232).
+        const records = await findAll(
+          c.id,
+          { filters: [{ field: tick, op: "ne", value: true }], ...(e.space ? { space: e.space } : {}) },
+          GLANCE_READ,
+        );
         const open = records.filter((r) => r.values[tick] !== true);
         if (!open.length) return null;
         const money = c.fields.find((f) => f.type === "money")?.id;

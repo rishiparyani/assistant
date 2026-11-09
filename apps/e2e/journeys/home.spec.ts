@@ -2,7 +2,7 @@
 // what's coming up and each list with a tick box, ticked right there; what needs me, answered
 // right there. The things themselves, not the folders they're in.
 import { expect, test } from "@playwright/test";
-import { RUN, api, expectNoSideways, openApp, person } from "./helpers";
+import { RUN, api, expectNoSideways, openApp, owner, person } from "./helpers";
 
 const day = (n: number) => new Date(Date.now() + n * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
 
@@ -83,4 +83,93 @@ test("an empty day says so, in light and dark", async ({ browser }) => {
     expect(errors).toEqual([]);
     await context.close();
   }
+});
+
+test("a list with a saved view, and one with a long done history, still show on the home", async ({
+  browser,
+}) => {
+  // Codex on PR 232: a list with a saved view had no card; sixty done rows hid the open one.
+  test.setTimeout(120_000);
+  const me = await person(`E2E Views person ${RUN}`);
+  const viewed = `E2E Packing ${RUN}`;
+  const long = `E2E Errands ${RUN}`;
+  for (const name of [viewed, long])
+    await api(me)("POST", "/collections", {
+      name,
+      fields: [
+        { name: "Title", type: "text" },
+        { name: "Done", type: "boolean" },
+      ],
+    });
+  await api(me)("POST", `/collections/${encodeURIComponent(viewed)}/records`, {
+    values: { Title: "E2E Torch" },
+  });
+  await api(me)("POST", "/views", { name: `E2E Packing view ${RUN}`, collection: viewed });
+  // The open one is the oldest, behind more done ones than the home reads.
+  await api(me)("POST", `/collections/${encodeURIComponent(long)}/records`, {
+    values: { Title: "E2E Post the letter" },
+  });
+  for (let i = 0; i < 62; i++)
+    await api(me)("POST", `/collections/${encodeURIComponent(long)}/records`, {
+      values: { Title: `E2E done ${i}`, Done: true },
+    });
+
+  const { page, errors, context } = await openApp(browser, me);
+  await expect(page.getByLabel(viewed, { exact: true }).getByText("E2E Torch")).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByLabel(long, { exact: true }).getByText("E2E Post the letter")).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a tick made offline is still there after looking at Unread", async ({ browser }) => {
+  // Codex on PR 232: the day was rebuilt from the older read, so the row looked unticked and a
+  // second tap queued "done" again.
+  const me = await person(`E2E Offline tick ${RUN}`);
+  const list = `E2E Tasks ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Done", type: "boolean" },
+    ],
+  });
+  await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: "E2E Water the plants" },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  const card = page.getByLabel(list, { exact: true });
+  await expect(card.getByText("E2E Water the plants")).toBeVisible({ timeout: 30_000 });
+  await context.setOffline(true);
+  await card.getByRole("checkbox", { name: "Done: E2E Water the plants" }).click();
+  await expect(card.getByRole("checkbox", { name: "Not done: E2E Water the plants" })).toBeVisible();
+  await page.getByRole("button", { name: "Unread", exact: true }).click();
+  await page.getByRole("button", { name: "All", exact: true }).click();
+  await expect(card.getByRole("checkbox", { name: "Not done: E2E Water the plants" })).toBeVisible();
+  await context.setOffline(false);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline/i.test(e))).toEqual([]);
+  await context.close();
+});
+
+test("the home's bar opens the chat that was last open", async ({ browser }) => {
+  // Codex on PR 232: after a chat in another space, the home's empty bar opened Personal's.
+  test.setTimeout(90_000);
+  const me = await owner();
+  const spaces = (await api(me)("GET", "/spaces")) as { id: string; name: string }[];
+  const band =
+    spaces.find((s) => s.name === "Test band") ??
+    ((await api(me)("POST", "/spaces", { name: "Test band" })) as { id: string });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/space?id=${band.id}`);
+  const bar = page.getByLabel("Ask about Test band");
+  await bar.fill(`E2E said in the space ${RUN}`);
+  await bar.press("Enter");
+  await expect(page.getByText(`E2E said in the space ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/\(\d\) OK/).last()).toBeVisible({ timeout: 30_000 });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Open the chat" }).click();
+  await expect(page.getByText(`E2E said in the space ${RUN}`).first()).toBeVisible({ timeout: 30_000 });
+  expect(errors).toEqual([]);
+  await context.close();
 });
