@@ -37,7 +37,8 @@ test("a question is answered from the Inbox, and the asker hears the answer", as
   const f = await openApp(browser, friend);
   await expect(bell(f.page)).toHaveAccessibleName(/1 needs you/, { timeout: 30_000 });
   await bell(f.page).click();
-  const question = f.page.getByText(`Let E2E courier ${RUN} in?`);
+  // The home shows it too now (under the Inbox): the Inbox's is the one on top.
+  const question = f.page.getByText(`Let E2E courier ${RUN} in?`).last();
   await expect(question).toBeVisible();
   await expectNoSideways(f.page);
   await f.page.getByRole("button", { name: "Approved" }).first().click();

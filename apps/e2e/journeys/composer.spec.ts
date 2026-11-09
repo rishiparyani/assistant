@@ -24,7 +24,7 @@ async function grows(box: Locator) {
 test("the assistant's message box grows with what you write", async ({ browser }) => {
   const me = await owner();
   const { page, errors, context } = await openApp(browser, me);
-  await page.getByRole("button", { name: /^Assistant/ }).click();
+  await page.getByRole("button", { name: "Open the chat" }).click();
   await grows(page.getByLabel("Message Gigspree"));
   expect(errors).toEqual([]);
   await context.close();

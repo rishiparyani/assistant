@@ -45,3 +45,39 @@ export function ChevronDownIcon({ color, size = 14 }: Props) {
     </Svg>
   );
 }
+
+export function MoreIcon({ color, size = 22 }: Props) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M5 12h.01M12 12h.01M19 12h.01" {...stroke(color)} strokeWidth={2.8} />
+    </Svg>
+  );
+}
+
+export function CloseIcon({ color, size = 20 }: Props) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M6 6l12 12M18 6L6 18" {...stroke(color)} />
+    </Svg>
+  );
+}
+
+export function GearIcon({ color, size = 22 }: Props) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" {...stroke(color)} />
+      <Path
+        d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"
+        {...stroke(color)}
+      />
+    </Svg>
+  );
+}
+
+export function SendIcon({ color, size = 20 }: Props) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M12 19V5M6 11l6-6 6 6" {...stroke(color)} strokeWidth={2.4} />
+    </Svg>
+  );
+}

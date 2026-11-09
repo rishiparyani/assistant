@@ -6,7 +6,7 @@ import { RUN, api, expectNoSideways, openApp, owner } from "./helpers";
 test("you ask the assistant and it answers", async ({ browser }) => {
   const me = await owner();
   const { page, errors, context } = await openApp(browser, me);
-  await page.getByRole("button", { name: /^Assistant/ }).click();
+  await page.getByRole("button", { name: "Open the chat" }).click();
   const box = page.getByLabel("Message Gigspree");
   await box.fill(`Hello from the journeys ${RUN}`);
   await page.getByRole("button", { name: "Send" }).click();

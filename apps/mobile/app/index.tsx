@@ -36,22 +36,16 @@ import { Tour, markTourSeen, tourSeen, tourSteps, type TourRefs } from "@/compon
 import { NewChat } from "./chats";
 import { API_URL } from "@/config";
 import { onHomeChanged, type HomeCard } from "@/home";
-import {
-  loadToday,
-  recentSpaces,
-  savedToday,
-  sharedItem,
-  whenWords,
-  type Today,
-  type UpNextItem,
-} from "@/today";
+import { loadToday, recentSpaces, savedToday, sharedItem, type Today, type UpNextItem } from "@/today";
 import { RecordSheet } from "@/components/RecordSheet";
+import { DayHome } from "@/components/DayHome";
+import { Composer } from "@/components/Composer";
+import { NewChatIcon } from "@/components/HeaderIcons";
 import {
   filterEntries,
   homeEntries,
   matchEntries,
   onMe,
-  watchingWords,
   type ChatEntry,
   type HomeFilter,
   type SpaceEntry,
@@ -550,43 +544,53 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   ) : (
     <View style={{ gap: 10 }}>
       {error ? <Text style={[type.small, { color: t.danger }]}>{error}</Text> : null}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.filters}>
-        {FILTERS.map((f) => {
-          const on = filter === f.key;
-          return (
-            <Tap
-              key={f.key}
-              accessibilityRole="button"
-              accessibilityState={{ selected: on }}
-              onPress={() => setFilter(f.key)}
-              style={[s.filter, { backgroundColor: on ? t.accent : t.fill }]}
-            >
-              <Text style={[type.label, { color: on ? t.onAccent : t.fg }]}>{f.label}</Text>
-            </Tap>
-          );
-        })}
-      </ScrollView>
-      {assistant && filter === "all" ? (
+      {/* Kept while Unread is showing (hidden, not removed), so ticks made here and still
+          waiting to be sent aren't forgotten (Codex on PR 232). */}
+      <View style={filter === "all" ? null : s.hidden}>
+        <DayHome
+          needs={needs.filter(onMe)}
+          coming={coming}
+          glance={today?.glance ?? []}
+          fresh={today}
+          now={now}
+          loading={loading}
+          assistant={assistant}
+          reload={load}
+          onError={setError}
+          onOpenRecord={setOpened}
+          onOpenList={(collection, spaceId) => openList(collection, undefined, spaceId)}
+          onAsk={openAssistant}
+        />
+      </View>
+      <View style={s.chatsHead}>
+        <Text style={[type.eyebrow, { color: t.fg2 }]}>Chats</Text>
+        <View style={s.filters}>
+          {FILTERS.map((f) => {
+            const on = filter === f.key;
+            return (
+              <Tap
+                key={f.key}
+                accessibilityRole="button"
+                accessibilityState={{ selected: on }}
+                onPress={() => setFilter(f.key)}
+                style={[s.filter, { backgroundColor: on ? t.accentSoft : "transparent" }]}
+              >
+                <Text style={[type.label, { color: on ? t.accent : t.fg2 }]}>{f.label}</Text>
+              </Tap>
+            );
+          })}
+        </View>
         <Tap
-          ref={tourRefs.chat}
           accessibilityRole="button"
-          accessibilityLabel="Assistant, only you see it"
-          onPress={openAssistant}
-          scale={0.985}
-          style={[s.ai, { backgroundColor: t.ink, shadowColor: t.shadow }]}
+          accessibilityLabel="New chat or space"
+          onPress={() => setMaking(true)}
+          scale={0.92}
+          haptic="light"
+          style={[s.round, { backgroundColor: t.fill }]}
         >
-          <View style={[s.aiIcon, { backgroundColor: t.accent }]}>
-            <Text style={[s.aiIconText, { color: t.onAccent }]}>✦</Text>
-          </View>
-          <View style={s.words}>
-            <Text style={[s.name, { color: t.onInk }]}>Assistant</Text>
-            <Text style={[s.last, { color: t.onInk, opacity: 0.8 }]} numberOfLines={2}>
-              {watchingWords(coming, (u) => whenWords(u, now))}
-            </Text>
-          </View>
-          <Text style={[s.chev, { color: t.onInk, opacity: 0.7 }]}>›</Text>
+          <NewChatIcon color={t.fg} />
         </Tap>
-      ) : null}
+      </View>
       {shown.map((e) => (e.kind === "space" ? spaceTile(e) : chatRow(e)))}
       {!shown.length ? (
         <Text style={[s.empty, { color: t.fg3 }]}>
@@ -615,11 +619,13 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   );
 
   return (
-    <View style={[s.root, { backgroundColor: t.canvas, paddingTop: insets.top }]}>
+    <View style={[s.root, { backgroundColor: t.page, paddingTop: insets.top }]}>
       <View style={[s.head, wide && s.wideRow]}>
         <View style={{ flex: 1 }}>
-          <Text style={[type.display, { color: t.fg }]}>Chats</Text>
-          {stale ? <Text style={[type.caption, { color: t.fg3 }]}>Updating…</Text> : null}
+          <Text style={[type.caption, { color: t.fg2 }]}>{stale ? "Updating…" : dayWords(now)}</Text>
+          <Text style={[type.title, { color: t.fg }]} numberOfLines={1} accessibilityRole="header">
+            {greeting(now, me?.user.name)}
+          </Text>
         </View>
         {/* The Inbox: what needs me (amber dot), then what happened (plum dot: something new). */}
         <Tap
@@ -672,7 +678,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           width: wide ? COLUMN + SIDE * 2 : "100%",
           alignSelf: "center",
           paddingHorizontal: SIDE,
-          paddingBottom: insets.bottom + 120,
+          paddingBottom: insets.bottom + (assistant ? 150 : 40),
           minHeight: viewH ? viewH + SEARCH_H : "100%",
         }}
         refreshControl={
@@ -694,7 +700,42 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
         {list}
       </ScrollView>
 
-      <View style={[s.bottom, { paddingBottom: insets.bottom + 16 }]} pointerEvents="box-none">
+      {/* The assistant is part of the home: things to ask, one tap each, and the bar. */}
+      {assistant && !me?.practice ? (
+        <View
+          ref={tourRefs.chat}
+          // The page's colour behind the chips and the bar, so the list doesn't show through.
+          style={[s.asks, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 + 54 + 8 }]}
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={s.askRow}
+          >
+            {ASKS.map((a) => (
+              <Tap
+                key={a}
+                accessibilityRole="button"
+                accessibilityLabel={`Ask: ${a}`}
+                onPress={() => openChat({ ask: a, send: "1" })}
+                style={[s.ask, { backgroundColor: t.cell, borderColor: t.hair }]}
+              >
+                <Text style={[type.caption, { color: t.accent, fontSize: 13.5 }]}>{a}</Text>
+              </Tap>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+      {/* The empty bar opens the chat last open, as the assistant's card did (Codex on PR 232). */}
+      <Composer
+        placeholder="Ask, add or arrange"
+        params={userId && lastChat(userId) ? { id: lastChat(userId)! } : undefined}
+      />
+      <View
+        style={[s.bottom, { paddingBottom: insets.bottom + (assistant ? 130 : 16) }]}
+        pointerEvents="box-none"
+      >
         {failed[0] ? (
           <Pressable
             accessibilityRole="button"
@@ -708,16 +749,6 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
             <Text style={{ color: t.accent, fontWeight: "700", fontSize: 13 }}>OK</Text>
           </Pressable>
         ) : null}
-        <Tap
-          accessibilityRole="button"
-          accessibilityLabel="New chat or space"
-          onPress={() => setMaking(true)}
-          scale={0.92}
-          haptic="light"
-          style={[s.fab, { backgroundColor: t.accent, shadowColor: t.shadow }]}
-        >
-          <Text style={{ color: t.onAccent, fontSize: 22, fontWeight: "800", lineHeight: 24 }}>✎</Text>
-        </Tap>
       </View>
 
       <Sheet open={making} onClose={() => setMaking(false)} accessibilityLabel="New">
@@ -796,6 +827,38 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       ) : null}
     </View>
   );
+}
+
+/** Things to ask from the home, one tap each (everyday ones: the app is for anything). */
+const ASKS = ["What's due this week?", "Spent 450 on chai", "Remind me to pay the electricity bill at 6"];
+
+const IST_MS = 330 * 60_000;
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+/** "Monday, 9 November", in India's time like every date in the app. */
+function dayWords(now: number): string {
+  const d = new Date(now + IST_MS);
+  return `${WEEKDAYS[d.getUTCDay()]}, ${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+/** "Good morning, Asha": by the hour in India, with the person's first name. */
+function greeting(now: number, name?: string): string {
+  const h = new Date(now + IST_MS).getUTCHours();
+  const part = h < 5 ? "Hello" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const first = name?.trim().split(/\s+/)[0];
+  return first ? `${part}, ${first}` : part;
 }
 
 /** The bell's spoken name: what needs me, then what's new. */
@@ -915,7 +978,19 @@ const s = StyleSheet.create({
     ...(Platform.OS === "web" ? ({ outlineWidth: 0, outlineStyle: "none" } as object) : {}),
   },
   clear: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
-  filters: { gap: 6, paddingVertical: 2 },
+  hidden: { display: "none" },
+  chatsHead: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, paddingLeft: 4 },
+  filters: { flex: 1, flexDirection: "row", gap: 4 },
+  asks: { position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 8 },
+  askRow: { gap: 8, paddingHorizontal: SIDE },
+  ask: {
+    minHeight: 38,
+    borderRadius: 19,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   filter: {
     minHeight: 36,
     paddingHorizontal: 14,

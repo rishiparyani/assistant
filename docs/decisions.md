@@ -1442,3 +1442,14 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 **Decision:** no separate "setup" entity: a space already holds a setup's lists, flows, views, links, people and instructions, and rehearsals copy a space. A system other people use gets a space of its own (the assistant proposes `new_space` first; Personal is the person's alone); deleting the space deletes the setup. Deleting is recoverable for TRASH_DAYS from Recently deleted, then erased: a space (its owner only; not Personal, not a chat's home; its links and flows stop meanwhile, its rehearsals end), or one list (with the views, flows, rules and share links that exist only for it; `list_trash` keeps what it took, and a record of a deleted list counts as gone everywhere). The tasks suite checks each approval system is in a space of its own.
 
 **Why:** the owner asked "How do I delete the setup?" and there was no way to delete a list or a space; the society setup had been built into Personal, mixed with their own things. Asked whether a setup should be its own entity, we agreed the space is that entity (owner: "Yes, go ahead with all three").
+
+## 2026-11-09: A calmer look, and a home that shows your day
+
+**Decision:** two changes the owner approved from a clickable mock-up ("Okay, do it").
+
+- **The look:** a quiet near-white ground (`page` `#faf9fc`) replaces the pale plum one, with deep plum (`accent` `#6b2fa0`) as the one colour for what you tap; the same round buttons with drawn icons on every screen (`HeaderIcons.tsx`), no text glyphs; the composer matches the page (a white bar with a hairline, no dark slab) and isn't shown to people without the assistant; the faintest text (`fg3`) is darker so helper lines can be read.
+- **The home shows the day, not the folders:** above the chats and spaces, the home has **Needs you** (answered there), **Coming up** (the week's dated things, ticked there) and each list with a tick box **as it stands** (what's left, what it adds up to, the first rows, ticked there). A list with dates shows through Coming up only. The assistant is part of the home: a few things to ask, one tap each, and the composer. The home's title is the date and a greeting; "Chats" is the section under the day, with its filters and the new-chat button.
+
+It amends "Chats as home, Jamun, a polished look" (2026-10-28: the plum ground, the dark assistant card and the dark composer go) and "Chats are the base" (chats and spaces stay the home's list; the day now comes first).
+
+**Why:** asked what he thought of the look, the owner got a review from screenshots: too many colours at once in light mode, a different button style on each screen, a near-black bar on every screen that for people without the assistant only said "not on your plan", and a home that was a menu to tap through. He asked "is this the best that we can do?" of a tidy-up mock-up, and approved the one whose home showed the things themselves.

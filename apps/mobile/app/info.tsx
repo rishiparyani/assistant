@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { Text, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { BackIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { SpacePerson, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
@@ -159,9 +160,9 @@ export default function ChatInfo() {
             accessibilityRole="button"
             accessibilityLabel="Back"
             onPress={back}
-            style={[s.back, { backgroundColor: t.cell, shadowColor: t.shadow }]}
+            style={[s.back, { backgroundColor: t.fill }]}
           >
-            <Text style={{ color: t.fg, fontSize: 22, fontWeight: "700", lineHeight: 24 }}>‹</Text>
+            <BackIcon color={t.fg} />
           </Pressable>
         </View>
         <ScrollView
@@ -316,9 +317,6 @@ const s = StyleSheet.create({
     borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
   },
   head: { alignItems: "center", gap: 6, paddingVertical: 8 },
   center: { textAlign: "center" },
