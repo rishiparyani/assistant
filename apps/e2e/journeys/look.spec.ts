@@ -73,3 +73,33 @@ test("a space's settings are behind one gear, and an empty tab says what to do",
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a tight row writes its date whole, and a list that comes to less than nothing says so", async ({
+  browser,
+}) => {
+  // Codex on PR 233: without the date tile a row said only "Fri"; a total of -₹500 showed as a count.
+  const me = await person(`E2E Dates person ${RUN}`);
+  const list = `E2E Refunds ${RUN}`;
+  await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+      { name: "When", type: "date" },
+    ],
+  });
+  const when = new Date(Date.now() + 3 * 86_400_000 + 330 * 60_000);
+  await api(me)("POST", `/collections/${encodeURIComponent(list)}/records`, {
+    values: { Title: "E2E Returned kettle", Amount: "-500", When: when.toISOString().slice(0, 10) },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/list?collection=${encodeURIComponent(list)}`);
+  await expect(page.getByText("E2E Returned kettle")).toBeVisible({ timeout: 30_000 });
+  const month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][
+    when.getUTCMonth()
+  ];
+  await expect(page.getByText(new RegExp(`\\b${when.getUTCDate()} ${month}\\b`)).first()).toBeVisible();
+  await expect(page.getByLabel("Summary", { exact: true }).getByText(/-₹500|₹-500|−₹500/)).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});

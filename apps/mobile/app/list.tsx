@@ -669,7 +669,9 @@ function Row({
     .map((f) => shown(f, r, dateField))
     .filter(Boolean);
   const dateF = dateField ? byId(dateField) : undefined;
-  const when = dateF ? shown(dateF, r, dateField) : "";
+  // A tight row has no date tile, so its date is written whole ("Fri 13 Nov"), not just the day
+  // of the week (Codex on PR 233).
+  const when = dateF ? shown(dateF, r, compact ? null : dateField) : "";
   const pills = (
     layout?.pills.length ? layout.pills.map(byId) : c.fields.filter((f) => f.type === "money").slice(0, 2)
   )
@@ -849,12 +851,14 @@ function summaryOf(
     const open = records.filter((r) => r.values[tick] !== true);
     if (!open.length && !more) return { figure: "Done", words: `all ${records.length}` };
     const left = sum(open);
-    return left > 0
+    // Money whenever it comes to something, a refund or a credit too (Codex on PR 233); a list
+    // whose amounts come to nothing says how many instead.
+    return left !== 0
       ? { figure: formatINR(left), words: `left · ${n(open)} of ${n(records)} to do` }
       : { figure: n(open), words: `of ${n(records)} left to do` };
   }
   const total = sum(records);
-  return total > 0
+  return total !== 0
     ? { figure: formatINR(total), words: `${n(records)} in all` }
     : { figure: n(records), words: "in all" };
 }
