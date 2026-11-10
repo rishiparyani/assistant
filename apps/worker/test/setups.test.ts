@@ -149,4 +149,100 @@ describe("setups", () => {
       Total: "₹1,500",
     });
   });
+
+  // One card for the whole plan (decision 2026-11-10 "A setup is one plan"): the space, the
+  // lists and the workflows on them, made by one write.
+  const visitors = {
+    name: "Test visitor book",
+    new_space: "Test front desk",
+    collections: [
+      {
+        name: "Visitors",
+        fields: [
+          { name: "Who", type: "text" },
+          { name: "Flat", type: "text" },
+          { name: "Status", type: "choice", options: { choices: ["Waiting", "In", "Turned away"] } },
+        ],
+      },
+    ],
+    workflows: [
+      {
+        name: "Tell me about visitors",
+        when: { event: "added", collection: "Visitors" },
+        then: [{ do: "notify", text: "{Who} is at the desk for {Flat}", to: ["me"] }],
+      },
+    ],
+  };
+  type Space = { id: string; name: string };
+  const spaces = async (u: User) => json<Space[]>(await api(u)("/spaces"));
+
+  it("makes a new space, its lists and its workflows from one card, the workflow off", async () => {
+    const me = await signUp("Test Desk Owner");
+    const res = await api(me)("/setups", { body: visitors, idempotencyKey: "plan-1" });
+    expect(res.status).toBe(201);
+    const made = await json<SetupResult>(res);
+    expect(made.space?.name).toBe("Test front desk");
+    expect(made.workflows?.map((w) => [w.name, w.enabled])).toEqual([["Tell me about visitors", false]]);
+    const desk = (await spaces(me)).find((s) => s.name === "Test front desk");
+    expect(desk?.id).toBe(made.space?.id);
+    // It lives in the new space, not in Personal.
+    const there = await json<CollectionView[]>(await api(me)(`/collections?space=${desk!.id}`));
+    expect(there.map((c) => c.name)).toContain("Visitors");
+    const personal = await json<CollectionView[]>(await api(me)("/collections"));
+    expect(personal.map((c) => c.name)).not.toContain("Visitors");
+    const flows = await json<{ name: string }[]>(await api(me)(`/workflows?space=${desk!.id}`));
+    expect(flows.map((w) => w.name)).toEqual(["Tell me about visitors"]);
+  });
+
+  it("a retry with the same key finishes in the same space instead of failing on its own name", async () => {
+    const me = await signUp("Test Desk Retry");
+    const first = await json<SetupResult>(
+      await api(me)("/setups", { body: visitors, idempotencyKey: "plan-2" }),
+    );
+    const again = await api(me)("/setups", { body: visitors, idempotencyKey: "plan-2" });
+    expect(again.status).toBe(201);
+    expect((await json<SetupResult>(again)).space?.id).toBe(first.space?.id);
+    expect((await spaces(me)).filter((s) => s.name === "Test front desk")).toHaveLength(1);
+    const there = await json<CollectionView[]>(await api(me)(`/collections?space=${first.space!.id}`));
+    expect(there.filter((c) => c.name === "Visitors")).toHaveLength(1);
+    // A different write with the same name is told the name is taken, and makes nothing.
+    const other = await api(me)("/setups", { body: visitors, idempotencyKey: "plan-3" });
+    expect(other.status).toBe(409);
+    expect((await spaces(me)).filter((s) => s.name === "Test front desk")).toHaveLength(1);
+  });
+
+  it("a plan with a part that can't work makes nothing, not even the space", async () => {
+    const me = await signUp("Test Desk Broken");
+    const before = (await spaces(me)).length;
+    const res = await api(me)("/setups", {
+      idempotencyKey: "plan-4",
+      body: {
+        ...visitors,
+        workflows: [
+          {
+            name: "Test broken",
+            when: { event: "changed", collection: "Visitors", field: "No such field" },
+            then: [{ do: "notify", text: "x", to: ["me"] }],
+          },
+        ],
+      },
+    });
+    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBeLessThan(500);
+    expect(await spaces(me)).toHaveLength(before);
+    // The same key, fixed: it goes through (the space the first try took back is made again).
+    const fixed = await api(me)("/setups", { body: visitors, idempotencyKey: "plan-5" });
+    expect(fixed.status).toBe(201);
+  });
+
+  it("a workflow in a setup that names a list in the same setup works in a space that exists", async () => {
+    const me = await signUp("Test Desk Here");
+    const { new_space: _n, ...here } = visitors;
+    const res = await api(me)("/setups", { body: here });
+    expect(res.status).toBe(201);
+    expect((await json<SetupResult>(res)).workflows).toHaveLength(1);
+    // Both a space and a new one: refused.
+    const both = await api(me)("/setups", { body: { ...visitors, space: "Personal" } });
+    expect(both.status).toBe(400);
+  });
 });

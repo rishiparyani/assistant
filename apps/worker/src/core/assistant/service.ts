@@ -41,7 +41,8 @@ import { AppError } from "../errors.ts";
 import { toAppError } from "../objects/errors.ts";
 import { operationContext, type AnyOperation, type OpUserCtx } from "../operations.ts";
 import { parse } from "../validation.ts";
-import { mySpaces, spaceOf } from "../spaces/service.ts";
+import { mySpaces, spaceName, spaceOf } from "../spaces/service.ts";
+import { setupSpec } from "../spaces/rule-operations.ts";
 import { workflowSpec } from "../spaces/workflow-operations.ts";
 import { resolvePeople } from "../spaces/shares.ts";
 import { assistantAllowed, fasterAnswers, isAdminCtx, requireAssistant } from "./access.ts";
@@ -163,7 +164,7 @@ const MAX_STEPS = 8;
 const TURN_BUDGET_MS = 90_000;
 const RESULT_CHARS = 6_000;
 /** Which system prompt answered (the admin panel compares versions): bump on every real change. */
-export const PROMPT_VERSION = "2026-11-05b";
+export const PROMPT_VERSION = "2026-11-10";
 
 /** A question with answers to tap (decision 2026-10-17 "Questions with answers to tap"). */
 const ASK_CHOICES: ToolSpec = {
@@ -574,7 +575,7 @@ function systemPrompt(
     `You are the assistant in Gigspree, talking with ${ctx.user.name}. Gigspree is for anything in someone's life and the groups they're part of (a home, a family, a club, a team, friends), not about music or performing: take examples from everyday life.`,
     "",
     "How you work:",
-    "- Finish what they asked, end to end. When they ask for something to be done, do all of it with your tools: for a system other people use, that means a space of its own (new_space first: Personal is the person's alone, and the space is what they'd delete to remove the whole thing), the lists, how each kind of person gets in and what they see and do (a join link for the people who add or use things, create_share with who it's for), and the flows that make it happen (who is asked or told, when, and where the answer is kept). Don't stop at part of it to explain or to ask whether to go on.",
+    "- Finish what they asked, end to end. When they ask for something to be done, do all of it with your tools: for a system other people use, that means a space of its own (Personal is the person's alone, and the space is what they'd delete to remove the whole thing), the lists, the flows that make it happen (who is asked or told, when, and where the answer is kept), and how each kind of person gets in and what they see and do (a join link for the people who add or use things, create_share with who it's for). One make_setup card carries the space (new_space), the lists and the flows together, so they confirm the whole plan with one tap; what needs those to exist first (a join link) comes right after. Don't stop at part of it to explain or to ask whether to go on.",
     "- When they ask a question or want to understand something, explain it plainly and briefly.",
     "- Act when you know enough. Ask only when the choice is truly theirs and no sensible default exists; then ask everything you need at once (ask_choices), and otherwise pick the sensible default and say what you picked.",
     "- Changes to their things (new lists or flows, money, deletes, sharing) are shown to them as cards that happen only when they tap Confirm. Propose everything a request needs together, in one go, so they can confirm it all. After they confirm, you get the result and carry on with the same request until it's done. Until a card is confirmed nothing has happened: never say it's made or done.",
@@ -1117,6 +1118,12 @@ function liveFrom(
       collections: made.map((c) => ({ id: c.id, name: c.name })),
       views: views.map((v) => ({ id: v.id, name: v.name, collection_id: v.collection_id, pinned: v.pinned })),
       rules: Array.isArray(r.rules) ? r.rules.length : 0,
+      ...(Array.isArray(r.workflows) && r.workflows.length
+        ? { workflows: (r.workflows as WorkflowView[]).map((w) => ({ id: w.id, name: w.name })) }
+        : {}),
+      ...(typeof (r.space as { name?: unknown } | undefined)?.name === "string"
+        ? { made_space: (r.space as { name: string }).name }
+        : {}),
     };
   }
   if (tool === "create_workflow" || tool === "set_workflow_enabled")
@@ -1634,6 +1641,7 @@ async function answerMessage(
             title: result.card.title,
             details: result.card.details,
             ...(result.card.flow ? { flow: result.card.flow } : {}),
+            ...(result.card.flows ? { flows: result.card.flows } : {}),
             status: "waiting",
             ...(EDITABLE_CARDS.has(result.card.tool) ? { args: result.card.args, editable: true } : {}),
           },
@@ -1745,6 +1753,7 @@ type ToolResult =
         title: string;
         details: string[];
         flow?: WorkflowView;
+        flows?: WorkflowView[];
       };
     }
   | { kind: "choices"; text: string; choices: z.output<typeof ChoicesArgs> };
@@ -1865,18 +1874,46 @@ async function runTool(
       // link, a formula over a missing field) comes back to the model now, not after the tap
       // (the owner, 2026-10-16: "Failed. A quick add can't fill in Flat" on a Confirm).
       if (name === "make_setup") {
-        const i = input as z.infer<typeof MakeSetupInput>;
-        const { stub, actor } = await spaceOf(ctx, i.space);
-        await stub.checkSetup(actor, {
-          collections: i.collections.map((c) => ({
-            id: c.id ?? null,
-            name: c.name,
-            description: c.description ?? null,
-            fields: c.fields,
-          })),
-          rules: i.rules,
-          views: i.views,
-        });
+        const i = input as z.output<typeof MakeSetupInput>;
+        if (i.new_space && i.space)
+          return {
+            kind: "error",
+            code: "validation_failed",
+            text: JSON.stringify({ error: "Pass space or new_space, not both" }),
+          };
+        const spec = await setupSpec(ctx, i);
+        let flows: WorkflowView[];
+        if (i.new_space) {
+          // A space of its own, on the same card: the name and the room for it are checked
+          // now, and the rest is tried in a scratch space of the person's that keeps nothing.
+          const mine = await mySpaces(ctx);
+          const want = i.new_space.toLowerCase();
+          const have = mine.find((sp) => sp.name.trim().toLowerCase() === want);
+          if (have || mine.length >= 20)
+            return {
+              kind: "error",
+              code: "conflict",
+              text: JSON.stringify({
+                error: have
+                  ? `There's already a space called “${have.name}”: put the setup in it (pass space: “${have.name}”, no new_space); don't make it again`
+                  : "They have 20 spaces, the most there can be: one has to be removed first",
+              }),
+            };
+          const scratch = ctx.objects.SPACES.getByName(spaceName(`check-${ctx.user.id}`));
+          await scratch.init({
+            id: `check-${ctx.user.id}`,
+            name: i.new_space,
+            kind: "shared",
+            owner: { user_id: ctx.user.id, name: ctx.user.name },
+            starter: false,
+          });
+          flows = ((await scratch.checkSetup(actorOf(ctx), spec)) as unknown as { flows: WorkflowView[] })
+            .flows;
+        } else {
+          const { stub, actor } = await spaceOf(ctx, i.space);
+          flows = ((await stub.checkSetup(actor, spec)) as unknown as { flows: WorkflowView[] }).flows;
+        }
+        if (flows.length) card = { ...card, flows };
       }
       // A workflow: checked now as it would be made (a step that can't work comes back to the
       // model, not after the tap), and the card draws it as its diagram (owner, 2026-10-25:
@@ -1943,6 +1980,22 @@ async function runTool(
                       gaps: card.flow.test.gaps,
                       gaps_note:
                         "The test run found these gaps. Tell them plainly what's missing and the fix (a field to fill when records are added, people to ask instead, a step to change); offer to change the flow now with a new card. If the gap only shows because the test record is blank or old, say so.",
+                    }
+                  : {}),
+              }
+            : {}),
+          // A setup's workflows were each acted out on the lists as they'd be.
+          ...(card.flows?.length
+            ? {
+                workflows_tested: card.flows.map((f) => ({
+                  name: f.name,
+                  test_run: f.test?.lines ?? [],
+                  ...(f.test?.gaps.length ? { gaps: f.test.gaps } : {}),
+                })),
+                ...(card.flows.some((f) => f.test?.gaps.length)
+                  ? {
+                      gaps_note:
+                        "The test runs found these gaps. Tell them plainly what's missing and the fix; offer to change it now with a new card. If a gap only shows because the test record is blank, say so.",
                     }
                   : {}),
               }
@@ -2127,7 +2180,13 @@ export async function confirmAction(
     // One key per card: a retried confirm can't apply it twice.
     const result = await op.handler(operationContext(op, ctx, `chat-action:${a.id}`), input);
     const named = (result as { title?: string; name?: string } | null) ?? null;
-    live = await liveIn(ctx, liveFrom(a.tool, {}, result, [], op), args.space);
+    // A setup that made its own space lives there, not in the space the chat is about.
+    const madeSpace = (result as { space?: { id?: unknown; name?: unknown } } | null)?.space;
+    live = await liveIn(
+      ctx,
+      liveFrom(a.tool, {}, result, [], op),
+      a.tool === "make_setup" && typeof madeSpace?.id === "string" ? madeSpace.id : args.space,
+    );
     await chat.finishAction(uid, a.id, "done", named?.title ?? named?.name ?? null);
     await quietly(budgetOf(ctx).signal(uid, "card_confirmed", a.tool, `card:${a.id}`));
     note = `Done: ${a.title}.`;
@@ -2145,10 +2204,15 @@ export async function confirmAction(
     // once no other card waits for a tap. The app's note says only what happened, never what
     // to write. Record cards are one step each and need no turn after.
     if (SETUP.includes(a.tool) || a.tool === "new_space") {
-      const made =
+      const spaceMade =
         a.tool === "new_space"
-          ? ` (a space called “${String(args.name ?? "")}”: pass its name as space on every call for it)`
-          : "";
+          ? String(args.name ?? "")
+          : typeof madeSpace?.name === "string"
+            ? madeSpace.name
+            : "";
+      const made = spaceMade
+        ? ` (${a.tool === "new_space" ? "a space" : "in a new space"} called “${spaceMade}”: pass its name as space on every call for it)`
+        : "";
       after = `“${a.title}” is confirmed and done${made}. Carry on with what they asked: if anything it needs is still missing, propose it now; if it's all done, say in a line or two what now exists and what to do first.`;
     }
   } catch (e) {

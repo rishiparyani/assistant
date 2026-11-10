@@ -1288,6 +1288,10 @@ export type LiveRef =
       collections: { id: string; name: string }[];
       views: { id: string; name: string; collection_id: string; pinned: boolean }[];
       rules: number;
+      /** Workflows made with it (each saved off). */
+      workflows?: { id: string; name: string }[];
+      /** The space made for it, by name, when the setup made one. */
+      made_space?: string;
       space?: string;
     }
   /**
@@ -1350,6 +1354,8 @@ export interface ChatItem {
     editable?: boolean;
     /** A workflow card: the workflow as it would be made, drawn as its diagram. */
     flow?: WorkflowView;
+    /** A setup card with workflows: each as it would be made, acted out, drawn under the lists. */
+    flows?: WorkflowView[];
   };
   /** Which level answered (1 everyday, 2 smart, 3 best). */
   level?: number;

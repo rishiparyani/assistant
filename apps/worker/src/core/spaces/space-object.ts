@@ -2635,6 +2635,8 @@ export class SpaceObject extends DurableObject<Env> {
       collections: { id?: string | null; name: string; description?: string | null; fields: FieldSpec[] }[];
       rules: (RuleInput & { collection: string })[];
       views: (ViewInput & { id?: string | null; name: string; collection: string; pinned?: boolean })[];
+      /** Workflows on these lists, made in the same write (one card for the whole plan). */
+      workflows?: WorkflowSpec[];
     },
   ): Promise<SetupResult> {
     this.canArrange(actor);
@@ -2647,14 +2649,24 @@ export class SpaceObject extends DurableObject<Env> {
    * rolled back at the end, so a view whose quick add can't work, a formula over a missing
    * field or a bad link fails now, while the model can still fix it, not after the tap.
    */
-  async checkSetup(actor: Actor, input: Parameters<SpaceObject["makeSetup"]>[2]): Promise<{ ok: true }> {
+  async checkSetup(
+    actor: Actor,
+    input: Parameters<SpaceObject["makeSetup"]>[2],
+  ): Promise<{ ok: true; flows: WorkflowView[] }> {
     this.canArrange(actor);
     const ROLLBACK = Symbol("rollback");
     const queued = this.queued;
+    let flows: WorkflowView[] = [];
     try {
       this.queued = [];
       this.ctx.storage.transactionSync(() => {
-        this.applySetup(actor, input, nowIso());
+        const made = this.applySetup(actor, input, nowIso());
+        // Each workflow acted out on the lists as they'd be (they exist only inside this
+        // transaction): what the card draws, and what wouldn't work said before the tap.
+        flows = (made.workflows ?? []).map((v) => {
+          const row = this.requireWorkflow(v.id);
+          return { ...v, id: "", test: this.testRun(row, JSON.parse(row.def_json) as WorkflowDef) };
+        });
         throw ROLLBACK;
       });
     } catch (e) {
@@ -2665,7 +2677,7 @@ export class SpaceObject extends DurableObject<Env> {
     } finally {
       this.queued = queued;
     }
-    return { ok: true };
+    return { ok: true, flows };
   }
 
   private applySetup(actor: Actor, input: Parameters<SpaceObject["makeSetup"]>[2], ts: string): SetupResult {
@@ -2714,6 +2726,7 @@ export class SpaceObject extends DurableObject<Env> {
       });
       const rules = input.rules.map(({ collection, ...r }) => this.insertRule(actor, collection, r, ts));
       const views = input.views.map((v) => this.insertView(actor, v, ts));
+      const workflows = (input.workflows ?? []).map((w) => this.insertWorkflow(actor, w, ts));
       for (const id of ids) this.logChange("collection", id, "upsert", ts);
       audit(this.sql, actor, {
         action: "make_setup",
@@ -2725,6 +2738,7 @@ export class SpaceObject extends DurableObject<Env> {
         collections: ids.map((id) => this.collectionView(this.requireCollection(id))),
         rules,
         views,
+        ...(workflows.length ? { workflows } : {}),
       };
     }
   }
@@ -8233,35 +8247,37 @@ export class SpaceObject extends DurableObject<Env> {
 
   async createWorkflow(actor: Actor, key: string | null, spec: WorkflowSpec): Promise<WorkflowView> {
     this.canArrange(actor);
-    return this.write(actor, key, ["create_workflow", spec], (ts) => {
-      const { collectionId, def } = this.resolveWorkflow(spec);
-      const count = this.sql
-        .exec<{ n: number }>(`select count(*) as n from workflows where deleted_at is null`)
-        .one().n;
-      if (count >= MAX_WORKFLOWS)
-        throw new ObjectError("conflict", `A space can have at most ${MAX_WORKFLOWS} workflows`);
-      const id = ulid();
-      this.sql.exec(
-        `insert into workflows (id, name, collection_id, def_json, enabled, created_by, created_at, updated_at)
-         values (?, ?, ?, ?, ?, ?, ?, ?)`,
-        id,
-        spec.name,
-        collectionId,
-        JSON.stringify(def),
-        spec.enabled ? 1 : 0,
-        actor.userId,
-        ts,
-        ts,
-      );
-      if (spec.enabled) this.scheduleExisting(id, collectionId, def);
-      audit(this.sql, actor, {
-        action: "create_workflow",
-        entityType: "workflow",
-        entityId: id,
-        after: spec,
-      });
-      return this.workflowView(this.requireWorkflow(id));
+    return this.write(actor, key, ["create_workflow", spec], (ts) => this.insertWorkflow(actor, spec, ts));
+  }
+
+  private insertWorkflow(actor: Actor, spec: WorkflowSpec, ts: string): WorkflowView {
+    const { collectionId, def } = this.resolveWorkflow(spec);
+    const count = this.sql
+      .exec<{ n: number }>(`select count(*) as n from workflows where deleted_at is null`)
+      .one().n;
+    if (count >= MAX_WORKFLOWS)
+      throw new ObjectError("conflict", `A space can have at most ${MAX_WORKFLOWS} workflows`);
+    const id = ulid();
+    this.sql.exec(
+      `insert into workflows (id, name, collection_id, def_json, enabled, created_by, created_at, updated_at)
+       values (?, ?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      spec.name,
+      collectionId,
+      JSON.stringify(def),
+      spec.enabled ? 1 : 0,
+      actor.userId,
+      ts,
+      ts,
+    );
+    if (spec.enabled) this.scheduleExisting(id, collectionId, def);
+    audit(this.sql, actor, {
+      action: "create_workflow",
+      entityType: "workflow",
+      entityId: id,
+      after: spec,
     });
+    return this.workflowView(this.requireWorkflow(id));
   }
 
   /**
