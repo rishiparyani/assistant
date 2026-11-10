@@ -40,6 +40,7 @@ import { loadToday, recentSpaces, savedToday, sharedItem, type Today, type UpNex
 import { RecordSheet } from "@/components/RecordSheet";
 import { DayHome } from "@/components/DayHome";
 import { Composer } from "@/components/Composer";
+import { Asks } from "@/components/Asks";
 import { NewChatIcon } from "@/components/HeaderIcons";
 import {
   filterEntries,
@@ -701,32 +702,7 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       </ScrollView>
 
       {/* The assistant is part of the home: things to ask, one tap each, and the bar. */}
-      {assistant && !me?.practice ? (
-        <View
-          ref={tourRefs.chat}
-          // The page's colour behind the chips and the bar, so the list doesn't show through.
-          style={[s.asks, { backgroundColor: t.page, paddingBottom: insets.bottom + 12 + 54 + 8 }]}
-        >
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={s.askRow}
-          >
-            {ASKS.map((a) => (
-              <Tap
-                key={a}
-                accessibilityRole="button"
-                accessibilityLabel={`Ask: ${a}`}
-                onPress={() => openChat({ ask: a, send: "1" })}
-                style={[s.ask, { backgroundColor: t.cell, borderColor: t.hair }]}
-              >
-                <Text style={[type.caption, { color: t.accent, fontSize: 13.5 }]}>{a}</Text>
-              </Tap>
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
+      <Asks ref={tourRefs.chat} asks={ASKS} onAsk={(a) => openChat({ ask: a, send: "1" })} />
       {/* The empty bar opens the chat last open, as the assistant's card did (Codex on PR 232). */}
       <Composer
         placeholder="Ask, add or arrange"
@@ -981,16 +957,6 @@ const s = StyleSheet.create({
   hidden: { display: "none" },
   chatsHead: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10, paddingLeft: 4 },
   filters: { flex: 1, flexDirection: "row", gap: 4 },
-  asks: { position: "absolute", left: 0, right: 0, bottom: 0, paddingTop: 8 },
-  askRow: { gap: 8, paddingHorizontal: SIDE },
-  ask: {
-    minHeight: 38,
-    borderRadius: 19,
-    borderWidth: StyleSheet.hairlineWidth,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   filter: {
     minHeight: 36,
     paddingHorizontal: 14,
