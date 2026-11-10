@@ -297,7 +297,7 @@ jobs:
       - name: Logs (on failure)
         if: failure()
         run: |
-          tail -40 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token" || true
+          tail -40 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token\|BETTER_AUTH_SECRET" || true
           xcrun simctl spawn "$PHONE" log show --last 3m --predicate 'process == "Gigspree"' 2>/dev/null | tail -60 || true
       # Build and pod logs (no secrets in this job) for reading the failure in full.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -309,6 +309,12 @@ jobs:
             ${{ runner.temp }}/pods.log
           if-no-files-found: ignore
           retention-days: 7
+      # The very end of the log (what an agent can read): why the build stopped, if it did.
+      - name: Build errors, last
+        if: failure()
+        run: |
+          echo "--- pods ---"; tail -25 "$RUNNER_TEMP/pods.log" 2>/dev/null || true
+          echo "--- build ---"; grep -E "error:|BUILD (FAILED|SUCCEEDED)" "$RUNNER_TEMP/build.log" 2>/dev/null | grep -v "export " | head -25 || true
 
   testflight:
     if: github.ref_name == 'main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
