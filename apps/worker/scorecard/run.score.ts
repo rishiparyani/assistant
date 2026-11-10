@@ -99,7 +99,7 @@ async function runOnce(c: Case): Promise<Row> {
 }
 
 // Whole tasks run on their own (tasks.score.ts).
-it.skipIf(suite === "tasks")("scorecard", { timeout: 120 * 60_000 }, async () => {
+it.skipIf(suite === "tasks" || suite === "embed")("scorecard", { timeout: 120 * 60_000 }, async () => {
   const rows: Row[] = [];
   const cases = CASES.filter(
     (c) =>

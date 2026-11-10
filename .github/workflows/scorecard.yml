@@ -22,7 +22,7 @@ on:
         required: false
         default: "all"
         type: choice
-        options: [all, core, hard, setups, tasks]
+        options: [all, core, hard, setups, tasks, embed]
       repeat:
         description: "Runs of each case (1-5), to see how steady a model is"
         required: false

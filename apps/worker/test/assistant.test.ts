@@ -308,7 +308,7 @@ describe("chat", () => {
     expect(card.details[0]).toBe("A new space “Test front desk”, with everything below in it");
     // The flow was acted out on a list that doesn't exist yet, and the card draws it.
     expect(card.flows?.map((f) => f.name)).toEqual(["Test tell me about visitors"]);
-    expect(card.flows?.[0]?.test?.lines.join(" ")).toContain("is at the desk");
+    expect(card.flows?.[0]?.test?.lines.join(" ")).toContain("(Who) is at the desk for (Flat)");
     // Nothing is made before the tap: no space, and no scratch space in the list either.
     expect(await names()).toEqual(["Personal"]);
     const done = await json<ChatView>(

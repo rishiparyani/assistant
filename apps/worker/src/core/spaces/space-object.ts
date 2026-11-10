@@ -8387,11 +8387,32 @@ export class SpaceObject extends DurableObject<Env> {
   private addBlankRecord(collectionId: string, userId: string): string {
     const id = ulid();
     const ts = nowIso();
+    // Its plain words stand in as the field's own name in brackets, so what the test says reads
+    // whole ("(Who) is at the desk for (Flat)", not a sentence with holes in it; the owner's
+    // TestFlight card, 2026-11-10). Everything else stays empty: a person, a date or a number
+    // that isn't there is a real gap to say.
+    const values: Record<string, string> = {};
+    for (const f of this.fieldRows(collectionId)) {
+      if (f.type !== "text") continue;
+      if ((JSON.parse(f.options_json || "{}") as { personal?: boolean; formula?: string }).personal) continue;
+      if ((JSON.parse(f.options_json || "{}") as { formula?: string }).formula) continue;
+      values[f.id] = `(${f.name})`;
+    }
+    const titleField = this.sql
+      .exec<{ title_field_id: string | null }>(
+        `select title_field_id from collections where id = ?`,
+        collectionId,
+      )
+      .toArray()[0]?.title_field_id;
+    const title = (titleField && values[titleField]) || "";
     this.sql.exec(
       `insert into records (id, collection_id, values_json, title, title_key, created_by, created_at, updated_at)
-       values (?, ?, '{}', '', '', ?, ?, ?)`,
+       values (?, ?, ?, ?, ?, ?, ?, ?)`,
       id,
       collectionId,
+      JSON.stringify(values),
+      title,
+      nameKey(title),
       userId,
       ts,
       ts,
