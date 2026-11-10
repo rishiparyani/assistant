@@ -245,4 +245,30 @@ describe("setups", () => {
     const both = await api(me)("/setups", { body: { ...visitors, space: "Personal" } });
     expect(both.status).toBe(400);
   });
+
+  it("a key used again with other words never takes away the space it made before", async () => {
+    // Codex on PR 234: after the setup's lists were deleted, the reused key hit a conflict and
+    // the cleanup erased the space, with its recoverable lists.
+    const me = await signUp("Test Desk Reuse");
+    const first = await json<SetupResult>(
+      await api(me)("/setups", { body: visitors, idempotencyKey: "plan-6" }),
+    );
+    const q = `?space=${first.space!.id}`;
+    const del = await api(me)(`/collections/Visitors${q}`, {
+      method: "DELETE",
+      idempotencyKey: "plan-6-del",
+    });
+    expect(del.status).toBeLessThan(300);
+    const again = await api(me)("/setups", {
+      idempotencyKey: "plan-6",
+      body: {
+        ...visitors,
+        name: "Test other words",
+        collections: [{ name: "Other", fields: [] }],
+        workflows: [],
+      },
+    });
+    expect(again.status).toBeGreaterThanOrEqual(400);
+    expect((await spaces(me)).map((s) => s.id)).toContain(first.space!.id);
+  });
 });

@@ -64,9 +64,11 @@ export async function makeSetup(ctx: OpUserCtx, i: z.output<typeof MakeSetupInpu
     const result = (await stub.makeSetup(actor, ctx.idempotencyKey, spec)) as unknown as SetupResult;
     return { ...result, space: { id: made.id, name: made.name } };
   } catch (e) {
-    // Nothing half-made: a setup that can't be made takes the space made for it away again
-    // (only one this write made and that's still empty).
-    if (e instanceof ObjectError || toAppError(e))
+    // Nothing half-made: a setup that can't be made takes the space made for it away again,
+    // only when this very call made it. One found from an earlier try with the same key is
+    // left alone, whatever is or was in it (Codex on PR 234: a key used again with other
+    // words, after its lists were deleted, erased a space that could still be restored).
+    if (!again && (e instanceof ObjectError || toAppError(e)))
       await removeEmptySpace(ctx, made.id).catch(() => undefined);
     throw e;
   }

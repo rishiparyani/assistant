@@ -332,6 +332,24 @@ describe("chat", () => {
     expect(await names()).toEqual(["Personal", "Test front desk"]);
   });
 
+  it("proposes a setup with its own space from inside another space's chat", async () => {
+    // Codex on PR 234: the chat's space was put on the call too, and "space or new_space, not
+    // both" refused it every time.
+    const me = await signUp("Test Owner");
+    await say(me, "Test: make a band space");
+    const waiting = (v: ChatView) => v.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
+    const first = waiting(await json<ChatView>(await call("/api/chat", { cookie: me.cookie })));
+    await call(`/api/chat/actions/${first[0]!.action_id}/confirm`, { cookie: me.cookie, body: {} });
+    const chat = await json<ChatView>(
+      await call("/api/chats", { cookie: me.cookie, body: { space: "Test band" } }),
+    );
+    expect(chat.space_name).toBe("Test band");
+    const view = await json<ChatView>(
+      await call(`/api/chats/${chat.id}`, { cookie: me.cookie, body: { text: "Test: make a front desk" } }),
+    );
+    expect(waiting(view).map((c) => [c.tool, c.args?.space])).toEqual([["make_setup", undefined]]);
+  });
+
   it("goes on with the request once the last of several cards is dealt with", async () => {
     // Codex on PR 226: a setup confirmed while a record card still waited never went on.
     const me = await signUp("Test Owner");

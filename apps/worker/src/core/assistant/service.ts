@@ -1822,7 +1822,10 @@ async function runTool(
     // Nothing an assistant makes runs before the person turns it on from its card.
     if (name === "create_workflow") args = { ...args, enabled: false };
     // In a space's chat, tools work in that space unless the model names another.
-    if (defaultSpace && args.space === undefined && takesSpace(op.input))
+    // A setup that makes its own space isn't put in the chat's (Codex on PR 234: from a space's
+    // chat the one-card plan was refused for naming both).
+    const ownSpace = name === "make_setup" && typeof args.new_space === "string" && !!args.new_space.trim();
+    if (defaultSpace && args.space === undefined && takesSpace(op.input) && !ownSpace)
       args = { ...args, space: defaultSpace };
     // A group's id is made on the device so a retry makes one group; the model has none to
     // offer, so the card gets it now and every confirm of that card (a retry too) uses it.
