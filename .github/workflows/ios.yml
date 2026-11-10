@@ -146,7 +146,7 @@ jobs:
           path: |
             apps/mobile/ios/Pods
             ${{ runner.temp }}/dd
-          key: expo-ios-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+          key: expo-ios-v2-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
 
       # Each shot takes ~20-45 s on the runner: the full set on the large iPhone, a few on the
       # small one (light only). The app signs in through its /test route (localhost only).
