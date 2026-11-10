@@ -321,9 +321,9 @@ export default function ListPage() {
             accessibilityLabel={asSheet ? "Show as a list" : "Show as a sheet"}
             accessibilityState={{ selected: asSheet }}
             onPress={() => setSheet(!asSheet)}
-            style={[s.deleted, { backgroundColor: asSheet ? t.fg : t.fill }]}
+            style={[s.deleted, { backgroundColor: asSheet ? t.accentSoft : t.fill }]}
           >
-            <Text style={{ color: asSheet ? t.page : t.fg2, fontSize: 14, fontWeight: "700" }}>
+            <Text style={{ color: asSheet ? t.accent : t.fg2, fontSize: 14, fontWeight: "700" }}>
               {asSheet ? "List" : "Sheet"}
             </Text>
           </Pressable>

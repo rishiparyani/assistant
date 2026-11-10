@@ -74,6 +74,21 @@ type HitRow = {
 const MIN_QUERY = 2;
 const MAX_HITS = 30;
 
+/**
+ * Which of the scored documents are near enough in meaning to show, best first. The real model
+ * (768 numbers) puts things that have nothing to do with each other at 0.42 to 0.65 and the
+ * right one at 0.66 to 0.80 (measured 2026-11-10, scorecard suite "embed": nonsense like
+ * "zzzzqq" scored 0.57 against a list of bills), so the old floor of 0.2 let everything
+ * through and every search showed unrelated things. Now: at least 0.62, and within 0.08 of the
+ * best. The stand-in used in tests and local dev (fewer numbers) keeps its own floor.
+ */
+export function nearEnough<T extends { score: number }>(scored: T[], dims: number): T[] {
+  const sorted = [...scored].sort((a, b) => b.score - a.score);
+  if (dims < 512) return sorted.filter((x) => x.score > 0.2);
+  const best = sorted[0]?.score ?? 0;
+  return sorted.filter((x) => x.score >= 0.62 && x.score >= best - 0.08);
+}
+
 export class SearchObject extends DurableObject<Env> {
   /** The test-phase reset: erases everything this object holds (core/objects/storage.ts). */
   async wipe(): Promise<boolean> {
@@ -207,9 +222,9 @@ export class SearchObject extends DurableObject<Env> {
         vn += v[i]! * v[i]!;
       }
       const score = dot / ((Math.sqrt(vn) || 1) * qn);
-      if (score > 0.2) out.push({ doc_id: row.doc_id, score });
+      out.push({ doc_id: row.doc_id, score });
     }
-    return out.sort((a, b) => b.score - a.score).slice(0, limit);
+    return nearEnough(out, q.length).slice(0, limit);
   }
 
   /**

@@ -162,7 +162,14 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       loadedWithWaiting.current = outboxState().waiting.length > 0;
       void refreshMe.current();
       reloadUpdates.current();
-      setToday(await loadToday(userId));
+      const next = await loadToday(userId);
+      // A read that lands while changes still wait to be sent is older than those changes (or
+      // made from the device's own copy): the day keeps the rows it has, so a thing ticked a
+      // moment ago stays where it is, struck, instead of its card vanishing (the journeys caught
+      // it as a race, 2026-11-10). It loads again once they're sent (loadedWithWaiting).
+      const waiting = outboxState().waiting.length > 0;
+      if (waiting) loadedWithWaiting.current = true;
+      setToday((prev) => (waiting && prev ? { ...next, glance: prev.glance, upnext: prev.upnext } : next));
       setStale(false);
       setError("");
     } catch (e) {

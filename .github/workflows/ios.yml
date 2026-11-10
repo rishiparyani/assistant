@@ -114,8 +114,8 @@ jobs:
           path: |
             apps/mobile/ios/Pods
             ${{ runner.temp }}/dd
-          key: expo-ios-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
-          restore-keys: expo-ios-
+          key: expo-ios-v2-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+          restore-keys: expo-ios-v2-
 
       - name: Build for the simulator
         timeout-minutes: 30
@@ -125,7 +125,11 @@ jobs:
           CI: 1
         run: |
           cd apps/mobile/ios
-          pod install > "$RUNNER_TEMP/pods.log" 2>&1 || { tail -40 "$RUNNER_TEMP/pods.log"; exit 1; }
+          # A restored Pods folder can be half there (2026-11-10: "VFS overlay template not found"
+          # failed every run that hit the cache): start it clean and try once more.
+          pod install > "$RUNNER_TEMP/pods.log" 2>&1 \
+            || { rm -rf Pods; pod install > "$RUNNER_TEMP/pods.log" 2>&1; } \
+            || { tail -40 "$RUNNER_TEMP/pods.log"; exit 1; }
           # Ad-hoc signed (not unsigned): the Keychain refuses an app without entitlements, and
           # the session cookie lives there.
           xcodebuild -workspace Gigspree.xcworkspace -scheme Gigspree -configuration Release \
@@ -142,7 +146,7 @@ jobs:
           path: |
             apps/mobile/ios/Pods
             ${{ runner.temp }}/dd
-          key: expo-ios-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+          key: expo-ios-v2-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
 
       # Each shot takes ~20-45 s on the runner: the full set on the large iPhone, a few on the
       # small one (light only). The app signs in through its /test route (localhost only).
@@ -160,7 +164,8 @@ jobs:
           go() {
             xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
             # A fourth argument shows the first-run tour (it stays off for the other shots).
-            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" ${4:+-testTour 1} > /dev/null
+            # FOCUS=1 opens the bottom bar with the keyboard up.
+            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" ${4:+-testTour 1} ${FOCUS:+-testFocus 1} > /dev/null
             sleep "${3:-14}"
           }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
@@ -182,6 +187,10 @@ jobs:
             # it"): the bar and its matches must sit above the keyboard, the small phone too.
             go "$dev" "/?q=Te" 20
             shot "$dev" "$label-light-1b-home-search"
+            # The bottom bar with the keyboard up (the owner, 2026-11-10, on TestFlight: a "Done"
+            # pill and a gap under it): the bar must sit right on the keyboard, both sizes.
+            FOCUS=1 go "$dev" "/" 20
+            shot "$dev" "$label-light-1c-home-bar-typing"
             [ "$label" = small ] && { xcrun simctl shutdown "$dev"; continue; }
             go "$dev" "/chat"
             shot "$dev" "$label-light-2-chat"
@@ -196,6 +205,17 @@ jobs:
             shot "$dev" "$label-light-4b-list-expenses"
             go "$dev" "/list?collection=Notes" 10
             shot "$dev" "$label-light-4c-list-notes"
+            FOCUS=1 go "$dev" "/list?collection=Expenses"
+            shot "$dev" "$label-light-4d-list-bar-typing"
+            # The rest of the screens people use, so a native-only fault shows (2026-11-10).
+            go "$dev" "/space?id=p" 10
+            shot "$dev" "$label-light-8-space"
+            go "$dev" "/updates" 10
+            shot "$dev" "$label-light-9-inbox"
+            go "$dev" "/you" 10
+            shot "$dev" "$label-light-10-you"
+            go "$dev" "/library" 12
+            shot "$dev" "$label-light-11-library"
             # What "Add to Gigspree" (Siri) lands on: the capture screen against the test server.
             go "$dev" "/capture?text=Strings%20450%20at%20Furtados"
             shot "$dev" "$label-light-5-capture"
@@ -257,7 +277,13 @@ jobs:
           echo "::group::server log"
           tail -60 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token" || true
           echo "::endgroup::"
-          for n in phone-light-4b-list-expenses phone-light-4c-list-notes phone-light-1b-home-search small-light-1b-home-search; do
+          # The keyboard shots, small, at the very end.
+          for n in phone-light-1c-home-bar-typing small-light-1c-home-bar-typing phone-light-4d-list-bar-typing; do
+            [ -e "$RUNNER_TEMP/screens/$n.png" ] || continue
+            sips -Z 440 -s format jpeg -s formatOptions 30 "$RUNNER_TEMP/screens/$n.png" --out "$RUNNER_TEMP/$n-s.jpg" > /dev/null
+            echo "-----BEGIN $n-----"; base64 -b 76 -i "$RUNNER_TEMP/$n-s.jpg"; echo "-----END $n-----"
+          done
+          for n in NONE; do
             [ -e "$RUNNER_TEMP/$n.jpg" ] || continue
             echo "::group::$n (again)"
             echo "-----BEGIN $n-----"
@@ -275,7 +301,7 @@ jobs:
       - name: Logs (on failure)
         if: failure()
         run: |
-          tail -40 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token" || true
+          tail -40 "$RUNNER_TEMP/dev.log" | grep -v -i "cookie\|token\|BETTER_AUTH_SECRET" || true
           xcrun simctl spawn "$PHONE" log show --last 3m --predicate 'process == "Gigspree"' 2>/dev/null | tail -60 || true
       # Build and pod logs (no secrets in this job) for reading the failure in full.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -287,6 +313,12 @@ jobs:
             ${{ runner.temp }}/pods.log
           if-no-files-found: ignore
           retention-days: 7
+      # The very end of the log (what an agent can read): why the build stopped, if it did.
+      - name: Build errors, last
+        if: failure()
+        run: |
+          echo "--- pods ---"; tail -25 "$RUNNER_TEMP/pods.log" 2>/dev/null || true
+          echo "--- build ---"; grep -E "error:|BUILD (FAILED|SUCCEEDED)" "$RUNNER_TEMP/build.log" 2>/dev/null | grep -v "export " | head -25 || true
 
   testflight:
     if: github.ref_name == 'main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')

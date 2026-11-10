@@ -5,13 +5,14 @@
 // dark slab was the heaviest thing on every screen), and people without the assistant don't see
 // it at all: a bar that can only say "not on your plan" is a dead end.
 import { useState } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNetworkState } from "expo-network";
 import { Tap, TextInput, type } from "@assistant/cards/native";
 import { aboutLabel, openChat, useChatPanel, type ChatAbout, type ChatParams } from "../chat-open.ts";
 import { useKeyboardRoom } from "../keyboard.ts";
 import { useSession } from "../session.tsx";
+import { testFocusBar } from "../test-launch.ts";
 import { useTheme } from "../theme.ts";
 import { SendIcon } from "./HeaderIcons.tsx";
 
@@ -35,6 +36,7 @@ export function Composer({
   const { t } = useTheme();
   const insets = useSafeAreaInsets();
   const room = useKeyboardRoom();
+  const [focused, setFocused] = useState(false);
   const panel = useChatPanel();
   const { me } = useSession();
   const online = useNetworkState().isInternetReachable !== false;
@@ -60,6 +62,16 @@ export function Composer({
       {lift ? null : (
         <View pointerEvents="none" style={[s.under, { height: bottom + 27, backgroundColor: t.page }]} />
       )}
+      {/* With the keyboard up, a tap anywhere else puts it away (the iPhone keyboard has no key
+          for that, and the bar sits right on the keyboard with no "Done" pill under it). */}
+      {room > 0 && focused ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Close the keyboard"
+          onPress={() => Keyboard.dismiss()}
+          style={StyleSheet.absoluteFill}
+        />
+      ) : null}
       <View style={[s.wrap, { bottom }]} pointerEvents="box-none">
         <View style={[s.bar, { backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow }]}>
           <TextInput
@@ -69,6 +81,10 @@ export function Composer({
             value={text}
             onChangeText={setText}
             onSubmitEditing={go}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            doneBar={false}
+            autoFocus={testFocusBar()}
             returnKeyType="send"
             submitBehavior="submit"
             editable={online}
