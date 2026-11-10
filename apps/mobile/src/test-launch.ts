@@ -12,6 +12,10 @@ import { API_URL, LOCAL } from "./config.ts";
  */
 // Once per launch, not per mount: the home mounts again after the sign-in lands on it.
 let launched = false;
+// `-testFocus 1`: the bar at the bottom opens with the keyboard up (the job's keyboard shots).
+let focusBar = false;
+/** Whether this launch asked for the bottom bar to take the keyboard (the simulator job only). */
+export const testFocusBar = () => focusBar;
 
 export function useTestLaunch() {
   const router = useRouter();
@@ -22,6 +26,7 @@ export function useTestLaunch() {
     const password = Settings.get("testPassword") as unknown;
     const path = Settings.get("testPath") as unknown;
     const tour = Settings.get("testTour") as unknown;
+    focusBar = Settings.get("testFocus") === "1";
     if (typeof email !== "string" || typeof password !== "string" || !email || !password) return;
     const q = new URLSearchParams({
       email,
