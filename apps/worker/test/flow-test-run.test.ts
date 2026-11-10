@@ -81,4 +81,33 @@ describe("a proposed flow is tested before the tap", () => {
       "Test visitor approval",
     );
   });
+
+  it("checks the sample record by the same words it shows (an empty list, a check on its title)", async () => {
+    // Codex on PR 235: the sample's words were written out but not indexed, so "isn't empty"
+    // on a field the test showed as "(Title)" failed and the story stopped at the check.
+    const owner = await signUp("Test Owner");
+    await api(owner)("/collections", {
+      body: {
+        name: "Parcels",
+        fields: [
+          { name: "Title", type: "text" },
+          { name: "Flat", type: "text" },
+        ],
+      },
+    });
+    const spaces = await json<SpaceView[]>(await api(owner)("/spaces"));
+    const stub = env.SPACES.getByName(`space:${spaces.find((s) => s.kind === "personal")!.id}`);
+    const actor = { userId: owner.id, source: "web" as const };
+    const flow = (await stub.previewWorkflow(actor, {
+      name: "Test parcel",
+      when: { event: "added", collection: "Parcels", offset_minutes: 0 },
+      check: [{ field: "Title", op: "not_empty" }],
+      wait_minutes: 0,
+      then: [{ do: "notify", text: "A parcel for {Flat}: {Title}", to: [{ user_id: owner.id, name: "me" }] }],
+      enabled: false,
+    } as WorkflowSpec)) as unknown as WorkflowView;
+    const story = flow.test!.lines.join(" ");
+    expect(story).not.toContain("doesn't match the workflow's check");
+    expect(story).toContain("A parcel for (Flat): (Title)");
+  });
 });

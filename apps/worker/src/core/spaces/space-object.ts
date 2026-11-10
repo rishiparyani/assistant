@@ -8417,6 +8417,20 @@ export class SpaceObject extends DurableObject<Env> {
       ts,
       ts,
     );
+    // Indexed like any record's values, so a check or an If on these fields sees what the
+    // messages show (Codex on PR 235: "isn't empty" failed on a field the test wrote out).
+    for (const f of this.fieldRows(collectionId)) {
+      const v = values[f.id];
+      if (v === undefined) continue;
+      for (const [num, txt] of this.indexOf(f.type, v))
+        this.sql.exec(
+          `insert into record_values (record_id, field_id, num, txt) values (?, ?, ?, ?)`,
+          id,
+          f.id,
+          num,
+          txt,
+        );
+    }
     return id;
   }
 
