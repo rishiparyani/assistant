@@ -446,7 +446,11 @@ export default function ListPage() {
               />
             }
             ListEmptyComponent={
-              records ? <Text style={[s.empty, { color: t.fg2 }]}>Nothing here yet.</Text> : null
+              records ? (
+                <Text style={[s.empty, { color: t.fg2 }]}>
+                  Nothing here yet. + Add puts the first one in.
+                </Text>
+              ) : null
             }
             renderItem={({ item }) =>
               item.kind === "head" ? (

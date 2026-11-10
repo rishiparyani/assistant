@@ -122,6 +122,21 @@ export async function newSpace(ctx: OpUserCtx, name: string, id = ulid()): Promi
 }
 
 /**
+ * Takes back a space this same write just made, when what it was made for couldn't be (a setup
+ * into a new space): only mine, and only while it has no lists. Nothing of anyone's is in it.
+ */
+export async function removeEmptySpace(ctx: OpUserCtx, id: string): Promise<void> {
+  const mine = (await mySpaces(ctx)).find((s) => s.id === id);
+  if (!mine || mine.role !== "owner" || mine.kind === "personal") return;
+  const lists = await ctx.objects.SPACES.getByName(spaceName(id)).collections(actorOf(ctx));
+  if (lists.length) return;
+  await ctx.d1.batch([
+    ctx.d1.prepare(`delete from space_members where space_id = ?`).bind(id),
+    ctx.d1.prepare(`delete from spaces where id = ? and owner_user_id = ?`).bind(id, ctx.user.id),
+  ]);
+}
+
+/**
  * A practice copy of a space (decision 2026-10-16 "Rehearse a workflow", second part): its
  * lists, records, rules and workflows (all on), with nothing in it reaching anyone. It's a
  * space of the person's own ("Practice: Home"), so it counts toward their 20.

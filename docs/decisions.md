@@ -1453,3 +1453,13 @@ The owner, correcting a proposal: "the people who are a part of the group and ha
 It amends "Chats as home, Jamun, a polished look" (2026-10-28: the plum ground, the dark assistant card and the dark composer go) and "Chats are the base" (chats and spaces stay the home's list; the day now comes first).
 
 **Why:** asked what he thought of the look, the owner got a review from screenshots: too many colours at once in light mode, a different button style on each screen, a near-black bar on every screen that for people without the assistant only said "not on your plan", and a home that was a menu to tap through. He asked "is this the best that we can do?" of a tidy-up mock-up, and approved the one whose home showed the things themselves.
+
+## 2026-11-10: A setup is one plan
+
+**Decision:** a whole system is proposed as **one card and made by one tap**. `make_setup` now also takes `new_space` (a space made for the setup, by the same write) and `workflows` (flows on its lists, each saved off). The card says the plan in the order it's made (the space, the lists, the flows), draws each flow with its test run (acted out on the lists as they would be, inside the check that is rolled back), shows what's being made while the tap is on its way, and afterwards ticks off what was made with a way into each part. Before this, the same request took a card and a tap each for the space, the lists and every flow, with the assistant carrying on in between.
+
+- **Nothing half-made:** the lists, rules, views and flows are one write in the space's object. A setup into a new space that can't be made takes the space away again (only while it has no lists). The space's id comes from the write's key, so a retry finishes in the same space instead of failing on the name it took itself.
+- **Checked before the tap:** a setup for a new space is tried in a scratch space of the person's that keeps nothing; a taken name or the 20-space limit comes back to the assistant then, not after Confirm.
+- **Not in the card (yet):** a join link needs the list to exist, so the assistant proposes it right after. `new_space` and `create_workflow` stay as tools for a single part.
+
+It amends "The space is the setup" (2026-11-05: the space still holds the whole thing; it no longer needs a card of its own) and builds on "A setup card is checked when it's proposed" and "The assistant tests every flow".

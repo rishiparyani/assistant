@@ -164,7 +164,7 @@ describe("chat", () => {
     });
     expect(refusal).toContain("A quick add can't fill in Flat");
     // Without the link it passes, and the check made nothing either way.
-    expect(await stub.checkSetup(actor, setup(["Visitor name", "Phone"]))).toEqual({ ok: true });
+    expect(await stub.checkSetup(actor, setup(["Visitor name", "Phone"]))).toEqual({ ok: true, flows: [] });
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test visitors");
     // The real thing still works after the dry runs.
@@ -292,6 +292,62 @@ describe("chat", () => {
     expect(view.items.some((i) => /Careful|Handing/.test(i.text ?? ""))).toBe(false);
     const cols = await json<{ name: string }[]>(await call("/api/collections", { cookie: me.cookie }));
     expect(cols.map((c) => c.name)).not.toContain("Test fam jam sign-ups");
+  });
+
+  it("proposes a space, its lists and its flow as one card, and makes them all on one Confirm", async () => {
+    // Decision 2026-11-10 "A setup is one plan".
+    const me = await signUp("Test Owner");
+    const names = async () =>
+      (await json<{ id: string; name: string }[]>(await call("/api/spaces", { cookie: me.cookie }))).map(
+        (s) => s.name,
+      );
+    const view = await say(me, "Test: make a front desk");
+    const cards = view.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
+    expect(cards.map((c) => c.tool)).toEqual(["make_setup"]);
+    const card = cards[0]!;
+    expect(card.details[0]).toBe("A new space “Test front desk”, with everything below in it");
+    // The flow was acted out on a list that doesn't exist yet, and the card draws it.
+    expect(card.flows?.map((f) => f.name)).toEqual(["Test tell me about visitors"]);
+    expect(card.flows?.[0]?.test?.lines.join(" ")).toContain("is at the desk");
+    // Nothing is made before the tap: no space, and no scratch space in the list either.
+    expect(await names()).toEqual(["Personal"]);
+    const done = await json<ChatView>(
+      await call(`/api/chat/actions/${card.action_id}/confirm`, { cookie: me.cookie, body: {} }),
+    );
+    expect(await names()).toEqual(["Personal", "Test front desk"]);
+    const live = done.items.map((i) => i.live).find((l) => l?.kind === "setup");
+    expect(live).toMatchObject({
+      kind: "setup",
+      made_space: "Test front desk",
+      workflows: [{ name: "Test tell me about visitors" }],
+    });
+    // The card it made lives in the new space.
+    const spaces = await json<{ id: string; name: string }[]>(
+      await call("/api/spaces", { cookie: me.cookie }),
+    );
+    expect((live as { space?: string }).space).toBe(spaces.find((s) => s.name === "Test front desk")!.id);
+    // Asked again once it exists: the model hears the name is taken, and no second card waits.
+    const again = await say(me, "Test: make a front desk");
+    expect(again.items.filter((i) => i.card?.status === "waiting")).toHaveLength(0);
+    expect(await names()).toEqual(["Personal", "Test front desk"]);
+  });
+
+  it("proposes a setup with its own space from inside another space's chat", async () => {
+    // Codex on PR 234: the chat's space was put on the call too, and "space or new_space, not
+    // both" refused it every time.
+    const me = await signUp("Test Owner");
+    await say(me, "Test: make a band space");
+    const waiting = (v: ChatView) => v.items.filter((i) => i.card?.status === "waiting").map((i) => i.card!);
+    const first = waiting(await json<ChatView>(await call("/api/chat", { cookie: me.cookie })));
+    await call(`/api/chat/actions/${first[0]!.action_id}/confirm`, { cookie: me.cookie, body: {} });
+    const chat = await json<ChatView>(
+      await call("/api/chats", { cookie: me.cookie, body: { space: "Test band" } }),
+    );
+    expect(chat.space_name).toBe("Test band");
+    const view = await json<ChatView>(
+      await call(`/api/chats/${chat.id}`, { cookie: me.cookie, body: { text: "Test: make a front desk" } }),
+    );
+    expect(waiting(view).map((c) => [c.tool, c.args?.space])).toEqual([["make_setup", undefined]]);
   });
 
   it("goes on with the request once the last of several cards is dealt with", async () => {

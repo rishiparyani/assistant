@@ -154,6 +154,8 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const sentAtOnce = useRef(false);
   const [text, setText] = useState(sendAtOnce ? "" : (ask ?? ""));
   const [busy, setBusy] = useState(false);
+  // The card whose Confirm is on its way.
+  const [confirming, setConfirming] = useState<string | null>(null);
   // What the assistant is doing right now (decision 2026-10-15 "Feel: the ChatGPT bar"): the
   // server says over the live socket as it thinks and runs each tool; without the socket the
   // words still move on their own.
@@ -609,6 +611,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
   const answer = async (actionId: string, what: "confirm" | "cancel", args?: Record<string, unknown>) => {
     if (busy) return;
     setBusy(true);
+    if (what === "confirm") setConfirming(actionId);
     viewGen.current++;
     try {
       setView(
@@ -626,6 +629,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
       setNote(isOffline(e) ? "Confirming needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      setConfirming(null);
     }
   };
   /** The newest message, where what the cards made shows up. */
@@ -811,6 +815,7 @@ export function ChatScreen({ params, onClose }: { params: ChatParams; onClose: (
                 onAnswer={answer}
                 onEdit={(card) => setEditing(card)}
                 busy={busy}
+                confirming={confirming}
                 collections={getCollections}
                 space={chatSpace}
                 onAsk={(title) => setText((t) => t || `About "${title}": `)}
@@ -1152,11 +1157,24 @@ function Rate({ id, text }: { id: string; text: string }) {
   );
 }
 
+/** What a confirmed card is making, while it's on its way. */
+function makingWords(card: NonNullable<ChatItem["card"]>): string {
+  const setup = setupOf(card.tool, card.args);
+  if (!setup || card.tool !== "make_setup") return "Doing it…";
+  const parts = [
+    ...(setup.newSpace ? ["the space"] : []),
+    setup.lists.length === 1 ? "the list" : `${setup.lists.length} lists`,
+    ...(setup.flows.length ? [setup.flows.length === 1 ? "the flow" : `${setup.flows.length} flows`] : []),
+  ];
+  return `Making ${parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0]}…`;
+}
+
 function Bubble({
   item,
   onAnswer,
   onEdit,
   busy,
+  confirming,
   collections,
   space,
   onAsk,
@@ -1167,6 +1185,8 @@ function Bubble({
   onOther,
 }: {
   item: Shown;
+  /** The card whose Confirm is on its way (its buttons give way to what's being made). */
+  confirming?: string | null;
   onAnswer: (actionId: string, what: "confirm" | "cancel") => void;
   /** A setup card: change it by hand before Confirm. */
   onEdit?: (card: NonNullable<ChatItem["card"]>) => void;
@@ -1352,8 +1372,24 @@ function Bubble({
             </Text>
           </>
         ) : item.card && setupOf(item.card.tool, item.card.args) ? (
-          // A setup drawn, not listed (owner, 2026-10-24: "a little too much to read").
-          <SetupCard tool={item.card.tool} args={item.card.args} />
+          // A setup drawn, not listed (owner, 2026-10-24: "a little too much to read"); its
+          // flows under the lists, each as its diagram with what the test run saw.
+          <>
+            <SetupCard tool={item.card.tool} args={item.card.args} />
+            {item.card.flows?.map((f) => (
+              <View key={f.name} style={{ gap: 4 }} accessibilityLabel={`Flow: ${f.name}`}>
+                <Text style={[s.bubText, { color: t.fg, fontWeight: "700" }]}>{f.name}</Text>
+                <FlowDiagram workflow={f} />
+                {f.test ? <TestRun test={f.test} /> : null}
+              </View>
+            ))}
+            {item.card.flows?.length ? (
+              <Text style={[type.caption, { color: t.fg2 }]}>
+                {item.card.flows.length === 1 ? "The flow is" : "Flows are"} saved off: you turn{" "}
+                {item.card.flows.length === 1 ? "it" : "each"} on from its page.
+              </Text>
+            ) : null}
+          </>
         ) : (
           item.card?.details.map((d) => (
             <Text key={d} style={[s.bubText, { color: t.fg }]}>
@@ -1361,8 +1397,17 @@ function Bubble({
             </Text>
           ))
         )}
-        {item.text ? <Text style={[s.bubText, { color: t.fg2 }]}>{item.text}</Text> : null}
-        {item.card?.status === "waiting" ? (
+        {/* The card's own words under it, unless they only repeat its title. */}
+        {item.text && item.text !== title ? (
+          <Text style={[s.bubText, { color: t.fg2 }]}>{item.text}</Text>
+        ) : null}
+        {item.card?.status === "waiting" && confirming === item.card.action_id ? (
+          // The tap is in: what's being made, until the card says done (one write makes it all).
+          <View style={s.making} accessibilityLabel="Making it" accessibilityLiveRegion="polite">
+            <ThinkingDots />
+            <Text style={[type.small, { color: t.fg2, flex: 1 }]}>{makingWords(item.card)}</Text>
+          </View>
+        ) : item.card?.status === "waiting" ? (
           <View style={s.answers}>
             <Tap
               accessibilityRole="button"
@@ -1499,6 +1544,7 @@ const s = StyleSheet.create({
   },
   cardTitle: { fontSize: 12, fontWeight: "700" },
   answers: { flexDirection: "row", gap: 8, marginTop: 6 },
+  making: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 44, marginTop: 6 },
   answer: {
     minHeight: 44,
     paddingHorizontal: 18,

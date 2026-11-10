@@ -15,6 +15,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Tap, Text, Tick, faceOf, motion, shown, tint, type } from "@assistant/cards/native";
+import Svg, { Path } from "react-native-svg";
 import type { CollectionView, FieldView, LiveRef, RecordView } from "@assistant/shared";
 import { ApiError, isOffline } from "../api.ts";
 import { leaveChat } from "../chat-open.ts";
@@ -514,6 +515,9 @@ function SetupMadeCard({
       </View>
       <Text style={[s.title, { color: t.fg }]}>
         {n === 1 ? "1 list" : `${n} lists`}
+        {data.workflows.length
+          ? `, ${data.workflows.length === 1 ? "1 flow" : `${data.workflows.length} flows`}`
+          : ""}
         {onHome.length ? `, ${onHome.length} on the home` : ""}
         {data.rules ? `, ${data.rules === 1 ? "1 rule" : `${data.rules} rules`}` : ""}
       </Text>
@@ -542,14 +546,34 @@ function SetupMadeCard({
           On the home: {onHome.map((v) => v.name).join(", ")}
         </Text>
       ) : null}
+      {/* A whole plan made by one tap: each part ticked, the flows a tap away (they start off). */}
+      {data.madeSpace || data.workflows.length ? (
+        <View style={{ gap: 4 }} accessibilityLabel="What was made">
+          {data.madeSpace ? <Made words={`A space, “${data.madeSpace}”`} /> : null}
+          {data.workflows.map((w) => (
+            <Tap
+              key={w.id}
+              accessibilityRole="link"
+              accessibilityLabel={`Open the flow ${w.name}`}
+              onPress={() => {
+                leaveChat();
+                router.push({ pathname: "/process", params: { id: w.id, ...inSpace } });
+              }}
+              style={{ minHeight: 44, justifyContent: "center" }}
+            >
+              <Made words={`A flow, ${w.name}: off until you turn it on ›`} />
+            </Tap>
+          ))}
+        </View>
+      ) : null}
       <View style={s.nextRow}>
         {onSay ? (
           <Tap
             accessibilityRole="button"
             onPress={() => onSay(`Add to ${first.name}: `)}
-            style={[s.next, { backgroundColor: t.ink }]}
+            style={[s.next, { backgroundColor: t.accent }]}
           >
-            <Text style={[s.nextText, { color: t.onInk }]}>Add the first to {first.name}</Text>
+            <Text style={[s.nextText, { color: t.onAccent }]}>Add the first to {first.name}</Text>
           </Tap>
         ) : null}
         {onHome.length ? (
@@ -566,6 +590,28 @@ function SetupMadeCard({
           </Pressable>
         ) : null}
       </View>
+    </View>
+  );
+}
+
+/** One made part of a plan, ticked. */
+function Made({ words }: { words: string }) {
+  const { t } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <Svg width={16} height={16} viewBox="0 0 24 24">
+        <Path
+          d="M5 12.5l4.5 4.5L19 7.5"
+          stroke={t.good}
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+      </Svg>
+      <Text style={[s.sub, { color: t.fg, flex: 1 }]} numberOfLines={2}>
+        {words}
+      </Text>
     </View>
   );
 }

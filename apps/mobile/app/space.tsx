@@ -271,8 +271,8 @@ export default function SpacePage() {
           onPress={() => openChat(chatIn, { kind: "space", title: name })}
           style={rowStyle}
         >
-          <View style={[s.hash, { backgroundColor: t.ink }]}>
-            <Text style={[s.hashText, { color: t.onInk }]}>✦</Text>
+          <View style={[s.hash, { backgroundColor: t.accent }]}>
+            <Text style={[s.hashText, { color: t.onAccent }]}>✦</Text>
           </View>
           <View style={s.words}>
             <Text style={[s.rowTitle, { color: t.fg }]}>The assistant</Text>

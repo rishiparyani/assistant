@@ -30,12 +30,18 @@ export function setupOf(tool: string, args: Record<string, unknown> | undefined)
       lists: (args.collections as DraftList[]).map((c) => ({ ...c, fields: c.fields ?? [] })),
       views: (Array.isArray(args.views) ? (args.views as DraftView[]) : []).filter((v) => v?.name),
       rules: Array.isArray(args.rules) ? (args.rules as ProposedRule[]) : [],
+      newSpace: typeof args.new_space === "string" ? args.new_space : "",
+      flows: (Array.isArray(args.workflows) ? (args.workflows as { name?: string }[]) : [])
+        .map((w) => String(w?.name ?? ""))
+        .filter(Boolean),
     };
   if (tool === "create_collection" && typeof args.name === "string")
     return {
       lists: [{ name: args.name, fields: (args.fields as DraftField[]) ?? [] }],
       views: [],
       rules: [],
+      newSpace: "",
+      flows: [] as string[],
     };
   return null;
 }
@@ -54,7 +60,13 @@ export function SetupCard({ tool, args }: { tool: string; args: Record<string, u
   const { t, colour, cardTint } = useTheme();
   const setup = setupOf(tool, args);
   if (!setup) return null;
-  const { lists, views, rules } = setup;
+  const { lists, views, rules, newSpace, flows } = setup;
+  // A plan with more than lists says so first, in the order it's made: one tap makes it all.
+  const steps = [
+    ...(newSpace ? [`A new space, “${newSpace}”`] : []),
+    lists.length === 1 ? `1 list, ${lists[0]!.name}` : `${lists.length} lists`,
+    ...(flows.length ? [flows.length === 1 ? `1 flow, ${flows[0]}` : `${flows.length} flows`] : []),
+  ];
   const tones = lists.map((l) => colourFor(l.name));
   const links: Link[] = lists.flatMap((l, i) =>
     l.fields.flatMap((f) => {
@@ -68,6 +80,24 @@ export function SetupCard({ tool, args }: { tool: string; args: Record<string, u
   const colourOf = (name: string) => colour(colourFor(name));
   return (
     <View style={s.root}>
+      {steps.length > 1 ? (
+        <View
+          accessibilityLabel="The plan"
+          style={[s.plan, { backgroundColor: t.accentSoft, borderColor: t.hair }]}
+        >
+          <Text style={[s.label, { color: t.accent }]}>One tap makes all of it</Text>
+          {steps.map((step, i) => (
+            <View key={step} style={s.step}>
+              <View style={[s.stepNo, { backgroundColor: t.accent }]}>
+                <Text style={[s.stepNoText, { color: t.onAccent }]}>{i + 1}</Text>
+              </View>
+              <Text style={[s.stepText, { color: t.fg }]} numberOfLines={2}>
+                {step}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {lists.map((l, i) => (
         <View key={l.name} style={[s.list, { backgroundColor: cardTint(tones[i]!), borderColor: t.hair }]}>
           <View style={s.head}>
@@ -214,6 +244,11 @@ function LinkMap({ lists, links }: { lists: string[]; links: Link[] }) {
 
 const s = StyleSheet.create({
   root: { gap: 8, marginTop: 4 },
+  plan: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 7 },
+  step: { flexDirection: "row", alignItems: "center", gap: 8 },
+  stepNo: { width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  stepNoText: { fontSize: 11.5, fontWeight: "800" },
+  stepText: { flex: 1, fontSize: 14, fontWeight: "600" },
   list: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 8 },
   head: { flexDirection: "row", alignItems: "center", gap: 8 },
   listName: { flex: 1, fontSize: 15, fontWeight: "700", letterSpacing: -0.2 },

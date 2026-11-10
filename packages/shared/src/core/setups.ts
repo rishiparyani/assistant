@@ -10,10 +10,20 @@ import {
   type SavedView,
 } from "./spaces.ts";
 import { AddRuleInput, ruleWords, type RuleView } from "./rules.ts";
+import { CreateWorkflowInput, type WorkflowView } from "./workflows.ts";
 
-export const SETUP_LIMITS = { collections: 8, rules: 20, views: 10 } as const;
+export const SETUP_LIMITS = { collections: 8, rules: 20, views: 10, workflows: 5 } as const;
 
 export const MakeSetupInput = SpaceRef.extend({
+  new_space: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .optional()
+    .describe(
+      "Make a new space with this name and put the whole setup in it, on the same card (for a system other people use, or anything that should be removable as one thing). Leave space out when you pass this.",
+    ),
   name: z.string().trim().min(1).max(80).describe("What the setup is for, e.g. Fam jam sign-ups"),
   collections: z
     .array(CreateCollectionInput.omit({ space: true }))
@@ -32,11 +42,18 @@ export const MakeSetupInput = SpaceRef.extend({
     .max(SETUP_LIMITS.views)
     .default([])
     .describe("Saved views of these collections"),
+  workflows: z
+    .array(CreateWorkflowInput.omit({ space: true, enabled: true }))
+    .max(SETUP_LIMITS.workflows)
+    .default([])
+    .describe(
+      "Workflows on these collections (or ones that exist), made with the rest on the same card: each is acted out before the card shows, and saved off for the person to turn on",
+    ),
 });
 export type MakeSetupInput = z.infer<typeof MakeSetupInput>;
 
 /** A setup as it travels between people: the same shape make_setup takes, minus the space. */
-export const SetupDefinition = MakeSetupInput.omit({ space: true });
+export const SetupDefinition = MakeSetupInput.omit({ space: true, new_space: true, workflows: true });
 export type SetupDefinition = z.infer<typeof SetupDefinition>;
 
 /**
@@ -80,9 +97,16 @@ export interface SetupResult {
   collections: CollectionView[];
   rules: RuleView[];
   views: SavedView[];
+  /** The workflows made with it, each saved off. */
+  workflows?: WorkflowView[];
+  /** The space made for it, when the setup asked for a new one. */
+  space?: { id: string; name: string };
 }
 
-type SetupDef = Pick<z.input<typeof MakeSetupInput>, "collections" | "rules" | "views">;
+type SetupDef = Pick<z.input<typeof MakeSetupInput>, "collections" | "rules" | "views"> & {
+  new_space?: string;
+  workflows?: { name: string }[];
+};
 
 /** A rule as a setup proposes it (names, not ids). */
 export type ProposedRule = NonNullable<SetupDef["rules"]>[number];
@@ -115,6 +139,7 @@ export function proposedRuleWords(r: ProposedRule): string {
 /** The setup in plain words, one line per part, from its definition. */
 export function setupWords(s: SetupDef): string[] {
   const out: string[] = [];
+  if (s.new_space) out.push(`A new space “${s.new_space}”, with everything below in it`);
   for (const c of s.collections) {
     const fields = (c.fields ?? []).filter((f) => !f.options?.formula && !f.options?.rollup);
     const hasTitle = fields.some((f) => f.type === "text" && !f.options?.personal);
@@ -166,5 +191,6 @@ export function setupWords(s: SetupDef): string[] {
     out.push(
       `A view “${v.name}” of ${v.collection}${v.pinned ? ", on the shortcuts bar" : ""}${v.add_fields?.length ? `, with a quick add for ${v.add_fields.join(", ")}` : ""}`,
     );
+  for (const w of s.workflows ?? []) out.push(`A workflow “${w.name}”, saved off: you turn it on`);
   return out;
 }

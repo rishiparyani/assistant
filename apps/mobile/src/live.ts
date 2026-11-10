@@ -46,6 +46,10 @@ export type LiveData =
       lists: CollectionView[];
       views: { id: string; name: string; collection_id: string; pinned: boolean }[];
       rules: number;
+      /** Flows made with it (each saved off). */
+      workflows: { id: string; name: string }[];
+      /** The space made for it, by name ("" when it went into one that was there). */
+      madeSpace: string;
       /** The space its lists are in (null: the person's own). */
       space: string | null;
     };
@@ -152,7 +156,15 @@ export async function loadLive(
       const now = await collections(true);
       const lists = ref.collections.flatMap((c) => now.filter((x) => x.id === c.id));
       if (!lists.length) throw new Error("That setup is gone");
-      return { kind: "setup", lists, views: ref.views, rules: ref.rules, space };
+      return {
+        kind: "setup",
+        lists,
+        views: ref.views,
+        rules: ref.rules,
+        workflows: ref.workflows ?? [],
+        madeSpace: ref.made_space ?? "",
+        space,
+      };
     }
     // Drawn by its own player (UiCard), never loaded here.
     case "ui":

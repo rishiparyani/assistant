@@ -233,6 +233,32 @@ export function fakeModel(model: ModelEntry, messages: ChatMessage[], tools: Too
       ].join("\n"),
     );
   }
+  // "Test: make a front desk [tag]": a whole plan on one card (a space of its own, a list and
+  // the flow on it); the tag keeps runs apart.
+  const desk = /^Test: make a front desk(?: (\S+))?$/.exec(lastUser);
+  if (desk) {
+    const tag = desk[1] ? ` ${desk[1]}` : "";
+    return call("make_setup", {
+      name: `Test front desk${tag}`,
+      new_space: `Test front desk${tag}`,
+      collections: [
+        {
+          name: "Test visitors",
+          fields: [
+            { name: "Who", type: "text" },
+            { name: "Flat", type: "text" },
+          ],
+        },
+      ],
+      workflows: [
+        {
+          name: "Test tell me about visitors",
+          when: { event: "added", collection: "Test visitors" },
+          then: [{ do: "notify", text: "{Who} is at the desk for {Flat}", to: ["me"] }],
+        },
+      ],
+    });
+  }
   if (lastUser.startsWith("Test: delete record "))
     return call("delete_record", { record_id: lastUser.slice("Test: delete record ".length) });
   // "Test: share <record id> with <name>": a share card for that record.

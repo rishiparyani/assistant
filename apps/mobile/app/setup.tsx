@@ -452,11 +452,7 @@ export default function Setup() {
           </Pressable>
         </View>
       </Sheet>
-      <Composer
-        about={
-          collection ? { kind: "list", title: collection } : { kind: "screen", title: "Fields and cards" }
-        }
-      />
+      <Composer about={c ? { kind: "list", title: c.name } : { kind: "screen", title: "Fields and cards" }} />
     </View>
   );
 }

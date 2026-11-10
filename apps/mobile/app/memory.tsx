@@ -82,7 +82,7 @@ export default function MemoryPage() {
             {items === null
               ? "Loading…"
               : note ||
-                "Nothing kept yet. Say “remember …” in the chat (“remember my rate is ₹8,000 a show”)."}
+                "Nothing kept yet. Say “remember …” in the chat (“remember the milk is ₹60 a litre”)."}
           </Text>
         }
         renderItem={({ item: m }) => (

@@ -583,6 +583,8 @@ export class ChatObject extends DurableObject<Env> {
       title: string;
       details: string[];
       flow?: WorkflowView;
+      /** A setup card's workflows (kept in the same column, as a list). */
+      flows?: WorkflowView[];
     },
     /** How long it can be tapped; the confirm-card default when left out. */
     ttlMinutes: number | null = null,
@@ -604,7 +606,7 @@ export class ChatObject extends DurableObject<Env> {
       JSON.stringify(a.args),
       a.title,
       JSON.stringify(a.details),
-      a.flow ? JSON.stringify(a.flow) : null,
+      a.flow ? JSON.stringify(a.flow) : a.flows?.length ? JSON.stringify(a.flows) : null,
       nowIso(),
       ttlMinutes ? new Date(Date.now() + ttlMinutes * 60_000).toISOString() : null,
     );
@@ -1108,11 +1110,13 @@ export class ChatObject extends DurableObject<Env> {
     };
   }
 
-  private flowOf(actionId: string): { flow?: WorkflowView } {
+  private flowOf(actionId: string): { flow?: WorkflowView; flows?: WorkflowView[] } {
     const f = this.sql
       .exec<{ flow_json: string | null }>(`select flow_json from actions where id = ?`, actionId)
       .toArray()[0]?.flow_json;
-    return f ? { flow: JSON.parse(f) as WorkflowView } : {};
+    if (!f) return {};
+    const kept = JSON.parse(f) as WorkflowView | WorkflowView[];
+    return Array.isArray(kept) ? { flows: kept } : { flow: kept };
   }
 
   private itemOf(r: MessageRow): ChatItem {
