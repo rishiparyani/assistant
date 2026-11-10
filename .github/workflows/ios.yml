@@ -114,8 +114,8 @@ jobs:
           path: |
             apps/mobile/ios/Pods
             ${{ runner.temp }}/dd
-          key: expo-ios-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
-          restore-keys: expo-ios-
+          key: expo-ios-v2-${{ hashFiles('pnpm-lock.yaml', 'apps/mobile/app.json') }}
+          restore-keys: expo-ios-v2-
 
       - name: Build for the simulator
         timeout-minutes: 30
@@ -125,7 +125,11 @@ jobs:
           CI: 1
         run: |
           cd apps/mobile/ios
-          pod install > "$RUNNER_TEMP/pods.log" 2>&1 || { tail -40 "$RUNNER_TEMP/pods.log"; exit 1; }
+          # A restored Pods folder can be half there (2026-11-10: "VFS overlay template not found"
+          # failed every run that hit the cache): start it clean and try once more.
+          pod install > "$RUNNER_TEMP/pods.log" 2>&1 \
+            || { rm -rf Pods; pod install > "$RUNNER_TEMP/pods.log" 2>&1; } \
+            || { tail -40 "$RUNNER_TEMP/pods.log"; exit 1; }
           # Ad-hoc signed (not unsigned): the Keychain refuses an app without entitlements, and
           # the session cookie lives there.
           xcodebuild -workspace Gigspree.xcworkspace -scheme Gigspree -configuration Release \
