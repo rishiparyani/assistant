@@ -571,9 +571,9 @@ function SetupMadeCard({
           <Tap
             accessibilityRole="button"
             onPress={() => onSay(`Add to ${first.name}: `)}
-            style={[s.next, { backgroundColor: t.ink }]}
+            style={[s.next, { backgroundColor: t.accent }]}
           >
-            <Text style={[s.nextText, { color: t.onInk }]}>Add the first to {first.name}</Text>
+            <Text style={[s.nextText, { color: t.onAccent }]}>Add the first to {first.name}</Text>
           </Tap>
         ) : null}
         {onHome.length ? (

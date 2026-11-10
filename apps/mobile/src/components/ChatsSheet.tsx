@@ -56,9 +56,9 @@ export function ChatsSheet({
             onNew();
           }}
           haptic="selection"
-          style={[s.newBtn, { backgroundColor: t.ink }]}
+          style={[s.newBtn, { backgroundColor: t.accent }]}
         >
-          <Text style={[typo.label, { color: t.onInk, fontWeight: "700" }]}>New chat</Text>
+          <Text style={[typo.label, { color: t.onAccent, fontWeight: "700" }]}>New chat</Text>
         </Tap>
       </View>
       {note ? <Text style={[typo.caption, { color: t.fg2, paddingHorizontal: 4 }]}>{note}</Text> : null}

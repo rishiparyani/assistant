@@ -84,8 +84,8 @@ export default function Home() {
   if (loaded && !me) return <Redirect href="/login" />;
   return (
     <View style={[s.root, s.pick, { backgroundColor: t.page }]}>
-      <View style={[s.pickIcon, { backgroundColor: t.ink }]}>
-        <Text style={[s.pickIconText, { color: t.onInk }]}>✦</Text>
+      <View style={[s.pickIcon, { backgroundColor: t.accent }]}>
+        <Text style={[s.pickIconText, { color: t.onAccent }]}>✦</Text>
       </View>
       <Text style={[type.title, { color: t.fg }]}>Pick a chat</Text>
       <Text style={[type.small, { color: t.fg2, textAlign: "center" }]}>

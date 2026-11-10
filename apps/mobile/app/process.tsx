@@ -170,10 +170,10 @@ export default function Process() {
             style={[
               s.btn,
               i === 0 ? s.grow : null,
-              { backgroundColor: i === 0 ? t.ink : t.cell, opacity: busy ? 0.6 : 1 },
+              { backgroundColor: i === 0 ? t.accent : t.cell, opacity: busy ? 0.6 : 1 },
             ]}
           >
-            <Text style={[s.btnText, { color: i === 0 ? t.onInk : t.fg }]}>{c}</Text>
+            <Text style={[s.btnText, { color: i === 0 ? t.onAccent : t.fg }]}>{c}</Text>
           </Pressable>
         ))}
       </View>
@@ -196,11 +196,16 @@ export default function Process() {
       </View>
       <ScrollView contentContainerStyle={{ paddingBottom: insets.bottom + COMPOSER_ROOM, gap: 14 }}>
         {detail ? (
-          <View style={[s.hero, { backgroundColor: t.ink }]}>
+          <View
+            style={[
+              s.hero,
+              { backgroundColor: t.cell, borderColor: t.hair, borderWidth: StyleSheet.hairlineWidth },
+            ]}
+          >
             <View style={s.heroTop}>
               <View style={s.state}>
                 <View style={[s.dot, { backgroundColor: on ? t.good : t.fg3 }]} />
-                <Text style={[s.stateText, { color: t.onInk }]} numberOfLines={1}>
+                <Text style={[s.stateText, { color: t.fg }]} numberOfLines={1}>
                   {on ? "On" : "Off"}
                 </Text>
               </View>
@@ -209,25 +214,25 @@ export default function Process() {
                 accessibilityLabel={on ? "Turn this flow off" : "Turn this flow back on"}
                 disabled={busy !== null}
                 onPress={() => void toggle()}
-                style={[s.pause, { borderColor: t.onInk, opacity: busy ? 0.6 : 1 }]}
+                style={[s.pause, { borderColor: t.fg3, opacity: busy ? 0.6 : 1 }]}
               >
-                <Text style={[s.pauseText, { color: t.onInk }]}>
+                <Text style={[s.pauseText, { color: t.accent }]}>
                   {busy === "enabled" ? "…" : stopping ? "Tap again" : on ? "Turn off" : "Turn on"}
                 </Text>
               </Pressable>
             </View>
             {stopping ? (
-              <Text style={[s.label, { color: t.onInk }]}>
+              <Text style={[s.label, { color: t.fg }]}>
                 Turning it off closes the {waiting.length === 1 ? "question" : `${waiting.length} questions`}{" "}
                 it's waiting on; turning it on again won't bring {waiting.length === 1 ? "it" : "them"} back.
               </Text>
             ) : null}
-            <Text style={[s.big, { color: t.onInk }]}>
+            <Text style={[s.big, { color: t.fg }]}>
               {waiting.length
                 ? `${waiting.length} waiting on people`
                 : `Ran ${detail.workflow.runs} time${detail.workflow.runs === 1 ? "" : "s"}`}
             </Text>
-            <Text style={[s.label, { color: t.onInk, opacity: 0.75 }]}>
+            <Text style={[s.label, { color: t.fg2 }]}>
               {detail.workflow.words[0] ?? ""}
               {detail.workflow.last_run_at ? ` · last ran ${when(detail.workflow.last_run_at)}` : ""}
             </Text>

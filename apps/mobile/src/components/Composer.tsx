@@ -52,49 +52,55 @@ export function Composer({
     openChat(q ? { ...params, ask: q, send: "1" } : (params ?? {}), about);
     setText("");
   };
+  const bottom = (room ? 12 : insets.bottom + 12) + lift + room;
   return (
-    <View
-      style={[s.wrap, { bottom: (room ? 12 : insets.bottom + 12) + lift + room }]}
-      pointerEvents="box-none"
-    >
-      <View style={[s.bar, { backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow }]}>
-        <TextInput
-          accessibilityLabel={hint}
-          placeholder={online ? hint : "Asking needs a connection"}
-          placeholderTextColor={t.fg2}
-          value={text}
-          onChangeText={setText}
-          onSubmitEditing={go}
-          returnKeyType="send"
-          submitBehavior="submit"
-          editable={online}
-          autoCorrect={false}
-          style={[
-            s.input,
-            type.body,
-            { color: t.fg },
-            Platform.OS === "web" ? ({ outlineWidth: 0 } as object) : null,
-          ]}
-        />
-        <Tap
-          accessibilityRole="button"
-          accessibilityLabel={q ? "Send" : "Open the chat"}
-          onPress={go}
-          disabled={!online}
-          scale={0.88}
-          haptic="light"
-          hitSlop={6}
-          style={[s.send, { backgroundColor: online ? t.accent : t.fill }]}
-        >
-          <SendIcon color={online ? t.onAccent : t.fg3} />
-        </Tap>
+    <>
+      {/* The page's own colour from the middle of the bar down, so rows scroll away behind the
+          bar instead of peeking out under it (not where a screen's own bar sits below). */}
+      {lift ? null : (
+        <View pointerEvents="none" style={[s.under, { height: bottom + 27, backgroundColor: t.page }]} />
+      )}
+      <View style={[s.wrap, { bottom }]} pointerEvents="box-none">
+        <View style={[s.bar, { backgroundColor: t.cell, borderColor: t.hair, shadowColor: t.shadow }]}>
+          <TextInput
+            accessibilityLabel={hint}
+            placeholder={online ? hint : "Asking needs a connection"}
+            placeholderTextColor={t.fg2}
+            value={text}
+            onChangeText={setText}
+            onSubmitEditing={go}
+            returnKeyType="send"
+            submitBehavior="submit"
+            editable={online}
+            autoCorrect={false}
+            style={[
+              s.input,
+              type.body,
+              { color: t.fg },
+              Platform.OS === "web" ? ({ outlineWidth: 0 } as object) : null,
+            ]}
+          />
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel={q ? "Send" : "Open the chat"}
+            onPress={go}
+            disabled={!online}
+            scale={0.88}
+            haptic="light"
+            hitSlop={6}
+            style={[s.send, { backgroundColor: online ? t.accent : t.fill }]}
+          >
+            <SendIcon color={online ? t.onAccent : t.fg3} />
+          </Tap>
+        </View>
       </View>
-    </View>
+    </>
   );
 }
 
 const s = StyleSheet.create({
   wrap: { position: "absolute", left: 16, right: 16, alignItems: "center" },
+  under: { position: "absolute", left: 0, right: 0, bottom: 0 },
   bar: {
     width: "100%",
     maxWidth: 640,

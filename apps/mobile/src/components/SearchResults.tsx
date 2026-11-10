@@ -49,12 +49,12 @@ export function SearchResults({
           accessibilityLabel={`Ask the assistant: ${q}`}
           onPress={() => onAsk(q)}
           scale={0.985}
-          style={[s.hit, { backgroundColor: t.ink }]}
+          style={[s.hit, { backgroundColor: t.accent }]}
         >
-          <Text style={[type.body, { color: t.onInk, flex: 1 }]} numberOfLines={1}>
+          <Text style={[type.body, { color: t.onAccent, flex: 1 }]} numberOfLines={1}>
             Ask: “{q}”
           </Text>
-          <Text style={{ color: t.onInk, fontWeight: "800" }}>↑</Text>
+          <Text style={{ color: t.onAccent, fontWeight: "800" }}>↑</Text>
         </Tap>
       ) : null}
       {lists_.map((l) => (

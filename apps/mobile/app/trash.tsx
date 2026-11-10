@@ -170,9 +170,9 @@ export default function Trash() {
                         accessibilityLabel={`Restore the space ${d.name}`}
                         disabled={busy !== null}
                         onPress={() => void restoreSpace(d)}
-                        style={[s.btn, s.grow, { backgroundColor: t.accent, opacity: busy ? 0.6 : 1 }]}
+                        style={[s.btn, { backgroundColor: t.accentSoft, opacity: busy ? 0.6 : 1 }]}
                       >
-                        <Text style={[s.btnText, { color: t.onAccent }]}>Restore</Text>
+                        <Text style={[s.btnText, { color: t.accent }]}>Restore</Text>
                       </Pressable>
                     </View>
                   </View>

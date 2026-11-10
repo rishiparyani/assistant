@@ -103,3 +103,24 @@ test("a tight row writes its date whole, and a list that comes to less than noth
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("the bar at the bottom names the list by its name, never its id; an empty list says how to start", async ({
+  browser,
+}) => {
+  // The visual review (2026-11-10): "Ask about 01M71E…" on a list's fields screen.
+  const me = await owner();
+  const list = `E2E Named ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [{ name: "Title", type: "text" }],
+  })) as { id: string };
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/setup?collection=${made.id}`);
+  await expect(page.getByPlaceholder(`Ask about ${list}`).last()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByPlaceholder(new RegExp(made.id))).toHaveCount(0);
+  await page.goto(`/list?collection=${made.id}`);
+  await expect(page.getByText("Nothing here yet. + Add puts the first one in.").last()).toBeVisible();
+  await expectNoSideways(page);
+  expect(errors).toEqual([]);
+  await context.close();
+});

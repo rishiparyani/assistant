@@ -51,9 +51,9 @@ export default function Chats() {
             accessibilityRole="button"
             accessibilityLabel="New chat"
             onPress={() => setStarting(true)}
-            style={[s.round, { backgroundColor: t.fg }]}
+            style={[s.round, { backgroundColor: t.accent }]}
           >
-            <Text style={{ color: t.page, fontSize: 24, fontWeight: "700", lineHeight: 26 }}>+</Text>
+            <Text style={{ color: t.onAccent, fontSize: 24, fontWeight: "700", lineHeight: 26 }}>+</Text>
           </Pressable>
         </View>
         <Text style={[s.title, { color: t.fg }]}>Chats</Text>
@@ -156,7 +156,7 @@ function ChatRow({ chat, onPress }: { chat: GroupSummary; onPress: () => void })
           <Text style={[s.name, { color: t.fg }]} numberOfLines={1}>
             {chat.name}
           </Text>
-          <Text style={[s.time, { color: chat.unread ? t.accent : t.fg3 }]}>
+          <Text style={[s.time, { color: chat.unread ? t.accent : t.fg3 }]} numberOfLines={1}>
             {chat.last ? when(chat.last.at) : ""}
           </Text>
         </View>
@@ -333,7 +333,7 @@ const s = StyleSheet.create({
   line: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   name: { flexShrink: 1, fontSize: 16, fontWeight: "800", letterSpacing: -0.2 },
   only: { fontSize: 12, fontWeight: "700" },
-  time: { fontSize: 12, fontWeight: "600" },
+  time: { fontSize: 12, fontWeight: "600", flexShrink: 0 },
   last: { flex: 1, fontSize: 14 },
   badge: {
     minWidth: 20,

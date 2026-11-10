@@ -437,9 +437,9 @@ function Rehearse() {
               accessibilityState={{ selected: on }}
               accessibilityLabel={p.waiting ? `${p.name}, ${p.waiting} waiting` : p.name}
               onPress={() => play(p.user_id)}
-              style={[s.role, { backgroundColor: on ? t.ink : t.fill }]}
+              style={[s.role, { backgroundColor: on ? t.accent : t.fill }]}
             >
-              <Text style={[s.roleText, { color: on ? t.onInk : t.fg }]}>{p.name}</Text>
+              <Text style={[s.roleText, { color: on ? t.onAccent : t.fg }]}>{p.name}</Text>
               {p.waiting ? (
                 <View style={[s.badge, { backgroundColor: t.accent }]}>
                   <Text style={[s.badgeText, { color: t.onAccent }]}>{p.waiting}</Text>
