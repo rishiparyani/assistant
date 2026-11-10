@@ -7,6 +7,7 @@ import { Text } from "./text.tsx";
 import { UNFLEX, useFit } from "./fit.ts";
 import * as Haptics from "expo-haptics";
 import {
+  formatINR,
   matchesAll,
   type FieldView,
   type HighlightColour,
@@ -62,7 +63,8 @@ export function shown(f: FieldView, r: RecordView, tileField: string | null): st
   if (v === null || v === undefined || v === "") return "";
   switch (f.type) {
     case "money":
-      return typeof v === "number" ? `₹${(v / 100).toLocaleString("en-IN")}` : String(v);
+      // Whole paise, written whole (₹1,250.50, never ₹1,250.5).
+      return typeof v === "number" && Number.isInteger(v) ? formatINR(v) : String(v);
     case "date":
     case "datetime": {
       const w = when(v);

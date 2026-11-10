@@ -97,7 +97,12 @@ export function AddForm({
           typeof v === "number" && fields.find((f) => f.id === k)?.type === "money" ? String(v / 100) : v,
         ]),
     );
-    if (!Object.keys(kept).length) return setNote("Fill in something first.");
+    // A switch left alone is a "no", which isn't something filled in: a form with nothing else
+    // in it adds nothing (it used to add a blank "Untitled"; the test pass, 2026-11-10).
+    const filled = Object.entries(kept).some(
+      ([k, v]) => !(v === false && fields.find((f) => f.id === k)?.type === "boolean"),
+    );
+    if (!filled) return setNote("Fill in something first.");
     setBusy(true);
     try {
       const said = await onAdd(kept, values);
