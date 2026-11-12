@@ -351,3 +351,97 @@ test("a change made on a space's page stays there while it is still being sent",
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a change made in the list shows on the home while it is still being sent", async ({ browser }) => {
+  // Codex on PR 236: only the list followed; the home kept the old row until it was sent.
+  const me = await person(`E2E List changer ${RUN}`);
+  const list = `E2E Calls ${RUN}`;
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Ring the bank", When: today },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  const coming = page.getByLabel("Coming up");
+  await expect(coming.getByText("E2E Ring the bank")).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/list?collection=${made.id}`);
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") await held;
+    await route.continue().catch(() => {});
+  });
+  await page
+    .getByRole("button", { name: /E2E Ring the bank/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Ring the insurer");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await expect(page.getByRole("button", { name: /E2E Ring the insurer/ }).last()).toBeVisible();
+  // Back on the home, the change still on its way.
+  await page.goto("/");
+  await expect(coming.getByText("E2E Ring the insurer")).toBeVisible({ timeout: 30_000 });
+  await expect(coming.getByText("E2E Ring the bank")).toHaveCount(0);
+  letGo();
+  await expect
+    .poll(async () => {
+      const r = (await api(me)("POST", `/collections/${made.id}/find`, {})) as { items: { title: string }[] };
+      return r.items[0]?.title;
+    })
+    .toBe("E2E Ring the insurer");
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a slow first read of a list doesn't bring back a record deleted meanwhile", async ({ browser }) => {
+  // Codex on PR 236: the read had started before the delete, and its older rows were shown and kept.
+  const me = await person(`E2E Slow list ${RUN}`);
+  const list = `E2E Returns ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [{ name: "Title", type: "text" }],
+  })) as { id: string };
+  for (const title of ["E2E Return the drill", "E2E Return the books"])
+    await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: title } });
+  const { page, errors, context } = await openApp(browser, me);
+  // Once, so the phone keeps the rows.
+  await page.goto(`/list?collection=${made.id}`);
+  await expect(page.getByRole("button", { name: /E2E Return the drill/ }).last()).toBeVisible({
+    timeout: 30_000,
+  });
+  // Again, with the first read answered late, with what the server had when it was asked.
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  let asked = false;
+  await page.route(/\/find$/, async (route) => {
+    if (asked) return route.continue();
+    asked = true;
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  // No live updates either (they'd read the list again and hide it): a phone on a poor line.
+  await page.routeWebSocket(/.*/, (ws) => ws.close());
+  await page.reload();
+  await page
+    .getByRole("button", { name: /E2E Return the drill/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Delete this" }).click();
+  await page.getByRole("button", { name: "Delete E2E Return the drill" }).click();
+  await expect(page.getByRole("button", { name: /E2E Return the drill/ })).toHaveCount(0);
+  expect(asked).toBe(true);
+  letGo();
+  await page.waitForTimeout(1_000);
+  await expect(page.getByRole("button", { name: /E2E Return the drill/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /E2E Return the books/ }).last()).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});

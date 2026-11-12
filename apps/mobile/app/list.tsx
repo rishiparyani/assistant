@@ -46,6 +46,8 @@ import { openChat } from "@/chat-open";
 import { Composer } from "@/components/Composer";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
+import { useSession } from "@/session";
+import { recordChanged, rowOf, savedToday } from "@/today";
 import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
 import { outboxState } from "@/outbox";
@@ -92,6 +94,7 @@ export default function ListPage() {
   // `space`: a list in one of the person's own spaces (decision 2026-10-16 "Spaces").
   const params = useLocalSearchParams<{ collection: string; view?: string; space?: string }>();
   const space = params.space || undefined;
+  const userId = useSession().me?.user.id ?? null;
   const inSpace = space ? `?space=${enc(space)}` : "";
   const key = `gigspree:list:${space ? `${space}:` : ""}${params.collection}`;
   const [saved, setSaved] = useState<Saved | null>(() => readJson<Saved>(key));
@@ -183,6 +186,15 @@ export default function ListPage() {
   // Only the newest first-page answer counts: an early one that comes back last mustn't
   // replace the real one (Codex on PR 173).
   const generation = useRef(0);
+  // What was done on a record's sheet here: a read that started before it (a slow first page)
+  // must not bring a deleted row back, nor an older record over a change still being sent
+  // (Codex on PR 236).
+  const gone = useRef(new Set<string>());
+  const changedHere = useRef(new Map<string, RecordView>());
+  const settled = useCallback((items: RecordView[]) => {
+    if (!outboxState().waiting.length) changedHere.current.clear();
+    return items.filter((x) => !gone.current.has(x.id)).map((x) => changedHere.current.get(x.id) ?? x);
+  }, []);
   const loadPage = useCallback(
     async (after: string | null) => {
       if (!listId || viewUnknown) return;
@@ -195,9 +207,10 @@ export default function ListPage() {
           ...(after ? { cursor: after } : {}),
         });
         if (mine !== generation.current) return;
-        setRecords((prev) => (after ? [...(prev ?? []), ...r.items] : r.items));
+        const items = settled(r.items);
+        setRecords((prev) => (after ? [...(prev ?? []), ...items] : items));
         setCursor(r.next_cursor);
-        if (!after) writeJson(pageKey, { items: r.items, next_cursor: r.next_cursor });
+        if (!after) writeJson(pageKey, { items, next_cursor: r.next_cursor });
       } catch (e) {
         if (mine !== generation.current) return;
         if (!after) restore();
@@ -210,7 +223,7 @@ export default function ListPage() {
         );
       }
     },
-    [listId, viewUnknown, query, pageKey, restore, space],
+    [listId, viewUnknown, query, pageKey, restore, space, settled],
   );
   useEffect(() => {
     restore();
@@ -626,6 +639,15 @@ export default function ListPage() {
           ? {
               onChanged: (next: RecordView) => {
                 setOpened(next);
+                changedHere.current.set(next.id, next);
+                // The home and the space's page show it too, and the day kept on the device.
+                if (c) {
+                  const at = userId ? savedToday(userId)?.lists.find((l) => l.id === c.id) : undefined;
+                  recordChanged(userId, {
+                    record: next,
+                    from: rowOf(c, next, at?.space ? { id: at.space, name: at.space_name ?? "" } : null),
+                  });
+                }
                 setRecords((prev) => (prev ?? []).map((x) => (x.id === next.id ? next : x)));
                 const kept = readJson<Kept>(pageKey);
                 if (kept?.items)
@@ -637,6 +659,8 @@ export default function ListPage() {
               onDeleted: (id: string) => {
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.id === id ? null : o));
+                gone.current.add(id);
+                recordChanged(userId, { deleted: id });
                 setRecords((prev) => (prev ?? []).filter((x) => x.id !== id));
                 const kept = readJson<Kept>(pageKey);
                 if (kept?.items)

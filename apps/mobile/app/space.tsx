@@ -19,6 +19,8 @@ import {
   loadToday,
   savedToday,
   tileOf,
+  onRecordChanged,
+  recordChanged,
   todayWithRecord,
   touchSpace,
   whenWords,
@@ -142,6 +144,8 @@ export default function SpacePage() {
   // What the chat or anyone else changes shows here too (Codex, PR 205): "Start building"
   // reveals its lists once they're made. A burst of changes loads once.
   useEffect(() => onHomeChanged(() => void load()), [load]);
+  // A record changed or deleted on a sheet, here or in its list: the day shows it at once.
+  useEffect(() => onRecordChanged((change) => setToday((t) => todayWithRecord(userId, t, change))), [userId]);
   const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useLive((m) => {
     if (m.type !== "space_changed" && m.type !== "reconnected") return;
@@ -700,12 +704,12 @@ export default function SpacePage() {
               onChanged: (next: RecordView) => {
                 setOpened({ ...opened, record: next, title: next.title });
                 // With the row it was opened from: a day moved out and back puts it back.
-                setToday((t) => todayWithRecord(userId, t, { record: next, from: opened }));
+                recordChanged(userId, { record: next, from: opened });
               },
               onDeleted: (id: string) => {
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.record.id === id ? null : o));
-                setToday((t) => todayWithRecord(userId, t, { deleted: id }));
+                recordChanged(userId, { deleted: id });
               },
             }
           : {})}

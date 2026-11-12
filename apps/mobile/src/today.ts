@@ -165,6 +165,41 @@ export function todayWithRecord(
   return next;
 }
 
+export type RecordChange = { record: RecordView; from?: UpNextItem } | { deleted: string };
+const recordListeners = new Set<(c: RecordChange) => void>();
+/** The home and a space's page hear of a record changed or deleted on any sheet. */
+export function onRecordChanged(l: (c: RecordChange) => void): () => void {
+  recordListeners.add(l);
+  return () => recordListeners.delete(l);
+}
+/**
+ * A record was changed or deleted on its sheet (on the home, a space's page or its list): the
+ * day kept on the device takes it at once, and so does every open page that shows the day
+ * (Codex on PR 236: a change made in the list read as undone on the home until it was sent).
+ */
+export function recordChanged(userId: string | null, change: RecordChange): void {
+  if (userId) todayWithRecord(userId, savedToday(userId), change);
+  recordListeners.forEach((l) => l(change));
+}
+/** The row a list's record would have under Coming up: enough to put it there when its day comes into the week. */
+export function rowOf(
+  collection: CollectionView,
+  record: RecordView,
+  space: { id: string; name: string } | null,
+): UpNextItem {
+  return {
+    key: `${collection.id}:${record.id}`,
+    at: 0,
+    allDay: true,
+    title: record.title,
+    sub: collection.name,
+    collection,
+    record,
+    ...(space ? { space: space.id } : {}),
+    spaceName: space?.name ?? "Personal",
+  };
+}
+
 export async function loadToday(userId: string): Promise<Today> {
   const cat = await loadCatalog();
   // The library and the chat's action pills read the same catalogue from the device.
