@@ -292,3 +292,55 @@ test("a delete that answers late doesn't close another record opened meanwhile",
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a change made on a space's page stays there while it is still being sent", async ({ browser }) => {
+  // Codex on PR 236: the page read again at once, and the server's older record replaced the
+  // change until it was sent.
+  const me = await person(`E2E Space changer ${RUN}`);
+  const list = `E2E Visits ${RUN}`;
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Meet the plumber", When: today },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto("/space?id=p");
+  await page.getByRole("tab", { name: /^Lists/ }).click();
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  let waiting = false;
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") {
+      waiting = true;
+      await held;
+    }
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Open E2E Meet the plumber" }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Meet the electrician");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // Long enough for the page's own read to come back with the server's older record.
+  await page.waitForTimeout(2_000);
+  expect(waiting).toBe(true);
+  await expect(page.getByRole("button", { name: "Open E2E Meet the electrician" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open E2E Meet the plumber" })).toHaveCount(0);
+  letGo();
+  // Sent, and read again: still the new name.
+  await expect
+    .poll(async () => {
+      const r = (await api(me)("POST", `/collections/${made.id}/find`, {})) as { items: { title: string }[] };
+      return r.items[0]?.title;
+    })
+    .toBe("E2E Meet the electrician");
+  await expect(page.getByRole("button", { name: "Open E2E Meet the electrician" })).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});

@@ -13,6 +13,7 @@ import {
   type CatalogEntry,
   type HomeCard,
 } from "./home.ts";
+import { outboxState } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
@@ -192,7 +193,9 @@ export async function loadToday(userId: string): Promise<Today> {
     lists: [...lists.values()],
     complete: cat.complete && !missed.any,
   };
-  rememberToday(userId, today);
+  // Not kept while changes still wait to be sent: this read is older than them, and the copy
+  // on the device already has them (todayWithRecord).
+  if (!outboxState().waiting.length) rememberToday(userId, today);
   return today;
 }
 

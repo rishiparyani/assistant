@@ -13,6 +13,7 @@ import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { RecordSheet } from "@/components/RecordSheet";
 import { answerWaiting, nudgeWaiting, onHomeChanged, type HomeCard } from "@/home";
+import { outboxState, subscribe } from "@/outbox";
 import { useLive } from "@/live-socket";
 import {
   loadToday,
@@ -83,8 +84,11 @@ export default function SpacePage() {
     if (row?.spaceId) setSpaceId(row.spaceId);
   }, [row?.spaceId]);
 
+  // Loaded while changes were still waiting to be sent: load again once they are.
+  const loadedWithWaiting = useRef(false);
   const load = useCallback(async () => {
     if (!userId) return;
+    loadedWithWaiting.current = outboxState().waiting.length > 0;
     const where = id === PERSONAL ? "" : `?space=${enc(id)}`;
     // The people load on their own: a slow or failed Today or workflows load doesn't keep them
     // (and the owner's tools, like Delete this space) off the page.
@@ -102,9 +106,13 @@ export default function SpacePage() {
         loadToday(userId),
         request<WorkflowView[]>("GET", `/api/workflows${where}`),
       ]);
-      // A read that failed part-way doesn't take away the rows that are on the screen.
+      // A read that failed part-way doesn't take away the rows that are on the screen; and one
+      // that lands while changes still wait to be sent is older than them (Codex on PR 236: a
+      // change made here read as undone until it was sent). It loads again once they're sent.
+      const waiting = outboxState().waiting.length > 0;
+      if (waiting) loadedWithWaiting.current = true;
       setToday((prev) =>
-        !fresh.complete && prev ? { ...fresh, glance: prev.glance, upnext: prev.upnext } : fresh,
+        (waiting || !fresh.complete) && prev ? { ...fresh, glance: prev.glance, upnext: prev.upnext } : fresh,
       );
       setWorkflows(wf);
       writeJson(saved("workflows"), wf);
@@ -121,6 +129,16 @@ export default function SpacePage() {
   useEffect(() => {
     void load();
   }, [load]);
+  const waitingBefore = useRef(outboxState().waiting.length);
+  useEffect(
+    () =>
+      subscribe(() => {
+        const n = outboxState().waiting.length;
+        if (waitingBefore.current > 0 && n === 0 && loadedWithWaiting.current) void load();
+        waitingBefore.current = n;
+      }),
+    [load],
+  );
   // What the chat or anyone else changes shows here too (Codex, PR 205): "Start building"
   // reveals its lists once they're made. A burst of changes loads once.
   useEffect(() => onHomeChanged(() => void load()), [load]);
