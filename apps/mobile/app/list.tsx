@@ -620,6 +620,29 @@ export default function ListPage() {
         record={opened}
         collection={c ?? null}
         onClose={() => setOpened(null)}
+        space={space ?? null}
+        // My own list: its records are changed and deleted where they're opened.
+        {...(ticker
+          ? {
+              onChanged: (next: RecordView) => {
+                setOpened(next);
+                setRecords((prev) => (prev ?? []).map((x) => (x.id === next.id ? next : x)));
+                const kept = readJson<Kept>(pageKey);
+                if (kept?.items)
+                  writeJson(pageKey, {
+                    ...kept,
+                    items: kept.items.map((x) => (x.id === next.id ? next : x)),
+                  });
+              },
+              onDeleted: (id: string) => {
+                setOpened(null);
+                setRecords((prev) => (prev ?? []).filter((x) => x.id !== id));
+                const kept = readJson<Kept>(pageKey);
+                if (kept?.items)
+                  writeJson(pageKey, { ...kept, items: kept.items.filter((x) => x.id !== id) });
+              },
+            }
+          : {})}
         onAsk={() => {
           const r = opened;
           setOpened(null);

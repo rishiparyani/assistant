@@ -6,6 +6,7 @@
 // (accounts, Help, settings): docs/design/chats-base.md step 1. Search waits above the list until it is pulled down, like WhatsApp (on a laptop's
 // sidebar it always shows). Nobody
 // arranges it, so it can never go blank; it reads what the device kept first (rule 17).
+import type { RecordView } from "@assistant/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
@@ -776,6 +777,14 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
         onClose={() => setOpened(null)}
+        space={opened?.space ?? null}
+        // A record of my own list (not one shared with me): changed and deleted here too.
+        {...(opened && !opened.shared
+          ? {
+              onChanged: (next: RecordView) => setOpened({ ...opened, record: next, title: next.title }),
+              onDeleted: () => setOpened(null),
+            }
+          : {})}
         onAsk={
           opened && assistant
             ? () => {

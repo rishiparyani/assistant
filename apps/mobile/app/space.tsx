@@ -8,7 +8,7 @@ import { Boundary, Card, Text, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { BackIcon, GearIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
+import type { RecordView, SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { RecordSheet } from "@/components/RecordSheet";
@@ -663,6 +663,14 @@ export default function SpacePage() {
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
         onClose={() => setOpened(null)}
+        space={opened?.space ?? null}
+        // A record of my own list (not one shared with me): changed and deleted here too.
+        {...(opened && !opened.shared
+          ? {
+              onChanged: (next: RecordView) => setOpened({ ...opened, record: next, title: next.title }),
+              onDeleted: () => setOpened(null),
+            }
+          : {})}
         onOpenList={
           opened
             ? () => {

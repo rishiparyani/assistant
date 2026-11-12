@@ -55,3 +55,68 @@ test("the add form refuses an empty or wrong entry, adds a right one, and money 
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a record is changed and deleted on its own sheet, and the list follows", async ({ browser }) => {
+  // Decision 2026-11-12 "A record is changed where it's opened".
+  const me = await person(`E2E Changer ${RUN}`);
+  const list = `E2E Repairs ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Item", type: "text" },
+      { name: "Price", type: "money" },
+      { name: "Notes", type: "text" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Item: "E2E Tap washer", Price: "120", Notes: "E2E from the corner shop" },
+  });
+  const find = async () =>
+    (
+      (await api(me)("POST", `/collections/${made.id}/find`, {})) as {
+        items: { named: Record<string, unknown> }[];
+      }
+    ).items;
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/list?collection=${made.id}`);
+  await page.getByRole("button", { name: "E2E Tap washer" }).last().click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  // The form opens on what the record holds, money as people type it.
+  await expect(page.getByRole("textbox", { name: "Item" })).toHaveValue("E2E Tap washer");
+  await expect(page.getByRole("textbox", { name: "Price" })).toHaveValue("120");
+  // A wrong amount is said, and nothing changes.
+  await page.getByRole("textbox", { name: "Price" }).fill("lots");
+  await page
+    .getByRole("button", { name: `Save to ${list}` })
+    .last()
+    .click();
+  await expect(page.getByText(/is not an amount/)).toBeVisible();
+  // A new name and amount, and the note cleared.
+  await page.getByRole("textbox", { name: "Item" }).fill("E2E Tap washer, brass");
+  await page.getByRole("textbox", { name: "Price" }).fill("145.50");
+  await page.getByRole("textbox", { name: "Notes" }).fill("");
+  await page
+    .getByRole("button", { name: `Save to ${list}` })
+    .last()
+    .click();
+  // The sheet and the row behind it show the change at once; the server has it too.
+  await expect(page.getByText("E2E Tap washer, brass").last()).toBeVisible();
+  await expect(page.getByText("₹145.50").last()).toBeVisible();
+  await expect(page.getByText("E2E from the corner shop")).toHaveCount(0);
+  await expect
+    .poll(async () => (await find())[0]?.named)
+    .toMatchObject({ Item: "E2E Tap washer, brass", Price: "₹145.50", Notes: null });
+  // Delete asks first; Keep it leaves it; Delete takes it off the list and into Recently deleted.
+  await page.getByRole("button", { name: "Delete this" }).click();
+  await page.getByRole("button", { name: "Keep it" }).click();
+  expect(await find()).toHaveLength(1);
+  await page.getByRole("button", { name: "Delete this" }).click();
+  await page.getByRole("button", { name: "Delete E2E Tap washer, brass" }).click();
+  await expect(page.getByRole("button", { name: "E2E Tap washer, brass" })).toHaveCount(0);
+  await expect.poll(async () => (await find()).length).toBe(0);
+  await page.goto(`/trash?collection=${made.id}`);
+  await expect(page.getByText("E2E Tap washer, brass").last()).toBeVisible();
+  await expectNoSideways(page);
+  expect(errors).toEqual([]);
+  await context.close();
+});

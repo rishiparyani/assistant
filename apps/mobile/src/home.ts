@@ -773,6 +773,31 @@ export function writeValue(
   return { ...record, values: { ...record.values, ...values } };
 }
 
+/**
+ * Several fields of a record of my own list, changed on its sheet: shown at once, sent through
+ * the outbox as one change. `sent` is what goes to the server (money as rupees in text, null
+ * for a field that was cleared); `stored` is the same as the device keeps it.
+ */
+export function writeValues(
+  collection: CollectionView,
+  record: RecordView,
+  sent: Record<string, unknown>,
+  stored: Record<string, StoredValue>,
+  space: string | null = null,
+): RecordView {
+  send({
+    kind: "spaces.update_record",
+    method: "PATCH",
+    path: `/api/records/${enc(record.id)}`,
+    body: { values: sent, ...(space ? { space } : {}) },
+    label: `${record.title} · ${collection.name}`,
+  });
+  const values = { ...record.values, ...stored };
+  for (const [k, v] of Object.entries(values)) if (v === null) delete values[k];
+  const t = collection.title_field_id ? values[collection.title_field_id] : undefined;
+  return { ...record, values, title: typeof t === "string" && t ? t : record.title };
+}
+
 /** A control on a card changed one field of a row: shown at once, sent through the outbox. */
 export function setValue(card: HomeCard, record: RecordView, field: string, value: StoredValue): RecordView {
   if (!card.collection) return record;
