@@ -119,6 +119,10 @@ function againUpNext(u: UpNextItem, r: RecordView): UpNextItem[] {
   const allDay = !v.includes("T");
   const at = allDay ? Date.parse(`${v.slice(0, 10)}T00:00:00Z`) - IST : Date.parse(v);
   if (Number.isNaN(at)) return [];
+  // The same window the read asks for: the next seven days, and a time still to come.
+  const now = Date.now();
+  const days = istDay(at) - istDay(now);
+  if (days < 0 || days >= 7 || (!allDay && at < now)) return [];
   return [{ ...u, record: r, title: r.title, at, allDay, sub: subOf(c, r, f.id) }];
 }
 

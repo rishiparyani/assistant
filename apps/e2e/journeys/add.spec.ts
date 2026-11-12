@@ -188,3 +188,51 @@ test("every box of a record can be emptied, and a change made from the home show
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a change made offline from the home reads as it will be kept: the amount, an emptied name, a moved day", async ({
+  browser,
+}) => {
+  // Codex on PR 236: the row kept the old amount's words and an emptied name, and stayed
+  // under "this week" after its day moved out of it.
+  const me = await person(`E2E Home reader ${RUN}`);
+  const list = `E2E Bills ${RUN}`;
+  const day = (n: number) => new Date(Date.now() + n * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+      { name: "Amount", type: "money" },
+    ],
+  })) as { id: string };
+  for (const title of ["E2E Water bill", "E2E Phone bill"])
+    await api(me)("POST", `/collections/${made.id}/records`, {
+      values: { Title: title, When: day(0), Amount: "100" },
+    });
+  const { page, errors, context } = await openApp(browser, me);
+  const coming = page.getByLabel("Coming up");
+  await expect(coming.getByText("E2E Water bill")).toBeVisible({ timeout: 30_000 });
+  await context.setOffline(true);
+  const close = () =>
+    page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // A new amount and no name: the row says ₹200 and Untitled, as the server will keep it.
+  await coming.getByRole("button", { name: /^E2E Water bill/ }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("");
+  await page.getByRole("textbox", { name: "Amount" }).fill("200");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await close();
+  await expect(coming.getByText("E2E Water bill")).toHaveCount(0);
+  await expect(coming.getByText("Untitled")).toBeVisible();
+  await expect(coming.getByText(/₹200/)).toBeVisible();
+  // A day moved to next month: no longer coming up this week.
+  await coming.getByRole("button", { name: /^E2E Phone bill/ }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "When" }).fill(day(40));
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await close();
+  await expect(coming.getByText("E2E Phone bill")).toHaveCount(0);
+  await context.setOffline(false);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline/i.test(e))).toEqual([]);
+  await context.close();
+});
