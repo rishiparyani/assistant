@@ -129,13 +129,23 @@ function againUpNext(u: UpNextItem, r: RecordView): UpNextItem[] {
 export function todayWithRecord(
   userId: string | null,
   t: Today | null,
-  change: { record: RecordView } | { deleted: string },
+  change: { record: RecordView; from?: UpNextItem } | { deleted: string },
 ): Today | null {
   if (!t) return t;
   const id = "record" in change ? change.record.id : change.deleted;
+  // A row that left the week (its day was moved) comes back when its day does: from the row
+  // the sheet was opened on, which still knows its list and space.
+  const back =
+    "record" in change &&
+    change.from &&
+    !change.from.shared &&
+    change.from.collection.fields.some((x) => x.type === "date" || x.type === "datetime") &&
+    !t.upnext.some((u) => u.record.id === id)
+      ? againUpNext(change.from, change.record)
+      : [];
   const next: Today = {
     ...t,
-    upnext: t.upnext
+    upnext: [...t.upnext, ...back]
       .flatMap((u) => (u.record.id !== id ? [u] : "record" in change ? againUpNext(u, change.record) : []))
       .sort((a, b) => a.at - b.at),
     ...(t.glance
@@ -155,11 +165,14 @@ export async function loadToday(userId: string): Promise<Today> {
   const cat = await loadCatalog();
   // The library and the chat's action pills read the same catalogue from the device.
   rememberCatalog(userId, cat);
+  // A read of a list's records that failed (the connection dropped part-way): the day isn't
+  // whole, so it isn't kept and the screen keeps the rows it has.
+  const missed = { any: false };
   const [needs, upnext, shared, glance] = await Promise.all([
     needsOf(cat),
-    upNextOf(cat),
+    upNextOf(cat, missed),
     sharedOf(cat),
-    glanceOf(cat),
+    glanceOf(cat, missed),
   ]);
   const spaces = spacesOf(cat);
   const lists = new Map<string, Today["lists"][number]>();
@@ -177,7 +190,7 @@ export async function loadToday(userId: string): Promise<Today> {
     glance,
     spaces,
     lists: [...lists.values()],
-    complete: cat.complete,
+    complete: cat.complete && !missed.any,
   };
   rememberToday(userId, today);
   return today;
@@ -220,7 +233,7 @@ async function sharedOf(cat: Catalog): Promise<HomeCard[]> {
 }
 
 /** Records with a date in the next seven days, across every list that has a date, soonest first. */
-async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
+async function upNextOf(cat: Catalog, missed: { any: boolean }): Promise<UpNextItem[]> {
   const seen = new Set<string>();
   const sources: { e: CatalogEntry; field: string; type: "date" | "datetime" }[] = [];
   for (const e of cat.entries) {
@@ -279,6 +292,7 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
           ];
         });
       } catch {
+        missed.any = true;
         return [];
       }
     }),
@@ -298,7 +312,7 @@ export const tickField = (c: CollectionView) =>
   c.fields.find((f) => f.type === "boolean" && !f.options.formula && !f.options.personal)?.id ?? null;
 
 /** The first lists with a tick box, with what's still open in each. */
-async function glanceOf(cat: Catalog): Promise<Glance[]> {
+async function glanceOf(cat: Catalog, missed: { any: boolean }): Promise<Glance[]> {
   const seen = new Set<string>();
   const picks: { e: CatalogEntry; tick: string }[] = [];
   for (const e of cat.entries) {
@@ -345,6 +359,7 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
             : null,
         };
       } catch {
+        missed.any = true;
         return null;
       }
     }),

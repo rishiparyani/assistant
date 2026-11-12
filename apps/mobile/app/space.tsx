@@ -102,7 +102,10 @@ export default function SpacePage() {
         loadToday(userId),
         request<WorkflowView[]>("GET", `/api/workflows${where}`),
       ]);
-      setToday(fresh);
+      // A read that failed part-way doesn't take away the rows that are on the screen.
+      setToday((prev) =>
+        !fresh.complete && prev ? { ...fresh, glance: prev.glance, upnext: prev.upnext } : fresh,
+      );
       setWorkflows(wf);
       writeJson(saved("workflows"), wf);
     })();
@@ -678,10 +681,12 @@ export default function SpacePage() {
           ? {
               onChanged: (next: RecordView) => {
                 setOpened({ ...opened, record: next, title: next.title });
-                setToday((t) => todayWithRecord(userId, t, { record: next }));
+                // With the row it was opened from: a day moved out and back puts it back.
+                setToday((t) => todayWithRecord(userId, t, { record: next, from: opened }));
               },
               onDeleted: (id: string) => {
-                setOpened(null);
+                // Only its own sheet closes: another record may be open by the time it's gone.
+                setOpened((o) => (o?.record.id === id ? null : o));
                 setToday((t) => todayWithRecord(userId, t, { deleted: id }));
               },
             }

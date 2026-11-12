@@ -178,7 +178,11 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       // it as a race, 2026-11-10). It loads again once they're sent (loadedWithWaiting).
       const waiting = outboxState().waiting.length > 0;
       if (waiting) loadedWithWaiting.current = true;
-      setToday((prev) => (waiting && prev ? { ...next, glance: prev.glance, upnext: prev.upnext } : next));
+      // The same when a list's records couldn't be read (the connection dropped part-way):
+      // rows that are on the screen aren't taken away by a read that failed.
+      setToday((prev) =>
+        (waiting || !next.complete) && prev ? { ...next, glance: prev.glance, upnext: prev.upnext } : next,
+      );
       setStale(false);
       setError("");
     } catch (e) {
@@ -794,10 +798,12 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           ? {
               onChanged: (next: RecordView) => {
                 setOpened({ ...opened, record: next, title: next.title });
-                setToday((t) => todayWithRecord(userId, t, { record: next }));
+                // With the row it was opened from: a day moved out and back puts it back.
+                setToday((t) => todayWithRecord(userId, t, { record: next, from: opened }));
               },
               onDeleted: (id: string) => {
-                setOpened(null);
+                // Only its own sheet closes: another record may be open by the time it's gone.
+                setOpened((o) => (o?.record.id === id ? null : o));
                 setToday((t) => todayWithRecord(userId, t, { deleted: id }));
               },
             }

@@ -232,7 +232,63 @@ test("a change made offline from the home reads as it will be kept: the amount, 
   await page.getByRole("button", { name: `Save to ${list}` }).click();
   await close();
   await expect(coming.getByText("E2E Phone bill")).toHaveCount(0);
+  // Out of the week and back on the same open sheet: the row is there again.
+  await coming.getByRole("button", { name: /^Untitled/ }).click();
+  for (const when of [day(40), day(1)]) {
+    await page.getByRole("button", { name: "Change this" }).click();
+    await page.getByRole("textbox", { name: "When" }).fill(when);
+    await page.getByRole("button", { name: `Save to ${list}` }).click();
+  }
+  await close();
+  await expect(coming.getByText("Untitled")).toBeVisible();
   await context.setOffline(false);
   expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline/i.test(e))).toEqual([]);
+  await context.close();
+});
+
+test("a delete that answers late doesn't close another record opened meanwhile", async ({ browser }) => {
+  // Codex on PR 236: the first record's late answer closed whatever sheet was open by then.
+  const me = await person(`E2E Late delete ${RUN}`);
+  const list = `E2E Errands ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [{ name: "Title", type: "text" }],
+  })) as { id: string };
+  for (const title of ["E2E Post the parcel", "E2E Collect the keys"])
+    await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: title } });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/list?collection=${made.id}`);
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  let waiting = false;
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "DELETE") {
+      waiting = true;
+      await held;
+    }
+    await route.continue();
+  });
+  await page
+    .getByRole("button", { name: /E2E Post the parcel/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Delete this" }).click();
+  await page.getByRole("button", { name: "Delete E2E Post the parcel" }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // The other one, opened and being changed while the delete is still on its way.
+  await page
+    .getByRole("button", { name: /E2E Collect the keys/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Collect the spare keys");
+  expect(waiting).toBe(true);
+  letGo();
+  await expect(page.getByRole("button", { name: /E2E Post the parcel/ })).toHaveCount(0);
+  // Its form is still open, with what was typed.
+  await page.waitForTimeout(800);
+  await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue("E2E Collect the spare keys");
+  await expect(page.getByRole("textbox", { name: "Title" })).toBeInViewport();
+  expect(errors).toEqual([]);
   await context.close();
 });

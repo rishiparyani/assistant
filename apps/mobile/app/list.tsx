@@ -635,7 +635,8 @@ export default function ListPage() {
                   });
               },
               onDeleted: (id: string) => {
-                setOpened(null);
+                // Only its own sheet closes: another record may be open by the time it's gone.
+                setOpened((o) => (o?.id === id ? null : o));
                 setRecords((prev) => (prev ?? []).filter((x) => x.id !== id));
                 const kept = readJson<Kept>(pageKey);
                 if (kept?.items)

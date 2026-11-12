@@ -3,7 +3,7 @@
 // the chat about it and the whole list one tap away. A record of my own list can be changed
 // and deleted here too (decision 2026-11-12 "A record is changed where it's opened": the owner
 // asked for it after the test pass; it used to take the chat or the list's grid).
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { Tap, Text, shown, type } from "@assistant/cards/native";
 import { TRASH_DAYS, type CollectionView, type RecordView, type StoredValue } from "@assistant/shared";
@@ -49,6 +49,9 @@ export function RecordSheet({
     setNote("");
     setBusy(false);
   }, [record?.id]);
+  // The record on the sheet now: a delete that answers late may find another one open.
+  const shownId = useRef<string | null>(null);
+  shownId.current = record?.id ?? null;
   // What can be changed here: plain values (links and people are picked in the chat or the
   // grid; calculated fields and each person's own answers aren't this record's to set).
   const editable: AddField[] = useMemo(() => {
@@ -96,16 +99,20 @@ export function RecordSheet({
   // online-only: a delete is done by the server (it follows each link's rule) and can't wait.
   const remove = async () => {
     if (!record || !onDeleted || busy) return;
+    const id = record.id;
     setBusy(true);
     setNote("");
     try {
-      await request("DELETE", `/api/records/${enc(record.id)}${space ? `?space=${enc(space)}` : ""}`);
+      await request("DELETE", `/api/records/${enc(id)}${space ? `?space=${enc(space)}` : ""}`);
       homeChanged();
-      onDeleted(record.id);
+      // The page takes it out of its rows; it closes the sheet only if this one is still on it.
+      onDeleted(id);
     } catch (e) {
-      setNote(isOffline(e) ? "Deleting needs a connection." : e instanceof Error ? e.message : String(e));
+      // Another record opened meanwhile: this one's failure isn't said on that one's sheet.
+      if (shownId.current === id)
+        setNote(isOffline(e) ? "Deleting needs a connection." : e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (shownId.current === id) setBusy(false);
     }
   };
   const fields = (collection?.fields ?? []).filter(
