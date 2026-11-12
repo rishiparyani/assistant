@@ -569,6 +569,9 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           onOpenRecord={setOpened}
           onOpenList={(collection, spaceId) => openList(collection, undefined, spaceId)}
           onAsk={openAssistant}
+          // Nothing made anywhere yet: the day offers things to start with, one tap each.
+          newcomer={!!today && !today.lists.length}
+          onStart={(request) => openChat({ ask: request, send: "1" })}
         />
       </View>
       <View style={s.chatsHead}>

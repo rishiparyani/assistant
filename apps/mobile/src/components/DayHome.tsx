@@ -29,6 +29,8 @@ export function DayHome({
   onOpenRecord,
   onOpenList,
   onAsk,
+  newcomer = false,
+  onStart,
 }: {
   /** What's waiting on me. */
   needs: HomeCard[];
@@ -44,6 +46,10 @@ export function DayHome({
   onOpenRecord: (item: UpNextItem) => void;
   onOpenList: (collection: string, space?: string) => void;
   onAsk: () => void;
+  /** Nothing made yet (no lists anywhere): the empty day offers a few things to start with. */
+  newcomer?: boolean;
+  /** One of those was tapped: its request, sent to the assistant as it is. */
+  onStart?: (request: string) => void;
 }) {
   const { t } = useTheme();
   // Ticks made here, by record: shown at once, and kept until the next read brings them back.
@@ -228,7 +234,35 @@ export function DayHome({
         );
       })}
 
-      {nothing && !loading ? (
+      {nothing && !loading && newcomer && assistant && onStart ? (
+        // A first look (decision 2026-11-12 "A first home with things to start"): what this can
+        // do, as things to tap, each one a whole request the assistant carries out.
+        <View style={{ gap: 8 }} accessibilityLabel="Start with">
+          <View style={{ gap: 2, paddingHorizontal: 4 }}>
+            <Text style={[type.heading, { color: t.fg }]}>What would you like to keep track of?</Text>
+            <Text style={[type.small, { color: t.fg2 }]}>
+              Tap one and the assistant sets it up. You check it, then confirm.
+            </Text>
+          </View>
+          {STARTERS.map((x) => (
+            <Tap
+              key={x.title}
+              accessibilityRole="button"
+              accessibilityLabel={`Start: ${x.title}`}
+              onPress={() => onStart(x.request)}
+              haptic="light"
+              scale={0.985}
+              style={[card, s.starter]}
+            >
+              <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                <Text style={[type.body, { color: t.fg, fontWeight: "700" }]}>{x.title}</Text>
+                <Text style={[type.small, { color: t.fg2 }]}>{x.words}</Text>
+              </View>
+              <Chevron colour={t.accent} />
+            </Tap>
+          ))}
+        </View>
+      ) : nothing && !loading ? (
         <View style={[card, s.calm]}>
           <Text style={[type.heading, { color: t.fg }]}>Nothing needs you today</Text>
           <Text style={[type.small, { color: t.fg2, textAlign: "center" }]}>
@@ -246,6 +280,36 @@ export function DayHome({
     </View>
   );
 }
+
+/**
+ * Things a new person can start with: everyday, and one that shows a whole system for a group.
+ * Each request is what a person would say; the assistant proposes it as a card to confirm.
+ */
+const STARTERS: { title: string; words: string; request: string }[] = [
+  {
+    title: "What I spend",
+    words: "Each expense with its amount, date and what it was for; totals by month.",
+    request:
+      "Start a list for what I spend: what it was, the amount, the date and a category (Food, Groceries, Travel, Bills, Other).",
+  },
+  {
+    title: "Things to remember",
+    words: "Reminders with a date and a tick box; what's due shows here on the home.",
+    request: "Start a reminders list with a title, a date and a tick box for done.",
+  },
+  {
+    title: "A shopping list to share",
+    words: "Everyone at home adds to it and ticks things off.",
+    request:
+      "Start a shopping list with the item, how much, and a tick box for bought, that I can share with my family.",
+  },
+  {
+    title: "Something a group runs on",
+    words: "For example: visitors at a building's gate, approved by the flat they're for.",
+    request:
+      "Set up visitor approvals for our building: the guard adds each visitor at the gate, the people in that flat are asked to allow or deny them, and the guard sees the answer.",
+  },
+];
 
 /** A tick box with a full-size place to tap. */
 function Check({ on, label, onPress }: { on: boolean; label: string; onPress: () => void }) {
@@ -338,6 +402,13 @@ const s = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 14,
     borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  starter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
   calm: { alignItems: "center", gap: 8, paddingHorizontal: 20, paddingVertical: 24 },
   cta: {
