@@ -115,6 +115,9 @@ function againUpNext(u: UpNextItem, r: RecordView): UpNextItem[] {
   const c = u.collection;
   const f = c.fields.find((x) => x.type === "datetime") ?? c.fields.find((x) => x.type === "date");
   if (!f || u.shared) return [{ ...u, record: r, title: r.title }];
+  // Done things aren't coming up, as the read leaves them out.
+  const tick = tickField(c);
+  if (tick && r.values[tick] === true) return [];
   const v = r.values[f.id];
   if (typeof v !== "string" || !v) return [];
   const allDay = !v.includes("T");
