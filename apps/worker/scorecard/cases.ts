@@ -97,7 +97,9 @@ function shownAsCard(o: Outcome, mention: string[]): string | null {
   if (o.reply.length > 400) return `a card, but ${o.reply.length} characters of words with it`;
   // What a card can't be relied on to say (it may be the whole list) is still said in words.
   const missing = mention.filter((m) => !has(o.reply, m));
-  return missing.length && live.every((i) => i.live?.kind === "list")
+  const whole = (l: (typeof live)[number]["live"]) =>
+    l?.kind === "list" && !l.query.filters?.length && !l.query.search;
+  return missing.length && live.every((i) => whole(i.live))
     ? `the card is a whole list and the words don't name: ${missing.join(", ")}`
     : null;
 }
@@ -912,9 +914,9 @@ export const CASES: Case[] = [
     suite: "hard",
     text: "What's due this week?",
     seed: async (u) => {
-      await add(u, "Reminders", { Title: "Pay the electricity bill", When: isoDay(1) });
-      await add(u, "Reminders", { Title: "Renew the car insurance", When: isoDay(3) });
-      await add(u, "Reminders", { Title: "Call the plumber", When: isoDay(20) });
+      await add(u, "Reminders", { Title: "Pay the electricity bill", Due: `${isoDay(1)}T04:30:00.000Z` });
+      await add(u, "Reminders", { Title: "Renew the car insurance", Due: `${isoDay(3)}T04:30:00.000Z` });
+      await add(u, "Reminders", { Title: "Call the plumber", Due: `${isoDay(20)}T04:30:00.000Z` });
     },
     check: async (_u, o) => shownAsCard(o, ["electricity", "insurance"]),
   },
