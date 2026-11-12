@@ -104,6 +104,49 @@ const rememberToday = (userId: string, t: Today) => {
   if (t.complete) writeJson(todayKey(userId), t);
 };
 
+/**
+ * The day with one record as it is now after a change made on its sheet (or without it, once
+ * deleted), kept on the device too: the home and a space's page show the change at once, also
+ * while it still waits to be sent (Codex on PR 236: only the open sheet followed).
+ */
+/** A coming-up row after its record changed: its name, second line and day follow; no day, no row. */
+function againUpNext(u: UpNextItem, r: RecordView): UpNextItem[] {
+  const c = u.collection;
+  const f = c.fields.find((x) => x.type === "datetime") ?? c.fields.find((x) => x.type === "date");
+  if (!f || u.shared) return [{ ...u, record: r, title: r.title }];
+  const v = r.values[f.id];
+  if (typeof v !== "string" || !v) return [];
+  const allDay = !v.includes("T");
+  const at = allDay ? Date.parse(`${v.slice(0, 10)}T00:00:00Z`) - IST : Date.parse(v);
+  if (Number.isNaN(at)) return [];
+  return [{ ...u, record: r, title: r.title, at, allDay, sub: subOf(c, r, f.id) }];
+}
+
+export function todayWithRecord(
+  userId: string | null,
+  t: Today | null,
+  change: { record: RecordView } | { deleted: string },
+): Today | null {
+  if (!t) return t;
+  const id = "record" in change ? change.record.id : change.deleted;
+  const next: Today = {
+    ...t,
+    upnext: t.upnext
+      .flatMap((u) => (u.record.id !== id ? [u] : "record" in change ? againUpNext(u, change.record) : []))
+      .sort((a, b) => a.at - b.at),
+    ...(t.glance
+      ? {
+          glance: t.glance.map((g) => ({
+            ...g,
+            open: g.open.flatMap((r) => (r.id !== id ? [r] : "record" in change ? [change.record] : [])),
+          })),
+        }
+      : {}),
+  };
+  if (userId) rememberToday(userId, next);
+  return next;
+}
+
 export async function loadToday(userId: string): Promise<Today> {
   const cat = await loadCatalog();
   // The library and the chat's action pills read the same catalogue from the device.
@@ -222,7 +265,7 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
               at,
               allDay,
               title: r.title,
-              sub: subOf(e, r, field),
+              sub: subOf(e.collection!, r, field),
               collection: e.collection!,
               record: r,
               ...(e.space ? { space: e.space } : {}),
@@ -308,8 +351,7 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
 const istDay = (ms: number) => Math.floor((ms + IST) / DAY);
 
 /** "Bills · ₹2,340": the list, then the first other value worth a word. */
-function subOf(e: CatalogEntry, r: RecordView, dateField: string): string {
-  const c = e.collection!;
+function subOf(c: CollectionView, r: RecordView, dateField: string): string {
   const skip = new Set([c.title_field_id, dateField]);
   const extra = c.fields.find((f) => {
     if (skip.has(f.id) || f.type === "long_text" || f.type === "person") return false;

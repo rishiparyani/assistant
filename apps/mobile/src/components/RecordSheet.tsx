@@ -70,8 +70,9 @@ export function RecordSheet({
     for (const f of editable) {
       const v = record?.values[f.id];
       if (v === undefined || v === null) continue;
-      // The form takes money as rupees, as people type it.
-      out[f.id] = f.type === "money" && typeof v === "number" ? String(v / 100) : v;
+      // The form's boxes hold words: money as rupees, as people type it, and a number as its
+      // digits (Codex on PR 236: a quantity opened blank).
+      out[f.id] = typeof v === "number" ? String(f.type === "money" ? v / 100 : v) : v;
     }
     return out;
   }, [editable, record]);
@@ -145,6 +146,7 @@ export function RecordSheet({
                 name={collection.name}
                 button="Save"
                 initial={initial}
+                allowEmpty
                 onAdd={save}
               />
               <Tap

@@ -65,11 +65,12 @@ test("a record is changed and deleted on its own sheet, and the list follows", a
     fields: [
       { name: "Item", type: "text" },
       { name: "Price", type: "money" },
+      { name: "Qty", type: "number" },
       { name: "Notes", type: "text" },
     ],
   })) as { id: string };
   await api(me)("POST", `/collections/${made.id}/records`, {
-    values: { Item: "E2E Tap washer", Price: "120", Notes: "E2E from the corner shop" },
+    values: { Item: "E2E Tap washer", Price: "120", Qty: 3, Notes: "E2E from the corner shop" },
   });
   const find = async () =>
     (
@@ -84,6 +85,8 @@ test("a record is changed and deleted on its own sheet, and the list follows", a
   // The form opens on what the record holds, money as people type it.
   await expect(page.getByRole("textbox", { name: "Item" })).toHaveValue("E2E Tap washer");
   await expect(page.getByRole("textbox", { name: "Price" })).toHaveValue("120");
+  // A number shows as its digits (Codex on PR 236: it opened blank).
+  await expect(page.getByRole("textbox", { name: "Qty" })).toHaveValue("3");
   // A wrong amount is said, and nothing changes.
   await page.getByRole("textbox", { name: "Price" }).fill("lots");
   await page
@@ -117,6 +120,71 @@ test("a record is changed and deleted on its own sheet, and the list follows", a
   await page.goto(`/trash?collection=${made.id}`);
   await expect(page.getByText("E2E Tap washer, brass").last()).toBeVisible();
   await expectNoSideways(page);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("every box of a record can be emptied, and a change made from the home shows there offline", async ({
+  browser,
+}) => {
+  // Codex on PR 236: the new-record guard ("Fill in something first") refused to clear the
+  // last filled box; and from the home only the open sheet followed a change.
+  const me = await person(`E2E Home changer ${RUN}`);
+  const list = `E2E Chores ${RUN}`;
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+      { name: "Notes", type: "text" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Water the plants", When: today, Notes: "E2E the balcony ones" },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  const coming = page.getByLabel("Coming up");
+  await expect(coming.getByText("E2E Water the plants")).toBeVisible({ timeout: 30_000 });
+  await context.setOffline(true);
+  await coming.getByRole("button", { name: /^E2E Water the plants/ }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Water the ferns");
+  await page.getByRole("textbox", { name: "Notes" }).fill("");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await expect(page.getByText("E2E the balcony ones")).toHaveCount(0);
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // The home's row has the new name while the change still waits to be sent.
+  await expect(coming.getByText("E2E Water the ferns")).toBeVisible();
+  await expect(coming.getByText("E2E Water the plants")).toHaveCount(0);
+  await context.setOffline(false);
+  await expect
+    .poll(async () => {
+      const r = (await api(me)("POST", `/collections/${made.id}/find`, {})) as {
+        items: { named: Record<string, unknown> }[];
+      };
+      return r.items[0]?.named;
+    })
+    .toMatchObject({ Title: "E2E Water the ferns", Notes: null });
+  // On a list with one filled box, emptying it is a change, not "Fill in something first".
+  const one = (await api(me)("POST", "/collections", {
+    name: `E2E One box ${RUN}`,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Notes", type: "text" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${one.id}/records`, { values: { Notes: "E2E only this" } });
+  await page.goto(`/list?collection=${one.id}`);
+  await page
+    .getByRole("button", { name: /Untitled|E2E only this/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Notes" }).fill("");
+  await page.getByRole("button", { name: `Save to E2E One box ${RUN}` }).click();
+  await expect(page.getByText("Fill in something first.")).toHaveCount(0);
+  await expect(page.getByText("E2E only this")).toHaveCount(0);
   expect(errors).toEqual([]);
   await context.close();
 });

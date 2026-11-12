@@ -14,7 +14,16 @@ import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { RecordSheet } from "@/components/RecordSheet";
 import { answerWaiting, nudgeWaiting, onHomeChanged, type HomeCard } from "@/home";
 import { useLive } from "@/live-socket";
-import { loadToday, savedToday, tileOf, touchSpace, whenWords, type Today, type UpNextItem } from "@/today";
+import {
+  loadToday,
+  savedToday,
+  tileOf,
+  todayWithRecord,
+  touchSpace,
+  whenWords,
+  type Today,
+  type UpNextItem,
+} from "@/today";
 import { useChats } from "@/chats";
 import { openChat } from "@/chat-open";
 import { useSession } from "@/session";
@@ -667,8 +676,14 @@ export default function SpacePage() {
         // A record of my own list (not one shared with me): changed and deleted here too.
         {...(opened && !opened.shared
           ? {
-              onChanged: (next: RecordView) => setOpened({ ...opened, record: next, title: next.title }),
-              onDeleted: () => setOpened(null),
+              onChanged: (next: RecordView) => {
+                setOpened({ ...opened, record: next, title: next.title });
+                setToday((t) => todayWithRecord(userId, t, { record: next }));
+              },
+              onDeleted: (id: string) => {
+                setOpened(null);
+                setToday((t) => todayWithRecord(userId, t, { deleted: id }));
+              },
             }
           : {})}
         onOpenList={

@@ -795,7 +795,17 @@ export function writeValues(
   const values = { ...record.values, ...stored };
   for (const [k, v] of Object.entries(values)) if (v === null) delete values[k];
   const t = collection.title_field_id ? values[collection.title_field_id] : undefined;
-  return { ...record, values, title: typeof t === "string" && t ? t : record.title };
+  // The values by field name follow too: the home's second line is read from them.
+  const named = { ...record.named };
+  for (const f of collection.fields) {
+    if (!(f.id in stored)) continue;
+    const v = stored[f.id];
+    // Words and choices read as they're kept; other kinds keep their words until the next read.
+    if (v === null || v === undefined) named[f.name] = null;
+    else if (typeof v === "string") named[f.name] = v;
+    else if (Array.isArray(v) && v.every((x) => typeof x === "string")) named[f.name] = v as string[];
+  }
+  return { ...record, values, named, title: typeof t === "string" && t ? t : record.title };
 }
 
 /** A control on a card changed one field of a row: shown at once, sent through the outbox. */

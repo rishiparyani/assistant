@@ -37,7 +37,15 @@ import { Tour, markTourSeen, tourSeen, tourSteps, type TourRefs } from "@/compon
 import { NewChat } from "./chats";
 import { API_URL } from "@/config";
 import { onHomeChanged, type HomeCard } from "@/home";
-import { loadToday, recentSpaces, savedToday, sharedItem, type Today, type UpNextItem } from "@/today";
+import {
+  loadToday,
+  recentSpaces,
+  savedToday,
+  sharedItem,
+  todayWithRecord,
+  type Today,
+  type UpNextItem,
+} from "@/today";
 import { RecordSheet } from "@/components/RecordSheet";
 import { DayHome } from "@/components/DayHome";
 import { Composer } from "@/components/Composer";
@@ -784,8 +792,14 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
         // A record of my own list (not one shared with me): changed and deleted here too.
         {...(opened && !opened.shared
           ? {
-              onChanged: (next: RecordView) => setOpened({ ...opened, record: next, title: next.title }),
-              onDeleted: () => setOpened(null),
+              onChanged: (next: RecordView) => {
+                setOpened({ ...opened, record: next, title: next.title });
+                setToday((t) => todayWithRecord(userId, t, { record: next }));
+              },
+              onDeleted: (id: string) => {
+                setOpened(null);
+                setToday((t) => todayWithRecord(userId, t, { deleted: id }));
+              },
             }
           : {})}
         onAsk={
