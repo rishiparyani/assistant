@@ -519,3 +519,98 @@ test("a record deleted on its sheet and then restored shows in the list again", 
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a change that is sent before a slow first read answers isn't undone by it", async ({ browser }) => {
+  // Codex on PR 236: with nothing left waiting, the older answer was taken as newer than the change.
+  const me = await person(`E2E Slow reader ${RUN}`);
+  const list = `E2E Repairs ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [{ name: "Title", type: "text" }],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: "E2E Fix the tap" } });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/list?collection=${made.id}`);
+  await expect(page.getByRole("button", { name: /E2E Fix the tap/ }).last()).toBeVisible({ timeout: 30_000 });
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  let asked = false;
+  await page.route(/\/find$/, async (route) => {
+    if (asked) return route.continue();
+    asked = true;
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  await page.routeWebSocket(/.*/, (ws) => ws.close());
+  await page.reload();
+  await page
+    .getByRole("button", { name: /E2E Fix the tap/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Fix the shower");
+  const sent = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && /\/api\/records\//.test(r.url()),
+  );
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await sent;
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  expect(asked).toBe(true);
+  letGo();
+  await page.waitForTimeout(1_000);
+  await expect(page.getByRole("button", { name: /E2E Fix the shower/ }).last()).toBeVisible();
+  await expect(page.getByRole("button", { name: /E2E Fix the tap/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a change made on the home is in the list's kept page when the list can't be read", async ({
+  browser,
+}) => {
+  // Codex on PR 236: the list opened on the record as it was, and kept it when the read failed.
+  const me = await person(`E2E Kept page ${RUN}`);
+  const list = `E2E Pickups ${RUN}`;
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Collect the cake", When: today },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  // The list once, so the phone keeps its page; then the home.
+  await page.goto(`/list?collection=${made.id}`);
+  await expect(page.getByRole("button", { name: /E2E Collect the cake/ }).last()).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.goto("/");
+  const coming = page.getByLabel("Coming up");
+  await expect(coming.getByText("E2E Collect the cake")).toBeVisible({ timeout: 30_000 });
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") await held;
+    await route.continue().catch(() => {});
+  });
+  await coming.getByRole("button", { name: /^E2E Collect the cake/ }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Collect the flowers");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  await expect(coming.getByText("E2E Collect the flowers")).toBeVisible();
+  // The list, with its records unreadable (a dead line): what the phone kept has the change.
+  await page.route(/\/find$/, (route) => route.abort());
+  await page.goto(`/list?collection=${made.id}`);
+  await expect(page.getByRole("button", { name: /E2E Collect the flowers/ }).last()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole("button", { name: /E2E Collect the cake/ })).toHaveCount(0);
+  letGo();
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline|ERR_FAILED/i.test(e))).toEqual([]);
+  await context.close();
+});

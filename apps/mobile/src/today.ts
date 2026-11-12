@@ -191,8 +191,12 @@ export function todayWithRecord(userId: string | null, t: Today | null, change: 
 }
 
 /** `before`: the record as it was (a list's totals move by the difference). */
-export type RecordChange =
-  { record: RecordView; from?: UpNextItem; before?: RecordView } | { deleted: string; before?: RecordView };
+export type RecordChange = (
+  { record: RecordView; from?: UpNextItem; before?: RecordView } | { deleted: string; before?: RecordView }
+) & {
+  /** The space the record's list is in (none: the personal one), to find its kept pages. */
+  space?: string | null;
+};
 const recordListeners = new Set<(c: RecordChange) => void>();
 /** The home and a space's page hear of a record changed or deleted on any sheet. */
 export function onRecordChanged(l: (c: RecordChange) => void): () => void {
@@ -206,8 +210,31 @@ export function onRecordChanged(l: (c: RecordChange) => void): () => void {
  */
 export function recordChanged(userId: string | null, change: RecordChange): void {
   if (userId) todayWithRecord(userId, savedToday(userId), change);
+  keptPagesWith(change);
   recordListeners.forEach((l) => l(change));
 }
+/**
+ * The list's pages kept on the device (All and each saved view, `app/list.tsx`) take the change
+ * too: opened next without a connection, the list shows it, not the record as it was (Codex
+ * on PR 236).
+ */
+function keptPagesWith(change: RecordChange): void {
+  const now = "record" in change ? change.record : null;
+  const collection = now?.collection_id ?? change.before?.collection_id;
+  if (!collection) return;
+  const id = now?.id ?? ("deleted" in change ? change.deleted : "");
+  const base = `gigspree:list:${change.space ? `${change.space}:` : ""}${collection}`;
+  const views = readJson<{ views?: { id: string }[] }>(base)?.views ?? [];
+  for (const chip of ["all", ...views.map((v) => v.id)]) {
+    const kept = readJson<{ items?: RecordView[]; next_cursor?: string | null }>(`${base}:${chip}`);
+    if (!kept?.items?.some((x) => x.id === id)) continue;
+    writeJson(`${base}:${chip}`, {
+      ...kept,
+      items: kept.items.flatMap((x) => (x.id !== id ? [x] : now ? [now] : [])),
+    });
+  }
+}
+
 /** The row a list's record would have under Coming up: enough to put it there when its day comes into the week. */
 export function rowOf(
   collection: CollectionView,

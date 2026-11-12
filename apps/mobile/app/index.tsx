@@ -803,13 +803,19 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
               onChanged: (next: RecordView) => {
                 setOpened({ ...opened, record: next, title: next.title });
                 // With the row it was opened from: a day moved out and back puts it back.
-                recordChanged(userId, { record: next, from: opened, before: opened.record });
+                recordChanged(userId, {
+                  record: next,
+                  from: opened,
+                  before: opened.record,
+                  space: opened.space ?? null,
+                });
               },
               onDeleted: (id: string) => {
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.record.id === id ? null : o));
                 recordChanged(userId, {
                   deleted: id,
+                  space: opened.space ?? null,
                   ...(opened.record.id === id ? { before: opened.record } : {}),
                 });
               },

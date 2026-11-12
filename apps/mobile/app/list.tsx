@@ -191,14 +191,19 @@ export default function ListPage() {
   // (Codex on PR 236).
   const reads = useRef(0);
   const gone = useRef(new Map<string, number>());
-  const changedHere = useRef(new Map<string, RecordView>());
+  const changedHere = useRef(new Map<string, { record: RecordView; at: number }>());
   // `started`: the read's number. A record deleted at or after it is left out; a later read
   // says what the server has now (a record restored from Recently deleted comes back).
   const settled = useCallback((items: RecordView[], started: number) => {
-    if (!outboxState().waiting.length) changedHere.current.clear();
+    // A change counts against a read that started before it, and against any read while it
+    // is still on its way; an empty outbox alone doesn't say this answer has it.
+    const waiting = outboxState().waiting.length > 0;
     return items
       .filter((x) => (gone.current.get(x.id) ?? -1) < started)
-      .map((x) => changedHere.current.get(x.id) ?? x);
+      .map((x) => {
+        const mine = changedHere.current.get(x.id);
+        return mine && (waiting || mine.at >= started) ? mine.record : x;
+      });
   }, []);
   const loadPage = useCallback(
     async (after: string | null) => {
@@ -645,12 +650,13 @@ export default function ListPage() {
           ? {
               onChanged: (next: RecordView) => {
                 setOpened(next);
-                changedHere.current.set(next.id, next);
+                changedHere.current.set(next.id, { record: next, at: reads.current });
                 // The home and the space's page show it too, and the day kept on the device.
                 if (c) {
                   const at = userId ? savedToday(userId)?.lists.find((l) => l.id === c.id) : undefined;
                   recordChanged(userId, {
                     record: next,
+                    space: space ?? null,
                     ...(opened?.id === next.id ? { before: opened } : {}),
                     from: rowOf(c, next, at?.space ? { id: at.space, name: at.space_name ?? "" } : null),
                   });
@@ -667,7 +673,11 @@ export default function ListPage() {
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.id === id ? null : o));
                 gone.current.set(id, reads.current);
-                recordChanged(userId, { deleted: id, ...(opened?.id === id ? { before: opened } : {}) });
+                recordChanged(userId, {
+                  deleted: id,
+                  space: space ?? null,
+                  ...(opened?.id === id ? { before: opened } : {}),
+                });
                 setRecords((prev) => (prev ?? []).filter((x) => x.id !== id));
                 const kept = readJson<Kept>(pageKey);
                 if (kept?.items)
