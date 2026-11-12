@@ -445,3 +445,77 @@ test("a slow first read of a list doesn't bring back a record deleted meanwhile"
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a list's total on the home moves with an amount changed in the list", async ({ browser }) => {
+  // Codex on PR 236: the row said the new amount under a total still saying the old one.
+  const me = await person(`E2E Totals ${RUN}`);
+  const list = `E2E Groceries ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+      { name: "Bought", type: "boolean" },
+    ],
+  })) as { id: string };
+  for (const [title, amount] of [
+    ["E2E Tea", "100"],
+    ["E2E Rice", "250"],
+  ] as const)
+    await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: title, Amount: amount } });
+  const { page, errors, context } = await openApp(browser, me);
+  const card = page.getByLabel(list, { exact: true });
+  await expect(card.getByText("₹350")).toBeVisible({ timeout: 30_000 });
+  await page.goto(`/list?collection=${made.id}`);
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") await held;
+    await route.continue().catch(() => {});
+  });
+  await page
+    .getByRole("button", { name: /E2E Tea/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Amount" }).fill("200");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // Back on the home with the change still on its way: the total has moved with it.
+  await page.goto("/");
+  await expect(card.getByText("₹450")).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByText("left · 2 to do")).toBeVisible();
+  letGo();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a record deleted on its sheet and then restored shows in the list again", async ({ browser }) => {
+  // Codex on PR 236: the list went on leaving out a record it had seen deleted, even once restored.
+  const me = await person(`E2E Restorer ${RUN}`);
+  const list = `E2E Loans ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [{ name: "Title", type: "text" }],
+  })) as { id: string };
+  const lent = (await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Lent the tent" },
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: "E2E Lent the stove" } });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/list?collection=${made.id}`);
+  await page
+    .getByRole("button", { name: /E2E Lent the tent/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Delete this" }).click();
+  await page.getByRole("button", { name: "Delete E2E Lent the tent" }).click();
+  await expect(page.getByRole("button", { name: /E2E Lent the tent/ })).toHaveCount(0);
+  // Brought back (as Recently deleted does); the list hears of it and reads again.
+  await api(me)("POST", `/trash/${lent.id}/restore`, {});
+  await expect(page.getByRole("button", { name: /E2E Lent the tent/ }).last()).toBeVisible({
+    timeout: 30_000,
+  });
+  expect(errors).toEqual([]);
+  await context.close();
+});

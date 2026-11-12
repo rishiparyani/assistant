@@ -189,16 +189,22 @@ export default function ListPage() {
   // What was done on a record's sheet here: a read that started before it (a slow first page)
   // must not bring a deleted row back, nor an older record over a change still being sent
   // (Codex on PR 236).
-  const gone = useRef(new Set<string>());
+  const reads = useRef(0);
+  const gone = useRef(new Map<string, number>());
   const changedHere = useRef(new Map<string, RecordView>());
-  const settled = useCallback((items: RecordView[]) => {
+  // `started`: the read's number. A record deleted at or after it is left out; a later read
+  // says what the server has now (a record restored from Recently deleted comes back).
+  const settled = useCallback((items: RecordView[], started: number) => {
     if (!outboxState().waiting.length) changedHere.current.clear();
-    return items.filter((x) => !gone.current.has(x.id)).map((x) => changedHere.current.get(x.id) ?? x);
+    return items
+      .filter((x) => (gone.current.get(x.id) ?? -1) < started)
+      .map((x) => changedHere.current.get(x.id) ?? x);
   }, []);
   const loadPage = useCallback(
     async (after: string | null) => {
       if (!listId || viewUnknown) return;
       const mine = after ? generation.current : ++generation.current;
+      const started = ++reads.current;
       try {
         const r = await request<FindResult>("POST", `/api/collections/${enc(listId)}/find`, {
           ...query,
@@ -207,7 +213,7 @@ export default function ListPage() {
           ...(after ? { cursor: after } : {}),
         });
         if (mine !== generation.current) return;
-        const items = settled(r.items);
+        const items = settled(r.items, started);
         setRecords((prev) => (after ? [...(prev ?? []), ...items] : items));
         setCursor(r.next_cursor);
         if (!after) writeJson(pageKey, { items, next_cursor: r.next_cursor });
@@ -645,6 +651,7 @@ export default function ListPage() {
                   const at = userId ? savedToday(userId)?.lists.find((l) => l.id === c.id) : undefined;
                   recordChanged(userId, {
                     record: next,
+                    ...(opened?.id === next.id ? { before: opened } : {}),
                     from: rowOf(c, next, at?.space ? { id: at.space, name: at.space_name ?? "" } : null),
                   });
                 }
@@ -659,8 +666,8 @@ export default function ListPage() {
               onDeleted: (id: string) => {
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.id === id ? null : o));
-                gone.current.add(id);
-                recordChanged(userId, { deleted: id });
+                gone.current.set(id, reads.current);
+                recordChanged(userId, { deleted: id, ...(opened?.id === id ? { before: opened } : {}) });
                 setRecords((prev) => (prev ?? []).filter((x) => x.id !== id));
                 const kept = readJson<Kept>(pageKey);
                 if (kept?.items)

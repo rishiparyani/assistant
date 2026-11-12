@@ -130,11 +130,37 @@ function againUpNext(u: UpNextItem, r: RecordView): UpNextItem[] {
   return [{ ...u, record: r, title: r.title, at, allDay, sub: subOf(c, r, f.id) }];
 }
 
-export function todayWithRecord(
-  userId: string | null,
-  t: Today | null,
-  change: { record: RecordView; from?: UpNextItem } | { deleted: string },
-): Today | null {
+/**
+ * A list's glance after one of its records changed (`now`) or was deleted (`now` null): its
+ * rows, how many are open and what they add up to move together (Codex on PR 236: the row
+ * said ₹200 under a total still saying ₹100). `before` is the record as it was, for one
+ * outside the few rows shown.
+ */
+function glanceWith(g: Glance, id: string, now: RecordView | null, before?: RecordView): Glance {
+  const shown = g.open.find((r) => r.id === id);
+  const was = before ?? shown;
+  const mine = (r: RecordView | null | undefined) => !!r && r.collection_id === g.collection.id;
+  if (!mine(was) && !mine(now)) return g;
+  const isOpen = (r: RecordView | null | undefined) => mine(r) && r!.values[g.tick] !== true;
+  const money = g.collection.fields.find((f) => f.type === "money")?.id;
+  const amount = (r: RecordView | null | undefined) =>
+    money && isOpen(r) && typeof r!.values[money] === "number" ? (r!.values[money] as number) : 0;
+  const open = isOpen(now)
+    ? shown
+      ? g.open.map((r) => (r.id === id ? now! : r))
+      : g.open.length < GLANCE_ROWS
+        ? [...g.open, now!]
+        : g.open
+    : g.open.filter((r) => r.id !== id);
+  return {
+    ...g,
+    open,
+    left: Math.max(open.length, g.left + (isOpen(now) ? 1 : 0) - (isOpen(was) ? 1 : 0)),
+    sum: g.sum === null ? null : Math.max(0, g.sum + amount(now) - amount(was)),
+  };
+}
+
+export function todayWithRecord(userId: string | null, t: Today | null, change: RecordChange): Today | null {
   if (!t) return t;
   const id = "record" in change ? change.record.id : change.deleted;
   // A row that left the week (its day was moved) comes back when its day does: from the row
@@ -154,10 +180,9 @@ export function todayWithRecord(
       .sort((a, b) => a.at - b.at),
     ...(t.glance
       ? {
-          glance: t.glance.map((g) => ({
-            ...g,
-            open: g.open.flatMap((r) => (r.id !== id ? [r] : "record" in change ? [change.record] : [])),
-          })),
+          glance: t.glance.map((g) =>
+            glanceWith(g, id, "record" in change ? change.record : null, change.before),
+          ),
         }
       : {}),
   };
@@ -165,7 +190,9 @@ export function todayWithRecord(
   return next;
 }
 
-export type RecordChange = { record: RecordView; from?: UpNextItem } | { deleted: string };
+/** `before`: the record as it was (a list's totals move by the difference). */
+export type RecordChange =
+  { record: RecordView; from?: UpNextItem; before?: RecordView } | { deleted: string; before?: RecordView };
 const recordListeners = new Set<(c: RecordChange) => void>();
 /** The home and a space's page hear of a record changed or deleted on any sheet. */
 export function onRecordChanged(l: (c: RecordChange) => void): () => void {
