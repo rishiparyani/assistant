@@ -14,7 +14,7 @@ import {
   type HomeCard,
 } from "./home.ts";
 import { outboxState, subscribe } from "./outbox.ts";
-import { readJson, writeJson } from "./storage.ts";
+import { forgetOnSwitch, openAccountId, readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
   key: string;
@@ -201,7 +201,13 @@ export function todayWithRecord(userId: string | null, t: Today | null, change: 
  * told it. A later read is the server's word (so a record restored after a delete returns).
  */
 let clock = 0;
-const recent = new Map<string, { change: RecordChange; at: number; waiting: boolean }>();
+const recent = new Map<
+  string,
+  { change: RecordChange; at: number; waiting: boolean; account: string | null }
+>();
+// Each account's changes are its own: another account opened on this device starts with none
+// (Codex on PR 236: one held back at a switch could have shown on the next account's home).
+forgetOnSwitch(() => recent.clear());
 /** A read of records starts: its number, for `overRead` or `overDay` when it answers. */
 export const readStarted = (): number => ++clock;
 let outboxWatched = false;
@@ -218,7 +224,8 @@ function watchOutbox() {
       }
   });
 }
-const counts = (e: { at: number; waiting: boolean }, started: number) => e.waiting || e.at >= started;
+const counts = (e: { at: number; waiting: boolean; account: string | null }, started: number) =>
+  e.account === openAccountId() && (e.waiting || e.at >= started);
 /**
  * A page of a list's records as a read answered it, with what that read couldn't know.
  * `kept`: the page kept on the device, which has a change made before the app was opened
@@ -236,6 +243,21 @@ export function overRead(items: RecordView[], started: number, kept?: RecordView
     if (e && counts(e, started)) return "record" in e.change ? [e.change.record] : [];
     return [(!e && waiting.has(x.id) && kept?.find((k) => k.id === x.id)) || x];
   });
+}
+/**
+ * Records of a list changed on a sheet that a read asked with a filter may have left out (one
+ * ticked done when it was asked, and opened again since): the caller adds the ones that fit.
+ */
+function changedBeyond(collection: string, started: number, have: RecordView[]): RecordView[] {
+  const ids = new Set(have.map((r) => r.id));
+  return [...recent.values()].flatMap((e) =>
+    counts(e, started) &&
+    "record" in e.change &&
+    e.change.record.collection_id === collection &&
+    !ids.has(e.change.record.id)
+      ? [e.change.record]
+      : [],
+  );
 }
 /** The day as a read answered it, with what that read couldn't know. */
 function overDay(today: Today, started: number): Today {
@@ -274,7 +296,7 @@ export function recordChanged(userId: string | null, change: RecordChange): void
   // A change goes through the outbox; a delete has been done by the server already.
   watchOutbox();
   recent.delete(id);
-  recent.set(id, { change, at: clock, waiting: "record" in change });
+  recent.set(id, { change, at: clock, waiting: "record" in change, account: openAccountId() });
   if (recent.size > 200) recent.delete(recent.keys().next().value!);
   if (userId) todayWithRecord(userId, savedToday(userId), change);
   keptPagesWith(change);
@@ -507,7 +529,8 @@ async function glanceOf(cat: Catalog, missed: { any: boolean }, started: number)
           { filters: [{ field: tick, op: "ne", value: true }], ...(e.space ? { space: e.space } : {}) },
           GLANCE_READ,
         );
-        const records = overRead(read, started);
+        const over = overRead(read, started);
+        const records = [...over, ...changedBeyond(c.id, started, over)];
         const open = records.filter((r) => r.values[tick] !== true);
         if (!open.length) return null;
         const money = c.fields.find((f) => f.type === "money")?.id;

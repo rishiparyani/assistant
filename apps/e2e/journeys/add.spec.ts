@@ -739,3 +739,114 @@ test("a record beyond a list card's few rows, renamed while the day is read slow
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("an item opened again while the day is read slowly is back on its list's card", async ({ browser }) => {
+  // Codex on PR 236: the late answer had asked only for open ones, so it couldn't have it.
+  const me = await person(`E2E Reopener ${RUN}`);
+  const list = `E2E Packing ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+      { name: "Packed", type: "boolean" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: "E2E Torch", Amount: "100" } });
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Raincoat", Amount: "250", Packed: true },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  const card = page.getByLabel(list, { exact: true });
+  await expect(card.getByText("left · 1 to do")).toBeVisible({ timeout: 30_000 });
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  let changed = false;
+  await page.route(/\/find$/, async (route) => {
+    if (changed || route.request().postData()?.includes('"limit":50')) return route.continue();
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  await page.routeWebSocket(/.*/, (ws) => ws.close());
+  await page.reload();
+  await expect(card.getByText("left · 1 to do")).toBeVisible({ timeout: 30_000 });
+  await card.getByRole("button", { name: `Open ${list}` }).click();
+  await page
+    .getByRole("button", { name: /E2E Raincoat/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("switch", { name: "Packed" }).click();
+  const sent = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && /\/api\/records\//.test(r.url()),
+  );
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await sent;
+  changed = true;
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await page.waitForTimeout(1_500);
+  letGo();
+  await page.waitForTimeout(1_500);
+  await expect(card.getByText("left · 2 to do")).toBeVisible();
+  await expect(card.getByText("₹350")).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a change still waiting in one account never shows in another", async ({ browser }) => {
+  // Codex on PR 236: the changes kept for late reads weren't the open account's alone.
+  const first = await person(`E2E Owner ${RUN}`);
+  const second = await person(`E2E Other ${RUN}`);
+  const list = `E2E Private ${RUN}`;
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(first)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+    ],
+  })) as { id: string };
+  await api(first)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E See the doctor", When: today },
+  });
+  const { page, context } = await openApp(browser, first);
+  // Both accounts on this phone, the first one open.
+  await page.getByRole("button", { name: /^You:/ }).click();
+  await page.getByText("Add another account").click();
+  await page.getByLabel("Email").fill(second.email);
+  await page.getByLabel("Password").fill("test-password-123");
+  await page.getByText("Sign in (test)").click();
+  await expect(page.getByRole("button", { name: new RegExp(`^You: ${second.name}`) })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByRole("button", { name: /^You:/ }).click();
+  await page.getByRole("button", { name: `Switch to ${first.name}` }).click();
+  await expect(page.getByRole("button", { name: new RegExp(`^You: ${first.name}`) })).toBeVisible({
+    timeout: 30_000,
+  });
+  const coming = page.getByLabel("Coming up");
+  await expect(coming.getByText("E2E See the doctor")).toBeVisible({ timeout: 30_000 });
+  // A change that never gets through while this test runs.
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") return route.abort();
+    await route.continue();
+  });
+  await coming.getByRole("button", { name: /^E2E See the doctor/ }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E See the specialist");
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  await expect(coming.getByText("E2E See the specialist")).toBeVisible();
+  // The other account: nothing of the first one's, now or after its home has read.
+  await page.getByRole("button", { name: /^You:/ }).click();
+  await page.getByRole("button", { name: `Switch to ${second.name}` }).click();
+  await expect(page.getByRole("button", { name: new RegExp(`^You: ${second.name}`) })).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.waitForTimeout(2_500);
+  await expect(page.getByText(/E2E See the/)).toHaveCount(0);
+  await context.close();
+});
