@@ -650,7 +650,10 @@ export default function ListPage() {
                     items: kept.items.map((x) => (x.id === next.id ? next : x)),
                   });
               },
-              onDeleted: (id: string) => {
+              onDeleted: (id: string, also: string[]) => {
+                // What its delete took with it leaves the day and the kept lists too.
+                for (const x of also) recordChanged(userId, { deleted: x, space: space ?? null });
+                if (also.length) setRecords((prev) => (prev ?? []).filter((x) => !also.includes(x.id)));
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.id === id ? null : o));
                 recordChanged(userId, {

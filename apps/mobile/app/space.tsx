@@ -711,7 +711,9 @@ export default function SpacePage() {
                   space: opened.space ?? null,
                 });
               },
-              onDeleted: (id: string) => {
+              onDeleted: (id: string, also: string[]) => {
+                // What its delete took with it leaves the day and the kept lists too.
+                for (const x of also) recordChanged(userId, { deleted: x, space: opened.space ?? null });
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.record.id === id ? null : o));
                 recordChanged(userId, {

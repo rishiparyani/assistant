@@ -1021,3 +1021,51 @@ test("a list the home has no room for isn't given a card that miscounts it", asy
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("what a delete takes with it is gone from its own list's kept page too", async ({ browser }) => {
+  // Codex on PR 236: only the record deleted was taken out of what the phone keeps.
+  const me = await person(`E2E Cascader ${RUN}`);
+  const trips = `E2E Trips ${RUN}`;
+  const bookings = `E2E Bookings ${RUN}`;
+  const a = (await api(me)("POST", "/collections", {
+    name: trips,
+    fields: [{ name: "Title", type: "text" }],
+  })) as { id: string };
+  const b = (await api(me)("POST", "/collections", {
+    name: bookings,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Trip", type: "link", options: { target: trips, on_delete: "cascade" } },
+    ],
+  })) as { id: string };
+  const trip = (await api(me)("POST", `/collections/${a.id}/records`, {
+    values: { Title: "E2E Hill station" },
+  })) as { id: string };
+  await api(me)("POST", `/collections/${b.id}/records`, {
+    values: { Title: "E2E Train there", Trip: trip.id },
+  });
+  await api(me)("POST", `/collections/${b.id}/records`, { values: { Title: "E2E Another booking" } });
+  const { page, errors, context } = await openApp(browser, me);
+  // The bookings once, so the phone keeps them.
+  await page.goto(`/list?collection=${b.id}`);
+  await expect(page.getByRole("button", { name: /E2E Train there/ }).last()).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.goto(`/list?collection=${a.id}`);
+  await page
+    .getByRole("button", { name: /E2E Hill station/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Delete this" }).click();
+  await page.getByRole("button", { name: "Delete E2E Hill station" }).click();
+  await expect(page.getByRole("button", { name: /E2E Hill station/ })).toHaveCount(0);
+  // The bookings with no way to read them: the kept page has lost the one that went with it.
+  await page.route(/\/find$/, (route) => route.abort());
+  await page.goto(`/list?collection=${b.id}`);
+  await expect(page.getByRole("button", { name: /E2E Another booking/ }).last()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole("button", { name: /E2E Train there/ })).toHaveCount(0);
+  expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline|ERR_FAILED/i.test(e))).toEqual([]);
+  await context.close();
+});

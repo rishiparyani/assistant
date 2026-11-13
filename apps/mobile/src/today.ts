@@ -16,7 +16,7 @@ import {
 } from "./home.ts";
 import { outboxState, subscribe } from "./outbox.ts";
 import { practiceMode } from "./practice-mode.ts";
-import { forgetOnSwitch, openAccountId, readJson, writeJson } from "./storage.ts";
+import { forgetOnSwitch, kv, openAccountId, readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
   key: string;
@@ -357,7 +357,17 @@ export function recordChanged(userId: string | null, change: RecordChange): void
 function keptPagesWith(change: RecordChange): void {
   const now = "record" in change ? change.record : null;
   const collection = now?.collection_id ?? change.before?.collection_id;
-  if (!collection) return;
+  if (!collection) {
+    // A record a delete took with it (a link's rule): which list it was in isn't known here,
+    // so every kept page is looked through.
+    if ("deleted" in change)
+      for (const k of kv.keys("gigspree:list:")) {
+        const kept = readJson<{ items?: RecordView[] }>(k);
+        if (kept?.items?.some((x) => x.id === change.deleted))
+          writeJson(k, { ...kept, items: kept.items.filter((x) => x.id !== change.deleted) });
+      }
+    return;
+  }
   const id = now?.id ?? ("deleted" in change ? change.deleted : "");
   const base = `gigspree:list:${change.space ? `${change.space}:` : ""}${collection}`;
   const views = readJson<{ views?: { id: string }[] }>(base)?.views ?? [];

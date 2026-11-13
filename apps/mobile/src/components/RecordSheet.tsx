@@ -9,6 +9,7 @@ import { Tap, Text, shown, type } from "@assistant/cards/native";
 import { TRASH_DAYS, type CollectionView, type RecordView, type StoredValue } from "@assistant/shared";
 import { isOffline, request } from "../api.ts";
 import { homeChanged, writeValues } from "../home.ts";
+import { practiceMode } from "../practice-mode.ts";
 import { AddForm, type AddField } from "./QuickAdd.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { useTheme } from "../theme.ts";
@@ -37,7 +38,7 @@ export function RecordSheet({
   /** Given when the record is mine to change: what it is now, after a change made here. */
   onChanged?: (next: RecordView) => void;
   /** Given when the record is mine to delete: called once it's gone. */
-  onDeleted?: (id: string) => void;
+  onDeleted?: (id: string, also: string[]) => void;
 }) {
   const { t } = useTheme();
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
@@ -100,13 +101,24 @@ export function RecordSheet({
   const remove = async () => {
     if (!record || !onDeleted || busy) return;
     const id = record.id;
+    // Where it was asked: a rehearsal copy keeps the real records' ids, so an answer that
+    // comes after the rehearsal ended (or began) must not take the other one's record away.
+    const where = JSON.stringify(practiceMode());
     setBusy(true);
     setNote("");
     try {
-      await request("DELETE", `/api/records/${enc(id)}${space ? `?space=${enc(space)}` : ""}`);
+      const gone = await request<{ deleted?: string[] }>(
+        "DELETE",
+        `/api/records/${enc(id)}${space ? `?space=${enc(space)}` : ""}`,
+      );
+      if (JSON.stringify(practiceMode()) !== where) return;
       homeChanged();
-      // The page takes it out of its rows; it closes the sheet only if this one is still on it.
-      onDeleted(id);
+      // The page takes it out of its rows (with the records its delete took with it, by a
+      // link's rule); it closes the sheet only if this one is still on it.
+      onDeleted(
+        id,
+        (gone?.deleted ?? []).filter((x) => x !== id),
+      );
     } catch (e) {
       // Another record opened meanwhile: this one's failure isn't said on that one's sheet.
       if (shownId.current === id)
