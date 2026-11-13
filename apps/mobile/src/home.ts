@@ -771,7 +771,7 @@ export function writeValue(
     body: { values, ...(space ? { space } : {}) },
     label: `${record.title} · ${collection.name}`,
   });
-  return { ...record, values: { ...record.values, ...values } };
+  return written({ ...record, values: { ...record.values, ...values } });
 }
 
 /**
@@ -806,6 +806,15 @@ export function writeValues(
   return { ...record, values, named, title: typeof t === "string" && t ? t : "Untitled" };
 }
 
+// One field of a record was written (a tick, a cell, a control on a card): whoever keeps the
+// record as last changed on its sheet hears of it (`today.ts`), so the two don't disagree.
+const writtenListeners = new Set<(r: RecordView) => void>();
+export const onRecordWritten = (l: (r: RecordView) => void) => void writtenListeners.add(l);
+const written = (r: RecordView): RecordView => {
+  writtenListeners.forEach((l) => l(r));
+  return r;
+};
+
 /** A control on a card changed one field of a row: shown at once, sent through the outbox. */
 export function setValue(card: HomeCard, record: RecordView, field: string, value: StoredValue): RecordView {
   if (!card.collection) return record;
@@ -828,7 +837,7 @@ export function setValue(card: HomeCard, record: RecordView, field: string, valu
           label: `${record.title} · ${card.collection.name}`,
         },
   );
-  return { ...record, values: { ...record.values, ...values } };
+  return written({ ...record, values: { ...record.values, ...values } });
 }
 
 // online-only: answering a process question and nudging are handled by the space's object

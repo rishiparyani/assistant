@@ -850,3 +850,62 @@ test("a change still waiting in one account never shows in another", async ({ br
   await expect(page.getByText(/E2E See the/)).toHaveCount(0);
   await context.close();
 });
+
+test("a tick made after a change on the sheet is still there when the list is opened again before it's sent", async ({
+  browser,
+}) => {
+  // Codex on PR 236: a read while the tick still waited was answered with the sheet's picture
+  // of the record, from before the tick.
+  const me = await person(`E2E Ticker ${RUN}`);
+  const list = `E2E Jobs ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Done", type: "boolean" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: "E2E Oil the hinge" } });
+  await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: "E2E Sweep the yard" } });
+  const { page, errors, context } = await openApp(browser, me);
+  const card = page.getByLabel(list, { exact: true });
+  await card.getByRole("button", { name: `Open ${list}` }).click();
+  // Changed on its sheet, and that change sent.
+  await page
+    .getByRole("button", { name: /E2E Oil the hinge/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Oil the gate");
+  const sent = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && /\/api\/records\//.test(r.url()),
+  );
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await sent;
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // Then ticked on its row, and that one doesn't get through yet.
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") await held;
+    await route.continue().catch(() => {});
+  });
+  const box = page.getByRole("checkbox", { name: "Done: E2E Oil the gate" });
+  await box.click();
+  await expect(box.getByText("✓")).toBeVisible();
+  // Out to the home and into the list again: it reads, and the tick is still there.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  const read = page.waitForResponse(
+    (r) => /\/find$/.test(r.url()) && (r.request().postData() ?? "").includes('"limit":50'),
+  );
+  await card.getByRole("button", { name: `Open ${list}` }).click();
+  await read;
+  await page.waitForTimeout(500);
+  await expect(
+    page.getByRole("checkbox", { name: "Done: E2E Oil the gate" }).last().getByText("✓"),
+  ).toBeVisible();
+  letGo();
+  expect(errors).toEqual([]);
+  await context.close();
+});

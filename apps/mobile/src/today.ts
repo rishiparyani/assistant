@@ -8,12 +8,14 @@ import {
   cardOf,
   findAll,
   loadCatalog,
+  onRecordWritten,
   rememberCatalog,
   type Catalog,
   type CatalogEntry,
   type HomeCard,
 } from "./home.ts";
 import { outboxState, subscribe } from "./outbox.ts";
+import { practiceMode } from "./practice-mode.ts";
 import { forgetOnSwitch, openAccountId, readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
@@ -201,10 +203,21 @@ export function todayWithRecord(userId: string | null, t: Today | null, change: 
  * told it. A later read is the server's word (so a record restored after a delete returns).
  */
 let clock = 0;
-const recent = new Map<
-  string,
-  { change: RecordChange; at: number; waiting: boolean; account: string | null }
->();
+type KeptChange = { change: RecordChange; at: number; waiting: boolean; where: string };
+const recent = new Map<string, KeptChange>();
+/**
+ * Whose changes they are: the open account, and the rehearsal it is in (a rehearsal copy keeps
+ * the real records' ids, so one's change must never be laid over the other; Codex on PR 236).
+ */
+const here = () => `${openAccountId() ?? ""}|${JSON.stringify(practiceMode())}`;
+// A tick or a cell changed after the sheet (a list's row, a card's control): the record kept
+// here follows, so a later read isn't answered with the sheet's older picture of it.
+onRecordWritten((r) => {
+  const e = recent.get(r.id);
+  if (!e || e.where !== here() || !("record" in e.change)) return;
+  watchOutbox();
+  recent.set(r.id, { ...e, change: { ...e.change, record: r }, at: clock, waiting: true });
+});
 // Each account's changes are its own: another account opened on this device starts with none
 // (Codex on PR 236: one held back at a switch could have shown on the next account's home).
 forgetOnSwitch(() => recent.clear());
@@ -224,8 +237,7 @@ function watchOutbox() {
       }
   });
 }
-const counts = (e: { at: number; waiting: boolean; account: string | null }, started: number) =>
-  e.account === openAccountId() && (e.waiting || e.at >= started);
+const counts = (e: KeptChange, started: number) => e.where === here() && (e.waiting || e.at >= started);
 /**
  * A page of a list's records as a read answered it, with what that read couldn't know.
  * `kept`: the page kept on the device, which has a change made before the app was opened
@@ -296,7 +308,7 @@ export function recordChanged(userId: string | null, change: RecordChange): void
   // A change goes through the outbox; a delete has been done by the server already.
   watchOutbox();
   recent.delete(id);
-  recent.set(id, { change, at: clock, waiting: "record" in change, account: openAccountId() });
+  recent.set(id, { change, at: clock, waiting: "record" in change, where: here() });
   if (recent.size > 200) recent.delete(recent.keys().next().value!);
   if (userId) todayWithRecord(userId, savedToday(userId), change);
   keptPagesWith(change);
