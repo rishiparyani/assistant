@@ -6,6 +6,7 @@
 // (accounts, Help, settings): docs/design/chats-base.md step 1. Search waits above the list until it is pulled down, like WhatsApp (on a laptop's
 // sidebar it always shows). Nobody
 // arranges it, so it can never go blank; it reads what the device kept first (rule 17).
+import type { RecordView } from "@assistant/shared";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,
@@ -36,7 +37,17 @@ import { Tour, markTourSeen, tourSeen, tourSteps, type TourRefs } from "@/compon
 import { NewChat } from "./chats";
 import { API_URL } from "@/config";
 import { onHomeChanged, type HomeCard } from "@/home";
-import { loadToday, recentSpaces, savedToday, sharedItem, type Today, type UpNextItem } from "@/today";
+import {
+  loadToday,
+  recentSpaces,
+  savedToday,
+  sharedItem,
+  onRecordChanged,
+  recordChanged,
+  todayWithRecord,
+  type Today,
+  type UpNextItem,
+} from "@/today";
 import { RecordSheet } from "@/components/RecordSheet";
 import { DayHome } from "@/components/DayHome";
 import { Composer } from "@/components/Composer";
@@ -169,7 +180,11 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       // it as a race, 2026-11-10). It loads again once they're sent (loadedWithWaiting).
       const waiting = outboxState().waiting.length > 0;
       if (waiting) loadedWithWaiting.current = true;
-      setToday((prev) => (waiting && prev ? { ...next, glance: prev.glance, upnext: prev.upnext } : next));
+      // The same when a list's records couldn't be read (the connection dropped part-way):
+      // rows that are on the screen aren't taken away by a read that failed.
+      setToday((prev) =>
+        (waiting || !next.complete) && prev ? { ...next, glance: prev.glance, upnext: prev.upnext } : next,
+      );
       setStale(false);
       setError("");
     } catch (e) {
@@ -202,6 +217,8 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
     }, [userId, ready, me?.practice]),
   );
   useEffect(() => onHomeChanged(() => void load()), [load]);
+  // A record changed or deleted on a sheet, here or in its list: the day shows it at once.
+  useEffect(() => onRecordChanged((change) => setToday((t) => todayWithRecord(userId, t, change))), [userId]);
   // Live: when something changes elsewhere, load again a moment later (a burst loads once).
   const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useLive((m) => {
@@ -568,6 +585,9 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           onOpenRecord={setOpened}
           onOpenList={(collection, spaceId) => openList(collection, undefined, spaceId)}
           onAsk={openAssistant}
+          // Nothing made anywhere yet: the day offers things to start with, one tap each.
+          newcomer={!!today && !today.lists.length}
+          onStart={(request) => openChat({ ask: request, send: "1" })}
         />
       </View>
       <View style={s.chatsHead}>
@@ -776,6 +796,33 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
         onClose={() => setOpened(null)}
+        space={opened?.space ?? null}
+        // A record of my own list (not one shared with me): changed and deleted here too.
+        {...(opened && !opened.shared
+          ? {
+              onChanged: (next: RecordView) => {
+                setOpened({ ...opened, record: next, title: next.title });
+                // With the row it was opened from: a day moved out and back puts it back.
+                recordChanged(userId, {
+                  record: next,
+                  from: opened,
+                  before: opened.record,
+                  space: opened.space ?? null,
+                });
+              },
+              onDeleted: (id: string, also: string[]) => {
+                // What its delete took with it leaves the day and the kept lists too.
+                for (const x of also) recordChanged(userId, { deleted: x, space: opened.space ?? null });
+                // Only its own sheet closes: another record may be open by the time it's gone.
+                setOpened((o) => (o?.record.id === id ? null : o));
+                recordChanged(userId, {
+                  deleted: id,
+                  space: opened.space ?? null,
+                  ...(opened.record.id === id ? { before: opened.record } : {}),
+                });
+              },
+            }
+          : {})}
         onAsk={
           opened && assistant
             ? () => {

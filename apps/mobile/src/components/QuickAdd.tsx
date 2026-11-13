@@ -47,6 +47,7 @@ export function AddForm({
   name,
   button = "Add",
   initial,
+  allowEmpty = false,
   onAdd,
 }: {
   fields: AddField[];
@@ -55,6 +56,11 @@ export function AddForm({
   button?: string;
   /** Filled in already (a pill that acts), by field id; the person changes what they like. */
   initial?: Record<string, unknown>;
+  /**
+   * Changing a record that exists: every box may be emptied (that clears the fields); required
+   * ones are still asked for. A new record still needs something in it.
+   */
+  allowEmpty?: boolean;
   onAdd: (
     send: Record<string, unknown>,
     values: Record<string, StoredValue>,
@@ -102,7 +108,7 @@ export function AddForm({
     const filled = Object.entries(kept).some(
       ([k, v]) => !(v === false && fields.find((f) => f.id === k)?.type === "boolean"),
     );
-    if (!filled) return setNote("Fill in something first.");
+    if (!filled && !allowEmpty) return setNote("Fill in something first.");
     setBusy(true);
     try {
       const said = await onAdd(kept, values);

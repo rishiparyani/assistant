@@ -15,6 +15,7 @@ import {
 } from "@assistant/cards";
 import { colourFor, type HomeCard } from "@assistant/cards/native";
 import {
+  displayValue,
   findInRecords,
   ulid,
   type ChatCard,
@@ -770,8 +771,49 @@ export function writeValue(
     body: { values, ...(space ? { space } : {}) },
     label: `${record.title} · ${collection.name}`,
   });
-  return { ...record, values: { ...record.values, ...values } };
+  return written({ ...record, values: { ...record.values, ...values } });
 }
+
+/**
+ * Several fields of a record of my own list, changed on its sheet: shown at once, sent through
+ * the outbox as one change. `sent` is what goes to the server (money as rupees in text, null
+ * for a field that was cleared); `stored` is the same as the device keeps it.
+ */
+export function writeValues(
+  collection: CollectionView,
+  record: RecordView,
+  sent: Record<string, unknown>,
+  stored: Record<string, StoredValue>,
+  space: string | null = null,
+): RecordView {
+  send({
+    kind: "spaces.update_record",
+    method: "PATCH",
+    path: `/api/records/${enc(record.id)}`,
+    body: { values: sent, ...(space ? { space } : {}) },
+    label: `${record.title} · ${collection.name}`,
+  });
+  const values = { ...record.values, ...stored };
+  for (const [k, v] of Object.entries(values)) if (v === null) delete values[k];
+  const t = collection.title_field_id ? values[collection.title_field_id] : undefined;
+  // The values by field name follow too, worded as the server words them: the home's second
+  // line is read from them.
+  const named = { ...record.named };
+  for (const f of collection.fields)
+    if (f.id in stored && f.type !== "link" && f.type !== "person")
+      named[f.name] = displayValue(f.type, stored[f.id] ?? null);
+  // A name emptied reads as the server will keep it.
+  return { ...record, values, named, title: typeof t === "string" && t ? t : "Untitled" };
+}
+
+// One field of a record was written (a tick, a cell, a control on a card): whoever keeps the
+// record as last changed on its sheet hears of it (`today.ts`), so the two don't disagree.
+const writtenListeners = new Set<(r: RecordView) => void>();
+export const onRecordWritten = (l: (r: RecordView) => void) => void writtenListeners.add(l);
+const written = (r: RecordView): RecordView => {
+  writtenListeners.forEach((l) => l(r));
+  return r;
+};
 
 /** A control on a card changed one field of a row: shown at once, sent through the outbox. */
 export function setValue(card: HomeCard, record: RecordView, field: string, value: StoredValue): RecordView {
@@ -795,7 +837,7 @@ export function setValue(card: HomeCard, record: RecordView, field: string, valu
           label: `${record.title} · ${card.collection.name}`,
         },
   );
-  return { ...record, values: { ...record.values, ...values } };
+  return written({ ...record, values: { ...record.values, ...values } });
 }
 
 // online-only: answering a process question and nudging are handled by the space's object

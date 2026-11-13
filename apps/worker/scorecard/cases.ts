@@ -87,6 +87,23 @@ const titles = async (u: User, c: string) => (await find(u, c)).items.map((r) =>
 const show = (x: unknown) => JSON.stringify(x).slice(0, 160);
 const handedOver = (o: Outcome) =>
   o.turn.some((i) => i.role === "note" && has(i.text, "Careful")) || has(o.reply, "needs the smart model");
+/**
+ * The answer is something to look at (a live card: the records, a list, a table or bars) with
+ * at most a few lines of words, not a paragraph that retells it.
+ */
+function shownAsCard(o: Outcome, mention: string[]): string | null {
+  const live = o.turn.filter((i) => i.role === "live");
+  if (!live.length) return `answered in words only: ${o.reply.slice(0, 160)}`;
+  if (o.reply.length > 400) return `a card, but ${o.reply.length} characters of words with it`;
+  // What a card can't be relied on to say (it may be the whole list) is still said in words.
+  const missing = mention.filter((m) => !has(o.reply, m));
+  const whole = (l: (typeof live)[number]["live"]) =>
+    l?.kind === "list" && !l.query.filters?.length && !l.query.search;
+  return missing.length && live.every((i) => whole(i.live))
+    ? `the card is a whole list and the words don't name: ${missing.join(", ")}`
+    : null;
+}
+
 const add = (u: User, collection: string, values: Record<string, unknown>) =>
   api(u)(`/collections/${collection}/records`, { body: { values } });
 const remember = (u: User, text: string) => api(u)("/memories", { body: { text } });
@@ -885,6 +902,51 @@ export const CASES: Case[] = [
       // Said in words: a card of the whole list would show the done ones too.
       return has(o.reply, "venue") ? null : `reply: ${o.reply.slice(0, 160)}`;
     },
+  },
+  // Answers that are a list, a total or a date come back as something to look at and tap, with
+  // a line of words, not as a paragraph (the owner, 2026-11-12: "do all your suggestions";
+  // measured here, not instructed).
+  {
+    id: "card-due-week",
+    about: "what's due comes back as a card, with a short line",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    text: "What's due this week?",
+    seed: async (u) => {
+      await add(u, "Reminders", { Title: "Pay the electricity bill", Due: `${isoDay(1)}T04:30:00.000Z` });
+      await add(u, "Reminders", { Title: "Renew the car insurance", Due: `${isoDay(3)}T04:30:00.000Z` });
+      await add(u, "Reminders", { Title: "Call the plumber", Due: `${isoDay(20)}T04:30:00.000Z` });
+    },
+    check: async (_u, o) => shownAsCard(o, ["electricity", "insurance"]),
+  },
+  {
+    id: "card-open-list",
+    about: "a short list asked for comes back as a card",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    text: "Show me my notes about the trip",
+    seed: async (u) => {
+      await add(u, "Notes", { Title: "Trip: book the homestay" });
+      await add(u, "Notes", { Title: "Trip: carry the chargers" });
+      await add(u, "Notes", { Title: "Milk is ₹60 a litre" });
+    },
+    check: async (_u, o) => shownAsCard(o, []),
+  },
+  {
+    id: "card-spend-by",
+    about: "a breakdown comes back as a table or bars",
+    level: 1,
+    lang: "en",
+    suite: "hard",
+    text: "How much did I spend on each category this month?",
+    seed: async (u) => {
+      await add(u, "Expenses", { What: "Auto", Amount: "180", Date: isoDay(0), Category: "Travel" });
+      await add(u, "Expenses", { What: "Vegetables", Amount: "420", Date: isoDay(0), Category: "Groceries" });
+      await add(u, "Expenses", { What: "Cab", Amount: "350", Date: isoDay(0), Category: "Travel" });
+    },
+    check: async (_u, o) => shownAsCard(o, []),
   },
   {
     id: "data-gives-orders",

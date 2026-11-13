@@ -8,12 +8,15 @@ import {
   cardOf,
   findAll,
   loadCatalog,
+  onRecordWritten,
   rememberCatalog,
   type Catalog,
   type CatalogEntry,
   type HomeCard,
 } from "./home.ts";
-import { readJson, writeJson } from "./storage.ts";
+import { outboxState, subscribe } from "./outbox.ts";
+import { practiceMode } from "./practice-mode.ts";
+import { forgetOnSwitch, kv, openAccountId, readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
   key: string;
@@ -104,15 +107,312 @@ const rememberToday = (userId: string, t: Today) => {
   if (t.complete) writeJson(todayKey(userId), t);
 };
 
+/**
+ * The day with one record as it is now after a change made on its sheet (or without it, once
+ * deleted), kept on the device too: the home and a space's page show the change at once, also
+ * while it still waits to be sent (Codex on PR 236: only the open sheet followed).
+ */
+/** A coming-up row after its record changed: its name, second line and day follow; no day, no row. */
+function againUpNext(u: UpNextItem, r: RecordView): UpNextItem[] {
+  const c = u.collection;
+  const f = c.fields.find((x) => x.type === "datetime") ?? c.fields.find((x) => x.type === "date");
+  if (!f || u.shared) return [{ ...u, record: r, title: r.title }];
+  // Done things aren't coming up, as the read leaves them out.
+  const tick = tickField(c);
+  if (tick && r.values[tick] === true) return [];
+  const v = r.values[f.id];
+  if (typeof v !== "string" || !v) return [];
+  const allDay = !v.includes("T");
+  const at = allDay ? Date.parse(`${v.slice(0, 10)}T00:00:00Z`) - IST : Date.parse(v);
+  if (Number.isNaN(at)) return [];
+  // The same window the read asks for: the next seven days, and a time still to come.
+  const now = Date.now();
+  const days = istDay(at) - istDay(now);
+  if (days < 0 || days >= 7 || (!allDay && at < now)) return [];
+  return [{ ...u, record: r, title: r.title, at, allDay, sub: subOf(c, r, f.id) }];
+}
+
+/**
+ * A list's glance after one of its records changed (`now`) or was deleted (`now` null): its
+ * rows, how many are open and what they add up to move together (Codex on PR 236: the row
+ * said ₹200 under a total still saying ₹100). `before` is the record as it was, for one
+ * outside the few rows shown.
+ */
+function glanceWith(g: Glance, id: string, now: RecordView | null, before?: RecordView): Glance {
+  const shown = g.open.find((r) => r.id === id);
+  const was = before ?? shown;
+  const mine = (r: RecordView | null | undefined) => !!r && r.collection_id === g.collection.id;
+  if (!mine(was) && !mine(now)) return g;
+  const isOpen = (r: RecordView | null | undefined) => mine(r) && r!.values[g.tick] !== true;
+  const money = g.collection.fields.find((f) => f.type === "money")?.id;
+  const amount = (r: RecordView | null | undefined) =>
+    money && isOpen(r) && typeof r!.values[money] === "number" ? (r!.values[money] as number) : 0;
+  const open = isOpen(now)
+    ? shown
+      ? g.open.map((r) => (r.id === id ? now! : r))
+      : g.open.length < GLANCE_ROWS
+        ? [...g.open, now!]
+        : g.open
+    : g.open.filter((r) => r.id !== id);
+  return {
+    ...g,
+    open,
+    left: Math.max(open.length, g.left + (isOpen(now) ? 1 : 0) - (isOpen(was) ? 1 : 0)),
+    // Signed: a refund is a negative amount, and the next change is worked out from this one.
+    sum: g.sum === null ? null : g.sum + amount(now) - amount(was),
+  };
+}
+
+/**
+ * A list with everything done has no card; one of its records opened again gives it one, from
+ * the row the change came with (Codex on PR 236: nothing showed until it was sent).
+ */
+function glanceFor(have: Glance[], change: RecordChange): Glance[] {
+  if (!("record" in change) || !change.from || change.from.shared) return [];
+  const c = change.from.collection;
+  const r = change.record;
+  const tick = tickField(c);
+  const dated = c.fields.some((f) => f.type === "date" || f.type === "datetime");
+  if (!tick || dated || r.values[tick] === true || have.some((g) => g.collection.id === c.id)) return [];
+  // No card says nothing was open only when there was room for one, and only an item that was
+  // done before is the list's one open item now (a list left out because the home shows a few
+  // may have others open; a card made from one record would miscount them).
+  if (have.length >= GLANCE_LISTS || change.before?.values[tick] !== true) return [];
+  const money = c.fields.find((f) => f.type === "money")?.id;
+  return [
+    {
+      key: `glance:${c.id}`,
+      collection: c,
+      ...(change.from.space ? { space: change.from.space } : {}),
+      spaceName: change.from.spaceName,
+      tick,
+      open: [r],
+      left: 1,
+      more: false,
+      sum: money ? (typeof r.values[money] === "number" ? (r.values[money] as number) : 0) : null,
+    },
+  ];
+}
+
+export function todayWithRecord(userId: string | null, t: Today | null, change: RecordChange): Today | null {
+  if (!t) return t;
+  const id = "record" in change ? change.record.id : change.deleted;
+  // A row that left the week (its day was moved) comes back when its day does: from the row
+  // the sheet was opened on, which still knows its list and space.
+  const back =
+    "record" in change &&
+    change.from &&
+    !change.from.shared &&
+    change.from.collection.fields.some((x) => x.type === "date" || x.type === "datetime") &&
+    !t.upnext.some((u) => u.record.id === id)
+      ? againUpNext(change.from, change.record)
+      : [];
+  const next: Today = {
+    ...t,
+    upnext: [...t.upnext, ...back]
+      .flatMap((u) => (u.record.id !== id ? [u] : "record" in change ? againUpNext(u, change.record) : []))
+      .sort((a, b) => a.at - b.at),
+    ...(t.glance
+      ? {
+          glance: [
+            ...t.glance.map((g) =>
+              glanceWith(g, id, "record" in change ? change.record : null, change.before),
+            ),
+            ...glanceFor(t.glance, change),
+          ],
+        }
+      : {}),
+  };
+  if (userId) rememberToday(userId, next);
+  return next;
+}
+
+/** `before`: the record as it was (a list's totals move by the difference). */
+/*
+ * One rule for every read of records (the day, a list's page), instead of one per screen
+ * (Codex on PR 236, round after round: a read that started before a change, or while it was
+ * still on its way, put the older record back on one screen or another). Reads are numbered
+ * when they start; a change made on a sheet is kept with the number current when it was
+ * made, moved on to the number current when it was sent. A read counts the change in when it
+ * started at or before that number, or while the change still waits: the server couldn't have
+ * told it. A later read is the server's word (so a record restored after a delete returns).
+ */
+let clock = 0;
+type KeptChange = { change: RecordChange; at: number; waiting: boolean; where: string };
+const recent = new Map<string, KeptChange>();
+/**
+ * Whose changes they are: the open account, and the rehearsal it is in (a rehearsal copy keeps
+ * the real records' ids, so one's change must never be laid over the other; Codex on PR 236).
+ */
+const here = () => `${openAccountId() ?? ""}|${JSON.stringify(practiceMode())}`;
+// A tick or a cell changed after the sheet (a list's row, a card's control): the record kept
+// here follows, so a later read isn't answered with the sheet's older picture of it.
+onRecordWritten((r) => {
+  const e = recent.get(r.id);
+  if (!e || e.where !== here() || !("record" in e.change)) return;
+  watchOutbox();
+  recent.set(r.id, { ...e, change: { ...e.change, record: r }, at: clock, waiting: true });
+});
+// Each account's changes are its own: another account opened on this device starts with none
+// (Codex on PR 236: one held back at a switch could have shown on the next account's home).
+forgetOnSwitch(() => recent.clear());
+/** A read of records starts: its number, for `overRead` or `overDay` when it answers. */
+export const readStarted = (): number => ++clock;
+let outboxWatched = false;
+function watchOutbox() {
+  if (outboxWatched) return;
+  outboxWatched = true;
+  subscribe(() => {
+    if (outboxState().waiting.length) return;
+    // Sent: reads that started before now may still answer without it.
+    for (const e of recent.values())
+      if (e.waiting) {
+        e.waiting = false;
+        e.at = clock;
+      }
+  });
+}
+const counts = (e: KeptChange, started: number) => e.where === here() && (e.waiting || e.at >= started);
+/**
+ * A page of a list's records as a read answered it, with what that read couldn't know.
+ * `kept`: the page kept on the device, which has a change made before the app was opened
+ * again and still waiting to be sent (this session never saw it made).
+ */
+export function overRead(items: RecordView[], started: number, kept?: RecordView[]): RecordView[] {
+  watchOutbox();
+  const waiting = new Set(
+    outboxState()
+      .waiting.filter((w) => w.kind === "spaces.update_record")
+      .map((w) => decodeURIComponent(w.path.split("/").pop() ?? "")),
+  );
+  return items.flatMap((x) => {
+    const e = recent.get(x.id);
+    if (e && counts(e, started)) return "record" in e.change ? [e.change.record] : [];
+    return [(!e && waiting.has(x.id) && kept?.find((k) => k.id === x.id)) || x];
+  });
+}
+/**
+ * Records of a list changed on a sheet that a read asked with a filter may have left out (one
+ * ticked done when it was asked, and opened again since): the caller adds the ones that fit.
+ */
+function changedBeyond(collection: string, started: number, have: RecordView[]): RecordView[] {
+  const ids = new Set(have.map((r) => r.id));
+  return [...recent.values()].flatMap((e) =>
+    counts(e, started) &&
+    "record" in e.change &&
+    e.change.record.collection_id === collection &&
+    !ids.has(e.change.record.id)
+      ? [e.change.record]
+      : [],
+  );
+}
+/** The day as a read answered it, with what that read couldn't know. */
+function overDay(today: Today, started: number): Today {
+  watchOutbox();
+  let t: Today | null = today;
+  for (const e of recent.values())
+    if (counts(e, started)) {
+      // Against what the server said, not the record as the sheet had it.
+      const { before: _before, ...change } = e.change;
+      t = todayWithRecord(null, t, change as RecordChange);
+    }
+  // The lists at a glance were made from records already laid over (glanceOf): adjusting them
+  // again would count a changed record twice (Codex on PR 236).
+  return t ? { ...t, glance: today.glance } : today;
+}
+
+export type RecordChange = (
+  { record: RecordView; from?: UpNextItem; before?: RecordView } | { deleted: string; before?: RecordView }
+) & {
+  /** The space the record's list is in (none: the personal one), to find its kept pages. */
+  space?: string | null;
+};
+const recordListeners = new Set<(c: RecordChange) => void>();
+/** The home and a space's page hear of a record changed or deleted on any sheet. */
+export function onRecordChanged(l: (c: RecordChange) => void): () => void {
+  recordListeners.add(l);
+  return () => recordListeners.delete(l);
+}
+/**
+ * A record was changed or deleted on its sheet (on the home, a space's page or its list): the
+ * day kept on the device takes it at once, and so does every open page that shows the day
+ * (Codex on PR 236: a change made in the list read as undone on the home until it was sent).
+ */
+export function recordChanged(userId: string | null, change: RecordChange): void {
+  const id = "record" in change ? change.record.id : change.deleted;
+  // A change goes through the outbox; a delete has been done by the server already.
+  watchOutbox();
+  recent.delete(id);
+  recent.set(id, { change, at: clock, waiting: "record" in change, where: here() });
+  if (recent.size > 200) recent.delete(recent.keys().next().value!);
+  if (userId) todayWithRecord(userId, savedToday(userId), change);
+  keptPagesWith(change);
+  recordListeners.forEach((l) => l(change));
+}
+/**
+ * The list's pages kept on the device (All and each saved view, `app/list.tsx`) take the change
+ * too: opened next without a connection, the list shows it, not the record as it was (Codex
+ * on PR 236).
+ */
+function keptPagesWith(change: RecordChange): void {
+  const now = "record" in change ? change.record : null;
+  const collection = now?.collection_id ?? change.before?.collection_id;
+  if (!collection) {
+    // A record a delete took with it (a link's rule): which list it was in isn't known here,
+    // so every kept page is looked through.
+    if ("deleted" in change)
+      for (const k of kv.keys("gigspree:list:")) {
+        const kept = readJson<{ items?: RecordView[] }>(k);
+        if (kept?.items?.some((x) => x.id === change.deleted))
+          writeJson(k, { ...kept, items: kept.items.filter((x) => x.id !== change.deleted) });
+      }
+    return;
+  }
+  const id = now?.id ?? ("deleted" in change ? change.deleted : "");
+  const base = `gigspree:list:${change.space ? `${change.space}:` : ""}${collection}`;
+  const views = readJson<{ views?: { id: string }[] }>(base)?.views ?? [];
+  for (const chip of ["all", ...views.map((v) => v.id)]) {
+    const kept = readJson<{ items?: RecordView[]; next_cursor?: string | null }>(`${base}:${chip}`);
+    if (!kept?.items?.some((x) => x.id === id)) continue;
+    writeJson(`${base}:${chip}`, {
+      ...kept,
+      items: kept.items.flatMap((x) => (x.id !== id ? [x] : now ? [now] : [])),
+    });
+  }
+}
+
+/** The row a list's record would have under Coming up: enough to put it there when its day comes into the week. */
+export function rowOf(
+  collection: CollectionView,
+  record: RecordView,
+  space: { id: string; name: string } | null,
+): UpNextItem {
+  return {
+    key: `${collection.id}:${record.id}`,
+    at: 0,
+    allDay: true,
+    title: record.title,
+    sub: collection.name,
+    collection,
+    record,
+    ...(space ? { space: space.id } : {}),
+    spaceName: space?.name ?? "Personal",
+  };
+}
+
 export async function loadToday(userId: string): Promise<Today> {
+  const started = readStarted();
   const cat = await loadCatalog();
   // The library and the chat's action pills read the same catalogue from the device.
   rememberCatalog(userId, cat);
+  // A read of a list's records that failed (the connection dropped part-way): the day isn't
+  // whole, so it isn't kept and the screen keeps the rows it has.
+  const missed = { any: false };
   const [needs, upnext, shared, glance] = await Promise.all([
     needsOf(cat),
-    upNextOf(cat),
+    upNextOf(cat, missed),
     sharedOf(cat),
-    glanceOf(cat),
+    glanceOf(cat, missed, started),
   ]);
   const spaces = spacesOf(cat);
   const lists = new Map<string, Today["lists"][number]>();
@@ -123,16 +423,21 @@ export async function loadToday(userId: string): Promise<Today> {
         name: e.collection.name,
         ...(e.space ? { space: e.space, space_name: e.group } : {}),
       });
-  const today: Today = {
-    needs,
-    upnext,
-    shared,
-    glance,
-    spaces,
-    lists: [...lists.values()],
-    complete: cat.complete,
-  };
-  rememberToday(userId, today);
+  const today = overDay(
+    {
+      needs,
+      upnext,
+      shared,
+      glance,
+      spaces,
+      lists: [...lists.values()],
+      complete: cat.complete && !missed.any,
+    },
+    started,
+  );
+  // Not kept while changes still wait to be sent: this read is older than them, and the copy
+  // on the device already has them (todayWithRecord).
+  if (!outboxState().waiting.length) rememberToday(userId, today);
   return today;
 }
 
@@ -173,7 +478,7 @@ async function sharedOf(cat: Catalog): Promise<HomeCard[]> {
 }
 
 /** Records with a date in the next seven days, across every list that has a date, soonest first. */
-async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
+async function upNextOf(cat: Catalog, missed: { any: boolean }): Promise<UpNextItem[]> {
   const seen = new Set<string>();
   const sources: { e: CatalogEntry; field: string; type: "date" | "datetime" }[] = [];
   for (const e of cat.entries) {
@@ -222,7 +527,7 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
               at,
               allDay,
               title: r.title,
-              sub: subOf(e, r, field),
+              sub: subOf(e.collection!, r, field),
               collection: e.collection!,
               record: r,
               ...(e.space ? { space: e.space } : {}),
@@ -232,6 +537,7 @@ async function upNextOf(cat: Catalog): Promise<UpNextItem[]> {
           ];
         });
       } catch {
+        missed.any = true;
         return [];
       }
     }),
@@ -251,7 +557,7 @@ export const tickField = (c: CollectionView) =>
   c.fields.find((f) => f.type === "boolean" && !f.options.formula && !f.options.personal)?.id ?? null;
 
 /** The first lists with a tick box, with what's still open in each. */
-async function glanceOf(cat: Catalog): Promise<Glance[]> {
+async function glanceOf(cat: Catalog, missed: { any: boolean }, started: number): Promise<Glance[]> {
   const seen = new Set<string>();
   const picks: { e: CatalogEntry; tick: string }[] = [];
   for (const e of cat.entries) {
@@ -273,11 +579,15 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
       try {
         // Only the open ones are asked for, so a long history of done ones can't crowd them out
         // of what's read (Codex on PR 232).
-        const records = await findAll(
+        // The records as read, with what the read couldn't know laid over them before they're
+        // counted and added up (a list's count and sum then need no adjusting afterwards).
+        const read = await findAll(
           c.id,
           { filters: [{ field: tick, op: "ne", value: true }], ...(e.space ? { space: e.space } : {}) },
           GLANCE_READ,
         );
+        const over = overRead(read, started);
+        const records = [...over, ...changedBeyond(c.id, started, over)];
         const open = records.filter((r) => r.values[tick] !== true);
         if (!open.length) return null;
         const money = c.fields.find((f) => f.type === "money")?.id;
@@ -289,7 +599,7 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
           tick,
           open: open.slice(0, GLANCE_ROWS),
           left: open.length,
-          more: records.length >= GLANCE_READ,
+          more: read.length >= GLANCE_READ,
           sum: money
             ? open.reduce(
                 (n, r) => n + (typeof r.values[money] === "number" ? (r.values[money] as number) : 0),
@@ -298,6 +608,7 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
             : null,
         };
       } catch {
+        missed.any = true;
         return null;
       }
     }),
@@ -308,8 +619,7 @@ async function glanceOf(cat: Catalog): Promise<Glance[]> {
 const istDay = (ms: number) => Math.floor((ms + IST) / DAY);
 
 /** "Bills · ₹2,340": the list, then the first other value worth a word. */
-function subOf(e: CatalogEntry, r: RecordView, dateField: string): string {
-  const c = e.collection!;
+function subOf(c: CollectionView, r: RecordView, dateField: string): string {
   const skip = new Set([c.title_field_id, dateField]);
   const extra = c.fields.find((f) => {
     if (skip.has(f.id) || f.type === "long_text" || f.type === "person") return false;

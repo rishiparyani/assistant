@@ -2,7 +2,7 @@
 // what's coming up and each list with a tick box, ticked right there; what needs me, answered
 // right there. The things themselves, not the folders they're in.
 import { expect, test } from "@playwright/test";
-import { RUN, api, expectNoSideways, openApp, owner, person } from "./helpers";
+import { RUN, api, expectNoSideways, introduce, openApp, owner, person } from "./helpers";
 
 const day = (n: number) => new Date(Date.now() + n * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
 
@@ -204,6 +204,36 @@ test("done things don't crowd what's open off the home", async ({ browser }) => 
     timeout: 30_000,
   });
   await expect(page.getByText(`E2E Still open ${RUN}`)).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a new person's home offers things to start with, and one tap asks the assistant for it", async ({
+  browser,
+}) => {
+  // Decision 2026-11-12 "A first home with things to start".
+  const admin = await owner();
+  const me = await person(`E2E Newcomer ${RUN}`);
+  await introduce(admin, me);
+  await api(admin)("PUT", `/assistant/people/${me.id}`, { on: true });
+  const { page, errors, context } = await openApp(browser, me);
+  const start = page.getByLabel("Start with");
+  await expect(start.getByText("What would you like to keep track of?")).toBeVisible({ timeout: 30_000 });
+  await expect(start.getByRole("button", { name: /^Start: / })).toHaveCount(4);
+  await expectNoSideways(page);
+  await start.getByRole("button", { name: "Start: Things to remember" }).click();
+  // The whole request is sent as it is; the chat opens on it.
+  await expect(
+    page.getByText("Start a reminders list with a title, a date and a tick box for done.").last(),
+  ).toBeVisible({ timeout: 30_000 });
+  // Once something exists, the home is the day again, not the first look.
+  await api(me)("POST", "/collections", {
+    name: `E2E First ${RUN}`,
+    fields: [{ name: "Title", type: "text" }],
+  });
+  await page.goto("/");
+  await expect(page.getByText("Chats", { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Start with")).toHaveCount(0, { timeout: 30_000 });
   expect(errors).toEqual([]);
   await context.close();
 });

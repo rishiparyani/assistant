@@ -1463,3 +1463,19 @@ It amends "Chats as home, Jamun, a polished look" (2026-10-28: the plum ground, 
 - **Not in the card (yet):** a join link needs the list to exist, so the assistant proposes it right after. `new_space` and `create_workflow` stay as tools for a single part.
 
 It amends "The space is the setup" (2026-11-05: the space still holds the whole thing; it no longer needs a card of its own) and builds on "A setup card is checked when it's proposed" and "The assistant tests every flow".
+
+## 2026-11-12: A record is changed where it's opened
+
+**Decision:** a record of my own list can be changed and deleted on its own sheet (the one a tap on a row opens): **Change** shows the list's form filled in with what the record holds, and saves only the fields that differ, through the outbox; **Delete** asks first and is recoverable from Recently deleted. Links and people are still picked in the chat or the grid, and calculated fields and each person's own answers aren't set here. A record shared with me opens as before, without them.
+
+It amends "Chat makes, screens use" (2026-10 onward: lists, fields, flows and rules are still made and changed in the chat; a record's own values join ticking and adding as things a screen does). The owner asked for it after the test pass of 2026-11-10 found it was the one everyday thing with no screen ("do all your suggestions").
+
+## 2026-11-12: A first home with things to start
+
+**Decision:** a person with the assistant who has made nothing yet (no lists in any space) sees, in place of "Nothing needs you today", four things to start with: what I spend, things to remember, a shopping list to share, and something a group runs on (visitors at a building's gate). One tap sends that request to the assistant as it is, and it comes back as a card to confirm. Once any list exists, the home is the day again. People without the assistant see the plain empty day.
+
+The examples are everyday ones ("No band or gig words"); the last shows a whole system, since that is what the app does that a notes app doesn't.
+
+## 2026-11-13: A read doesn't undo a change it couldn't know
+
+A record changed or deleted on its sheet shows at once everywhere (the home, a space's page, its list, and the copies kept on the device), and an answer from the server that was asked for before the change was sent never puts the older record back. Review of PR 236 found the same fault screen after screen (a slow first page, a refresh cut off, a list opened while a change waited), each fixed with its own guard; they are now one rule in `apps/mobile/src/today.ts`: reads are numbered when they start (`readStarted`), a change is kept with the number current when it was sent, and `overRead` / `overDay` lay it over any answer that started at or before that number or while it still waits. A later read is the server's word, so a record restored from Recently deleted returns. New screens that read records use the rule instead of adding a guard of their own.

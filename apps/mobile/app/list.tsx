@@ -46,6 +46,8 @@ import { openChat } from "@/chat-open";
 import { Composer } from "@/components/Composer";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
+import { useSession } from "@/session";
+import { overRead, readStarted, recordChanged, rowOf, savedToday } from "@/today";
 import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
 import { outboxState } from "@/outbox";
@@ -92,6 +94,7 @@ export default function ListPage() {
   // `space`: a list in one of the person's own spaces (decision 2026-10-16 "Spaces").
   const params = useLocalSearchParams<{ collection: string; view?: string; space?: string }>();
   const space = params.space || undefined;
+  const userId = useSession().me?.user.id ?? null;
   const inSpace = space ? `?space=${enc(space)}` : "";
   const key = `gigspree:list:${space ? `${space}:` : ""}${params.collection}`;
   const [saved, setSaved] = useState<Saved | null>(() => readJson<Saved>(key));
@@ -187,6 +190,7 @@ export default function ListPage() {
     async (after: string | null) => {
       if (!listId || viewUnknown) return;
       const mine = after ? generation.current : ++generation.current;
+      const started = readStarted();
       try {
         const r = await request<FindResult>("POST", `/api/collections/${enc(listId)}/find`, {
           ...query,
@@ -195,9 +199,11 @@ export default function ListPage() {
           ...(after ? { cursor: after } : {}),
         });
         if (mine !== generation.current) return;
-        setRecords((prev) => (after ? [...(prev ?? []), ...r.items] : r.items));
+        // With what this read couldn't know: a record changed or deleted on a sheet meanwhile.
+        const items = overRead(r.items, started, readJson<Kept>(pageKey)?.items);
+        setRecords((prev) => (after ? [...(prev ?? []), ...items] : items));
         setCursor(r.next_cursor);
-        if (!after) writeJson(pageKey, { items: r.items, next_cursor: r.next_cursor });
+        if (!after) writeJson(pageKey, { items, next_cursor: r.next_cursor });
       } catch (e) {
         if (mine !== generation.current) return;
         if (!after) restore();
@@ -620,6 +626,48 @@ export default function ListPage() {
         record={opened}
         collection={c ?? null}
         onClose={() => setOpened(null)}
+        space={space ?? null}
+        // My own list: its records are changed and deleted where they're opened.
+        {...(ticker
+          ? {
+              onChanged: (next: RecordView) => {
+                setOpened(next);
+                // The home and the space's page show it too, and the day kept on the device.
+                if (c) {
+                  const at = userId ? savedToday(userId)?.lists.find((l) => l.id === c.id) : undefined;
+                  recordChanged(userId, {
+                    record: next,
+                    space: space ?? null,
+                    ...(opened?.id === next.id ? { before: opened } : {}),
+                    from: rowOf(c, next, at?.space ? { id: at.space, name: at.space_name ?? "" } : null),
+                  });
+                }
+                setRecords((prev) => (prev ?? []).map((x) => (x.id === next.id ? next : x)));
+                const kept = readJson<Kept>(pageKey);
+                if (kept?.items)
+                  writeJson(pageKey, {
+                    ...kept,
+                    items: kept.items.map((x) => (x.id === next.id ? next : x)),
+                  });
+              },
+              onDeleted: (id: string, also: string[]) => {
+                // What its delete took with it leaves the day and the kept lists too.
+                for (const x of also) recordChanged(userId, { deleted: x, space: space ?? null });
+                if (also.length) setRecords((prev) => (prev ?? []).filter((x) => !also.includes(x.id)));
+                // Only its own sheet closes: another record may be open by the time it's gone.
+                setOpened((o) => (o?.id === id ? null : o));
+                recordChanged(userId, {
+                  deleted: id,
+                  space: space ?? null,
+                  ...(opened?.id === id ? { before: opened } : {}),
+                });
+                setRecords((prev) => (prev ?? []).filter((x) => x.id !== id));
+                const kept = readJson<Kept>(pageKey);
+                if (kept?.items)
+                  writeJson(pageKey, { ...kept, items: kept.items.filter((x) => x.id !== id) });
+              },
+            }
+          : {})}
         onAsk={() => {
           const r = opened;
           setOpened(null);

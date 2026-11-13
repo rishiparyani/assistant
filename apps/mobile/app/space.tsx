@@ -8,13 +8,25 @@ import { Boundary, Card, Text, type } from "@assistant/cards/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { BackIcon, GearIcon } from "@/components/HeaderIcons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import type { SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
+import type { RecordView, SpacePerson, SpaceView, WorkflowView } from "@assistant/shared";
 import { isOffline, request } from "@/api";
 import { COMPOSER_ROOM, Composer } from "@/components/Composer";
 import { RecordSheet } from "@/components/RecordSheet";
 import { answerWaiting, nudgeWaiting, onHomeChanged, type HomeCard } from "@/home";
+import { outboxState, subscribe } from "@/outbox";
 import { useLive } from "@/live-socket";
-import { loadToday, savedToday, tileOf, touchSpace, whenWords, type Today, type UpNextItem } from "@/today";
+import {
+  loadToday,
+  savedToday,
+  tileOf,
+  onRecordChanged,
+  recordChanged,
+  todayWithRecord,
+  touchSpace,
+  whenWords,
+  type Today,
+  type UpNextItem,
+} from "@/today";
 import { useChats } from "@/chats";
 import { openChat } from "@/chat-open";
 import { useSession } from "@/session";
@@ -74,8 +86,11 @@ export default function SpacePage() {
     if (row?.spaceId) setSpaceId(row.spaceId);
   }, [row?.spaceId]);
 
+  // Loaded while changes were still waiting to be sent: load again once they are.
+  const loadedWithWaiting = useRef(false);
   const load = useCallback(async () => {
     if (!userId) return;
+    loadedWithWaiting.current = outboxState().waiting.length > 0;
     const where = id === PERSONAL ? "" : `?space=${enc(id)}`;
     // The people load on their own: a slow or failed Today or workflows load doesn't keep them
     // (and the owner's tools, like Delete this space) off the page.
@@ -93,7 +108,14 @@ export default function SpacePage() {
         loadToday(userId),
         request<WorkflowView[]>("GET", `/api/workflows${where}`),
       ]);
-      setToday(fresh);
+      // A read that failed part-way doesn't take away the rows that are on the screen; and one
+      // that lands while changes still wait to be sent is older than them (Codex on PR 236: a
+      // change made here read as undone until it was sent). It loads again once they're sent.
+      const waiting = outboxState().waiting.length > 0;
+      if (waiting) loadedWithWaiting.current = true;
+      setToday((prev) =>
+        (waiting || !fresh.complete) && prev ? { ...fresh, glance: prev.glance, upnext: prev.upnext } : fresh,
+      );
       setWorkflows(wf);
       writeJson(saved("workflows"), wf);
     })();
@@ -109,9 +131,21 @@ export default function SpacePage() {
   useEffect(() => {
     void load();
   }, [load]);
+  const waitingBefore = useRef(outboxState().waiting.length);
+  useEffect(
+    () =>
+      subscribe(() => {
+        const n = outboxState().waiting.length;
+        if (waitingBefore.current > 0 && n === 0 && loadedWithWaiting.current) void load();
+        waitingBefore.current = n;
+      }),
+    [load],
+  );
   // What the chat or anyone else changes shows here too (Codex, PR 205): "Start building"
   // reveals its lists once they're made. A burst of changes loads once.
   useEffect(() => onHomeChanged(() => void load()), [load]);
+  // A record changed or deleted on a sheet, here or in its list: the day shows it at once.
+  useEffect(() => onRecordChanged((change) => setToday((t) => todayWithRecord(userId, t, change))), [userId]);
   const liveLoad = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useLive((m) => {
     if (m.type !== "space_changed" && m.type !== "reconnected") return;
@@ -663,6 +697,33 @@ export default function SpacePage() {
         record={opened?.record ?? null}
         collection={opened?.collection ?? null}
         onClose={() => setOpened(null)}
+        space={opened?.space ?? null}
+        // A record of my own list (not one shared with me): changed and deleted here too.
+        {...(opened && !opened.shared
+          ? {
+              onChanged: (next: RecordView) => {
+                setOpened({ ...opened, record: next, title: next.title });
+                // With the row it was opened from: a day moved out and back puts it back.
+                recordChanged(userId, {
+                  record: next,
+                  from: opened,
+                  before: opened.record,
+                  space: opened.space ?? null,
+                });
+              },
+              onDeleted: (id: string, also: string[]) => {
+                // What its delete took with it leaves the day and the kept lists too.
+                for (const x of also) recordChanged(userId, { deleted: x, space: opened.space ?? null });
+                // Only its own sheet closes: another record may be open by the time it's gone.
+                setOpened((o) => (o?.record.id === id ? null : o));
+                recordChanged(userId, {
+                  deleted: id,
+                  space: opened.space ?? null,
+                  ...(opened.record.id === id ? { before: opened.record } : {}),
+                });
+              },
+            }
+          : {})}
         onOpenList={
           opened
             ? () => {
