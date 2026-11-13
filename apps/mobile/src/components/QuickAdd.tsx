@@ -48,6 +48,7 @@ export function AddForm({
   button = "Add",
   initial,
   allowEmpty = false,
+  focusFirst = false,
   onAdd,
 }: {
   fields: AddField[];
@@ -61,6 +62,8 @@ export function AddForm({
    * ones are still asked for. A new record still needs something in it.
    */
   allowEmpty?: boolean;
+  /** The first box takes the keyboard as the form opens (the simulator job's picture of it). */
+  focusFirst?: boolean;
   onAdd: (
     send: Record<string, unknown>,
     values: Record<string, StoredValue>,
@@ -123,7 +126,7 @@ export function AddForm({
 
   return (
     <View style={s.form}>
-      {fields.map((f) => {
+      {fields.map((f, at) => {
         const value = form[f.id];
         const error = errors[f.id];
         const label = (
@@ -205,6 +208,7 @@ export function AddForm({
             <View style={s.inputRow}>
               <TextInput
                 accessibilityLabel={f.name}
+                autoFocus={focusFirst && at === 0}
                 value={typeof value === "string" ? value : ""}
                 onChangeText={(v) => set(f.id, v)}
                 placeholder={

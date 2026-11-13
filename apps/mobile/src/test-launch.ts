@@ -14,6 +14,11 @@ import { API_URL, LOCAL } from "./config.ts";
 let launched = false;
 // `-testFocus 1`: the bar at the bottom opens with the keyboard up (the job's keyboard shots).
 let focusBar = false;
+// `-testOpen sheet|edit`: a list opens its first record's sheet (or that sheet's form, the
+// keyboard up), so the job has a picture of them on the phone.
+let openFirst: "sheet" | "edit" | null = null;
+/** Whether this launch asked a list to open its first record (the simulator job only). */
+export const testOpenFirst = () => openFirst;
 /** Whether this launch asked for the bottom bar to take the keyboard (the simulator job only). */
 export const testFocusBar = () => focusBar;
 
@@ -27,6 +32,8 @@ export function useTestLaunch() {
     const path = Settings.get("testPath") as unknown;
     const tour = Settings.get("testTour") as unknown;
     focusBar = Settings.get("testFocus") === "1";
+    const first = Settings.get("testOpen") as unknown;
+    openFirst = first === "sheet" || first === "edit" ? first : null;
     if (typeof email !== "string" || typeof password !== "string" || !email || !password) return;
     const q = new URLSearchParams({
       email,

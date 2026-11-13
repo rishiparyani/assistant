@@ -164,8 +164,9 @@ jobs:
           go() {
             xcrun simctl terminate "$1" "$BUNDLE_ID" 2>/dev/null || true
             # A fourth argument shows the first-run tour (it stays off for the other shots).
-            # FOCUS=1 opens the bottom bar with the keyboard up.
-            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" ${4:+-testTour 1} ${FOCUS:+-testFocus 1} > /dev/null
+            # FOCUS=1 opens the bottom bar with the keyboard up. OPEN=sheet|edit opens a list's
+            # first record (its sheet, or the sheet's form with the keyboard up).
+            xcrun simctl launch "$1" "$BUNDLE_ID" -testEmail "$EMAIL" -testPassword "$PASSWORD" -testPath "$2" ${4:+-testTour 1} ${FOCUS:+-testFocus 1} ${OPEN:+-testOpen $OPEN} > /dev/null
             sleep "${3:-14}"
           }
           shot() { xcrun simctl io "$1" screenshot "$OUT/$2.png" > /dev/null; }
@@ -207,6 +208,12 @@ jobs:
             shot "$dev" "$label-light-4c-list-notes"
             FOCUS=1 go "$dev" "/list?collection=Expenses"
             shot "$dev" "$label-light-4d-list-bar-typing"
+            # A record opened from its list, and its form with the keyboard up (2026-11-13: the
+            # new Change and Delete had no picture on the phone).
+            OPEN=sheet go "$dev" "/list?collection=Expenses"
+            shot "$dev" "$label-light-4e-record-sheet"
+            OPEN=edit go "$dev" "/list?collection=Expenses"
+            shot "$dev" "$label-light-4f-record-form-typing"
             # The rest of the screens people use, so a native-only fault shows (2026-11-10).
             go "$dev" "/space?id=p" 10
             shot "$dev" "$label-light-8-space"

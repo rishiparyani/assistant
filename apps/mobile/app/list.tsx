@@ -47,6 +47,7 @@ import { Composer } from "@/components/Composer";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
 import { useSession } from "@/session";
+import { testOpenFirst } from "@/test-launch";
 import { overRead, readStarted, recordChanged, rowOf, savedToday } from "@/today";
 import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
@@ -117,6 +118,13 @@ export default function ListPage() {
   const [chatAbout, setChatAbout] = useState<RecordView | null>(null);
   // A row tapped: the record opened (it used to open the chat about it; owner, 2026-10-24).
   const [opened, setOpened] = useState<RecordView | null>(null);
+  // The simulator job only (`-testOpen`): the first record's sheet opens by itself, once.
+  const openedForTest = useRef(false);
+  useEffect(() => {
+    if (!testOpenFirst() || openedForTest.current || !records?.[0]) return;
+    openedForTest.current = true;
+    setOpened(records[0]);
+  }, [records]);
 
   // The list and its saved views (the chips).
   const loadList = useCallback(async () => {
@@ -625,6 +633,7 @@ export default function ListPage() {
       <RecordSheet
         record={opened}
         collection={c ?? null}
+        {...(testOpenFirst() === "edit" ? { startIn: "edit" as const } : {})}
         onClose={() => setOpened(null)}
         space={space ?? null}
         // My own list: its records are changed and deleted where they're opened.

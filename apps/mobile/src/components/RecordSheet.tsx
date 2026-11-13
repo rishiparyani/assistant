@@ -25,6 +25,7 @@ export function RecordSheet({
   space = null,
   onChanged,
   onDeleted,
+  startIn,
 }: {
   record: RecordView | null;
   collection: CollectionView | null;
@@ -39,6 +40,8 @@ export function RecordSheet({
   onChanged?: (next: RecordView) => void;
   /** Given when the record is mine to delete: called once it's gone. */
   onDeleted?: (id: string, also: string[]) => void;
+  /** Opens on the form, its first box with the keyboard (the simulator job's picture of it). */
+  startIn?: "edit";
 }) {
   const { t } = useTheme();
   const [mode, setMode] = useState<"view" | "edit" | "delete">("view");
@@ -46,7 +49,7 @@ export function RecordSheet({
   const [note, setNote] = useState("");
   // Each record opens on its values, never on the form or question left from the last one.
   useEffect(() => {
-    setMode("view");
+    setMode(startIn ?? "view");
     setNote("");
     setBusy(false);
   }, [record?.id]);
@@ -166,6 +169,7 @@ export function RecordSheet({
                 button="Save"
                 initial={initial}
                 allowEmpty
+                focusFirst={startIn === "edit"}
                 onAdd={save}
               />
               <Tap
@@ -205,27 +209,10 @@ export function RecordSheet({
             </View>
           ) : (
             <>
-              <ScrollView style={s.scroll} contentContainerStyle={{ gap: 2 }}>
-                {lines.length ? (
-                  lines.map((l, i) => (
-                    <View
-                      key={l.id}
-                      style={[
-                        l.long ? s.lineStack : s.line,
-                        i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
-                      ]}
-                    >
-                      <Text style={[type.small, s.name, { color: t.fg2 }]}>{l.name}</Text>
-                      <Text style={[type.body, s.value, { color: t.fg }]} selectable>
-                        {l.value}
-                      </Text>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={[type.small, { color: t.fg2 }]}>Nothing filled in yet.</Text>
-                )}
-              </ScrollView>
-              <View style={s.actions}>
+              {/* Under the name, not after the fields: a record with many fields opens at half
+                  the screen, and what can be done with it must not start below the fold (found
+                  by looking, 2026-11-13). */}
+              <View style={[s.actions, { justifyContent: "flex-start" }]}>
                 {onDeleted ? (
                   <Tap
                     accessibilityRole="button"
@@ -266,6 +253,26 @@ export function RecordSheet({
                   </Tap>
                 ) : null}
               </View>
+              <ScrollView style={s.scroll} contentContainerStyle={{ gap: 2 }}>
+                {lines.length ? (
+                  lines.map((l, i) => (
+                    <View
+                      key={l.id}
+                      style={[
+                        l.long ? s.lineStack : s.line,
+                        i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: t.sep },
+                      ]}
+                    >
+                      <Text style={[type.small, s.name, { color: t.fg2 }]}>{l.name}</Text>
+                      <Text style={[type.body, s.value, { color: t.fg }]} selectable>
+                        {l.value}
+                      </Text>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={[type.small, { color: t.fg2 }]}>Nothing filled in yet.</Text>
+                )}
+              </ScrollView>
             </>
           )}
         </>

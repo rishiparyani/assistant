@@ -1069,3 +1069,52 @@ test("what a delete takes with it is gone from its own list's kept page too", as
   expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline|ERR_FAILED/i.test(e))).toEqual([]);
   await context.close();
 });
+
+test("a record with many fields opens with Change and Delete on the screen", async ({ browser }) => {
+  // Found by looking (2026-11-13): after the fields, they started below the fold of a sheet
+  // that opens at half the screen.
+  const me = await person(`E2E Many fields ${RUN}`);
+  const list = `E2E Appliances ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Bought", type: "date" },
+      { name: "Price", type: "money" },
+      { name: "Qty", type: "number" },
+      { name: "Notes", type: "long_text" },
+      { name: "Room", type: "choice", options: { choices: ["Kitchen", "Hall", "Other"] } },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: {
+      Title: "E2E Water purifier for the kitchen",
+      Bought: "2026-01-15",
+      Price: "12500",
+      Qty: 1,
+      Notes: "The filter is changed every six months; the receipt is in the blue folder with the others.",
+      Room: "Kitchen",
+    },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  await page.goto(`/list?collection=${made.id}`);
+  await page
+    .getByRole("button", { name: /E2E Water purifier/ })
+    .last()
+    .click();
+  for (const name of ["Change this", "Delete this"]) {
+    const button = page.getByRole("button", { name });
+    await expect(button).toBeVisible();
+    await page.waitForTimeout(700);
+    const box = await button.boundingBox();
+    expect(box && box.y + box.height <= 844, `${name} ends at ${box && Math.round(box.y + box.height)}`).toBe(
+      true,
+    );
+  }
+  await page.screenshot({
+    path: "/tmp/claude-0/-home-user-assistant/5ddade7e-1b79-5a11-8932-805f1f6563e7/scratchpad/shots/z-actions-top.png",
+  });
+  await expectNoSideways(page);
+  expect(errors).toEqual([]);
+  await context.close();
+});
