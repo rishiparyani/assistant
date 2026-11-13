@@ -909,3 +909,68 @@ test("a tick made after a change on the sheet is still there when the list is op
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a list's card follows an amount gone negative and back, and a finished list gets its card back", async ({
+  browser,
+}) => {
+  // Codex on PR 236: the total was held at zero and then wrong; and a list with everything
+  // done had no card to put a reopened item on.
+  const me = await person(`E2E Signed ${RUN}`);
+  const fields = [
+    { name: "Title", type: "text" },
+    { name: "Amount", type: "money" },
+    { name: "Settled", type: "boolean" },
+  ];
+  const owed = `E2E Owed ${RUN}`;
+  const done = `E2E Finished ${RUN}`;
+  const a = (await api(me)("POST", "/collections", { name: owed, fields })) as { id: string };
+  const b = (await api(me)("POST", "/collections", { name: done, fields })) as { id: string };
+  await api(me)("POST", `/collections/${a.id}/records`, { values: { Title: "E2E Deposit", Amount: "100" } });
+  await api(me)("POST", `/collections/${b.id}/records`, {
+    values: { Title: "E2E Old bill", Amount: "250", Settled: true },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  await expect(page.getByLabel(owed, { exact: true }).getByText("₹100").first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByLabel(done, { exact: true })).toHaveCount(0);
+  // Nothing gets through while these are made.
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") await held;
+    await route.continue().catch(() => {});
+  });
+  await page.goto(`/list?collection=${a.id}`);
+  for (const amount of ["-200", "100"]) {
+    await page
+      .getByRole("button", { name: /E2E Deposit/ })
+      .last()
+      .click();
+    await page.getByRole("button", { name: "Change this" }).click();
+    await page.getByRole("textbox", { name: "Amount" }).fill(amount);
+    await page.getByRole("button", { name: `Save to ${owed}` }).click();
+    await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  }
+  await page.goto(`/list?collection=${b.id}`);
+  await page
+    .getByRole("button", { name: /E2E Old bill/ })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("switch", { name: "Settled" }).click();
+  await page.getByRole("button", { name: `Save to ${done}` }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  // The home, with all of it still on its way.
+  await page.goto("/");
+  const first = page.getByLabel(owed, { exact: true });
+  await expect(first.getByText("left · 1 to do")).toBeVisible({ timeout: 30_000 });
+  await expect(first.getByText("₹300")).toHaveCount(0);
+  await expect(first.getByText("₹100").first()).toBeVisible();
+  const second = page.getByLabel(done, { exact: true });
+  await expect(second.getByText("E2E Old bill")).toBeVisible();
+  await expect(second.getByText("₹250").first()).toBeVisible();
+  letGo();
+  expect(errors).toEqual([]);
+  await context.close();
+});

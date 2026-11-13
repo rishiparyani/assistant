@@ -158,8 +158,36 @@ function glanceWith(g: Glance, id: string, now: RecordView | null, before?: Reco
     ...g,
     open,
     left: Math.max(open.length, g.left + (isOpen(now) ? 1 : 0) - (isOpen(was) ? 1 : 0)),
-    sum: g.sum === null ? null : Math.max(0, g.sum + amount(now) - amount(was)),
+    // Signed: a refund is a negative amount, and the next change is worked out from this one.
+    sum: g.sum === null ? null : g.sum + amount(now) - amount(was),
   };
+}
+
+/**
+ * A list with everything done has no card; one of its records opened again gives it one, from
+ * the row the change came with (Codex on PR 236: nothing showed until it was sent).
+ */
+function glanceFor(have: Glance[], change: RecordChange): Glance[] {
+  if (!("record" in change) || !change.from || change.from.shared) return [];
+  const c = change.from.collection;
+  const r = change.record;
+  const tick = tickField(c);
+  const dated = c.fields.some((f) => f.type === "date" || f.type === "datetime");
+  if (!tick || dated || r.values[tick] === true || have.some((g) => g.collection.id === c.id)) return [];
+  const money = c.fields.find((f) => f.type === "money")?.id;
+  return [
+    {
+      key: `glance:${c.id}`,
+      collection: c,
+      ...(change.from.space ? { space: change.from.space } : {}),
+      spaceName: change.from.spaceName,
+      tick,
+      open: [r],
+      left: 1,
+      more: false,
+      sum: money ? (typeof r.values[money] === "number" ? (r.values[money] as number) : 0) : null,
+    },
+  ];
 }
 
 export function todayWithRecord(userId: string | null, t: Today | null, change: RecordChange): Today | null {
@@ -182,9 +210,12 @@ export function todayWithRecord(userId: string | null, t: Today | null, change: 
       .sort((a, b) => a.at - b.at),
     ...(t.glance
       ? {
-          glance: t.glance.map((g) =>
-            glanceWith(g, id, "record" in change ? change.record : null, change.before),
-          ),
+          glance: [
+            ...t.glance.map((g) =>
+              glanceWith(g, id, "record" in change ? change.record : null, change.before),
+            ),
+            ...glanceFor(t.glance, change),
+          ],
         }
       : {}),
   };
