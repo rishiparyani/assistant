@@ -679,3 +679,63 @@ test("a slow read of the day that answers after a change was sent doesn't undo i
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a record beyond a list card's few rows, renamed while the day is read slowly, isn't counted twice", async ({
+  browser,
+}) => {
+  // Codex on PR 236: laid over the late answer, the fourth record read as a fifth (₹500, 5 to do).
+  const me = await person(`E2E Counted once ${RUN}`);
+  const list = `E2E Supplies ${RUN}`;
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "Amount", type: "money" },
+      { name: "Bought", type: "boolean" },
+    ],
+  })) as { id: string };
+  for (const title of ["E2E Tape", "E2E Glue", "E2E Nails", "E2E Paint"])
+    await api(me)("POST", `/collections/${made.id}/records`, { values: { Title: title, Amount: "100" } });
+  const { page, errors, context } = await openApp(browser, me);
+  const card = page.getByLabel(list, { exact: true });
+  await expect(card.getByText("₹400")).toBeVisible({ timeout: 30_000 });
+  // The day's reads from now on answer late, with what the server had when asked.
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  let changed = false;
+  await page.route(/\/find$/, async (route) => {
+    // The list's own page is read as usual.
+    if (changed || route.request().postData()?.includes('"limit":50')) return route.continue();
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  await page.routeWebSocket(/.*/, (ws) => ws.close());
+  await page.reload();
+  await expect(card.getByText("₹400")).toBeVisible({ timeout: 30_000 });
+  // Into the list (the app stays open), and the record the card doesn't show is renamed.
+  await card.getByRole("button", { name: `Open ${list}` }).click();
+  const hidden = (await card.getByText("E2E Paint").count()) ? "E2E Tape" : "E2E Paint";
+  await page
+    .getByRole("button", { name: new RegExp(hidden) })
+    .last()
+    .click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Brushes");
+  const sent = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && /\/api\/records\//.test(r.url()),
+  );
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await sent;
+  changed = true;
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+  await page.waitForTimeout(1_500);
+  letGo();
+  await page.waitForTimeout(1_500);
+  await expect(card.getByText("₹400")).toBeVisible();
+  await expect(card.getByText("left · 4 to do")).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
+});

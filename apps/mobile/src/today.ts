@@ -247,7 +247,9 @@ function overDay(today: Today, started: number): Today {
       const { before: _before, ...change } = e.change;
       t = todayWithRecord(null, t, change as RecordChange);
     }
-  return t ?? today;
+  // The lists at a glance were made from records already laid over (glanceOf): adjusting them
+  // again would count a changed record twice (Codex on PR 236).
+  return t ? { ...t, glance: today.glance } : today;
 }
 
 export type RecordChange = (
@@ -331,7 +333,7 @@ export async function loadToday(userId: string): Promise<Today> {
     needsOf(cat),
     upNextOf(cat, missed),
     sharedOf(cat),
-    glanceOf(cat, missed),
+    glanceOf(cat, missed, started),
   ]);
   const spaces = spacesOf(cat);
   const lists = new Map<string, Today["lists"][number]>();
@@ -476,7 +478,7 @@ export const tickField = (c: CollectionView) =>
   c.fields.find((f) => f.type === "boolean" && !f.options.formula && !f.options.personal)?.id ?? null;
 
 /** The first lists with a tick box, with what's still open in each. */
-async function glanceOf(cat: Catalog, missed: { any: boolean }): Promise<Glance[]> {
+async function glanceOf(cat: Catalog, missed: { any: boolean }, started: number): Promise<Glance[]> {
   const seen = new Set<string>();
   const picks: { e: CatalogEntry; tick: string }[] = [];
   for (const e of cat.entries) {
@@ -498,11 +500,14 @@ async function glanceOf(cat: Catalog, missed: { any: boolean }): Promise<Glance[
       try {
         // Only the open ones are asked for, so a long history of done ones can't crowd them out
         // of what's read (Codex on PR 232).
-        const records = await findAll(
+        // The records as read, with what the read couldn't know laid over them before they're
+        // counted and added up (a list's count and sum then need no adjusting afterwards).
+        const read = await findAll(
           c.id,
           { filters: [{ field: tick, op: "ne", value: true }], ...(e.space ? { space: e.space } : {}) },
           GLANCE_READ,
         );
+        const records = overRead(read, started);
         const open = records.filter((r) => r.values[tick] !== true);
         if (!open.length) return null;
         const money = c.fields.find((f) => f.type === "money")?.id;
@@ -514,7 +519,7 @@ async function glanceOf(cat: Catalog, missed: { any: boolean }): Promise<Glance[
           tick,
           open: open.slice(0, GLANCE_ROWS),
           left: open.length,
-          more: records.length >= GLANCE_READ,
+          more: read.length >= GLANCE_READ,
           sum: money
             ? open.reduce(
                 (n, r) => n + (typeof r.values[money] === "number" ? (r.values[money] as number) : 0),
