@@ -174,6 +174,10 @@ function glanceFor(have: Glance[], change: RecordChange): Glance[] {
   const tick = tickField(c);
   const dated = c.fields.some((f) => f.type === "date" || f.type === "datetime");
   if (!tick || dated || r.values[tick] === true || have.some((g) => g.collection.id === c.id)) return [];
+  // No card says nothing was open only when there was room for one, and only an item that was
+  // done before is the list's one open item now (a list left out because the home shows a few
+  // may have others open; a card made from one record would miscount them).
+  if (have.length >= GLANCE_LISTS || change.before?.values[tick] !== true) return [];
   const money = c.fields.find((f) => f.type === "money")?.id;
   return [
     {

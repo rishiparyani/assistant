@@ -974,3 +974,50 @@ test("a list's card follows an amount gone negative and back, and a finished lis
   expect(errors).toEqual([]);
   await context.close();
 });
+
+test("a list the home has no room for isn't given a card that miscounts it", async ({ browser }) => {
+  // Codex on PR 236: a renamed record in a fifth list made a card saying it was the only one.
+  test.setTimeout(90_000);
+  const me = await person(`E2E Many lists ${RUN}`);
+  const fields = [
+    { name: "Title", type: "text" },
+    { name: "Amount", type: "money" },
+    { name: "Got", type: "boolean" },
+  ];
+  const lists: { id: string; name: string }[] = [];
+  for (const n of ["A", "B", "C", "D", "E"]) {
+    const name = `E2E Crate ${n} ${RUN}`;
+    const made = (await api(me)("POST", "/collections", { name, fields })) as { id: string };
+    lists.push({ id: made.id, name });
+    for (const item of ["one", "two", "three"])
+      await api(me)("POST", `/collections/${made.id}/records`, {
+        values: { Title: `E2E ${n} ${item}`, Amount: "100" },
+      });
+  }
+  const { page, errors, context } = await openApp(browser, me);
+  await expect(page.getByText("left · 3 to do").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("left · 3 to do")).toHaveCount(4);
+  // The one the home leaves out.
+  let left: { id: string; name: string } | null = null;
+  for (const l of lists) if (!(await page.getByLabel(l.name, { exact: true }).count())) left = l;
+  expect(left).not.toBeNull();
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  await page.route(/\/api\/records\//, async (route) => {
+    if (route.request().method() === "PATCH") await held;
+    await route.continue().catch(() => {});
+  });
+  await page.goto(`/list?collection=${left!.id}`);
+  await page.getByRole("button", { name: / one/ }).last().click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E renamed");
+  await page.getByRole("button", { name: `Save to ${left!.name}` }).click();
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  await page.goto("/");
+  await expect(page.getByText("left · 3 to do").first()).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("left · 1 to do")).toHaveCount(0);
+  await expect(page.getByLabel(left!.name, { exact: true })).toHaveCount(0);
+  letGo();
+  expect(errors).toEqual([]);
+  await context.close();
+});
