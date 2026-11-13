@@ -3,8 +3,8 @@
 // drew the card as a plain list (owner, 2026-10-19: "I told it that I need a form to make
 // entries for my budgets … look at what it gave me"). Works offline: the new record gets its
 // id here and waits in the outbox.
-import { useState } from "react";
-import { StyleSheet, Switch, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { StyleSheet, Switch, View, type TextInput as RNTextInput } from "react-native";
 import { Tap, Text, TextInput, type } from "@assistant/cards/native";
 import {
   ValueError,
@@ -48,6 +48,7 @@ export function AddForm({
   button = "Add",
   initial,
   allowEmpty = false,
+  focusFirst = false,
   onAdd,
 }: {
   fields: AddField[];
@@ -61,12 +62,22 @@ export function AddForm({
    * ones are still asked for. A new record still needs something in it.
    */
   allowEmpty?: boolean;
+  /** The first box takes the keyboard as the form opens (the simulator job's picture of it). */
+  focusFirst?: boolean;
   onAdd: (
     send: Record<string, unknown>,
     values: Record<string, StoredValue>,
   ) => string | void | Promise<string | void>;
 }) {
   const { t } = useTheme();
+  // The simulator job's picture of the form with the keyboard up: asked for once the sheet
+  // has finished coming up (iOS drops a focus asked for while it is still sliding).
+  const first = useRef<RNTextInput>(null);
+  useEffect(() => {
+    if (!focusFirst) return;
+    const t = setTimeout(() => first.current?.focus(), 900);
+    return () => clearTimeout(t);
+  }, [focusFirst]);
   const [form, setForm] = useState<Record<string, unknown>>(initial ?? {});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [note, setNote] = useState("");
@@ -123,7 +134,7 @@ export function AddForm({
 
   return (
     <View style={s.form}>
-      {fields.map((f) => {
+      {fields.map((f, at) => {
         const value = form[f.id];
         const error = errors[f.id];
         const label = (
@@ -205,6 +216,7 @@ export function AddForm({
             <View style={s.inputRow}>
               <TextInput
                 accessibilityLabel={f.name}
+                ref={at === 0 ? first : undefined}
                 value={typeof value === "string" ? value : ""}
                 onChangeText={(v) => set(f.id, v)}
                 placeholder={
