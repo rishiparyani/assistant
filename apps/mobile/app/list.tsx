@@ -47,7 +47,7 @@ import { Composer } from "@/components/Composer";
 import { API_URL } from "@/config";
 import { cardFor, setValue, tick } from "@/home";
 import { useSession } from "@/session";
-import { recordChanged, rowOf, savedToday } from "@/today";
+import { overRead, readStarted, recordChanged, rowOf, savedToday } from "@/today";
 import { readJson, writeJson } from "@/storage";
 import { useLive } from "@/live-socket";
 import { outboxState } from "@/outbox";
@@ -186,30 +186,11 @@ export default function ListPage() {
   // Only the newest first-page answer counts: an early one that comes back last mustn't
   // replace the real one (Codex on PR 173).
   const generation = useRef(0);
-  // What was done on a record's sheet here: a read that started before it (a slow first page)
-  // must not bring a deleted row back, nor an older record over a change still being sent
-  // (Codex on PR 236).
-  const reads = useRef(0);
-  const gone = useRef(new Map<string, number>());
-  const changedHere = useRef(new Map<string, { record: RecordView; at: number }>());
-  // `started`: the read's number. A record deleted at or after it is left out; a later read
-  // says what the server has now (a record restored from Recently deleted comes back).
-  const settled = useCallback((items: RecordView[], started: number) => {
-    // A change counts against a read that started before it, and against any read while it
-    // is still on its way; an empty outbox alone doesn't say this answer has it.
-    const waiting = outboxState().waiting.length > 0;
-    return items
-      .filter((x) => (gone.current.get(x.id) ?? -1) < started)
-      .map((x) => {
-        const mine = changedHere.current.get(x.id);
-        return mine && (waiting || mine.at >= started) ? mine.record : x;
-      });
-  }, []);
   const loadPage = useCallback(
     async (after: string | null) => {
       if (!listId || viewUnknown) return;
       const mine = after ? generation.current : ++generation.current;
-      const started = ++reads.current;
+      const started = readStarted();
       try {
         const r = await request<FindResult>("POST", `/api/collections/${enc(listId)}/find`, {
           ...query,
@@ -218,7 +199,8 @@ export default function ListPage() {
           ...(after ? { cursor: after } : {}),
         });
         if (mine !== generation.current) return;
-        const items = settled(r.items, started);
+        // With what this read couldn't know: a record changed or deleted on a sheet meanwhile.
+        const items = overRead(r.items, started, readJson<Kept>(pageKey)?.items);
         setRecords((prev) => (after ? [...(prev ?? []), ...items] : items));
         setCursor(r.next_cursor);
         if (!after) writeJson(pageKey, { items, next_cursor: r.next_cursor });
@@ -234,7 +216,7 @@ export default function ListPage() {
         );
       }
     },
-    [listId, viewUnknown, query, pageKey, restore, space, settled],
+    [listId, viewUnknown, query, pageKey, restore, space],
   );
   useEffect(() => {
     restore();
@@ -650,7 +632,6 @@ export default function ListPage() {
           ? {
               onChanged: (next: RecordView) => {
                 setOpened(next);
-                changedHere.current.set(next.id, { record: next, at: reads.current });
                 // The home and the space's page show it too, and the day kept on the device.
                 if (c) {
                   const at = userId ? savedToday(userId)?.lists.find((l) => l.id === c.id) : undefined;
@@ -672,7 +653,6 @@ export default function ListPage() {
               onDeleted: (id: string) => {
                 // Only its own sheet closes: another record may be open by the time it's gone.
                 setOpened((o) => (o?.id === id ? null : o));
-                gone.current.set(id, reads.current);
                 recordChanged(userId, {
                   deleted: id,
                   space: space ?? null,

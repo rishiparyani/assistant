@@ -13,7 +13,7 @@ import {
   type CatalogEntry,
   type HomeCard,
 } from "./home.ts";
-import { outboxState } from "./outbox.ts";
+import { outboxState, subscribe } from "./outbox.ts";
 import { readJson, writeJson } from "./storage.ts";
 
 export interface UpNextItem {
@@ -191,6 +191,65 @@ export function todayWithRecord(userId: string | null, t: Today | null, change: 
 }
 
 /** `before`: the record as it was (a list's totals move by the difference). */
+/*
+ * One rule for every read of records (the day, a list's page), instead of one per screen
+ * (Codex on PR 236, round after round: a read that started before a change, or while it was
+ * still on its way, put the older record back on one screen or another). Reads are numbered
+ * when they start; a change made on a sheet is kept with the number current when it was
+ * made, moved on to the number current when it was sent. A read counts the change in when it
+ * started at or before that number, or while the change still waits: the server couldn't have
+ * told it. A later read is the server's word (so a record restored after a delete returns).
+ */
+let clock = 0;
+const recent = new Map<string, { change: RecordChange; at: number; waiting: boolean }>();
+/** A read of records starts: its number, for `overRead` or `overDay` when it answers. */
+export const readStarted = (): number => ++clock;
+let outboxWatched = false;
+function watchOutbox() {
+  if (outboxWatched) return;
+  outboxWatched = true;
+  subscribe(() => {
+    if (outboxState().waiting.length) return;
+    // Sent: reads that started before now may still answer without it.
+    for (const e of recent.values())
+      if (e.waiting) {
+        e.waiting = false;
+        e.at = clock;
+      }
+  });
+}
+const counts = (e: { at: number; waiting: boolean }, started: number) => e.waiting || e.at >= started;
+/**
+ * A page of a list's records as a read answered it, with what that read couldn't know.
+ * `kept`: the page kept on the device, which has a change made before the app was opened
+ * again and still waiting to be sent (this session never saw it made).
+ */
+export function overRead(items: RecordView[], started: number, kept?: RecordView[]): RecordView[] {
+  watchOutbox();
+  const waiting = new Set(
+    outboxState()
+      .waiting.filter((w) => w.kind === "spaces.update_record")
+      .map((w) => decodeURIComponent(w.path.split("/").pop() ?? "")),
+  );
+  return items.flatMap((x) => {
+    const e = recent.get(x.id);
+    if (e && counts(e, started)) return "record" in e.change ? [e.change.record] : [];
+    return [(!e && waiting.has(x.id) && kept?.find((k) => k.id === x.id)) || x];
+  });
+}
+/** The day as a read answered it, with what that read couldn't know. */
+function overDay(today: Today, started: number): Today {
+  watchOutbox();
+  let t: Today | null = today;
+  for (const e of recent.values())
+    if (counts(e, started)) {
+      // Against what the server said, not the record as the sheet had it.
+      const { before: _before, ...change } = e.change;
+      t = todayWithRecord(null, t, change as RecordChange);
+    }
+  return t ?? today;
+}
+
 export type RecordChange = (
   { record: RecordView; from?: UpNextItem; before?: RecordView } | { deleted: string; before?: RecordView }
 ) & {
@@ -209,6 +268,12 @@ export function onRecordChanged(l: (c: RecordChange) => void): () => void {
  * (Codex on PR 236: a change made in the list read as undone on the home until it was sent).
  */
 export function recordChanged(userId: string | null, change: RecordChange): void {
+  const id = "record" in change ? change.record.id : change.deleted;
+  // A change goes through the outbox; a delete has been done by the server already.
+  watchOutbox();
+  recent.delete(id);
+  recent.set(id, { change, at: clock, waiting: "record" in change });
+  if (recent.size > 200) recent.delete(recent.keys().next().value!);
   if (userId) todayWithRecord(userId, savedToday(userId), change);
   keptPagesWith(change);
   recordListeners.forEach((l) => l(change));
@@ -255,6 +320,7 @@ export function rowOf(
 }
 
 export async function loadToday(userId: string): Promise<Today> {
+  const started = readStarted();
   const cat = await loadCatalog();
   // The library and the chat's action pills read the same catalogue from the device.
   rememberCatalog(userId, cat);
@@ -276,15 +342,18 @@ export async function loadToday(userId: string): Promise<Today> {
         name: e.collection.name,
         ...(e.space ? { space: e.space, space_name: e.group } : {}),
       });
-  const today: Today = {
-    needs,
-    upnext,
-    shared,
-    glance,
-    spaces,
-    lists: [...lists.values()],
-    complete: cat.complete && !missed.any,
-  };
+  const today = overDay(
+    {
+      needs,
+      upnext,
+      shared,
+      glance,
+      spaces,
+      lists: [...lists.values()],
+      complete: cat.complete && !missed.any,
+    },
+    started,
+  );
   // Not kept while changes still wait to be sent: this read is older than them, and the copy
   // on the device already has them (todayWithRecord).
   if (!outboxState().waiting.length) rememberToday(userId, today);

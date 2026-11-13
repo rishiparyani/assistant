@@ -610,7 +610,72 @@ test("a change made on the home is in the list's kept page when the list can't b
     timeout: 30_000,
   });
   await expect(page.getByRole("button", { name: /E2E Collect the cake/ })).toHaveCount(0);
+  // And when the list can be read while the change is still on its way, the server's older
+  // record doesn't replace it either (the list has only just opened; it never saw the change).
+  await page.unroute(/\/find$/);
+  await page.goto(`/list?collection=${made.id}`);
+  await page.waitForResponse((r) => /\/find$/.test(r.url()) && r.ok());
+  await page.waitForTimeout(500);
+  await expect(page.getByRole("button", { name: /E2E Collect the flowers/ }).last()).toBeVisible();
+  await expect(page.getByRole("button", { name: /E2E Collect the cake/ })).toHaveCount(0);
   letGo();
   expect(errors.filter((e) => !/Failed to fetch|NetworkError|offline|ERR_FAILED/i.test(e))).toEqual([]);
+  await context.close();
+});
+
+test("a slow read of the day that answers after a change was sent doesn't undo it on the home", async ({
+  browser,
+}) => {
+  // Codex on PR 236: nothing was waiting any more, so the older answer was taken as the newer.
+  const me = await person(`E2E Slow day ${RUN}`);
+  const list = `E2E Dues ${RUN}`;
+  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
+  const made = (await api(me)("POST", "/collections", {
+    name: list,
+    fields: [
+      { name: "Title", type: "text" },
+      { name: "When", type: "date" },
+    ],
+  })) as { id: string };
+  await api(me)("POST", `/collections/${made.id}/records`, {
+    values: { Title: "E2E Pay the rent", When: today },
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  const coming = page.getByLabel("Coming up");
+  await expect(coming.getByText("E2E Pay the rent")).toBeVisible({ timeout: 30_000 });
+  // Again, with the day's first read of the list answered late, with what the server had then.
+  let letGo: () => void = () => {};
+  const held = new Promise<void>((r) => (letGo = r));
+  // Every read of records asked before the change is answered late.
+  let asked = false;
+  let changed = false;
+  await page.route(/\/find$/, async (route) => {
+    if (changed) return route.continue();
+    asked = true;
+    const response = await route.fetch();
+    await held;
+    await route.fulfill({ response });
+  });
+  await page.routeWebSocket(/.*/, (ws) => ws.close());
+  await page.reload();
+  await coming.getByRole("button", { name: /^E2E Pay the rent/ }).click();
+  await page.getByRole("button", { name: "Change this" }).click();
+  await page.getByRole("textbox", { name: "Title" }).fill("E2E Pay the deposit");
+  changed = false;
+  const sent = page.waitForResponse(
+    (r) => r.request().method() === "PATCH" && /\/api\/records\//.test(r.url()),
+  );
+  await page.getByRole("button", { name: `Save to ${list}` }).click();
+  await sent;
+  changed = true;
+  await page.getByRole("button", { name: "Bottom sheet backdrop" }).click({ position: { x: 20, y: 20 } });
+  expect(asked).toBe(true);
+  // Long enough for the read made once the change was sent to answer first.
+  await page.waitForTimeout(1_500);
+  letGo();
+  await page.waitForTimeout(1_500);
+  await expect(coming.getByText("E2E Pay the deposit")).toBeVisible();
+  await expect(coming.getByText("E2E Pay the rent")).toHaveCount(0);
+  expect(errors).toEqual([]);
   await context.close();
 });
