@@ -220,7 +220,18 @@ test("a new person's home offers things to start with, and one tap asks the assi
   const start = page.getByLabel("Start with");
   await expect(start.getByText("What would you like to keep track of?")).toBeVisible({ timeout: 30_000 });
   await expect(start.getByRole("button", { name: /^Start: / })).toHaveCount(4);
+  // Only that and the bar (decision 2026-11-24): no Chats heading, filters or empty tile yet;
+  // a chat with someone is one quiet line away.
+  await expect(page.getByText("Chats", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Unread", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New chat or space" })).toHaveCount(0);
+  await expect(page.getByText("What's due this week?")).toHaveCount(0);
   await expectNoSideways(page);
+  // The line goes straight to picking who (no "New" sheet in between), and back out again.
+  await page.getByRole("button", { name: "Start a chat with someone" }).click();
+  await expect(page.getByText("With people you know here", { exact: false })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("With people you know here", { exact: false })).toHaveCount(0);
   await start.getByRole("button", { name: "Start: Things to remember" }).click();
   // The whole request is sent as it is; the chat opens on it.
   await expect(
@@ -234,6 +245,31 @@ test("a new person's home offers things to start with, and one tap asks the assi
   await page.goto("/");
   await expect(page.getByText("Chats", { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel("Start with")).toHaveCount(0, { timeout: 30_000 });
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+test("a new person who already has a chat keeps the way into it beside the things to start", async ({
+  browser,
+}) => {
+  // The first look hides the Chats section only while it would be empty (decision 2026-11-24).
+  const admin = await owner();
+  const me = await person(`E2E Newcomer chat ${RUN}`);
+  await introduce(admin, me);
+  await api(admin)("PUT", `/assistant/people/${me.id}`, { on: true });
+  await api(admin)("POST", "/groups", {
+    id: crypto.randomUUID().replace(/-/g, "").slice(0, 26).toUpperCase(),
+    name: "",
+    people: [me.name],
+    direct: true,
+  });
+  const { page, errors, context } = await openApp(browser, me);
+  await expect(page.getByLabel("Start with")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Chats", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "New chat or space" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start a chat with someone" })).toHaveCount(0);
+  await expect(page.getByText("Test Owner").first()).toBeVisible();
+  await expectNoSideways(page);
   expect(errors).toEqual([]);
   await context.close();
 });

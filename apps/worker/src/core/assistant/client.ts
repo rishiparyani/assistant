@@ -212,7 +212,7 @@ async function callChatCompletions(
       res.status === 429
         ? `${model.label} is busy (rate limit)`
         : res.status === 401
-          ? `${model.label} refused the key`
+          ? `${model.label} refused the key${await errorCode(res)}`
           : res.status === 402 || res.status === 403
             ? `${model.label} has no credit left`
             : `${model.label} answered ${res.status}${await errorCode(res)}`,
@@ -527,7 +527,7 @@ async function callAnthropic(
       res.status === 429
         ? `${model.label} is busy (rate limit)`
         : res.status === 401 || res.status === 403
-          ? `${model.label} refused the key`
+          ? `${model.label} refused the key${await errorCode(res)}`
           : res.status === 402
             ? `${model.label} has no credit left`
             : `${model.label} answered ${res.status}${await errorCode(res)}`,
@@ -767,7 +767,7 @@ async function callResponses(
       res.status === 429
         ? `${model.label} is busy (rate limit)`
         : res.status === 401
-          ? `${model.label} refused the key`
+          ? `${model.label} refused the key${await errorCode(res)}`
           : res.status === 402 || res.status === 403
             ? `${model.label} has no credit left`
             : `${model.label} answered ${res.status}${await errorCode(res)}`,

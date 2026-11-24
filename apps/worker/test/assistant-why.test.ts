@@ -37,6 +37,15 @@ describe("why the assistant couldn't answer", () => {
     expect(kind("Claude: 529 overloaded")).toBe("the provider had an error");
     expect(kind("The operation was aborted due to timeout")).toBe("timed out");
     expect(kind('Something about "Asha\'s plans"')).toBe("the call failed");
+    // The words the client itself throws (client.ts), each with a name of its own.
+    expect(kind("Claude Sonnet 5.5 refused the key")).toBe("its key was refused");
+    expect(kind("Claude Sonnet 5.5 has no credit left")).toBe("out of credit with the provider");
+    expect(kind("Claude Sonnet 5.5 is busy (rate limit)")).toBe("rate limited by the provider");
+    expect(kind("the stream ended early")).toBe("its answer was cut off");
+    expect(kind("the stream carried an error (invalid_request_error)")).toBe("its answer was cut off");
+    expect(kind("Claude Sonnet 5.5 answered 400 (invalid_request_error)")).toBe(
+      "the provider refused the request",
+    );
   });
 
   it("is shown to an admin from the admin panel's list too", async () => {
