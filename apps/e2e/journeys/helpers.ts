@@ -95,7 +95,10 @@ export async function openApp(
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
-  await expect(page.getByText("Chats", { exact: true }).first()).toBeVisible();
+  // The home is up: its Chats heading, or (nothing made yet, with the assistant) the first look.
+  await expect(
+    page.getByText("Chats", { exact: true }).or(page.getByLabel("Start with")).first(),
+  ).toBeVisible();
   return { page, context, errors };
 }
 

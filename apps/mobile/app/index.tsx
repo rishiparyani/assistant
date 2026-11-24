@@ -328,6 +328,22 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
   // until an hour after it starts.
   const coming = (today?.upnext ?? []).filter((u) => (u.allDay ? u.at + DAY > now : u.at >= now - 3_600_000));
 
+  // A first look (decision 2026-11-24 "A first home is only the things to start"): nothing made,
+  // no chat with anyone, no space but my own (someone added to a space keeps the way into it). The home is then the things to start and the bar; the
+  // Chats heading, its filters and an empty Personal tile wait until there is something to show
+  // (the owner: "we have these helping examples and then we have chats, all, unread").
+  const firstLook =
+    assistant &&
+    !q &&
+    filter === "all" &&
+    !!today &&
+    !today.lists.length &&
+    !needs.filter(onMe).length &&
+    !coming.length &&
+    !today.glance?.length &&
+    entries.length <= 1 &&
+    entries.every((e) => e.kind === "space");
+
   const spaceTile = (e: SpaceEntry) => {
     const c = colourFor(e.space.name);
     const chips: { text: string; waiting?: boolean }[] = [];
@@ -590,41 +606,60 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           onStart={(request) => openChat({ ask: request, send: "1" })}
         />
       </View>
-      <View style={s.chatsHead}>
-        <Text style={[type.eyebrow, { color: t.fg2 }]}>Chats</Text>
-        <View style={s.filters}>
-          {FILTERS.map((f) => {
-            const on = filter === f.key;
-            return (
-              <Tap
-                key={f.key}
-                accessibilityRole="button"
-                accessibilityState={{ selected: on }}
-                onPress={() => setFilter(f.key)}
-                style={[s.filter, { backgroundColor: on ? t.accentSoft : "transparent" }]}
-              >
-                <Text style={[type.label, { color: on ? t.accent : t.fg2 }]}>{f.label}</Text>
-              </Tap>
-            );
-          })}
-        </View>
-        <Tap
-          accessibilityRole="button"
-          accessibilityLabel="New chat or space"
-          onPress={() => setMaking(true)}
-          scale={0.92}
-          haptic="light"
-          style={[s.round, { backgroundColor: t.fill }]}
-        >
-          <NewChatIcon color={t.fg} />
-        </Tap>
-      </View>
-      {shown.map((e) => (e.kind === "space" ? spaceTile(e) : chatRow(e)))}
-      {!shown.length ? (
-        <Text style={[s.empty, { color: t.fg3 }]}>
-          {filter === "unread" ? "Nothing unread." : "No chats yet. Tap the pencil to start one."}
-        </Text>
-      ) : null}
+      {firstLook ? (
+        // Not before the chats are read: the line must not show and then give way to them.
+        chatList === null ? null : (
+          <Tap
+            accessibilityRole="button"
+            accessibilityLabel="Start a chat with someone"
+            onPress={() => setStarting(true)}
+            style={s.firstChat}
+          >
+            <Text style={[type.small, { color: t.accent, fontWeight: "700" }]}>
+              Or start a chat with someone
+            </Text>
+          </Tap>
+        )
+      ) : (
+        <>
+          <View style={s.chatsHead}>
+            <Text style={[type.eyebrow, { color: t.fg2 }]}>Chats</Text>
+            <View style={s.filters}>
+              {FILTERS.map((f) => {
+                const on = filter === f.key;
+                return (
+                  <Tap
+                    key={f.key}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: on }}
+                    onPress={() => setFilter(f.key)}
+                    style={[s.filter, { backgroundColor: on ? t.accentSoft : "transparent" }]}
+                  >
+                    <Text style={[type.label, { color: on ? t.accent : t.fg2 }]}>{f.label}</Text>
+                  </Tap>
+                );
+              })}
+            </View>
+            <Tap
+              accessibilityRole="button"
+              accessibilityLabel="New chat or space"
+              onPress={() => setMaking(true)}
+              scale={0.92}
+              haptic="light"
+              style={[s.round, { backgroundColor: t.fill }]}
+            >
+              <NewChatIcon color={t.fg} />
+            </Tap>
+          </View>
+          {shown.map((e) => (e.kind === "space" ? spaceTile(e) : chatRow(e)))}
+          {!shown.length ? (
+            <Text style={[s.empty, { color: t.fg3 }]}>
+              {filter === "unread" ? "Nothing unread." : "No chats yet. Tap the pencil to start one."}
+            </Text>
+          ) : null}
+        </>
+      )}
+      {/* What others shared with me shows on a first look too: it is already something here. */}
       {shared.length && filter === "all" ? (
         <View style={{ gap: 10, marginTop: 10 }}>
           <Text style={[type.eyebrow, { color: t.fg2 }]}>Shared with you</Text>
@@ -640,9 +675,11 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
           ))}
         </View>
       ) : null}
-      <Text style={[s.foot, { color: t.fg3 }]}>
-        A chat's lists show under its name; tap a chat's name inside it for its lists and people.
-      </Text>
+      {firstLook ? null : (
+        <Text style={[s.foot, { color: t.fg3 }]}>
+          A chat's lists show under its name; tap a chat's name inside it for its lists and people.
+        </Text>
+      )}
     </View>
   );
 
@@ -729,7 +766,11 @@ export function ChatsHome({ pane = false }: { pane?: boolean }) {
       </ScrollView>
 
       {/* The assistant is part of the home: things to ask, one tap each, and the bar. */}
-      <Asks ref={tourRefs.chat} asks={ASKS} onAsk={(a) => openChat({ ask: a, send: "1" })} />
+      <Asks
+        ref={tourRefs.chat}
+        asks={firstLook ? ASKS.slice(1) : ASKS}
+        onAsk={(a) => openChat({ ask: a, send: "1" })}
+      />
       {/* The empty bar opens the chat last open, as the assistant's card did (Codex on PR 232). */}
       <Composer
         placeholder="Ask, add or arrange"
@@ -1064,6 +1105,7 @@ const s = StyleSheet.create({
   time: { fontSize: 12.5, fontWeight: "600", fontVariant: ["tabular-nums"] },
   last: { flex: 1, fontSize: 14, lineHeight: 19 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
+  firstChat: { minHeight: 44, alignSelf: "flex-start", justifyContent: "center", paddingHorizontal: 4 },
   chip: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   chipText: { fontSize: 12.5, fontWeight: "700" },
   chev: { fontSize: 22, fontWeight: "600" },
