@@ -2029,12 +2029,17 @@ export function modelFailure(e: Error): string {
   if (/isn't set up|isn't available/.test(m)) return "not set up";
   if (/declined/.test(m)) return "declined to answer";
   if (/gave no answer/.test(m)) return "gave an empty answer";
-  if (/\b40[13]\b|unauthori[sz]ed|forbidden|invalid.{0,10}(api )?key|authentication/.test(m))
+  // The client's own words first (client.ts: "refused the key", "has no credit left", "is busy",
+  // "the stream ended early", "answered 400"); they were missing here, so a refused key read as
+  // "the call failed" (owner's screenshot, 2026-11-24).
+  if (/refused the key|\b40[13]\b|unauthori[sz]ed|forbidden|invalid.{0,10}(api )?key|authentication/.test(m))
     return "its key was refused";
   if (/\b402\b|insufficient|credit|balance|billing|payment/.test(m)) return "out of credit with the provider";
-  if (/\b429\b|rate.?limit|too many|quota/.test(m)) return "rate limited by the provider";
+  if (/\b429\b|is busy|rate.?limit|too many|quota/.test(m)) return "rate limited by the provider";
   if (/timed? ?out|timeout|deadline|abort/.test(m)) return "timed out";
   if (/\b5\d\d\b|overloaded|unavailable|internal error/.test(m)) return "the provider had an error";
+  if (/stream (ended early|carried an error)/.test(m)) return "its answer was cut off";
+  if (/answered 4\d\d/.test(m)) return "the provider refused the request";
   return "the call failed";
 }
 
